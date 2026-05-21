@@ -79,6 +79,8 @@ export async function GET(req: Request, context: RouteContext) {
   const { data: lineItems, error } = await supabase
     .from("project_line_items")
 .select(`
+  quote_file_path,
+quote_file_name,
   id,
   project_id,
   description,
@@ -177,6 +179,43 @@ export async function PATCH(req: Request, context: RouteContext) {
   if (!lineItemId) {
     return NextResponse.json({ error: "Line item ID is required" }, { status: 400 });
   }
+
+  if ("quoteFilePath" in body || "quoteFileName" in body) {
+  const { data: lineItem, error: updateError } = await supabase
+    .from("project_line_items")
+    .update({
+      quote_file_path: body.quoteFilePath || null,
+      quote_file_name: body.quoteFileName || null,
+    })
+    .eq("id", lineItemId)
+    .eq("project_id", id)
+    .select(
+      `
+      id,
+      description,
+      amount,
+      vat_mode,
+      contractor_id,
+      quote_file_path,
+      quote_file_name,
+      project_phase_splits (
+        id,
+        phase_number,
+        percentage,
+        calculated_amount,
+        override_amount,
+        override_type
+      )
+    `
+    )
+    .single();
+
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ lineItem });
+}
 
   const validation = validateLineItemInput(body);
 

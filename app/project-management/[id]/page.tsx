@@ -59,8 +59,9 @@ type LineItem = {
   amount: number;
   vatMode: VatMode;
   contractorId: string | null;
+  quoteFilePath: string | null;
+  quoteFileName: string | null;
   phases: PhaseSplit[];
-  
 };
 
 type ApiLineItem = {
@@ -68,20 +69,22 @@ type ApiLineItem = {
   description: string;
   amount: number;
   vat_mode: VatMode;
+  quote_file_path: string | null;
+  quote_file_name: string | null;
   project_phase_splits: {
-      id: string;
-      phase_number: number;
-      percentage: number;
-      calculated_amount: number;
-      override_amount: number | null;
-      override_type: string | null;
+    id: string;
+    phase_number: number;
+    percentage: number;
+    calculated_amount: number;
+    override_amount: number | null;
+    override_type: string | null;
   }[];
   contractor_id: string | null;
   project_contractors?: {
-  id: string;
-  contractor_name: string;
-  trade_category: string | null;
-} | null;
+    id: string;
+    contractor_name: string;
+    trade_category: string | null;
+  } | null;
 };
 
 type ProjectPayment = {
@@ -196,13 +199,15 @@ rideType: phase.override_type || null,
     .sort((a, b) => a.phaseNumber - b.phaseNumber);
 
   return {
-    id: item.id,
-    description: item.description,
-    amount: Number(item.amount),
-    vatMode: item.vat_mode,
-    contractorId: item.contractor_id || null,
-    phases,
-  };
+  id: item.id,
+  description: item.description,
+  amount: Number(item.amount),
+  vatMode: item.vat_mode,
+  contractorId: item.contractor_id || null,
+  quoteFilePath: item.quote_file_path || null,
+  quoteFileName: item.quote_file_name || null,
+  phases,
+};
 }
 
 function isOlderThan30Days(dateValue: string | null) {
@@ -334,6 +339,7 @@ const [timelineEndDate, setTimelineEndDate] = useState("");
 const [timelineStatus, setTimelineStatus] = useState("Planned");
 const [editingTimelineItemId, setEditingTimelineItemId] = useState<string | null>(null);
 const [savingTimelineItem, setSavingTimelineItem] = useState(false);
+const [uploadingQuoteLineItemId, setUploadingQuoteLineItemId] = useState<string | null>(null);
 
   const phaseNumbers = useMemo(() => {
     const count = project?.number_of_phases || 0;
@@ -753,7 +759,65 @@ setSavingContractor(false);
 
     setLoadingLineItems(false);
   }
+async function handleUploadQuoteFile(lineItemId: string, file: File | null) {
+  if (!file) return;
 
+  setUploadingQuoteLineItemId(lineItemId);
+
+  const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const filePath = `${projectId}/${lineItemId}/${Date.now()}-${safeFileName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("quote-files")
+    .upload(filePath, file, {
+      cacheControl: "3600",
+      upsert: true,
+    });
+
+  if (uploadError) {
+    alert(uploadError.message);
+    setUploadingQuoteLineItemId(null);
+    return;
+  }
+
+  const updateResponse = await fetch(`/api/projects/${projectId}/line-items`, {
+  method: "PATCH",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    lineItemId,
+    quoteFilePath: filePath,
+    quoteFileName: file.name,
+  }),
+});
+
+const updateResult = await updateResponse.json();
+
+if (!updateResponse.ok) {
+  alert(updateResult.error || "Could not save quote file to line item.");
+  setUploadingQuoteLineItemId(null);
+  return;
+}
+
+  setUploadingQuoteLineItemId(null);
+  await loadLineItems();
+}
+
+async function handleOpenQuoteFile(filePath: string | null) {
+  if (!filePath) return;
+
+  const { data, error } = await supabase.storage
+    .from("quote-files")
+    .createSignedUrl(filePath, 60);
+
+  if (error || !data?.signedUrl) {
+    alert(error?.message || "Could not open quote file.");
+    return;
+  }
+
+  window.open(data.signedUrl, "_blank");
+}
   async function loadTimelineItems() {
   if (!projectId) return;
 
@@ -2619,6 +2683,7 @@ return (
                 <thead>
                   <tr>
                     <th style={styles.th}>Description</th>
+                    <th style={styles.th}>Quote</th>
                     <th style={styles.th}>Contractor</th>
                     <th style={styles.thRight}>VAT Mode</th>
                     <th style={styles.thRight}>Excl. VAT</th>
@@ -2636,6 +2701,49 @@ return (
                   {lineItems.map((item) => (
                     <tr key={item.id}>
                       <td style={styles.td}>{item.description}</td>
+                      <td style={styles.td}>
+  <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+    <label
+      style={{
+        background: "#eef3f8",
+        color: "#12304a",
+        border: "1px solid #d5dde6",
+        borderRadius: "8px",
+        padding: "6px 10px",
+        fontSize: "12px",
+        fontWeight: 700,
+        cursor: "pointer",
+      }}
+    >
+      {uploadingQuoteLineItemId === item.id ? "Uploading..." : "Upload"}
+      <input
+        type="file"
+        style={{ display: "none" }}
+        onChange={(e) => handleUploadQuoteFile(item.id, e.target.files?.[0] || null)}
+        disabled={uploadingQuoteLineItemId === item.id}
+      />
+    </label>
+
+    {item.quoteFilePath && (
+      <button
+        type="button"
+        style={{
+          background: "transparent",
+          color: "#0b5cab",
+          border: "none",
+          padding: 0,
+          fontSize: "12px",
+          fontWeight: 700,
+          cursor: "pointer",
+          textDecoration: "underline",
+        }}
+        onClick={() => handleOpenQuoteFile(item.quoteFilePath)}
+      >
+        {item.quoteFileName || "View quote"}
+      </button>
+    )}
+  </div>
+</td>
                       <td style={styles.td}>
   {contractors.find((contractor) => contractor.id === item.contractorId)?.contractor_name || "-"}
 </td>
