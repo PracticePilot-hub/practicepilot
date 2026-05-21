@@ -81,8 +81,8 @@ export default function LoginPage() {
           handleLogin();
         }}
       >
-        <h1 style={styles.title}>BizzIQ Login</h1>
-        <p style={styles.subtitle}>Sign in to access your projects.</p>
+        <h1 style={styles.title}>PracticePilot Login</h1>
+        <p style={styles.subtitle}>Sign in to access your PracticePilot account.</p>
 
         <div style={styles.fieldGroup}>
           <label style={styles.label}>Email</label>
