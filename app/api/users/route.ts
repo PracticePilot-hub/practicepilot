@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import nodemailer from "nodemailer";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
@@ -13,6 +14,90 @@ if (!supabaseSecretKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseSecretKey);
+
+function getSmtpConfig() {
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || 587);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const fromName = process.env.SMTP_FROM_NAME || "PracticePilot";
+  const fromEmail = process.env.SMTP_FROM_EMAIL || user;
+
+  if (!host || !user || !pass || !fromEmail) {
+    throw new Error("Missing SMTP configuration");
+  }
+
+  return {
+    host,
+    port,
+    user,
+    pass,
+    fromName,
+    fromEmail,
+  };
+}
+
+async function sendWelcomeEmail({
+  fullName,
+  email,
+  password,
+}: {
+  fullName: string;
+  email: string;
+  password: string;
+}) {
+  const smtp = getSmtpConfig();
+
+  const transporter = nodemailer.createTransport({
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.port === 465,
+    auth: {
+      user: smtp.user,
+      pass: smtp.pass,
+    },
+  });
+
+  const displayName = fullName || "there";
+
+  await transporter.sendMail({
+    from: `"${smtp.fromName}" <${smtp.fromEmail}>`,
+    to: email,
+    subject: "Welcome to PracticePilot",
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #0B2F4F; line-height: 1.6;">
+        <h2>Welcome to PracticePilot</h2>
+
+        <p>Hi ${displayName},</p>
+
+        <p>Your PracticePilot user account has been created.</p>
+
+        <p>You can log in using the details below:</p>
+
+        <p>
+          <strong>Login page:</strong><br />
+          <a href="https://practicepilot.co.za/login">https://practicepilot.co.za/login</a>
+        </p>
+
+        <p>
+          <strong>Username:</strong><br />
+          ${email}
+        </p>
+
+        <p>
+          <strong>Temporary password:</strong><br />
+          ${password}
+        </p>
+
+        <p>
+          Please keep these details safe. You may reset your password from the login page if needed.
+        </p>
+
+        <p>Kind regards,<br />The PracticePilot Team</p>
+      </div>
+    `,
+  });
+}
 
 export async function GET() {
   const { data, error } = await supabase
@@ -84,11 +169,11 @@ export async function POST(req: Request) {
         email,
         role,
         organisation_id: isInternalUser ? null : organisationId || null,
-       can_edit_projects: isInternalUser ? true : canEditProjects,
-       can_access_accounting: isInternalUser ? true : canAccessAccounting,
-       can_access_projects: true,
-       can_access_budgeting: isInternalUser ? true : canAccessBudgeting,
-       access_enabled: true,
+        can_edit_projects: isInternalUser ? true : canEditProjects,
+        can_access_accounting: isInternalUser ? true : canAccessAccounting,
+        can_access_projects: true,
+        can_access_budgeting: isInternalUser ? true : canAccessBudgeting,
+        access_enabled: true,
       },
     ])
     .select(`
@@ -102,6 +187,21 @@ export async function POST(req: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  try {
+    await sendWelcomeEmail({
+      fullName,
+      email,
+      password,
+    });
+  } catch (emailError) {
+    console.error("WELCOME EMAIL ERROR:", emailError);
+
+    return NextResponse.json({
+      user: data,
+      warning: emailError instanceof Error ? emailError.message : "User created, but welcome email failed",
+    });
   }
 
   return NextResponse.json({ user: data });
