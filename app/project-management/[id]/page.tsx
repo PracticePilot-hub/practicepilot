@@ -2769,20 +2769,24 @@ return (
                   ))}
                 </tbody>
 
-                <tfoot>
+<tfoot>
   <tr>
-    <td style={styles.totalCell}>Total</td>
-    <td style={styles.totalCell}></td>
-    <td style={styles.totalCell}></td>
-    <td style={styles.totalCellRight}>
-      {formatCurrency(lineItems.reduce((total, item) => total + calculateExcludingVat(item), 0))}
+    <td style={styles.totalCell} colSpan={4}>
+      Total
     </td>
+
     <td style={styles.totalCellRight}>
-      {formatCurrency(lineItems.reduce((total, item) => total + calculateVat(item), 0))}
+      {formatCurrency(totalExcludingVat)}
     </td>
+
     <td style={styles.totalCellRight}>
-      {formatCurrency(lineItems.reduce((total, item) => total + calculateTotal(item), 0))}
+      {formatCurrency(totalVat)}
     </td>
+
+    <td style={styles.totalCellRight}>
+      {formatCurrency(totalIncludingVat)}
+    </td>
+
     {canEditProjectDetails && <td style={styles.totalCell}></td>}
   </tr>
 </tfoot>
