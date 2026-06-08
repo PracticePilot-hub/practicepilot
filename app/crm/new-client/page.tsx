@@ -4,6 +4,7 @@ import { useState, ReactNode } from "react";
 
 export default function NewClientPage() {
   const [active, setActive] = useState("core");
+  const [saving, setSaving] = useState(false);
 
   // CORE
   const [clientName, setClientName] = useState("");
@@ -19,11 +20,13 @@ export default function NewClientPage() {
   const [accounting, setAccounting] = useState("None");
   const [vat, setVat] = useState("None");
   const [payroll, setPayroll] = useState("None");
-  const [wccRefNr, setWccRefNr] = useState("");
+
   const [vatNumber, setVatNumber] = useState("");
   const [payeNumber, setPayeNumber] = useState("");
   const [uifNumber, setUifNumber] = useState("");
   const [incomeTaxNumber, setIncomeTaxNumber] = useState("");
+  const [customsNumber, setCustomsNumber] = useState("");
+  const [wccRefNr, setWccRefNr] = useState("");
 
   const [financials, setFinancials] = useState(false);
   const [bo, setBo] = useState(false);
@@ -33,9 +36,7 @@ export default function NewClientPage() {
   const [emp201, setEmp201] = useState(false);
   const [emp501, setEmp501] = useState(false);
   const [workmans, setWorkmans] = useState(false);
-  const [customsNumber, setCustomsNumber] = useState("");
   const [sdlRegistered, setSdlRegistered] = useState(false);
-  
 
   // CONTACT
   const [primaryContact, setPrimaryContact] = useState("");
@@ -61,11 +62,20 @@ export default function NewClientPage() {
   const [manager, setManager] = useState("");
   const [partner, setPartner] = useState("");
 
+  const isIndividual = clientType === "Individual";
+  const hasVat = vat !== "None";
+  const hasPayroll = payroll !== "None" || emp201 || emp501 || sdlRegistered;
+  const hasWorkmans = workmans;
+
   function toggle(section: string) {
     setActive(active === section ? "" : section);
   }
 
   async function handleSave() {
+    if (saving) return;
+
+    setSaving(true);
+
     const payload = {
       clientName,
       clientType,
@@ -94,7 +104,7 @@ export default function NewClientPage() {
       customsNumber,
       wccRefNr,
       sdlRegistered,
-     
+
       primaryContact,
       email,
       telephone,
@@ -117,16 +127,31 @@ export default function NewClientPage() {
       partner,
     };
 
-    const res = await fetch("/api/clients", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const res = await fetch("/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (data.success) alert("Saved");
-    else alert(data.error || "Save failed");
+   if (data.success) {
+  await fetch("/api/crm/tasks/generate", {
+    method: "POST",
+  });
+
+  alert("Saved and tasks generated");
+} else {
+  alert(data.error || "Save failed");
+}
+
+    } catch (error) {
+      console.error(error);
+      alert("Save failed");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -177,11 +202,11 @@ export default function NewClientPage() {
               <input style={input} value={tradingName} onChange={(e) => setTradingName(e.target.value)} />
             </Field>
 
-            <Field label="Registration Number">
+            <Field label={isIndividual ? "ID / Passport Number" : "Registration Number"}>
               <input style={input} value={registrationNumber} onChange={(e) => setRegistrationNumber(e.target.value)} />
             </Field>
 
-            <Field label="Registration Date">
+            <Field label={isIndividual ? "Date of Birth" : "Registration Date"}>
               <input type="date" style={input} value={registrationDate} onChange={(e) => setRegistrationDate(e.target.value)} />
             </Field>
           </div>
@@ -193,40 +218,45 @@ export default function NewClientPage() {
       {active === "services" && (
         <Box>
           <div style={grid3}>
-            <Select label="Accounting" value={accounting} set={setAccounting} options={["None", "Monthly", "Weekly", "Bi-Monthly", "Bi-Weekly"]} />
+            <Select label="Accounting" value={accounting} set={setAccounting} options={["None", "Monthly", "Bi-Monthly", "Yearly / Ad Hoc"]} />
             <Select label="VAT" value={vat} set={setVat} options={["None", "Category A", "Category B", "Category C"]} />
             <Select label="Payroll" value={payroll} set={setPayroll} options={["None", "Monthly", "Weekly", "Bi-Weekly"]} />
           </div>
 
           <div style={grid4}>
-            <Field label="VAT Number">
-              <input style={input} value={vatNumber} onChange={(e) => setVatNumber(e.target.value)} />
-            </Field>
-
-            <Field label="PAYE Number">
-              <input style={input} value={payeNumber} onChange={(e) => setPayeNumber(e.target.value)} />
-            </Field>
-
-            <Field label="UIF Number">
-              <input style={input} value={uifNumber} onChange={(e) => setUifNumber(e.target.value)} />
-            </Field>
-
-            <Field label="Income Tax Number">
-              <input style={input} value={incomeTaxNumber} onChange={(e) => setIncomeTaxNumber(e.target.value)} />
-            </Field>
-
-              <Field label="Customs Number">
-                <input style={input} value={customsNumber} onChange={(e) => setCustomsNumber(e.target.value)}  />
+            {hasVat && (
+              <Field label="VAT Number">
+                <input style={input} value={vatNumber} onChange={(e) => setVatNumber(e.target.value)} />
               </Field>
+            )}
 
-               <Field label="WCC Ref Nr">
-  <input
-    style={input}
-    value={wccRefNr}
-    onChange={(e) => setWccRefNr(e.target.value)}
-  />
-</Field>
-               
+            {hasPayroll && (
+              <>
+                <Field label="PAYE Number">
+                  <input style={input} value={payeNumber} onChange={(e) => setPayeNumber(e.target.value)} />
+                </Field>
+
+                <Field label="UIF Number">
+                  <input style={input} value={uifNumber} onChange={(e) => setUifNumber(e.target.value)} />
+                </Field>
+              </>
+            )}
+
+            {incomeTax && (
+              <Field label="Income Tax Number">
+                <input style={input} value={incomeTaxNumber} onChange={(e) => setIncomeTaxNumber(e.target.value)} />
+              </Field>
+            )}
+
+            <Field label="Customs Number">
+              <input style={input} value={customsNumber} onChange={(e) => setCustomsNumber(e.target.value)} />
+            </Field>
+
+            {hasWorkmans && (
+              <Field label="WCC Ref Nr">
+                <input style={input} value={wccRefNr} onChange={(e) => setWccRefNr(e.target.value)} />
+              </Field>
+            )}
           </div>
 
           <div style={grid3}>
@@ -238,13 +268,8 @@ export default function NewClientPage() {
             <Check label="EMP201" val={emp201} set={setEmp201} />
             <Check label="EMP501" val={emp501} set={setEmp501} />
             <Check label="Workmans Comp" val={workmans} set={setWorkmans} />
-             
-            <label style={{ display: "flex", alignItems: "center", gap: 1 }}>
-               <input type="checkbox" checked={sdlRegistered} onChange={(e) => setSdlRegistered(e.target.checked)}
-               />SDL Registered
-                </label>
-
-          </div>  
+            <Check label="SDL Registered" val={sdlRegistered} set={setSdlRegistered} />
+          </div>
         </Box>
       )}
 
@@ -302,8 +327,16 @@ export default function NewClientPage() {
         </Box>
       )}
 
-      <button style={saveBtn} onClick={handleSave}>
-        Save Client
+      <button
+        style={{
+          ...saveBtn,
+          opacity: saving ? 0.6 : 1,
+          cursor: saving ? "not-allowed" : "pointer",
+        }}
+        onClick={handleSave}
+        disabled={saving}
+      >
+        {saving ? "Saving..." : "Save Client"}
       </button>
     </div>
   );
