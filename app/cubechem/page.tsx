@@ -1495,10 +1495,12 @@ const tableStyle: React.CSSProperties = {
 
 const thStyle: React.CSSProperties = {
   textAlign: "left",
-  padding: "10px",
+  padding: "8px 6px",
   borderBottom: "1px solid #cbd5e1",
   color: "#334155",
-  whiteSpace: "nowrap",
+  whiteSpace: "normal",
+  lineHeight: 1.15,
+  maxWidth: "90px",
 };
 
 const thRightStyle: React.CSSProperties = {
@@ -1517,7 +1519,7 @@ const categoryRowStyle: React.CSSProperties = {
 };
 
 const tdStyle: React.CSSProperties = {
-  padding: "10px",
+  padding: "8px 6px",
   borderBottom: "1px solid #e2e8f0",
   color: "#0f172a",
   verticalAlign: "top",
