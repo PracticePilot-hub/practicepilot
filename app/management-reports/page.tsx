@@ -3035,7 +3035,7 @@ function GraphsAnalysisTab({
       <h2 style={sectionHeading}>Sales Graph Input</h2>
 
       <p style={{ margin: "0 0 18px", color: "#52616f", fontSize: "14px" }}>
-        Enter historic sales and cost of sales figures for graphing.
+        Enter sales figures for the Sales History graph. 
       </p>
 
       <div style={{ overflowX: "auto" }}>

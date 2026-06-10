@@ -38,8 +38,10 @@ export default function LoginPage() {
 
     setLoading(true);
 
+    const cleanedEmail = email.trim().toLowerCase();
+
     const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(),
+      email: cleanedEmail,
       password: password.trim(),
     });
 
@@ -47,6 +49,29 @@ export default function LoginPage() {
       alert(error.message);
       setLoading(false);
       return;
+    }
+
+    try {
+      const accessRes = await fetch("/api/cubechem/check-access", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: cleanedEmail }),
+      });
+
+      const accessData = await accessRes.json();
+
+      if (
+        accessRes.ok &&
+        accessData.allowed &&
+        cleanedEmail === "christo.botha@cubechem.co.za"
+      ) {
+        window.location.href = "/cubechem";
+        return;
+      }
+    } catch {
+      // If CubeChem check fails, normal users still continue to dashboard.
     }
 
     window.location.href = "/dashboard";
@@ -60,9 +85,12 @@ export default function LoginPage() {
 
     setResetLoading(true);
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+      {
+        redirectTo: `${window.location.origin}/reset-password`,
+      }
+    );
 
     if (error) {
       alert(error.message);
@@ -109,7 +137,9 @@ export default function LoginPage() {
             />
 
             <h1 style={styles.title}>Welcome back</h1>
-            <p style={styles.subtitle}>Sign in to access your PracticePilot workspace.</p>
+            <p style={styles.subtitle}>
+              Sign in to access your PracticePilot workspace.
+            </p>
 
             <div style={styles.fieldGroup}>
               <label style={styles.label}>Email</label>

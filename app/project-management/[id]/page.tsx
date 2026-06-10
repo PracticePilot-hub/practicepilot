@@ -2770,6 +2770,7 @@ return (
                 </tbody>
 
 <tfoot>
+  
   <tr>
     <td style={styles.totalCell} colSpan={4}>
       Total

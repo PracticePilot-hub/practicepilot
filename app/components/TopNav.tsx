@@ -28,35 +28,70 @@ type UserProfile = {
   can_access_budgeting: boolean;
 };
 
+type CubeChemAccess = {
+  allowed: boolean;
+  accessLevel: string | null;
+};
+
 export default function TopNav() {
   const pathname = usePathname();
+
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [userEmail, setUserEmail] = useState("");
+  const [cubeChemAccess, setCubeChemAccess] = useState<CubeChemAccess>({
+    allowed: false,
+    accessLevel: null,
+  });
 
   const hideNav = pathname === "/login" || pathname === "/reset-password";
 
   useEffect(() => {
     if (!hideNav) {
-      loadProfile();
+      loadProfileAndAccess();
     }
   }, [hideNav]);
 
-  async function loadProfile() {
+  async function loadProfileAndAccess() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (!user) {
+    if (!user?.email) {
       setProfile(null);
+      setUserEmail("");
+      setCubeChemAccess({ allowed: false, accessLevel: null });
       return;
     }
+
+    const email = user.email.toLowerCase();
+    setUserEmail(email);
 
     const { data } = await supabase
       .from("user_profiles")
       .select("*")
       .eq("user_id", user.id)
-      .single();
+      .maybeSingle();
 
     setProfile(data || null);
+
+    try {
+      const accessRes = await fetch("/api/cubechem/check-access", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      const accessData = await accessRes.json();
+
+      setCubeChemAccess({
+        allowed: Boolean(accessData.allowed),
+        accessLevel: accessData.accessLevel || null,
+      });
+    } catch {
+      setCubeChemAccess({ allowed: false, accessLevel: null });
+    }
   }
 
   async function logout() {
@@ -72,6 +107,9 @@ export default function TopNav() {
     profile?.role === "Super Admin" ||
     profile?.role === "Admin" ||
     profile?.role === "Staff";
+
+  const isCubeChemOnlyUser =
+    cubeChemAccess.allowed && !isInternalUser && userEmail === "christo.botha@cubechem.co.za";
 
   return (
     <div
@@ -90,29 +128,31 @@ export default function TopNav() {
     >
       <strong style={{ fontSize: 18 }}>PracticePilot</strong>
 
-      <a href="/dashboard">Dashboard</a>
+      {!isCubeChemOnlyUser && <a href="/dashboard">PilotHub</a>}
 
-      {isInternalUser && <a href="/crm">CRM</a>}
+      {!isCubeChemOnlyUser && isInternalUser && <a href="/crm">CRM</a>}
 
-      {(isInternalUser || profile?.can_access_accounting) && (
+      {!isCubeChemOnlyUser && (isInternalUser || profile?.can_access_accounting) && (
         <a href="#">Accounting</a>
       )}
 
-      {isInternalUser && <a href="#">Financial Statements</a>}
+      {!isCubeChemOnlyUser && isInternalUser && <a href="#">Financial Statements</a>}
 
-      {isInternalUser && <a href="#">Secretarial</a>}
+      {!isCubeChemOnlyUser && isInternalUser && <a href="#">Secretarial</a>}
 
-      {(isInternalUser || profile?.can_access_projects) && (
+      {!isCubeChemOnlyUser && (isInternalUser || profile?.can_access_projects) && (
         <a href="/project-management">Projects</a>
       )}
 
-      {isInternalUser && (
+      {!isCubeChemOnlyUser && isInternalUser && (
         <a href="/management-reports">Management Reports</a>
       )}
 
-      {isInternalUser && <a href="/admin/clients">Admin Clients</a>}
+      {!isCubeChemOnlyUser && isInternalUser && <a href="/admin/clients">Admin Clients</a>}
 
-      {isInternalUser && <a href="/admin/users">Admin Users</a>}
+      {!isCubeChemOnlyUser && isInternalUser && <a href="/admin/users">Admin Users</a>}
+
+      {cubeChemAccess.allowed && <a href="/cubechem">CubeChem</a>}
 
       <button
         onClick={logout}

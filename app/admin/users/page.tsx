@@ -397,6 +397,7 @@ export default function AdminUsersPage() {
                 <th style={styles.th}>Client</th>
                 <th style={styles.th}>Role</th>
                 <th style={styles.th}>Can Edit Projects</th>
+                <th style={styles.th}>Modules</th>
                 <th style={styles.th}>Access</th>
                 <th style={styles.thRight}>Actions</th>
               </tr>

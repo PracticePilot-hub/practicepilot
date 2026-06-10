@@ -799,6 +799,18 @@ setCashbookRows(
   }))
 );
 
+await saveCashbookDraft(
+  Array.from({ length: 10 }, () => ({
+    date: "",
+    description: "",
+    moneyIn: "",
+    moneyOut: "",
+    allocationType: "Account" as const,
+    accountId: "",
+    accountSearch: "",
+  }))
+);
+
   alert(
   `${postedCount} cashbook line(s) posted.\n${matchedTransferCount} transfer line(s) matched and skipped.`
 );
