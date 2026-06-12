@@ -262,6 +262,17 @@ function getCategory(row: any, rules: CategoryRule[]) {
   };
 }
 
+function isTrueManual(existing: any, calculatedPrice: number | null) {
+  if (!existing) return false;
+  if (existing.manually_adjusted !== true) return false;
+  if (existing.approved_price === null || existing.approved_price === undefined) {
+    return false;
+  }
+  if (calculatedPrice === null || calculatedPrice === undefined) return false;
+
+  return Number(existing.approved_price) !== Number(calculatedPrice);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const requestEmail = getRequestEmail(req);
@@ -370,7 +381,7 @@ export async function POST(req: NextRequest) {
     const existingToReview = await supabase
       .from("cubechem_price_review_items")
       .select(
-        "ccd_item_code, approved_price, manually_adjusted, accepted_increase, hq_markup_percent, branch_markup_percent"
+        "ccd_item_code, approved_price, calculated_price, manually_adjusted, accepted_increase, hq_markup_percent, branch_markup_percent, override_reason"
       )
       .eq("price_month", toMonthDateValue);
 
@@ -527,6 +538,32 @@ export async function POST(req: NextRequest) {
       }
 
       const category = getCategory(baseRow, rules);
+      const preserveManual = isTrueManual(existing, baseRow.new_price);
+
+      const finalPrice = preserveManual
+        ? Number(existing.approved_price)
+        : baseRow.new_price;
+
+      const finalDifference =
+        finalPrice !== null && finalPrice !== undefined
+          ? finalPrice - fromPrice
+          : baseRow.difference;
+
+      const finalDifferencePercent =
+        fromPrice > 0 &&
+        finalDifference !== null &&
+        finalDifference !== undefined
+          ? (finalDifference / fromPrice) * 100
+          : baseRow.difference_percent;
+
+      const finalStatus =
+        finalDifference === null || finalDifference === undefined
+          ? baseRow.status
+          : finalDifference > 0
+          ? "INCREASE"
+          : finalDifference < 0
+          ? "DECREASE"
+          : "NO CHANGE";
 
       return {
         ...baseRow,
@@ -535,8 +572,13 @@ export async function POST(req: NextRequest) {
         item_sort: category.item_sort ?? 9999,
         hq_markup_percent: hqMarkupPercent,
         branch_markup_percent: branchMarkupPercent,
-        accepted_increase: existing?.accepted_increase || false,
-        manually_adjusted: existing?.manually_adjusted || false,
+        accepted_increase: preserveManual ? false : existing?.accepted_increase || false,
+        manually_adjusted: preserveManual,
+        final_price: finalPrice,
+        difference: finalDifference,
+        difference_percent: finalDifferencePercent,
+        status: finalStatus,
+        saving_note: preserveManual ? existing.override_reason || "Manual" : null,
       };
     });
 
@@ -554,12 +596,7 @@ export async function POST(req: NextRequest) {
 
     const reviewRows = comparison.map((row: any) => {
       const existing = existingMap.get(String(row.item_code).toUpperCase());
-
-      const preserveManual =
-        existing &&
-        existing.manually_adjusted === true &&
-        existing.approved_price !== null &&
-        existing.approved_price !== undefined;
+      const preserveManual = isTrueManual(existing, row.new_price);
 
       return {
         price_month: toMonthDateValue,
@@ -569,7 +606,7 @@ export async function POST(req: NextRequest) {
         supplier_ex_vat: row.supplier_ex_vat,
         hq_price: row.hq_price,
         calculated_price: row.new_price,
-        approved_price: preserveManual ? existing.approved_price : row.new_price,
+        approved_price: preserveManual ? Number(existing.approved_price) : row.new_price,
         difference: row.difference,
         difference_percent: row.difference_percent,
         status: row.status,
@@ -579,9 +616,10 @@ export async function POST(req: NextRequest) {
         category_sort: row.category_sort,
         item_sort: row.item_sort,
         accepted_increase: preserveManual ? false : existing?.accepted_increase || false,
-        manually_adjusted: preserveManual ? true : existing?.manually_adjusted || false,
+        manually_adjusted: preserveManual,
         hq_markup_percent: row.hq_markup_percent,
         branch_markup_percent: row.branch_markup_percent,
+        override_reason: preserveManual ? existing.override_reason : null,
         updated_at: new Date().toISOString(),
       };
     });

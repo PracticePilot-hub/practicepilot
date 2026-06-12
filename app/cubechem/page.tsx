@@ -82,7 +82,10 @@ function percentage(value: number | null | undefined) {
   return `${Number(value).toFixed(2)}%`;
 }
 
-function calculatePercentageChange(oldPrice: number, finalPrice: number | null | undefined) {
+function calculatePercentageChange(
+  oldPrice: number,
+  finalPrice: number | null | undefined
+) {
   if (!oldPrice || finalPrice === null || finalPrice === undefined) return null;
   return ((Number(finalPrice) - Number(oldPrice)) / Number(oldPrice)) * 100;
 }
@@ -221,7 +224,6 @@ export default function CubeChemPage() {
 
   function isGroupSelected(rows: ComparisonRow[]) {
     const codes = getSelectableCodesForGroup(rows);
-
     return codes.length > 0 && codes.every((code) => selectedCodes.includes(code));
   }
 
@@ -460,7 +462,7 @@ export default function CubeChemPage() {
       const rows = (data.comparison || []).map((row: ComparisonRow) => ({
         ...row,
         final_price: row.final_price ?? row.new_price,
-        saving_note: null,
+        saving_note: row.saving_note ?? null,
         accepted_increase: row.accepted_increase ?? false,
         manually_adjusted: row.manually_adjusted ?? false,
         hq_markup_percent: row.hq_markup_percent ?? 15,
@@ -508,6 +510,7 @@ export default function CubeChemPage() {
           item.item_code === row.item_code
             ? {
                 ...item,
+                final_price: finalPrice,
                 saving_note: data.overrideReason || "Saved",
                 accepted_increase: data.acceptedIncrease,
                 manually_adjusted: data.manuallyAdjusted,
@@ -817,6 +820,28 @@ export default function CubeChemPage() {
     }
   }
 
+  function renderColumnHeaderRow() {
+    return (
+      <tr>
+        <th style={thStyle}>Select</th>
+        <th style={thStyle}>Code</th>
+        <th style={thStyle}>Description</th>
+        <th style={thRightStyle}>{compareFromLabel} Price</th>
+        <th style={thRightStyle}>HQ %</th>
+        <th style={thRightStyle}>Branch %</th>
+        <th style={thRightStyle}>{compareToLabel} Calculated</th>
+        <th style={thRightStyle}>{compareToLabel} Final</th>
+        <th style={thRightStyle}>R Change</th>
+        <th style={thRightStyle}>% Change</th>
+        <th style={thRightStyle}>Saving</th>
+        <th style={thStyle}>Accept Increase</th>
+        <th style={thStyle}>Save Status</th>
+        <th style={thStyle}>Method</th>
+        <th style={thStyle}>Status</th>
+      </tr>
+    );
+  }
+
   if (accessLoading) {
     return (
       <main style={{ minHeight: "100vh", background: "#f8fafc", padding: "32px" }}>
@@ -851,13 +876,29 @@ export default function CubeChemPage() {
   return (
     <main style={{ minHeight: "100vh", background: "#f8fafc", padding: "32px" }}>
       <div style={{ maxWidth: "1900px", margin: "0 auto" }}>
-        <div style={{ marginBottom: "28px" }}>
-          <h1 style={pageTitleStyle}>CubeChem Price Manager</h1>
-          <p style={pageTextStyle}>
-            Upload Abyx price lists by month, compare any two months, edit final prices inline,
-            change markup percentages, and export the selected month to Excel or PDF.
-          </p>
-        </div>
+       <div style={{ marginBottom: "28px" }}>
+  <h1 style={pageTitleStyle}>CubeChem Price Manager</h1>
+  <p style={pageTextStyle}>
+    Upload Abyx price lists by month, compare any two months, edit final prices inline,
+    change markup percentages, and export the selected month to Excel or PDF.
+  </p>
+
+  <button
+    onClick={() => router.push("/cubechem/hq-order")}
+    style={{
+      marginTop: "14px",
+      border: "none",
+      borderRadius: "12px",
+      padding: "12px 18px",
+      background: "#2563eb",
+      color: "#ffffff",
+      fontWeight: 900,
+      cursor: "pointer",
+    }}
+  >
+    Open HQ Supplier Order Calculator
+  </button>
+</div>
 
         <section style={topGridStyle}>
           <div style={cardStyle}>
@@ -1010,9 +1051,7 @@ export default function CubeChemPage() {
                   cursor: internalExportLoading ? "not-allowed" : "pointer",
                 }}
               >
-                {internalExportLoading
-                  ? "Exporting..."
-                  : `Internal Review PDF`}
+                {internalExportLoading ? "Exporting..." : "Internal Review PDF"}
               </button>
             </div>
           </div>
@@ -1022,7 +1061,7 @@ export default function CubeChemPage() {
         {error && <div style={errorStyle}>{error}</div>}
 
         {comparison.length > 0 && (
-          <section style={{ ...cardStyle, marginTop: "22px", overflowX: "auto" }}>
+          <section style={{ ...cardStyle, marginTop: "22px" }}>
             <div style={bulkBarStyle}>
               <strong>{selectedCodes.length} selected</strong>
 
@@ -1095,208 +1134,190 @@ export default function CubeChemPage() {
               </div>
             </div>
 
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>Select</th>
-                  <th style={thStyle}>Code</th>
-                  <th style={thStyle}>Description</th>
-                  <th style={thRightStyle}>{compareFromLabel} Price</th>
-                  <th style={thRightStyle}>HQ %</th>
-                  <th style={thRightStyle}>Branch %</th>
-                  <th style={thRightStyle}>{compareToLabel} Calculated</th>
-                  <th style={thRightStyle}>{compareToLabel} Final</th>
-                  <th style={thRightStyle}>R Change</th>
-                  <th style={thRightStyle}>% Change</th>
-                  <th style={thRightStyle}>Saving</th>
-                  <th style={thStyle}>Accept Increase</th>
-                  <th style={thStyle}>Save Status</th>
-                  <th style={thStyle}>Method</th>
-                  <th style={thStyle}>Status</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {groupedComparison.map((group) => (
-                  <React.Fragment key={group.categoryName}>
-                    <tr>
-                      <td colSpan={15} style={categoryRowStyle}>
-                        <label
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "10px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isGroupSelected(group.rows)}
-                            onChange={() => toggleGroupSelected(group.rows)}
-                          />
-                          <span>{group.categoryName}</span>
-                          <span
+            <div style={{ overflowX: "auto" }}>
+              <table style={tableStyle}>
+                <tbody>
+                  {groupedComparison.map((group) => (
+                    <React.Fragment key={group.categoryName}>
+                      <tr>
+                        <td colSpan={15} style={categoryRowStyle}>
+                          <label
                             style={{
-                              fontSize: "12px",
-                              fontWeight: 700,
-                              color: "#64748b",
-                              textTransform: "none",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "10px",
+                              cursor: "pointer",
                             }}
                           >
-                            Select all in section
-                          </span>
-                        </label>
-                      </td>
-                    </tr>
-
-                    {group.rows.map((row) => {
-                      const calculatedPrice = row.new_price;
-                      const finalPrice = row.final_price;
-
-                      const saving =
-                        calculatedPrice !== null &&
-                        calculatedPrice !== undefined &&
-                        finalPrice !== null &&
-                        finalPrice !== undefined &&
-                        finalPrice < calculatedPrice
-                          ? calculatedPrice - finalPrice
-                          : 0;
-
-                      const difference =
-                        finalPrice !== null &&
-                        finalPrice !== undefined &&
-                        row.old_price !== null &&
-                        row.old_price !== undefined
-                          ? finalPrice - row.old_price
-                          : null;
-
-                      const percentChange = calculatePercentageChange(
-                        row.old_price,
-                        finalPrice
-                      );
-
-                      const canAccept =
-                        row.status === "INCREASE" && !row.manually_adjusted;
-
-                      const canEditMarkup = isSelectable(row);
-
-                      return (
-                        <tr key={row.item_code}>
-                          <td style={tdStyle}>
                             <input
                               type="checkbox"
-                              checked={selectedCodes.includes(row.item_code)}
-                              disabled={!canEditMarkup}
-                              onChange={() => toggleSelected(row.item_code)}
+                              checked={isGroupSelected(group.rows)}
+                              onChange={() => toggleGroupSelected(group.rows)}
                             />
-                          </td>
+                            <span>{group.categoryName}</span>
+                            <span
+                              style={{
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                color: "#64748b",
+                                textTransform: "none",
+                              }}
+                            >
+                              Select all in section
+                            </span>
+                          </label>
+                        </td>
+                      </tr>
 
-                          <td style={tdStyle}>{row.item_code}</td>
-                          <td style={tdStyle}>{row.description}</td>
-                          <td style={tdRightStyle}>{money(row.old_price)}</td>
+                      {renderColumnHeaderRow()}
 
-                          <td style={tdRightStyle}>
-                            {canEditMarkup ? (
+                      {group.rows.map((row) => {
+                        const calculatedPrice = row.new_price;
+                        const finalPrice = row.final_price;
+
+                        const saving =
+                          calculatedPrice !== null &&
+                          calculatedPrice !== undefined &&
+                          finalPrice !== null &&
+                          finalPrice !== undefined &&
+                          finalPrice < calculatedPrice
+                            ? calculatedPrice - finalPrice
+                            : 0;
+
+                        const difference =
+                          finalPrice !== null &&
+                          finalPrice !== undefined &&
+                          row.old_price !== null &&
+                          row.old_price !== undefined
+                            ? finalPrice - row.old_price
+                            : null;
+
+                        const percentChange = calculatePercentageChange(
+                          row.old_price,
+                          finalPrice
+                        );
+
+                        const canAccept =
+                          row.status === "INCREASE" && !row.manually_adjusted;
+
+                        const canEditMarkup = isSelectable(row);
+
+                        return (
+                          <tr key={row.item_code}>
+                            <td style={tdStyle}>
                               <input
-                                type="number"
-                                value={row.hq_markup_percent ?? 15}
-                                onChange={(e) =>
-                                  handleMarkupChange(
-                                    row.item_code,
-                                    "hq_markup_percent",
-                                    e.target.value
-                                  )
-                                }
-                                onBlur={() => saveMarkups(row)}
-                                style={percentInputStyle}
+                                type="checkbox"
+                                checked={selectedCodes.includes(row.item_code)}
+                                disabled={!canEditMarkup}
+                                onChange={() => toggleSelected(row.item_code)}
                               />
-                            ) : (
-                              "-"
-                            )}
-                          </td>
+                            </td>
 
-                          <td style={tdRightStyle}>
-                            {canEditMarkup ? (
+                            <td style={tdStyle}>{row.item_code}</td>
+                            <td style={tdStyle}>{row.description}</td>
+                            <td style={tdRightStyle}>{money(row.old_price)}</td>
+
+                            <td style={tdRightStyle}>
+                              {canEditMarkup ? (
+                                <input
+                                  type="number"
+                                  value={row.hq_markup_percent ?? 15}
+                                  onChange={(e) =>
+                                    handleMarkupChange(
+                                      row.item_code,
+                                      "hq_markup_percent",
+                                      e.target.value
+                                    )
+                                  }
+                                  onBlur={() => saveMarkups(row)}
+                                  style={percentInputStyle}
+                                />
+                              ) : (
+                                "-"
+                              )}
+                            </td>
+
+                            <td style={tdRightStyle}>
+                              {canEditMarkup ? (
+                                <input
+                                  type="number"
+                                  value={row.branch_markup_percent ?? 45}
+                                  onChange={(e) =>
+                                    handleMarkupChange(
+                                      row.item_code,
+                                      "branch_markup_percent",
+                                      e.target.value
+                                    )
+                                  }
+                                  onBlur={() => saveMarkups(row)}
+                                  style={percentInputStyle}
+                                />
+                              ) : (
+                                "-"
+                              )}
+                            </td>
+
+                            <td style={tdRightStyle}>{money(row.new_price)}</td>
+
+                            <td style={tdRightStyle}>
+                              {row.status === "NOT FOUND" ||
+                              row.status === "RULE SOURCE MISSING" ? (
+                                "-"
+                              ) : (
+                                <input
+                                  type="number"
+                                  value={finalPrice ?? ""}
+                                  onChange={(e) =>
+                                    handleFinalPriceChange(row.item_code, e.target.value)
+                                  }
+                                  onBlur={() => handleFinalPriceBlur(row)}
+                                  style={priceInputStyle}
+                                />
+                              )}
+                            </td>
+
+                            <td style={tdRightStyle}>
+                              {difference === null ? "-" : money(difference)}
+                            </td>
+
+                            <td style={tdRightStyle}>{percentage(percentChange)}</td>
+
+                            <td style={tdRightStyle}>
+                              {saving > 0 ? `Save R ${saving.toFixed(2)}` : "-"}
+                            </td>
+
+                            <td style={tdStyle}>
                               <input
-                                type="number"
-                                value={row.branch_markup_percent ?? 45}
+                                type="checkbox"
+                                checked={Boolean(row.accepted_increase)}
+                                disabled={!canAccept}
                                 onChange={(e) =>
-                                  handleMarkupChange(
-                                    row.item_code,
-                                    "branch_markup_percent",
-                                    e.target.value
-                                  )
+                                  saveAcceptIncrease(row, e.target.checked)
                                 }
-                                onBlur={() => saveMarkups(row)}
-                                style={percentInputStyle}
                               />
-                            ) : (
-                              "-"
-                            )}
-                          </td>
+                            </td>
 
-                          <td style={tdRightStyle}>{money(row.new_price)}</td>
+                            <td style={tdStyle}>
+                              {savingCode === row.item_code
+                                ? "Saving..."
+                                : row.manually_adjusted
+                                ? "Manual"
+                                : row.saving_note || "-"}
+                            </td>
 
-                          <td style={tdRightStyle}>
-                            {row.status === "NOT FOUND" ||
-                            row.status === "RULE SOURCE MISSING" ? (
-                              "-"
-                            ) : (
-                              <input
-                                type="number"
-                                value={finalPrice ?? ""}
-                                onChange={(e) =>
-                                  handleFinalPriceChange(row.item_code, e.target.value)
-                                }
-                                onBlur={() => handleFinalPriceBlur(row)}
-                                style={priceInputStyle}
-                              />
-                            )}
-                          </td>
+                            <td style={tdStyle}>{row.pricing_method || "-"}</td>
 
-                          <td style={tdRightStyle}>
-                            {difference === null ? "-" : money(difference)}
-                          </td>
-
-                          <td style={tdRightStyle}>
-                            {percentage(percentChange)}
-                          </td>
-
-                          <td style={tdRightStyle}>
-                            {saving > 0 ? `Save R ${saving.toFixed(2)}` : "-"}
-                          </td>
-
-                          <td style={tdStyle}>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(row.accepted_increase)}
-                              disabled={!canAccept}
-                              onChange={(e) =>
-                                saveAcceptIncrease(row, e.target.checked)
-                              }
-                            />
-                          </td>
-
-                          <td style={tdStyle}>
-                            {savingCode === row.item_code
-                              ? "Saving..."
-                              : row.manually_adjusted
-                              ? "Manual"
-                              : row.saving_note || "-"}
-                          </td>
-
-                          <td style={tdStyle}>{row.pricing_method || "-"}</td>
-
-                          <td style={tdStyle}>
-                            <span style={statusStyle(row.status)}>{row.status}</span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
+                            <td style={tdStyle}>
+                              <span style={statusStyle(row.status)}>{row.status}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         )}
       </div>
@@ -1501,6 +1522,7 @@ const thStyle: React.CSSProperties = {
   whiteSpace: "normal",
   lineHeight: 1.15,
   maxWidth: "90px",
+  background: "#ffffff",
 };
 
 const thRightStyle: React.CSSProperties = {
