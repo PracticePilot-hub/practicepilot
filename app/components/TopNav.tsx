@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
@@ -108,55 +108,133 @@ export default function TopNav() {
     profile?.role === "Admin" ||
     profile?.role === "Staff";
 
+  const isAdminUser =
+    profile?.role === "Super Admin" ||
+    profile?.role === "Admin";
+
   const isCubeChemOnlyUser =
-    cubeChemAccess.allowed && !isInternalUser && userEmail === "christo.botha@cubechem.co.za";
+    cubeChemAccess.allowed &&
+    !isInternalUser &&
+    userEmail === "christo.botha@cubechem.co.za";
+
+  const navLinkStyle: CSSProperties = {
+    color: "#102a43",
+    textDecoration: "none",
+    fontSize: 14,
+    fontWeight: 700,
+    lineHeight: 1.1,
+    padding: "8px 9px",
+    borderRadius: 8,
+    whiteSpace: "nowrap",
+  };
+
+  const showPilotHub = !isCubeChemOnlyUser;
+  const showAdminModules = !isCubeChemOnlyUser && isAdminUser;
+  const showProjects =
+    !isCubeChemOnlyUser && (isAdminUser || Boolean(profile?.can_access_projects));
+  const showPaia = !isCubeChemOnlyUser && isInternalUser;
 
   return (
     <div
       style={{
-        height: 60,
+        minHeight: 58,
         display: "flex",
         alignItems: "center",
-        padding: "0 20px",
-        borderBottom: "1px solid #ddd",
+        padding: "8px 18px",
+        borderBottom: "1px solid #d8e3ef",
         position: "sticky",
         top: 0,
         zIndex: 100,
         background: "#ffffff",
-        gap: 20,
+        gap: 12,
       }}
     >
-      <strong style={{ fontSize: 18 }}>PracticePilot</strong>
+      <strong
+        style={{
+          fontSize: 18,
+          color: "#071d33",
+          whiteSpace: "nowrap",
+          marginRight: 4,
+        }}
+      >
+        PracticePilot
+      </strong>
 
-      {!isCubeChemOnlyUser && <a href="/dashboard">PilotHub</a>}
+      <nav
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          flexWrap: "wrap",
+          flex: 1,
+        }}
+      >
+        {showPilotHub && (
+          <a style={navLinkStyle} href="/dashboard">
+            PilotHub
+          </a>
+        )}
 
-      {!isCubeChemOnlyUser && isInternalUser && <a href="/crm">CRM</a>}
+        {showAdminModules && (
+          <a style={navLinkStyle} href="/crm">
+            CRM
+          </a>
+        )}
 
-      {!isCubeChemOnlyUser && (isInternalUser || profile?.can_access_accounting) && (
-        <a href="#">Accounting</a>
-      )}
+        {showAdminModules && (
+          <a style={navLinkStyle} href="#">
+            Accounting
+          </a>
+        )}
 
-      {!isCubeChemOnlyUser && isInternalUser && <a href="#">Financial Statements</a>}
+        {showAdminModules && (
+          <a style={navLinkStyle} href="#">
+            Financial Statements
+          </a>
+        )}
 
-      {!isCubeChemOnlyUser && isInternalUser && <a href="#">Secretarial</a>}
+        {showAdminModules && (
+          <a style={navLinkStyle} href="#">
+            Secretarial
+          </a>
+        )}
 
-      {!isCubeChemOnlyUser && (isInternalUser || profile?.can_access_projects) && (
-        <a href="/project-management">Projects</a>
-      )}
+        {showProjects && (
+          <a style={navLinkStyle} href="/project-management">
+            Projects
+          </a>
+        )}
 
-            {!isCubeChemOnlyUser && isInternalUser && (
-        <a href="/management-reports">Management Reports</a>
-      )}
+        {showAdminModules && (
+          <a style={navLinkStyle} href="/management-reports">
+            Management Reports
+          </a>
+        )}
 
-      {!isCubeChemOnlyUser && isInternalUser && (
-        <a href="/compliance/paia">PAIA Manuals</a>
-      )}
+        {showPaia && (
+          <a style={navLinkStyle} href="/compliance/paia">
+            PAIA Manuals
+          </a>
+        )}
 
-      {!isCubeChemOnlyUser && isInternalUser && <a href="/admin/clients">Admin Clients</a>}
+        {showAdminModules && (
+          <a style={navLinkStyle} href="/admin/clients">
+            Admin Clients
+          </a>
+        )}
 
-      {!isCubeChemOnlyUser && isInternalUser && <a href="/admin/users">Admin Users</a>}
+        {showAdminModules && (
+          <a style={navLinkStyle} href="/admin/users">
+            Admin Users
+          </a>
+        )}
 
-      {cubeChemAccess.allowed && <a href="/cubechem">CubeChem</a>}
+        {cubeChemAccess.allowed && (
+          <a style={navLinkStyle} href="/cubechem">
+            CubeChem
+          </a>
+        )}
+      </nav>
 
       <button
         onClick={logout}
@@ -165,11 +243,12 @@ export default function TopNav() {
           background: "#eef3f8",
           color: "#12304a",
           border: "1px solid #d5dde6",
-          borderRadius: "10px",
+          borderRadius: 10,
           padding: "8px 14px",
-          fontSize: "13px",
-          fontWeight: 700,
+          fontSize: 13,
+          fontWeight: 800,
           cursor: "pointer",
+          whiteSpace: "nowrap",
         }}
       >
         Logout
