@@ -23,9 +23,16 @@ type UserProfile = {
   email: string;
   role: string;
   access_enabled: boolean;
+
   can_access_accounting: boolean;
   can_access_projects: boolean;
   can_access_budgeting: boolean;
+
+  can_access_crm?: boolean;
+  can_access_afs?: boolean;
+  can_access_secretarial?: boolean;
+  can_access_management_reports?: boolean;
+  can_access_paia?: boolean;
 };
 
 type CubeChemAccess = {
@@ -109,13 +116,24 @@ export default function TopNav() {
     profile?.role === "Staff";
 
   const isAdminUser =
-    profile?.role === "Super Admin" ||
-    profile?.role === "Admin";
+    profile?.role === "Super Admin" || profile?.role === "Admin";
 
   const isCubeChemOnlyUser =
     cubeChemAccess.allowed &&
     !isInternalUser &&
     userEmail === "christo.botha@cubechem.co.za";
+
+  const canUseCrm = isAdminUser || Boolean(profile?.can_access_crm);
+  const canUseAccounting =
+    isAdminUser || Boolean(profile?.can_access_accounting);
+  const canUseAfs = isAdminUser || Boolean(profile?.can_access_afs);
+  const canUseSecretarial =
+    isAdminUser || Boolean(profile?.can_access_secretarial);
+  const canUseProjects =
+    isAdminUser || Boolean(profile?.can_access_projects);
+  const canUseManagementReports =
+    isAdminUser || Boolean(profile?.can_access_management_reports);
+  const canUsePaia = isAdminUser || Boolean(profile?.can_access_paia);
 
   const navLinkStyle: CSSProperties = {
     color: "#102a43",
@@ -127,12 +145,6 @@ export default function TopNav() {
     borderRadius: 8,
     whiteSpace: "nowrap",
   };
-
-  const showPilotHub = !isCubeChemOnlyUser;
-  const showAdminModules = !isCubeChemOnlyUser && isAdminUser;
-  const showProjects =
-    !isCubeChemOnlyUser && (isAdminUser || Boolean(profile?.can_access_projects));
-  const showPaia = !isCubeChemOnlyUser && isInternalUser;
 
   return (
     <div
@@ -169,61 +181,61 @@ export default function TopNav() {
           flex: 1,
         }}
       >
-        {showPilotHub && (
+        {!isCubeChemOnlyUser && (
           <a style={navLinkStyle} href="/dashboard">
             PilotHub
           </a>
         )}
 
-        {showAdminModules && (
+        {!isCubeChemOnlyUser && canUseCrm && (
           <a style={navLinkStyle} href="/crm">
             CRM
           </a>
         )}
 
-        {showAdminModules && (
+        {!isCubeChemOnlyUser && canUseAccounting && (
           <a style={navLinkStyle} href="#">
             Accounting
           </a>
         )}
 
-        {showAdminModules && (
+        {!isCubeChemOnlyUser && canUseAfs && (
           <a style={navLinkStyle} href="#">
             Financial Statements
           </a>
         )}
 
-        {showAdminModules && (
+        {!isCubeChemOnlyUser && canUseSecretarial && (
           <a style={navLinkStyle} href="#">
             Secretarial
           </a>
         )}
 
-        {showProjects && (
+        {!isCubeChemOnlyUser && canUseProjects && (
           <a style={navLinkStyle} href="/project-management">
             Projects
           </a>
         )}
 
-        {showAdminModules && (
+        {!isCubeChemOnlyUser && canUseManagementReports && (
           <a style={navLinkStyle} href="/management-reports">
             Management Reports
           </a>
         )}
 
-        {showPaia && (
+        {!isCubeChemOnlyUser && canUsePaia && (
           <a style={navLinkStyle} href="/compliance/paia">
             PAIA Manuals
           </a>
         )}
 
-        {showAdminModules && (
+        {!isCubeChemOnlyUser && isAdminUser && (
           <a style={navLinkStyle} href="/admin/clients">
             Admin Clients
           </a>
         )}
 
-        {showAdminModules && (
+        {!isCubeChemOnlyUser && isAdminUser && (
           <a style={navLinkStyle} href="/admin/users">
             Admin Users
           </a>
