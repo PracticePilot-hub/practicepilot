@@ -2,7 +2,7 @@
 
 "use client";
 
-import { type CSSProperties, useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 type PaiaManual = {
@@ -14,6 +14,7 @@ type PaiaManual = {
   version_number: string | null;
   status: string | null;
 };
+
 type NewManualForm = {
   entity_name: string;
   entity_registration_number: string;
@@ -22,6 +23,15 @@ type NewManualForm = {
   information_officer_name: string;
   information_officer_email: string;
 };
+
+type StatusFilter = "all" | "draft" | "finalised";
+type SortMode =
+  | "client_asc"
+  | "client_desc"
+  | "status_asc"
+  | "version_desc"
+  | "compiled_desc"
+  | "compiled_asc";
 
 const today = new Date().toISOString().slice(0, 10);
 
@@ -44,12 +54,31 @@ function formatDate(value: string | null) {
   });
 }
 
+function normaliseStatus(value: string | null) {
+  return String(value || "draft").trim().toLowerCase();
+}
+
+function versionNumberValue(value: string | null) {
+  const parsed = Number(String(value || "1.0").replace(/[^\d.]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 1;
+}
+
+function dateValue(value: string | null) {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export default function PaiaManualsPage() {
   const [manuals, setManuals] = useState<PaiaManual[]>([]);
   const [form, setForm] = useState<NewManualForm>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [clientFilter, setClientFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [sortMode, setSortMode] = useState<SortMode>("client_asc");
 
   async function loadManuals() {
     setLoading(true);
@@ -74,6 +103,60 @@ export default function PaiaManualsPage() {
   useEffect(() => {
     loadManuals();
   }, []);
+
+  const filteredManuals = useMemo(() => {
+    const clientSearch = clientFilter.trim().toLowerCase();
+
+    const filtered = manuals.filter((manual) => {
+      const status = normaliseStatus(manual.status);
+
+      const matchesClient =
+        !clientSearch ||
+        String(manual.entity_name || "").toLowerCase().includes(clientSearch) ||
+        String(manual.entity_registration_number || "")
+          .toLowerCase()
+          .includes(clientSearch);
+
+      const matchesStatus =
+        statusFilter === "all" || status === statusFilter;
+
+      return matchesClient && matchesStatus;
+    });
+
+    filtered.sort((a, b) => {
+      if (sortMode === "client_asc") {
+        return String(a.entity_name || "").localeCompare(
+          String(b.entity_name || "")
+        );
+      }
+
+      if (sortMode === "client_desc") {
+        return String(b.entity_name || "").localeCompare(
+          String(a.entity_name || "")
+        );
+      }
+
+      if (sortMode === "status_asc") {
+        return normaliseStatus(a.status).localeCompare(normaliseStatus(b.status));
+      }
+
+      if (sortMode === "version_desc") {
+        return versionNumberValue(b.version_number) - versionNumberValue(a.version_number);
+      }
+
+      if (sortMode === "compiled_desc") {
+        return dateValue(b.date_compiled) - dateValue(a.date_compiled);
+      }
+
+      if (sortMode === "compiled_asc") {
+        return dateValue(a.date_compiled) - dateValue(b.date_compiled);
+      }
+
+      return 0;
+    });
+
+    return filtered;
+  }, [manuals, clientFilter, statusFilter, sortMode]);
 
   function updateField(field: keyof NewManualForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -118,6 +201,12 @@ export default function PaiaManualsPage() {
     } finally {
       setCreating(false);
     }
+  }
+
+  function clearFilters() {
+    setClientFilter("");
+    setStatusFilter("all");
+    setSortMode("client_asc");
   }
 
   return (
@@ -202,14 +291,69 @@ export default function PaiaManualsPage() {
         <section style={s.card}>
           <div style={s.listCard}>
             <div style={s.listHeader}>
-              <h2 style={s.h2}>Existing manuals</h2>
-              <span style={s.count}>{manuals.length} manual(s)</span>
+              <div>
+                <h2 style={s.h2}>Existing manuals</h2>
+                <div style={s.resultText}>
+                  Showing {filteredManuals.length} of {manuals.length} manual(s)
+                </div>
+              </div>
+
+              <button type="button" style={s.clearButton} onClick={clearFilters}>
+                Clear filters
+              </button>
+            </div>
+
+            <div style={s.filters}>
+              <label style={s.filterLabel}>
+                <span style={s.filterText}>Client / reg no.</span>
+                <input
+                  value={clientFilter}
+                  onChange={(event) => setClientFilter(event.target.value)}
+                  placeholder="Search client..."
+                  style={s.filterInput}
+                />
+              </label>
+
+              <label style={s.filterLabel}>
+                <span style={s.filterText}>Status</span>
+                <select
+                  value={statusFilter}
+                  onChange={(event) =>
+                    setStatusFilter(event.target.value as StatusFilter)
+                  }
+                  style={s.filterInput}
+                >
+                  <option value="all">All</option>
+                  <option value="draft">Draft</option>
+                  <option value="finalised">Finalised</option>
+                </select>
+              </label>
+
+              <label style={s.filterLabel}>
+                <span style={s.filterText}>Sort by</span>
+                <select
+                  value={sortMode}
+                  onChange={(event) =>
+                    setSortMode(event.target.value as SortMode)
+                  }
+                  style={s.filterInput}
+                >
+                  <option value="client_asc">Client A-Z</option>
+                  <option value="client_desc">Client Z-A</option>
+                  <option value="status_asc">Status</option>
+                  <option value="version_desc">Version newest</option>
+                  <option value="compiled_desc">Compiled newest</option>
+                  <option value="compiled_asc">Compiled oldest</option>
+                </select>
+              </label>
             </div>
 
             {loading ? (
               <div style={s.empty}>Loading PAIA manuals...</div>
             ) : manuals.length === 0 ? (
               <div style={s.empty}>No PAIA manuals created yet.</div>
+            ) : filteredManuals.length === 0 ? (
+              <div style={s.empty}>No PAIA manuals match the selected filters.</div>
             ) : (
               <table style={s.table}>
                 <thead>
@@ -225,7 +369,7 @@ export default function PaiaManualsPage() {
                 </thead>
 
                 <tbody>
-                  {manuals.map((manual) => (
+                  {filteredManuals.map((manual) => (
                     <tr key={manual.id}>
                       <td style={s.tdStrong}>{manual.entity_name}</td>
                       <td style={s.td}>{manual.entity_type || "-"}</td>
@@ -233,10 +377,19 @@ export default function PaiaManualsPage() {
                         {manual.entity_registration_number || "-"}
                       </td>
                       <td style={s.td}>{formatDate(manual.date_compiled)}</td>
-<td style={s.td}>{manual.version_number || "1.0"}</td>
-<td style={s.td}>
-  <span style={s.status}>{manual.status || "draft"}</span>
-</td>
+                      <td style={s.td}>{manual.version_number || "1.0"}</td>
+                      <td style={s.td}>
+                        <span
+                          style={{
+                            ...s.status,
+                            ...(normaliseStatus(manual.status) === "finalised"
+                              ? s.statusFinalised
+                              : {}),
+                          }}
+                        >
+                          {normaliseStatus(manual.status)}
+                        </span>
+                      </td>
                       <td style={s.tdRight}>
                         <Link
                           href={`/compliance/paia/${manual.id}`}
@@ -400,13 +553,55 @@ const s: Record<string, CSSProperties> = {
   listHeader: {
     display: "flex",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
     marginBottom: 8,
+    gap: 12,
   },
-  count: {
-    color: "#667085",
+  resultText: {
+    marginTop: 3,
     fontSize: 12,
-    fontWeight: 700,
+    color: "#667085",
+    fontWeight: 650,
+  },
+  clearButton: {
+    border: "1px solid #d5dde6",
+    background: "#ffffff",
+    color: "#12304a",
+    borderRadius: 7,
+    padding: "6px 9px",
+    fontSize: 12,
+    fontWeight: 850,
+    cursor: "pointer",
+  },
+  filters: {
+    display: "grid",
+    gridTemplateColumns: "1.4fr 150px 180px",
+    gap: 8,
+    marginBottom: 10,
+    paddingBottom: 10,
+    borderBottom: "1px solid #edf2f7",
+  },
+  filterLabel: {
+    display: "block",
+  },
+  filterText: {
+    display: "block",
+    marginBottom: 3,
+    fontSize: 11,
+    color: "#34495e",
+    fontWeight: 850,
+  },
+  filterInput: {
+    width: "100%",
+    boxSizing: "border-box",
+    height: 32,
+    border: "1px solid #cfd8e3",
+    borderRadius: 7,
+    padding: "0 8px",
+    fontSize: 12,
+    color: "#0f172a",
+    background: "#ffffff",
+    outline: "none",
   },
   table: {
     width: "100%",
@@ -466,6 +661,10 @@ const s: Record<string, CSSProperties> = {
     fontSize: 11,
     fontWeight: 800,
     textTransform: "lowercase",
+  },
+  statusFinalised: {
+    background: "#dcfce7",
+    color: "#166534",
   },
   openLink: {
     display: "inline-block",
