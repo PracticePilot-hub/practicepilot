@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
 
 type Organisation = {
   id: string;
@@ -10,9 +10,6 @@ type Organisation = {
 };
 
 type UserProfile = {
-    can_access_accounting: boolean;
-    can_access_projects: boolean;
-    can_access_budgeting: boolean;
   id: string;
   user_id: string;
   organisation_id: string | null;
@@ -21,11 +18,32 @@ type UserProfile = {
   role: string;
   can_edit_projects: boolean;
   access_enabled: boolean;
+
+  can_access_accounting: boolean;
+  can_access_projects: boolean;
+  can_access_budgeting: boolean;
+  can_access_crm?: boolean;
+  can_access_afs?: boolean;
+  can_access_secretarial?: boolean;
+  can_access_management_reports?: boolean;
+  can_access_paia?: boolean;
+
   organisations?: {
     id: string;
     name: string;
   } | null;
 };
+
+type ModuleKey =
+  | "crm"
+  | "accounting"
+  | "afs"
+  | "secretarial"
+  | "projects"
+  | "managementReports"
+  | "paia";
+
+type ModuleAccessState = Record<ModuleKey, boolean>;
 
 const roleOptions = [
   "Super Admin",
@@ -34,6 +52,65 @@ const roleOptions = [
   "Client Manager",
   "Client Viewer",
 ];
+
+const moduleOptions: { key: ModuleKey; label: string }[] = [
+  { key: "crm", label: "CRM" },
+  { key: "accounting", label: "Accounting" },
+  { key: "afs", label: "Financial Statements" },
+  { key: "secretarial", label: "Secretarial" },
+  { key: "projects", label: "Projects" },
+  { key: "managementReports", label: "Management Reports" },
+  { key: "paia", label: "PAIA Manuals" },
+];
+
+const emptyModules: ModuleAccessState = {
+  crm: false,
+  accounting: false,
+  afs: false,
+  secretarial: false,
+  projects: false,
+  managementReports: false,
+  paia: false,
+};
+
+const allModules: ModuleAccessState = {
+  crm: true,
+  accounting: true,
+  afs: true,
+  secretarial: true,
+  projects: true,
+  managementReports: true,
+  paia: true,
+};
+
+function isInternalRoleValue(value: string) {
+  return value === "Super Admin" || value === "Admin" || value === "Staff";
+}
+
+function isAdminRoleValue(value: string) {
+  return value === "Super Admin" || value === "Admin";
+}
+
+function modulesFromUser(user: UserProfile): ModuleAccessState {
+  return {
+    crm: Boolean(user.can_access_crm),
+    accounting: Boolean(user.can_access_accounting),
+    afs: Boolean(user.can_access_afs),
+    secretarial: Boolean(user.can_access_secretarial),
+    projects: Boolean(user.can_access_projects),
+    managementReports: Boolean(user.can_access_management_reports),
+    paia: Boolean(user.can_access_paia),
+  };
+}
+
+function moduleSummary(modules: ModuleAccessState) {
+  const enabled = moduleOptions
+    .filter((item) => modules[item.key])
+    .map((item) => item.label);
+
+  if (enabled.length === 0) return "No modules";
+  return enabled.join(", ");
+}
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -45,9 +122,7 @@ export default function AdminUsersPage() {
   const [role, setRole] = useState("Client Viewer");
   const [organisationId, setOrganisationId] = useState("");
   const [canEditProjects, setCanEditProjects] = useState(false);
-  const [canAccessAccounting, setCanAccessAccounting] = useState(false);
-  const [canAccessProjects, setCanAccessProjects] = useState(true);
-  const [canAccessBudgeting, setCanAccessBudgeting] = useState(false);
+  const [modules, setModules] = useState<ModuleAccessState>(emptyModules);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFullName, setEditFullName] = useState("");
@@ -55,18 +130,17 @@ export default function AdminUsersPage() {
   const [editRole, setEditRole] = useState("Client Viewer");
   const [editOrganisationId, setEditOrganisationId] = useState("");
   const [editCanEditProjects, setEditCanEditProjects] = useState(false);
-  const [editCanAccessAccounting, setEditCanAccessAccounting] = useState(false);
-  const [editCanAccessProjects, setEditCanAccessProjects] = useState(true);
-  const [editCanAccessBudgeting, setEditCanAccessBudgeting] = useState(false);
+  const [editModules, setEditModules] = useState<ModuleAccessState>(emptyModules);
 
   const [loading, setLoading] = useState(true);
   const [loadingOrganisations, setLoadingOrganisations] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
 
-  const isInternalRole = role === "Super Admin" || role === "Admin" || role === "Staff";
-  const isEditInternalRole =
-    editRole === "Super Admin" || editRole === "Admin" || editRole === "Staff";
+  const isInternalRole = useMemo(() => isInternalRoleValue(role), [role]);
+  const isAdminRole = useMemo(() => isAdminRoleValue(role), [role]);
+  const isEditInternalRole = useMemo(() => isInternalRoleValue(editRole), [editRole]);
+  const isEditAdminRole = useMemo(() => isAdminRoleValue(editRole), [editRole]);
 
   useEffect(() => {
     loadUsers();
@@ -76,32 +150,63 @@ export default function AdminUsersPage() {
   useEffect(() => {
     if (isInternalRole) {
       setOrganisationId("");
+    }
+
+    if (isAdminRole) {
+      setModules(allModules);
       setCanEditProjects(true);
+      return;
+    }
+
+    if (role === "Staff") {
+      setCanEditProjects(false);
+      return;
     }
 
     if (role === "Client Viewer") {
       setCanEditProjects(false);
+      setModules(emptyModules);
+      return;
     }
 
     if (role === "Client Manager") {
       setCanEditProjects(true);
+      setModules({
+        ...emptyModules,
+        projects: true,
+      });
     }
-  }, [role, isInternalRole]);
+  }, [role, isInternalRole, isAdminRole]);
 
   useEffect(() => {
     if (isEditInternalRole) {
       setEditOrganisationId("");
+    }
+
+    if (isEditAdminRole) {
+      setEditModules(allModules);
       setEditCanEditProjects(true);
+      return;
+    }
+
+    if (editRole === "Staff") {
+      return;
     }
 
     if (editRole === "Client Viewer") {
       setEditCanEditProjects(false);
+      setEditModules(emptyModules);
+      return;
     }
 
     if (editRole === "Client Manager") {
       setEditCanEditProjects(true);
+      setEditModules({
+        ...emptyModules,
+        projects: true,
+      });
     }
-  }, [editRole, isEditInternalRole]);
+  }, [editRole, isEditInternalRole, isEditAdminRole]);
 
   async function loadUsers() {
     setLoading(true);
@@ -133,6 +238,28 @@ export default function AdminUsersPage() {
     setLoadingOrganisations(false);
   }
 
+  function toggleModule(key: ModuleKey) {
+    setModules((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+
+    if (key === "projects") {
+      setCanEditProjects((current) => (modules.projects ? false : current));
+    }
+  }
+
+  function toggleEditModule(key: ModuleKey) {
+    setEditModules((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+
+    if (key === "projects") {
+      setEditCanEditProjects((current) => (editModules.projects ? false : current));
+    }
+  }
+
   async function handleCreateUser() {
     if (!email.trim()) {
       alert("Email is required.");
@@ -156,17 +283,22 @@ export default function AdminUsersPage() {
       headers: {
         "Content-Type": "application/json",
       },
-   body: JSON.stringify({
-  fullName: fullName.trim(),
-  email: email.trim(),
-  password: password.trim(),
-  role,
-  organisationId,
-  canEditProjects,
-  canAccessAccounting,
-  canAccessProjects,
-  canAccessBudgeting,
-}),
+      body: JSON.stringify({
+        fullName: fullName.trim(),
+        email: email.trim(),
+        password: password.trim(),
+        role,
+        organisationId,
+        canEditProjects,
+        canAccessCrm: modules.crm,
+        canAccessAccounting: modules.accounting,
+        canAccessAfs: modules.afs,
+        canAccessSecretarial: modules.secretarial,
+        canAccessProjects: modules.projects,
+        canAccessBudgeting: false,
+        canAccessManagementReports: modules.managementReports,
+        canAccessPaia: modules.paia,
+      }),
     });
 
     const data = await response.json();
@@ -184,10 +316,8 @@ export default function AdminUsersPage() {
     setRole("Client Viewer");
     setOrganisationId("");
     setCanEditProjects(false);
-    setCanAccessAccounting(false);
-    setCanAccessProjects(true);
-    setCanAccessBudgeting(false);
-    setSaving(false);       
+    setModules(emptyModules);
+    setSaving(false);
   }
 
   function startEdit(user: UserProfile) {
@@ -197,9 +327,7 @@ export default function AdminUsersPage() {
     setEditRole(user.role || "Client Viewer");
     setEditOrganisationId(user.organisation_id || "");
     setEditCanEditProjects(Boolean(user.can_edit_projects));
-    setEditCanAccessAccounting(Boolean(user.can_access_accounting));
-    setEditCanAccessProjects(Boolean(user.can_access_projects));
-    setEditCanAccessBudgeting(Boolean(user.can_access_budgeting));
+    setEditModules(modulesFromUser(user));
   }
 
   function cancelEdit() {
@@ -209,9 +337,7 @@ export default function AdminUsersPage() {
     setEditRole("Client Viewer");
     setEditOrganisationId("");
     setEditCanEditProjects(false);
-    setEditCanAccessAccounting(false);
-    setEditCanAccessProjects(true);
-    setEditCanAccessBudgeting(false);
+    setEditModules(emptyModules);
   }
 
   async function saveEdit(user: UserProfile) {
@@ -232,16 +358,21 @@ export default function AdminUsersPage() {
       headers: {
         "Content-Type": "application/json",
       },
-     body: JSON.stringify({
-  fullName: editFullName.trim(),
-  email: editEmail.trim(),
-  role: editRole,
-  organisationId: editOrganisationId,
-  canEditProjects: editCanEditProjects,
-  canAccessAccounting: editCanAccessAccounting,
-  canAccessProjects: editCanAccessProjects,
-  canAccessBudgeting: editCanAccessBudgeting,
-}),
+      body: JSON.stringify({
+        fullName: editFullName.trim(),
+        email: editEmail.trim(),
+        role: editRole,
+        organisationId: editOrganisationId,
+        canEditProjects: editCanEditProjects,
+        canAccessCrm: editModules.crm,
+        canAccessAccounting: editModules.accounting,
+        canAccessAfs: editModules.afs,
+        canAccessSecretarial: editModules.secretarial,
+        canAccessProjects: editModules.projects,
+        canAccessBudgeting: false,
+        canAccessManagementReports: editModules.managementReports,
+        canAccessPaia: editModules.paia,
+      }),
     });
 
     const data = await response.json();
@@ -278,12 +409,34 @@ export default function AdminUsersPage() {
     setUsers((prev) => prev.map((item) => (item.id === user.id ? data.user : item)));
   }
 
+  function renderModuleCheckboxes(
+    currentModules: ModuleAccessState,
+    onToggle: (key: ModuleKey) => void,
+    locked: boolean
+  ) {
+    return (
+      <div style={styles.moduleGrid}>
+        {moduleOptions.map((item) => (
+          <label key={item.key} style={styles.moduleCheck}>
+            <input
+              type="checkbox"
+              checked={currentModules[item.key]}
+              onChange={() => onToggle(item.key)}
+              disabled={locked}
+            />
+            {item.label}
+          </label>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <main style={styles.page}>
       <div style={styles.header}>
         <div>
           <h1 style={styles.title}>Admin Users</h1>
-          <p style={styles.subtitle}>Manage users, roles and project access.</p>
+          <p style={styles.subtitle}>Manage users, roles and module access.</p>
         </div>
 
         <a href="/admin/clients" style={styles.backButton}>
@@ -367,11 +520,20 @@ export default function AdminUsersPage() {
                 type="checkbox"
                 checked={canEditProjects}
                 onChange={(e) => setCanEditProjects(e.target.checked)}
-                disabled={role === "Client Viewer" || isInternalRole}
+                disabled={!modules.projects || role === "Client Viewer" || isAdminRole}
               />
               Can edit projects
             </label>
           </div>
+        </div>
+
+        <div style={styles.moduleSection}>
+          <div style={styles.moduleHeader}>
+            <span style={styles.label}>Module access</span>
+            {isAdminRole && <span style={styles.helpText}>Admin roles get all modules.</span>}
+          </div>
+
+          {renderModuleCheckboxes(modules, toggleModule, isAdminRole)}
         </div>
 
         <div style={styles.actions}>
@@ -406,6 +568,7 @@ export default function AdminUsersPage() {
             <tbody>
               {users.map((user) => {
                 const isEditing = editingId === user.id;
+                const userModules = modulesFromUser(user);
 
                 return (
                   <tr key={user.id}>
@@ -481,7 +644,11 @@ export default function AdminUsersPage() {
                             type="checkbox"
                             checked={editCanEditProjects}
                             onChange={(e) => setEditCanEditProjects(e.target.checked)}
-                            disabled={editRole === "Client Viewer" || isEditInternalRole}
+                            disabled={
+                              !editModules.projects ||
+                              editRole === "Client Viewer" ||
+                              isEditAdminRole
+                            }
                           />
                           Yes
                         </label>
@@ -489,6 +656,14 @@ export default function AdminUsersPage() {
                         "Yes"
                       ) : (
                         "No"
+                      )}
+                    </td>
+
+                    <td style={styles.tdWide}>
+                      {isEditing ? (
+                        renderModuleCheckboxes(editModules, toggleEditModule, isEditAdminRole)
+                      ) : (
+                        <span style={styles.moduleSummary}>{moduleSummary(userModules)}</span>
                       )}
                     </td>
 
@@ -544,7 +719,7 @@ export default function AdminUsersPage() {
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
+const styles: Record<string, CSSProperties> = {
   page: {
     padding: "32px",
     background: "#f6f8fb",
@@ -603,7 +778,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   label: {
     fontSize: "14px",
-    fontWeight: 600,
+    fontWeight: 700,
     color: "#34495e",
   },
   input: {
@@ -638,6 +813,44 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     color: "#12304a",
   },
+  moduleSection: {
+    marginTop: "22px",
+    borderTop: "1px solid #e5eaf0",
+    paddingTop: "18px",
+  },
+  moduleHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    marginBottom: "10px",
+  },
+  helpText: {
+    fontSize: "12px",
+    color: "#64748b",
+  },
+  moduleGrid: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "10px 16px",
+  },
+  moduleCheck: {
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+    fontSize: "13px",
+    fontWeight: 700,
+    color: "#12304a",
+    background: "#f8fbff",
+    border: "1px solid #d8e3ef",
+    borderRadius: "999px",
+    padding: "7px 10px",
+    whiteSpace: "nowrap",
+  },
+  moduleSummary: {
+    fontSize: "13px",
+    color: "#34495e",
+    lineHeight: 1.35,
+  },
   actions: {
     display: "flex",
     justifyContent: "flex-end",
@@ -650,7 +863,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "10px",
     padding: "11px 18px",
     fontSize: "14px",
-    fontWeight: 600,
+    fontWeight: 700,
     cursor: "pointer",
   },
   emptyState: {
@@ -687,6 +900,14 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "14px",
     color: "#12304a",
     verticalAlign: "middle",
+  },
+  tdWide: {
+    padding: "12px",
+    borderBottom: "1px solid #edf1f5",
+    fontSize: "14px",
+    color: "#12304a",
+    verticalAlign: "middle",
+    minWidth: "260px",
   },
   tdRight: {
     padding: "12px",
