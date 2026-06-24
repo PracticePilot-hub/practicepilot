@@ -16,7 +16,7 @@ type RouteContext = {
 
 const CHROMIUM_PACK_URL =
   process.env.CHROMIUM_PACK_URL ||
-  "https://github.com/Sparticuz/chromium/releases/download/v141.0.0/chromium-v141.0.0-pack.tar";
+  "https://github.com/Sparticuz/chromium/releases/download/v141.0.0/chromium-v141.0.0-pack.x64.tar";
 
 let cachedExecutablePath: string | null = null;
 let chromiumDownloadPromise: Promise<string> | null = null;
