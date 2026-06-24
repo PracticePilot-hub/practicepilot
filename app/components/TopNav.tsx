@@ -144,8 +144,12 @@ export default function TopNav() {
         <a href="/project-management">Projects</a>
       )}
 
-      {!isCubeChemOnlyUser && isInternalUser && (
+            {!isCubeChemOnlyUser && isInternalUser && (
         <a href="/management-reports">Management Reports</a>
+      )}
+
+      {!isCubeChemOnlyUser && isInternalUser && (
+        <a href="/compliance/paia">PAIA Manuals</a>
       )}
 
       {!isCubeChemOnlyUser && isInternalUser && <a href="/admin/clients">Admin Clients</a>}

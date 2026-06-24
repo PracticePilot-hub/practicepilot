@@ -913,15 +913,24 @@ async function saveTaskEdits() {
 
   const { error } = await supabase
     .from("crm_tasks")
-    .update({
-      task_title: title,
-      due_date: editTaskDueDate,
-      period_start: editTaskDueDate,
-      period_end: editTaskDueDate,
-      service_name: editTaskCategory,
-      ad_hoc_category: editTaskCategory,
-      client_id: editTaskClientId || null,
-    })
+.update({
+  task_title: title,
+  due_date: editTaskDueDate,
+  period_start: editTaskDueDate,
+  period_end: editTaskDueDate,
+  service_name: editTaskCategory,
+  ad_hoc_category: editTaskCategory,
+  client_id: editTaskClientId || null,
+  meeting_start_time: editTaskCategory === "Meeting" ? editMeetingStartTime : null,
+  meeting_end_time: editTaskCategory === "Meeting" ? editMeetingEndTime : null,
+  meeting_location: editTaskCategory === "Meeting" ? editMeetingLocation || null : null,
+  ad_hoc_notes:
+    editTaskCategory === "Meeting"
+      ? `Meeting from ${editMeetingStartTime} to ${editMeetingEndTime}${
+          editMeetingLocation ? ` at ${editMeetingLocation}` : ""
+        }`
+      : null,
+})
     .eq("id", selectedTask.id);
 
   if (error) {

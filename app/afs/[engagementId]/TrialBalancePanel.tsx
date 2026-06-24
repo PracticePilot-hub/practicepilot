@@ -12,9 +12,9 @@ type TrialBalanceLine = {
   debit: number;
   credit: number;
 
-  opening_balance?: number;
-  current_year_balance?: number;
-  prior_year_balance?: number;
+ opening_balance?: number | null;
+current_year_balance?: number | null;
+prior_year_balance?: number | null;
 
   period_1?: number;
   period_2?: number;
@@ -29,8 +29,8 @@ type TrialBalanceLine = {
   period_11?: number;
   period_12?: number;
 
-  import_basis?: string;
-  amount_layout?: string;
+import_basis?: string | null;
+amount_layout?: string | null;
 
   mapping_category: string | null;
   note_number: string | null;

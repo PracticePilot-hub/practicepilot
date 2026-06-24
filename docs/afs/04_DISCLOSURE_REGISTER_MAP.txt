@@ -1,0 +1,112 @@
+AFS DISCLOSURE REGISTER MAP
+
+This is the disclosure architecture we should build into PracticePilot.
+
+GLOBAL RULES
+------------
+- Every page can be turned on/off.
+- Every major section can be turned on/off.
+- Every optional disclosure can be turned on/off.
+- Every numbered disclosure must renumber dynamically.
+- Blank client setup fields should not print unless the user forces them on.
+- Default wording should be editable per engagement.
+- Manual values are allowed where TB/mapping cannot know the answer.
+- Statement balances must come from mapping/TB/adjusting journals.
+- Notes must link back to mapping/lead schedules.
+- COVID wording is excluded unless explicitly added later.
+
+FULL AFS PAGES
+--------------
+1. Cover page
+2. General information
+3. Index
+4. Directors' responsibilities and approval
+5. Directors' report
+6. Independent compiler's report / practitioner report
+7. Statement of financial position
+8. Statement of profit or loss and other comprehensive income
+9. Statement of changes in equity
+10. Statement of cash flows
+11. Accounting policies
+12. Notes to the annual financial statements
+13. Detailed income statement
+14. Tax computation
+
+DIRECTORS' REPORT DEFAULT / OPTIONAL DISCLOSURES
+------------------------------------------------
+Default:
+- Incorporation / nature of business / review of activities
+- Financial results
+- Events after reporting date
+- Authorised and issued share capital
+- Dividends
+- Directors / members / trustees
+- Secretary
+- Going concern
+- Liquidity and solvency
+- Litigation statement
+- External accountant / compiler
+
+Optional:
+- Director's interest in contracts
+- Reclassification adjustment
+- Borrowing limitations
+- Social and ethics committee
+- Shareholder / ownership interest
+- Interest in subsidiaries
+- Interest in associates
+- Interest in joint ventures
+- Non-current assets / PPE additions
+- Additional custom disclosure blocks
+
+SHARE CAPITAL DISCLOSURE
+------------------------
+Manual fields required:
+- Authorised share class
+- Authorised number of shares
+- Authorised par value
+- Issued number of shares
+- Issued par value
+- Optional custom share capital wording
+
+TB/mapping:
+- Issued share capital amount should tie to mapped lead/mapping code 805.
+
+GOING CONCERN DISCLOSURE
+------------------------
+Variants:
+- Standard going concern basis
+- Not prepared on going concern basis
+- Accumulated losses wording
+- Liabilities exceed assets wording
+- Funding/subordination dependency wording
+- Material uncertainty wording
+- Liquidity and solvency wording
+- Additional free text 1
+- Additional free text 2
+- Additional free text 3
+
+COMPILER REPORT
+---------------
+Needs:
+- Firm letterhead header PNG
+- Firm letterhead footer PNG
+- ISRS 4410 wording
+- Practitioner name
+- Practitioner designation
+- Practice name
+- Signature place
+- Signature date
+- No assurance wording
+
+STATEMENT PAGES
+---------------
+- SFP, SPL, SOCIE, cash flow, notes, detailed income statement and tax computation must not be hardcoded.
+- They must be driven by:
+  - TB mapping
+  - lead schedules
+  - adjusting journals
+  - note register
+  - manual override settings
+  - show/hide flags
+  - dynamic note numbering

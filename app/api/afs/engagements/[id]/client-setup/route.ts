@@ -23,9 +23,7 @@ export async function GET(req: NextRequest, context: any) {
       .eq("engagement_id", engagementId)
       .maybeSingle();
 
-    if (setupError) {
-      throw setupError;
-    }
+    if (setupError) throw setupError;
 
     const { data: people, error: peopleError } = await supabase
       .from("afs_client_people")
@@ -33,13 +31,25 @@ export async function GET(req: NextRequest, context: any) {
       .eq("engagement_id", engagementId)
       .order("created_at", { ascending: true });
 
-    if (peopleError) {
-      throw peopleError;
-    }
+    if (peopleError) throw peopleError;
+
+    const { data: engagement, error: engagementError } = await supabase
+      .from("afs_engagements")
+      .select("*")
+      .eq("id", engagementId)
+      .single();
+
+    if (engagementError) throw engagementError;
 
     return NextResponse.json({
-      setup,
+      setup: setup
+        ? {
+            ...setup,
+            financial_year_end: engagement?.financial_year_end || null,
+          }
+        : null,
       people: people || [],
+      engagement,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -133,6 +143,17 @@ export async function PATCH(req: NextRequest, context: any) {
       member_firm: clean(body.member_firm),
       place_of_signature: clean(body.place_of_signature),
 
+      authorised_ordinary_shares: clean(body.authorised_ordinary_shares),
+      authorised_ordinary_share_par_value: clean(
+        body.authorised_ordinary_share_par_value
+      ),
+      issued_ordinary_shares: clean(body.issued_ordinary_shares),
+      issued_ordinary_share_par_value: clean(
+        body.issued_ordinary_share_par_value
+      ),
+      share_capital_note: clean(body.share_capital_note),
+      shareholder_note: clean(body.shareholder_note),
+
       current_period_heading: clean(body.current_period_heading),
       prior_period_heading: clean(body.prior_period_heading),
 
@@ -145,12 +166,42 @@ export async function PATCH(req: NextRequest, context: any) {
       .select("*")
       .single();
 
-    if (error) {
-      throw error;
+    if (error) throw error;
+
+    const registeredName = clean(body.registered_name);
+    const updatedEntityType = clean(body.entity_type);
+    const updatedYearEnd = dateOrNull(body.financial_year_end);
+    const updatedPreparedBy = clean(body.practitioner_name);
+
+    const engagementUpdate: Record<string, any> = {};
+
+    if (registeredName) engagementUpdate.client_name = registeredName;
+    if (updatedEntityType) engagementUpdate.entity_type = updatedEntityType;
+    if (updatedYearEnd) engagementUpdate.financial_year_end = updatedYearEnd;
+    if (updatedPreparedBy) engagementUpdate.prepared_by = updatedPreparedBy;
+
+    let updatedEngagement = null;
+
+    if (Object.keys(engagementUpdate).length > 0) {
+      const { data: engagementData, error: engagementError } = await supabase
+        .from("afs_engagements")
+        .update(engagementUpdate)
+        .eq("id", engagementId)
+        .select("*")
+        .single();
+
+      if (engagementError) throw engagementError;
+
+      updatedEngagement = engagementData;
     }
 
     return NextResponse.json({
-      setup: data,
+      setup: {
+        ...data,
+        financial_year_end:
+          updatedEngagement?.financial_year_end || updatedYearEnd || null,
+      },
+      engagement: updatedEngagement,
       success: true,
     });
   } catch (error: any) {

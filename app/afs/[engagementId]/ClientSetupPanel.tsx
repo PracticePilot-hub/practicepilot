@@ -12,6 +12,7 @@ type ClientSetup = {
   legal_framework: string | null;
   nature_of_business: string | null;
   trading_name: string | null;
+  financial_year_end: string | null;
 
   basis_of_preparation: string | null;
   type_of_engagement: string | null;
@@ -74,6 +75,13 @@ type ClientSetup = {
   member_firm: string | null;
   place_of_signature: string | null;
 
+  authorised_ordinary_shares: string | null;
+  authorised_ordinary_share_par_value: string | null;
+  issued_ordinary_shares: string | null;
+  issued_ordinary_share_par_value: string | null;
+  share_capital_note: string | null;
+  shareholder_note: string | null;
+
   current_period_heading: string | null;
   prior_period_heading: string | null;
 };
@@ -109,6 +117,17 @@ type Props = {
   entityType: string | null;
   financialYearEnd: string;
   preparedBy: string | null;
+  onSaved?: (payload: {
+    setup: ClientSetup;
+    engagement?: {
+      client_name?: string | null;
+      entity_type?: string | null;
+      financial_year_end?: string | null;
+      prepared_by?: string | null;
+      status?: string | null;
+    } | null;
+    people?: ClientPerson[];
+  }) => void;
 };
 
 const blankSetup: ClientSetup = {
@@ -121,6 +140,7 @@ const blankSetup: ClientSetup = {
   legal_framework: "Companies Act of South Africa",
   nature_of_business: "",
   trading_name: "",
+  financial_year_end: "",
 
   basis_of_preparation: "IFRS for SMEs",
   type_of_engagement: "Compilation",
@@ -183,6 +203,13 @@ const blankSetup: ClientSetup = {
   member_firm: "",
   place_of_signature: "Pretoria",
 
+  authorised_ordinary_shares: "",
+  authorised_ordinary_share_par_value: "",
+  issued_ordinary_shares: "",
+  issued_ordinary_share_par_value: "",
+  share_capital_note: "",
+  shareholder_note: "",
+
   current_period_heading: "",
   prior_period_heading: "",
 };
@@ -205,12 +232,14 @@ export default function ClientSetupPanel({
   entityType,
   financialYearEnd,
   preparedBy,
+  onSaved,
 }: Props) {
   const [setup, setSetup] = useState<ClientSetup>({
     ...blankSetup,
     registered_name: clientName,
     entity_type: entityType || "Company",
     practitioner_name: preparedBy || "",
+    financial_year_end: financialYearEnd || "",
     current_period_heading: makeCurrentPeriodHeading(financialYearEnd),
     prior_period_heading: makePriorPeriodHeading(financialYearEnd),
   });
@@ -249,6 +278,7 @@ export default function ClientSetupPanel({
       } else {
         setSetup((current) => ({
           ...current,
+          financial_year_end: financialYearEnd || "",
           current_period_heading: makeCurrentPeriodHeading(financialYearEnd),
           prior_period_heading: makePriorPeriodHeading(financialYearEnd),
         }));
@@ -280,16 +310,23 @@ export default function ClientSetupPanel({
         throw new Error(data.error || "Failed to save client setup.");
       }
 
-      setSetup({
+      const savedYearEnd =
+        data.engagement?.financial_year_end || setup.financial_year_end || financialYearEnd;
+
+      const savedSetup = {
         ...blankSetup,
         ...data.setup,
+        financial_year_end: savedYearEnd,
         current_period_heading:
           data.setup.current_period_heading ||
-          makeCurrentPeriodHeading(financialYearEnd),
+          makeCurrentPeriodHeading(savedYearEnd),
         prior_period_heading:
           data.setup.prior_period_heading ||
-          makePriorPeriodHeading(financialYearEnd),
-      });
+          makePriorPeriodHeading(savedYearEnd),
+      };
+
+      setSetup(savedSetup);
+      onSaved?.({ setup: savedSetup, engagement: data.engagement || null, people });
 
       alert("Client setup saved.");
     } catch (error: any) {
@@ -354,10 +391,19 @@ export default function ClientSetupPanel({
   }
 
   function update(field: keyof ClientSetup, value: string | number) {
-    setSetup((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    setSetup((current) => {
+      const next = {
+        ...current,
+        [field]: value,
+      };
+
+      if (field === "financial_year_end") {
+        next.current_period_heading = makeCurrentPeriodHeading(String(value || ""));
+        next.prior_period_heading = makePriorPeriodHeading(String(value || ""));
+      }
+
+      return next;
+    });
   }
 
   function updatePerson(field: keyof NewPerson, value: string) {
@@ -421,6 +467,15 @@ export default function ClientSetupPanel({
             <option value="Partnership">Partnership</option>
             <option value="Non-Profit Company">Non-Profit Company</option>
           </select>
+        </Field>
+
+        <Field label="Financial year end">
+          <input
+            style={styles.input}
+            type="date"
+            value={setup.financial_year_end || ""}
+            onChange={(e) => update("financial_year_end", e.target.value)}
+          />
         </Field>
 
         <Field label="Trading name">
@@ -947,6 +1002,64 @@ export default function ClientSetupPanel({
             style={styles.input}
             value={setup.prior_period_heading || ""}
             onChange={(e) => update("prior_period_heading", e.target.value)}
+          />
+        </Field>
+
+        <Field label="Authorised ordinary shares">
+          <input
+            style={styles.input}
+            value={setup.authorised_ordinary_shares || ""}
+            onChange={(e) => update("authorised_ordinary_shares", e.target.value)}
+            placeholder="Example: 1 000"
+          />
+        </Field>
+
+        <Field label="Authorised ordinary share par value">
+          <input
+            style={styles.input}
+            value={setup.authorised_ordinary_share_par_value || ""}
+            onChange={(e) =>
+              update("authorised_ordinary_share_par_value", e.target.value)
+            }
+            placeholder="Example: 1.00"
+          />
+        </Field>
+
+        <Field label="Issued ordinary shares">
+          <input
+            style={styles.input}
+            value={setup.issued_ordinary_shares || ""}
+            onChange={(e) => update("issued_ordinary_shares", e.target.value)}
+            placeholder="Example: 100"
+          />
+        </Field>
+
+        <Field label="Issued ordinary share par value">
+          <input
+            style={styles.input}
+            value={setup.issued_ordinary_share_par_value || ""}
+            onChange={(e) =>
+              update("issued_ordinary_share_par_value", e.target.value)
+            }
+            placeholder="Example: 1.00"
+          />
+        </Field>
+
+        <Field label="Share capital note / wording override">
+          <textarea
+            style={styles.textarea}
+            value={setup.share_capital_note || ""}
+            onChange={(e) => update("share_capital_note", e.target.value)}
+            placeholder="Leave blank to use the default wording."
+          />
+        </Field>
+
+        <Field label="Shareholder / ownership wording override">
+          <textarea
+            style={styles.textarea}
+            value={setup.shareholder_note || ""}
+            onChange={(e) => update("shareholder_note", e.target.value)}
+            placeholder="Leave blank to use the default wording."
           />
         </Field>
       </SetupSection>

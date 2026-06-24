@@ -1,10 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import ClientSetupPanel from "./ClientSetupPanel";
 import TrialBalancePanel from "./TrialBalancePanel";
+import MappingPanelNew from "./MappingPanel";
+import LeadSchedulesPanel from "./LeadSchedulesPanel";
+import type { LeadScheduleKey } from "./afsLeadScheduleCatalog";
+import AdjustingJournalsPanel from "./AdjustingJournalsPanel";
+import ReviewPanel from "./ReviewPanel";
+import FinancialStatementsPanel from "./FinancialStatementsPanel";
+import TaxCalculatorPanel from "./TaxCalculatorPanel";
 
 type AFSEngagement = {
   id: string;
@@ -22,49 +29,54 @@ type TrialBalanceLine = {
   account_code: string | null;
   account_name: string;
   account_type: string | null;
-
   debit: number;
   credit: number;
-
-  opening_balance?: number;
-  current_year_balance?: number;
-  prior_year_balance?: number;
-
-  period_1?: number;
-  period_2?: number;
-  period_3?: number;
-  period_4?: number;
-  period_5?: number;
-  period_6?: number;
-  period_7?: number;
-  period_8?: number;
-  period_9?: number;
-  period_10?: number;
-  period_11?: number;
-  period_12?: number;
-
-  import_basis?: string;
-  amount_layout?: string;
-
+  opening_balance?: number | null;
+  current_year_balance?: number | null;
+  prior_year_balance?: number | null;
+  import_basis?: string | null;
+  amount_layout?: string | null;
   mapping_category: string | null;
   note_number: string | null;
+  mapping_leaf_id?: string | null;
+  mapping_label?: string | null;
+  mapping_statement?: string | null;
+  mapping_section?: string | null;
+  mapping_path?: string | null;
+  mapping_smart_rule?: string | null;
+  mapping_confidence?: string | null;
+  mapping_code?: string | null;
+  lead_schedule_number?: string | null;
+  lead_schedule_key?: string | null;
 };
 
-type AFSNote = {
-  id: string;
-  note_number: string;
-  note_title: string;
-  note_body: string | null;
-  sort_order: number;
+
+type ClientSetupData = Record<string, any> & {
+  registered_name?: string | null;
+  registration_number?: string | null;
+  entity_type?: string | null;
+  financial_year_end?: string | null;
+  trading_name?: string | null;
+  country?: string | null;
+  currency?: string | null;
+  currency_symbol?: string | null;
+  legal_framework?: string | null;
+  nature_of_business?: string | null;
+  basis_of_preparation?: string | null;
+  type_of_engagement?: string | null;
+  report_required?: string | null;
+  practitioner_name?: string | null;
+  practitioner_designation?: string | null;
+  practice_name?: string | null;
+  place_of_signature?: string | null;
+  current_period_heading?: string | null;
+  prior_period_heading?: string | null;
 };
 
-type WorkingPaper = {
+type ClientPerson = Record<string, any> & {
   id: string;
-  section: string;
-  title: string;
-  status: string;
-  prepared_comment: string | null;
-  review_comment: string | null;
+  person_type: string;
+  full_name: string;
 };
 
 type SectionKey =
@@ -72,47 +84,40 @@ type SectionKey =
   | "trial-balance"
   | "mapping"
   | "lead-schedules"
-  | "working-papers"
+  | "adjusting-journals"
+  | "tax-calculator"
   | "financial-statements"
   | "minutes"
   | "compilation-report"
   | "xbrl"
-  | "finalisation";
+  | "finalisation"
+  | "review";
 
-type MappingEndpoint = {
-  id: string;
-  label: string;
-  presentation: "SFP" | "P/L";
-  section: string;
-  smartRule?: string;
-};
-
-type MappingSubgroup = {
-  id: string;
-  title: string;
-  endpoints: MappingEndpoint[];
-};
-
-type MappingSection = {
-  id: string;
-  title: string;
-  description: string;
-  subgroups: MappingSubgroup[];
-};
-
-type MappingStatement = {
-  id: string;
-  title: string;
-  description: string;
-  sections: MappingSection[];
-};
-
-const sections: {
-  key: SectionKey;
+type LeadScheduleItem = {
+  key: LeadScheduleKey;
   number: string;
   title: string;
-  description: string;
-}[] = [
+};
+
+type LeadScheduleGroup = {
+  key: string;
+  number: string;
+  title: string;
+  schedules: LeadScheduleItem[];
+};
+
+type LeadScheduleStatement = {
+  key: string;
+  title: string;
+  groups: LeadScheduleGroup[];
+};
+
+type LeadScheduleSubPage =
+  | "lead-schedule"
+  | "supporting-working-paper"
+  | "review-notes";
+
+const sections: { key: SectionKey; number: string; title: string; description: string }[] = [
   {
     key: "client-setup",
     number: "01",
@@ -128,664 +133,214 @@ const sections: {
   {
     key: "mapping",
     number: "03",
-    title: "Mapping / Link Accounts",
+    title: "Mapping",
     description: "Map accounts to AFS sections and notes.",
   },
   {
     key: "lead-schedules",
     number: "04",
     title: "Lead Schedules",
-    description: "Prepare lead schedules for balances.",
+    description: "Prepare lead schedules and linked working papers.",
   },
   {
-    key: "working-papers",
+    key: "adjusting-journals",
     number: "05",
-    title: "Working Papers",
-    description: "Preparation and review working papers.",
+    title: "Adjusting Journals",
+    description: "Post AFS adjusting journals and review journal effects.",
+  },
+  {
+    key: "tax-calculator",
+    number: "06",
+    title: "Tax Calculator",
+    description: "Calculate taxable income, normal tax and tax payable.",
   },
   {
     key: "financial-statements",
-    number: "06",
+    number: "07",
     title: "Financial Statements",
-    description: "Generate and review the AFS pack.",
+    description: "Generate and review the full AFS pack.",
   },
   {
     key: "minutes",
-    number: "07",
+    number: "08",
     title: "Minutes / Resolutions",
     description: "Director and member approvals.",
   },
   {
     key: "compilation-report",
-    number: "08",
+    number: "09",
     title: "Compilation Report",
-    description: "Compilation sign-off and representation.",
+    description: "Compilation report and practitioner details.",
   },
   {
     key: "xbrl",
-    number: "09",
+    number: "10",
     title: "XBRL / iXBRL",
-    description: "Submission preparation.",
+    description: "XBRL tagging and submission pack.",
   },
   {
     key: "finalisation",
-    number: "10",
+    number: "11",
     title: "Finalisation",
-    description: "Final review, lock file and export.",
+    description: "Final checks, sign-off and lock file.",
+  },
+  {
+    key: "review",
+    number: "12",
+    title: "Review",
+    description: "AFS review points and sign-off.",
   },
 ];
 
-function numbered(prefix: string, count: number) {
-  return Array.from({ length: count }, (_, index) => `${prefix} ${index + 1}`);
-}
-
-function makeEndpoints(
-  presentation: "SFP" | "P/L",
-  section: string,
-  labels: string[],
-  smartRule?: string
-): MappingEndpoint[] {
-  return labels.map((label) => ({
-    id: `${presentation}-${section}-${label}`
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, ""),
-    label,
-    presentation,
-    section,
-    smartRule,
-  }));
-}
-
-function partyEndpoints(
-  presentation: "SFP" | "P/L",
-  section: string,
-  prefix: string,
-  parties: string[],
-  smartRule?: string
-) {
-  return makeEndpoints(
-    presentation,
-    section,
-    parties.flatMap((party) =>
-      numbered(`${prefix} - ${party}`, 10)
-    ),
-    smartRule
-  );
-}
-
-const parties = [
-  "Shareholder",
-  "Director / Member",
-  "Group company",
-  "Related party",
-  "Trust",
-];
-
-const mappingLibrary: MappingStatement[] = [
+const leadScheduleStatements: LeadScheduleStatement[] = [
   {
-    id: "sfp",
+    key: "sfp",
     title: "Statement of Financial Position",
-    description: "Balance sheet accounts grouped by AFS presentation section.",
-    sections: [
+    groups: [
       {
-        id: "non-current-assets",
+        key: "sfp-non-current-assets",
+        number: "300",
         title: "Non-current assets",
-        description: "Long-term assets and long-term receivables.",
-        subgroups: [
-          {
-            id: "ppe",
-            title: "Property, plant and equipment",
-            endpoints: makeEndpoints("SFP", "Non-current assets", [
-              "Land and buildings",
-              "Plant and machinery",
-              "Furniture and fittings",
-              "Motor vehicles",
-              "Office equipment",
-              "Computer equipment",
-              "Leasehold improvements",
-              "Capital work in progress",
-              "Other property, plant and equipment",
-              "Accumulated depreciation - PPE",
-              "Accumulated impairment - PPE",
-            ]),
-          },
-          {
-            id: "investment-property",
-            title: "Investment property",
-            endpoints: makeEndpoints("SFP", "Non-current assets", [
-              "Investment property at fair value",
-              "Investment property at cost",
-              "Investment property under construction",
-            ]),
-          },
-          {
-            id: "intangible-assets",
-            title: "Intangible assets",
-            endpoints: makeEndpoints("SFP", "Non-current assets", [
-              "Goodwill",
-              "Computer software capitalised",
-              "Licences and franchises",
-              "Trademarks",
-              "Patents",
-              "Other intangible assets",
-              "Accumulated amortisation - intangible assets",
-              "Accumulated impairment - intangible assets",
-            ]),
-          },
-          {
-            id: "long-term-investments",
-            title: "Long-term investments",
-            endpoints: makeEndpoints("SFP", "Non-current assets", [
-              "Investments in subsidiaries",
-              "Investments in associates",
-              "Investments in joint ventures",
-              "Unlisted investments",
-              "Listed investments",
-              "Unit trusts",
-              "Other financial assets - non-current",
-            ]),
-          },
-          {
-            id: "long-term-loans-receivable",
-            title: "Long-term loans and receivables",
-            endpoints: [
-              ...partyEndpoints(
-                "SFP",
-                "Non-current assets",
-                "Loan receivable - non-current",
-                parties,
-                "Debit balance presents as asset. Credit balance can be reviewed for liability presentation."
-              ),
-              ...makeEndpoints("SFP", "Non-current assets", [
-                "Finance lease receivable - non-current",
-                "Other loan receivable - non-current",
-              ]),
-            ],
-          },
-          {
-            id: "deferred-tax-asset",
-            title: "Deferred tax and other non-current assets",
-            endpoints: makeEndpoints("SFP", "Non-current assets", [
-              "Deferred tax asset",
-              "Operating lease asset - non-current",
-              "Retirement benefit asset",
-              "Other non-current asset 1",
-              "Other non-current asset 2",
-              "Other non-current asset 3",
-            ]),
-          },
+        schedules: [
+          { key: "ppe", number: "305", title: "Property, plant and equipment" },
+          { key: "right-of-use-assets", number: "306", title: "Right-of-use assets" },
+          { key: "investment-property", number: "310", title: "Investment property" },
+          { key: "intangibles", number: "320", title: "Intangible assets" },
+          { key: "goodwill", number: "321", title: "Goodwill" },
+          { key: "investments-subsidiaries", number: "326", title: "Investments in subsidiaries" },
+          { key: "investments-associates", number: "327", title: "Investments in associates" },
+          { key: "investments-joint-ventures", number: "328", title: "Investments in joint ventures" },
+          { key: "loans-receivable", number: "340", title: "Long-term loans receivable" },
+          { key: "deferred-tax-asset", number: "395", title: "Deferred tax asset" },
+          { key: "other-non-current-assets", number: "390", title: "Other non-current assets" },
         ],
       },
       {
-        id: "current-assets",
+        key: "sfp-current-assets",
+        number: "400",
         title: "Current assets",
-        description:
-          "Short-term assets, receivables, bank balances and tax control accounts.",
-        subgroups: [
-          {
-            id: "inventory",
-            title: "Inventory",
-            endpoints: makeEndpoints("SFP", "Current assets", [
-              "Inventory - raw materials",
-              "Inventory - work in progress",
-              "Inventory - finished goods",
-              "Inventory - merchandise",
-              "Inventory - consumable stores",
-              "Inventory - other",
-              "Inventory impairment",
-              "Inventory write-down reversal",
-            ]),
-          },
-          {
-            id: "trade-receivables",
-            title: "Trade and other receivables",
-            endpoints: makeEndpoints("SFP", "Current assets", [
-              "Trade debtors",
-              "Sundry debtors",
-              "Accrued income",
-              "Deposits paid",
-              "Prepayments",
-              "Staff loans receivable",
-              "Other receivable 1",
-              "Other receivable 2",
-              "Other receivable 3",
-            ]),
-          },
-          {
-            id: "tax-controls",
-            title: "Tax and statutory control accounts",
-            endpoints: makeEndpoints(
-              "SFP",
-              "Current assets",
-              [
-                "VAT control",
-                "Income tax control",
-                "PAYE / UIF / SDL control",
-                "Dividend withholding tax control",
-                "Other SARS / statutory control account",
-              ],
-              "System will present debit balances as current assets and credit balances as current liabilities."
-            ),
-          },
-          {
-            id: "cash-bank",
-            title: "Cash and bank",
-            endpoints: makeEndpoints(
-              "SFP",
-              "Current assets",
-              [
-                "Cash on hand",
-                "Current bank account",
-                "Savings account",
-                "Call account",
-                "Credit card / bank control",
-              ],
-              "System will present debit balances as cash and credit balances as bank overdraft/current liability."
-            ),
-          },
-          {
-            id: "current-loans-receivable",
-            title: "Current loans and related party balances",
-            endpoints: [
-              ...partyEndpoints(
-                "SFP",
-                "Current assets",
-                "Loan receivable - current",
-                parties,
-                "Debit balance presents as asset. Credit balance can be reviewed for liability presentation."
-              ),
-              ...makeEndpoints("SFP", "Current assets", [
-                "Finance lease receivable - current",
-                "Other loan receivable - current",
-              ]),
-            ],
-          },
-          {
-            id: "other-current-assets",
-            title: "Other current assets",
-            endpoints: makeEndpoints("SFP", "Current assets", [
-              "Asset held for sale",
-              "Other current asset 1",
-              "Other current asset 2",
-              "Other current asset 3",
-              "Other current asset 4",
-            ]),
-          },
+        schedules: [
+          { key: "inventory", number: "405", title: "Inventories" },
+          { key: "cash", number: "420", title: "Cash and cash equivalents" },
+          { key: "receivables", number: "430", title: "Trade and other receivables" },
+          { key: "construction-contracts-receivable", number: "432", title: "Construction contracts and receivables" },
+          { key: "directors-employee-loans", number: "449", title: "Loans to directors, managers and employees" },
+          { key: "tax-controls", number: "490", title: "Tax / VAT / PAYE controls" },
+          { key: "current-tax-receivable", number: "495", title: "Current tax receivable" },
+          { key: "assets-held-for-sale", number: "499", title: "Assets held for sale" },
         ],
       },
       {
-        id: "equity",
+        key: "sfp-equity",
+        number: "800",
         title: "Equity",
-        description: "Capital, reserves and retained income.",
-        subgroups: [
-          {
-            id: "capital",
-            title: "Capital",
-            endpoints: makeEndpoints("SFP", "Equity", [
-              "Share capital",
-              "Members contribution",
-              "Owners capital",
-              "Trust capital",
-              "Treasury shares",
-            ]),
-          },
-          {
-            id: "reserves",
-            title: "Reserves",
-            endpoints: makeEndpoints("SFP", "Equity", [
-              "Revaluation reserve",
-              "Fair value reserve",
-              "Foreign currency translation reserve",
-              "Other reserve 1",
-              "Other reserve 2",
-              "Other reserve 3",
-            ]),
-          },
-          {
-            id: "retained-income",
-            title: "Retained income",
-            endpoints: makeEndpoints("SFP", "Equity", [
-              "Retained income",
-              "Accumulated profit / loss",
-              "Current year profit / loss control",
-              "Prior year adjustment",
-              "Non-controlling interest",
-            ]),
-          },
-          {
-            id: "owner-member-beneficiary",
-            title: "Owners / members / beneficiaries",
-            endpoints: makeEndpoints("SFP", "Equity", [
-              ...numbered("Owner capital - Owner", 20),
-              ...numbered("Member contribution - Member", 20),
-              ...numbered("Beneficiary capital - Beneficiary", 20),
-            ]),
-          },
+        schedules: [
+          { key: "share-capital", number: "805", title: "Share capital / contributions" },
+          { key: "retained-income", number: "810", title: "Retained income" },
+          { key: "reserves", number: "820", title: "Reserves" },
         ],
       },
       {
-        id: "non-current-liabilities",
+        key: "sfp-non-current-liabilities",
+        number: "500",
         title: "Non-current liabilities",
-        description: "Long-term obligations and non-current provisions.",
-        subgroups: [
-          {
-            id: "long-term-borrowings",
-            title: "Long-term borrowings",
-            endpoints: [
-              ...partyEndpoints(
-                "SFP",
-                "Non-current liabilities",
-                "Loan payable - non-current",
-                parties
-              ),
-              ...makeEndpoints("SFP", "Non-current liabilities", [
-                "Bank loan - non-current",
-                "Mortgage bond - non-current",
-                "Vehicle finance - non-current",
-                "Finance lease liability - non-current",
-                "Other financial liability - non-current",
-              ]),
-            ],
-          },
-          {
-            id: "non-current-provisions",
-            title: "Non-current provisions",
-            endpoints: makeEndpoints("SFP", "Non-current liabilities", [
-              "Provision - non-current",
-              "Retirement benefit obligation",
-              "Deferred income - non-current",
-              "Other non-current liability 1",
-              "Other non-current liability 2",
-              "Other non-current liability 3",
-            ]),
-          },
-          {
-            id: "deferred-tax-liability",
-            title: "Deferred tax",
-            endpoints: makeEndpoints("SFP", "Non-current liabilities", [
-              "Deferred tax liability",
-            ]),
-          },
+        schedules: [
+          { key: "provisions", number: "515", title: "Long-term provisions" },
+          { key: "deferred-income", number: "531", title: "Deferred income" },
+          { key: "loans-group-companies-payable", number: "547", title: "Loans from group companies" },
+          { key: "loans-stakeholders-payable", number: "548", title: "Loans from shareholders / directors / members" },
+          { key: "financial-liabilities", number: "550", title: "Financial liabilities" },
+          { key: "borrowings", number: "551", title: "Borrowings" },
+          { key: "lease-liabilities", number: "555", title: "Lease liabilities" },
+          { key: "other-non-current-liabilities", number: "590", title: "Other non-current liabilities" },
+          { key: "deferred-tax-liability", number: "595", title: "Deferred tax liability" },
         ],
       },
       {
-        id: "current-liabilities",
+        key: "sfp-current-liabilities",
+        number: "600",
         title: "Current liabilities",
-        description: "Short-term liabilities, payables, overdrafts and tax controls.",
-        subgroups: [
-          {
-            id: "trade-payables",
-            title: "Trade and other payables",
-            endpoints: makeEndpoints("SFP", "Current liabilities", [
-              "Trade creditors",
-              "Sundry creditors",
-              "Accruals",
-              "Income received in advance",
-              "Deposits received",
-              "Other payable 1",
-              "Other payable 2",
-              "Other payable 3",
-            ]),
-          },
-          {
-            id: "current-borrowings",
-            title: "Current loans and related party balances",
-            endpoints: [
-              ...partyEndpoints(
-                "SFP",
-                "Current liabilities",
-                "Loan payable - current",
-                parties
-              ),
-              ...makeEndpoints("SFP", "Current liabilities", [
-                "Bank overdraft",
-                "Bank loan - current portion",
-                "Mortgage bond - current portion",
-                "Vehicle finance - current portion",
-                "Finance lease liability - current portion",
-                "Other financial liability - current",
-              ]),
-            ],
-          },
-          {
-            id: "tax-control-liabilities",
-            title: "Tax and statutory control accounts",
-            endpoints: makeEndpoints(
-              "SFP",
-              "Current liabilities",
-              [
-                "VAT control",
-                "Income tax control",
-                "PAYE / UIF / SDL control",
-                "Dividend withholding tax control",
-                "Other SARS / statutory control account",
-              ],
-              "System will present debit balances as current assets and credit balances as current liabilities."
-            ),
-          },
-          {
-            id: "current-provisions",
-            title: "Current provisions",
-            endpoints: makeEndpoints("SFP", "Current liabilities", [
-              "Provision - current",
-              "Leave pay provision",
-              "Bonus provision",
-              "Warranties provision",
-              "Other current provision",
-            ]),
-          },
+        schedules: [
+          { key: "bank-overdraft", number: "620", title: "Bank overdraft and credit facilities" },
+          { key: "payables", number: "630", title: "Trade and other payables" },
+          { key: "borrowings", number: "650", title: "Short-term borrowings and finance" },
+          { key: "provisions", number: "660", title: "Current provisions" },
+          { key: "dividend-payable", number: "688", title: "Dividend payable" },
+          { key: "tax-controls", number: "690", title: "Tax and statutory payables" },
+          { key: "current-tax-payable", number: "695", title: "Current tax payable" },
+          { key: "liabilities-held-for-sale", number: "699", title: "Liabilities held for sale" },
         ],
       },
     ],
   },
   {
-    id: "pl",
-    title: "Statement of Profit or Loss",
-    description: "Income statement accounts grouped by AFS presentation section.",
-    sections: [
+    key: "pl",
+    title: "Income Statement",
+    groups: [
       {
-        id: "revenue",
-        title: "Revenue",
-        description: "Primary trading revenue.",
-        subgroups: [
-          {
-            id: "trading-revenue",
-            title: "Trading revenue",
-            endpoints: makeEndpoints("P/L", "Revenue", [
-              "Sale of goods",
-              "Rendering of services",
-              "Construction revenue",
-              "Rental income - trading",
-              "Commission income - trading",
-              "Revenue 1",
-              "Revenue 2",
-              "Revenue 3",
-              "Revenue 4",
-              "Revenue 5",
-            ]),
-          },
+        key: "pl-revenue-income",
+        number: "700",
+        title: "Revenue and income",
+        schedules: [
+          { key: "revenue", number: "700", title: "Revenue" },
+          { key: "operating-income", number: "730", title: "Other operating income" },
+          { key: "investment-income", number: "770", title: "Investment income" },
+          { key: "non-operating-income", number: "785", title: "Non-operating income" },
         ],
       },
       {
-        id: "other-income",
-        title: "Other income",
-        description: "Non-trading income and gains.",
-        subgroups: [
-          {
-            id: "other-income-general",
-            title: "Other income",
-            endpoints: makeEndpoints("P/L", "Other income", [
-              "Interest received",
-              "Dividend income",
-              "Profit on sale of asset",
-              "Foreign exchange gain",
-              "Fair value gain",
-              "Bad debts recovered",
-              "Government grants",
-              "Sundry income",
-              "Other income 1",
-              "Other income 2",
-              "Other income 3",
-            ]),
-          },
+        key: "pl-expenses",
+        number: "720",
+        title: "Expenses",
+        schedules: [
+          { key: "cost-of-sales", number: "720", title: "Cost of sales" },
+          { key: "operating-expenses", number: "750", title: "Operating expenses" },
+          { key: "non-operating-expenses", number: "781", title: "Non-operating expenses" },
         ],
       },
       {
-        id: "cost-of-sales",
-        title: "Cost of sales",
-        description: "Direct cost of sales and inventory movements.",
-        subgroups: [
-          {
-            id: "cost-of-sales-general",
-            title: "Cost of sales",
-            endpoints: makeEndpoints("P/L", "Cost of sales", [
-              "Opening inventory",
-              "Purchases",
-              "Direct materials",
-              "Direct labour",
-              "Manufacturing overheads",
-              "Subcontractors",
-              "Import costs",
-              "Closing inventory",
-              "Inventory adjustment",
-              "Cost of sales - other",
-            ]),
-          },
+        key: "pl-finance-tax",
+        number: "775",
+        title: "Finance and taxation",
+        schedules: [
+          { key: "finance-costs", number: "775", title: "Finance costs" },
+          { key: "taxation", number: "795", title: "Taxation" },
         ],
       },
       {
-        id: "operating-expenses",
-        title: "Operating expenses",
-        description: "General operating expenses.",
-        subgroups: [
-          {
-            id: "administration",
-            title: "Administration",
-            endpoints: makeEndpoints("P/L", "Operating expenses", [
-              "Accounting fees",
-              "Audit / independent review fees",
-              "Bank charges",
-              "Computer expenses",
-              "Consulting and professional fees",
-              "Courier and postage",
-              "Depreciation",
-              "Amortisation",
-              "Insurance",
-              "Legal fees",
-              "Printing and stationery",
-              "Software subscriptions",
-              "Telephone and internet",
-              "Training",
-              "Travel - local",
-              "Travel - overseas",
-              "Other expenses - deductible",
-              "Other expenses - non-deductible",
-            ]),
-          },
-          {
-            id: "premises",
-            title: "Premises",
-            endpoints: makeEndpoints("P/L", "Operating expenses", [
-              "Rent paid",
-              "Rates and taxes",
-              "Electricity and water",
-              "Repairs and maintenance",
-              "Cleaning",
-              "Security",
-              "Garden and landscaping",
-              "Property management fees",
-            ]),
-          },
-          {
-            id: "selling-marketing",
-            title: "Selling and marketing",
-            endpoints: makeEndpoints("P/L", "Operating expenses", [
-              "Advertising",
-              "Marketing",
-              "Commission paid",
-              "Entertainment",
-              "Gifts",
-              "Website and online advertising",
-            ]),
-          },
-          {
-            id: "impairments-losses",
-            title: "Impairments and losses",
-            endpoints: makeEndpoints("P/L", "Operating expenses", [
-              "Bad debts",
-              "Impairment loss",
-              "Loss on sale of asset",
-              "Foreign exchange loss",
-              "Fair value loss",
-              "Fines and penalties",
-            ]),
-          },
+        key: "pl-other-performance",
+        number: "780",
+        title: "Other performance",
+        schedules: [
+          { key: "non-operating-gains-losses", number: "780", title: "Non-operating gains / losses" },
+          { key: "other-comprehensive-income", number: "797", title: "Other comprehensive income" },
+          { key: "discontinued-operations", number: "799", title: "Discontinued operations" },
         ],
       },
+    ],
+  },
+  {
+    key: "other",
+    title: "Other",
+    groups: [
       {
-        id: "employee-costs",
-        title: "Employee costs",
-        description: "Staff and payroll costs.",
-        subgroups: [
-          {
-            id: "payroll",
-            title: "Payroll",
-            endpoints: makeEndpoints("P/L", "Employee costs", [
-              "Salaries and wages",
-              "Directors remuneration",
-              "Bonuses",
-              "Commission - staff",
-              "Leave pay",
-              "Medical aid company contributions",
-              "Pension / provident fund contributions",
-              "UIF",
-              "SDL",
-              "WCA",
-              "Other employee costs",
-            ]),
-          },
-        ],
-      },
-      {
-        id: "finance-costs",
-        title: "Finance costs",
-        description: "Interest and finance charges.",
-        subgroups: [
-          {
-            id: "finance-costs-general",
-            title: "Finance costs",
-            endpoints: makeEndpoints("P/L", "Finance costs", [
-              "Interest paid",
-              "Bank interest",
-              "Finance lease interest",
-              "Loan interest",
-              "Other finance costs",
-            ]),
-          },
-        ],
-      },
-      {
-        id: "taxation",
-        title: "Taxation",
-        description: "Income tax expense items.",
-        subgroups: [
-          {
-            id: "tax-expense",
-            title: "Tax expense",
-            endpoints: makeEndpoints("P/L", "Taxation", [
-              "Current tax expense",
-              "Deferred tax expense",
-              "Prior year tax under / over provision",
-              "Withholding tax",
-              "Other taxation",
-            ]),
-          },
+        key: "other-disclosures",
+        number: "850",
+        title: "Other disclosures",
+        schedules: [
+          { key: "related-parties", number: "850", title: "Related parties" },
+          { key: "commitments-contingencies", number: "857", title: "Commitments and contingencies" },
+          { key: "cash-flow", number: "880", title: "Statement of cash flows" },
+          { key: "other-disclosures", number: "891", title: "Other disclosures" },
         ],
       },
     ],
   },
 ];
+
+function formatSectionTitle(section: { number: string; title: string }) {
+  return `${section.number} · ${section.title}`;
+}
 
 export default function AFSEngagementPage() {
   const router = useRouter();
@@ -794,13 +349,15 @@ export default function AFSEngagementPage() {
 
   const [loading, setLoading] = useState(true);
   const [engagement, setEngagement] = useState<AFSEngagement | null>(null);
-  const [trialBalanceLines, setTrialBalanceLines] = useState<TrialBalanceLine[]>(
-    []
-  );
-  const [notes, setNotes] = useState<AFSNote[]>([]);
-  const [workingPapers, setWorkingPapers] = useState<WorkingPaper[]>([]);
-  const [activeSection, setActiveSection] =
-    useState<SectionKey>("client-setup");
+  const [clientSetup, setClientSetup] = useState<ClientSetupData | null>(null);
+  const [clientPeople, setClientPeople] = useState<ClientPerson[]>([]);
+  const [trialBalanceLines, setTrialBalanceLines] = useState<TrialBalanceLine[]>([]);
+  const [activeSection, setActiveSection] = useState<SectionKey>("client-setup");
+  const [activeLeadSchedule, setActiveLeadSchedule] = useState<LeadScheduleKey | null>(null);
+  const [activeLeadSubPage, setActiveLeadSubPage] =
+    useState<LeadScheduleSubPage>("lead-schedule");
+  const [openLeadStatements, setOpenLeadStatements] = useState<Record<string, boolean>>({});
+  const [openLeadGroups, setOpenLeadGroups] = useState<Record<string, boolean>>({});
 
   async function loadEngagement() {
     setLoading(true);
@@ -818,8 +375,22 @@ export default function AFSEngagementPage() {
 
       setEngagement(data.engagement);
       setTrialBalanceLines(data.trialBalanceLines || []);
-      setNotes(data.notes || []);
-      setWorkingPapers(data.workingPapers || []);
+
+      const setupRes = await fetch(
+        `/api/afs/engagements/${engagementId}/client-setup`,
+        { cache: "no-store" }
+      );
+
+      const setupData = await setupRes.json();
+
+      if (setupRes.ok) {
+        setClientSetup(setupData.setup || null);
+        setClientPeople(setupData.people || []);
+
+        if (setupData.engagement) {
+          setEngagement(setupData.engagement);
+        }
+      }
     } catch (error: any) {
       alert(error.message || "Failed to load AFS engagement.");
     } finally {
@@ -833,6 +404,80 @@ export default function AFSEngagementPage() {
     }
   }, [engagementId]);
 
+  function toggleLeadStatement(statementKey: string) {
+    setOpenLeadStatements((current) => ({
+      ...current,
+      [statementKey]: !current[statementKey],
+    }));
+  }
+
+  function toggleLeadGroup(groupKey: string) {
+    setOpenLeadGroups((current) => ({
+      ...current,
+      [groupKey]: !current[groupKey],
+    }));
+  }
+
+  function openSection(sectionKey: SectionKey) {
+    setActiveSection(sectionKey);
+
+    if (sectionKey === "lead-schedules") {
+      setActiveLeadSchedule(null);
+      setActiveLeadSubPage("lead-schedule");
+    }
+  }
+
+  function openLeadSchedule(scheduleKey: LeadScheduleKey, subPage: LeadScheduleSubPage) {
+    setActiveSection("lead-schedules");
+    setActiveLeadSchedule(scheduleKey);
+    setActiveLeadSubPage(subPage);
+  }
+
+  function handleClientSetupSaved(payload: {
+    setup: any;
+    engagement?: {
+      id?: string;
+      client_name?: string | null;
+      entity_type?: string | null;
+      financial_year_end?: string | null;
+      status?: string | null;
+      prepared_by?: string | null;
+      reviewed_by?: string | null;
+      notes?: string | null;
+    } | null;
+    people?: any[];
+  }) {
+    setClientSetup(payload.setup || null);
+
+    if (payload.people) {
+      setClientPeople(payload.people);
+    }
+
+    if (payload.engagement) {
+      setEngagement((current) => {
+        if (!current) return current;
+
+        return {
+          ...current,
+          client_name:
+            payload.engagement?.client_name || current.client_name || "",
+          entity_type:
+            payload.engagement?.entity_type || current.entity_type || null,
+          financial_year_end:
+            payload.engagement?.financial_year_end ||
+            current.financial_year_end ||
+            "",
+          status: payload.engagement?.status || current.status || "Draft",
+          prepared_by:
+            payload.engagement?.prepared_by || current.prepared_by || null,
+          reviewed_by:
+            payload.engagement?.reviewed_by || current.reviewed_by || null,
+          notes: payload.engagement?.notes || current.notes || null,
+        };
+      });
+    }
+  }
+
   if (loading) {
     return <main style={styles.page}>Loading AFS engagement...</main>;
   }
@@ -840,48 +485,77 @@ export default function AFSEngagementPage() {
   if (!engagement) {
     return (
       <main style={styles.page}>
-        <button
-          style={styles.secondaryButton}
-          onClick={() => router.push("/afs")}
-        >
-          Back to AFS
+        <button style={styles.secondaryButton} onClick={() => router.push("/afs")}>
+          ← Back to AFS
         </button>
         <p>AFS engagement not found.</p>
       </main>
     );
   }
 
-  const selectedSection = sections.find(
-    (section) => section.key === activeSection
-  );
+  const selectedSection = sections.find((section) => section.key === activeSection);
+  const displayClientName = clientSetup?.registered_name || engagement.client_name;
+  const displayEntityType = clientSetup?.entity_type || engagement.entity_type || "Company";
+  const displayYearEnd = engagement.financial_year_end;
+  const isMappingMode = activeSection === "mapping";
+
+  const financialStatementQuickButtons = [
+    { label: "Index", targetId: "afs-index" },
+    { label: "Cover page", targetId: "afs-cover" },
+    { label: "General information", targetId: "afs-general-info" },
+    { label: "Directors' responsibilities", targetId: "afs-directors-responsibilities" },
+    { label: "Directors' report", targetId: "afs-directors-report" },
+    { label: "Compiler report", targetId: "afs-compilation-report" },
+    { label: "Balance sheet", targetId: "afs-sfp" },
+    { label: "Comprehensive income", targetId: "afs-sci" },
+    { label: "Changes in equity", targetId: "afs-socie" },
+    { label: "Cash flow", targetId: "afs-cash-flow" },
+    { label: "Accounting policies", targetId: "afs-accounting-policies" },
+    { label: "Notes", targetId: "afs-notes" },
+    { label: "Detailed income statement", targetId: "afs-detailed-income" },
+    { label: "Tax computation", targetId: "afs-tax-computation" },
+  ];
+
+  function jumpToFinancialStatementSection(targetId: string) {
+    setActiveSection("financial-statements");
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const target = document.getElementById(targetId);
+        if (target) {
+          window.history.replaceState(null, "", `#${targetId}`);
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+    });
+  }
 
   return (
     <main style={styles.page}>
-      <section style={styles.topBar}>
-        <button
-          style={styles.secondaryButton}
-          onClick={() => router.push("/afs")}
-        >
-          ← Back to AFS
-        </button>
+      {!isMappingMode && (
+        <section style={styles.topBar}>
+          <button style={styles.backButton} onClick={() => router.push("/afs")}>
+            ← Back to AFS
+          </button>
 
-        <div style={styles.topTitleBlock}>
-          <p style={styles.kicker}>AFS Working File</p>
-          <h1 style={styles.title}>{engagement.client_name}</h1>
-          <p style={styles.subtitle}>
-            {engagement.entity_type || "Entity"} · Financial year end{" "}
-            {engagement.financial_year_end}
-          </p>
-        </div>
+          <div style={styles.fileHeaderLine}>
+            <span style={styles.fileHeaderLabel}>AFS Working File</span>
+            <span style={styles.fileHeaderDivider}>|</span>
+            <strong style={styles.fileHeaderClient}>{displayClientName}</strong>
+            <span style={styles.fileHeaderDivider}>|</span>
+            <span style={styles.fileHeaderMeta}>
+              {displayEntityType} · Financial year end {displayYearEnd}
+            </span>
+          </div>
 
-        <span style={styles.status}>{engagement.status}</span>
-      </section>
+          <span style={styles.status}>{engagement.status || "Draft"}</span>
+        </section>
+      )}
 
       <section style={styles.fileLayout}>
         <aside style={styles.sidebar}>
           <div style={styles.sidebarHeader}>
-            <strong>Working file</strong>
-            <span>{sections.length} sections</span>
+            <strong>AFS</strong>
           </div>
 
           <nav style={styles.sectionList}>
@@ -889,42 +563,193 @@ export default function AFSEngagementPage() {
               const isActive = section.key === activeSection;
 
               return (
-                <button
-                  key={section.key}
-                  type="button"
-                  style={{
-                    ...styles.sidebarSectionButton,
-                    ...(isActive ? styles.sidebarSectionButtonActive : {}),
-                  }}
-                  onClick={() => setActiveSection(section.key)}
-                >
-                  <span
+                <div key={section.key} style={styles.sidebarGroup}>
+                  <button
+                    type="button"
                     style={{
-                      ...styles.sectionNumber,
-                      ...(isActive ? styles.sectionNumberActive : {}),
+                      ...styles.sidebarSectionButton,
+                      ...(isActive ? styles.sidebarSectionButtonActive : {}),
                     }}
+                    onClick={() => openSection(section.key)}
                   >
-                    {section.number}
-                  </span>
+                    {section.title}
+                  </button>
 
-                  <span style={styles.sectionText}>
-                    <strong>{section.title}</strong>
-                    <small>{section.description}</small>
-                  </span>
-                </button>
+                  {section.key === "lead-schedules" && isActive ? (
+                    <div style={styles.leadScheduleTree}>
+                      {leadScheduleStatements.map((statement) => {
+                        const isStatementOpen = Boolean(openLeadStatements[statement.key]);
+
+                        return (
+                          <div key={statement.key} style={styles.leadStatementBlock}>
+                            <button
+                              type="button"
+                              style={styles.leadStatementButton}
+                              onClick={() => toggleLeadStatement(statement.key)}
+                            >
+                              <span>{statement.title}</span>
+                              <span style={styles.leadToggle}>
+                                {isStatementOpen ? "−" : "+"}
+                              </span>
+                            </button>
+
+                            {isStatementOpen ? (
+                              <div style={styles.leadGroupList}>
+                                {statement.groups.map((group) => {
+                                  const isGroupOpen = Boolean(openLeadGroups[group.key]);
+
+                                  return (
+                                    <div key={group.key} style={styles.leadGroupBlock}>
+                                      <button
+                                        type="button"
+                                        style={styles.leadGroupButton}
+                                        onClick={() => toggleLeadGroup(group.key)}
+                                      >
+                                        <span>{formatSectionTitle(group)}</span>
+                                        <span style={styles.leadToggle}>
+                                          {isGroupOpen ? "−" : "+"}
+                                        </span>
+                                      </button>
+
+                                      {isGroupOpen ? (
+                                        <div style={styles.leadLeafList}>
+                                          {group.schedules.map((schedule) => {
+                                            const isLeadActive =
+                                              schedule.key === activeLeadSchedule;
+
+                                            return (
+                                              <div
+                                                key={`${schedule.number}-${schedule.key}`}
+                                                style={styles.leadWpGroup}
+                                              >
+                                                <button
+                                                  type="button"
+                                                  style={{
+                                                    ...styles.leadLeafButton,
+                                                    ...(isLeadActive
+                                                      ? styles.leadLeafButtonActive
+                                                      : {}),
+                                                  }}
+                                                  onClick={() =>
+                                                    openLeadSchedule(
+                                                      schedule.key,
+                                                      "lead-schedule"
+                                                    )
+                                                  }
+                                                >
+                                                  {schedule.number} · {schedule.title}
+                                                </button>
+
+                                                {isLeadActive ? (
+                                                  <div style={styles.leadSubList}>
+                                                    <button
+                                                      type="button"
+                                                      style={{
+                                                        ...styles.leadSubButton,
+                                                        ...(activeLeadSubPage ===
+                                                        "lead-schedule"
+                                                          ? styles.leadSubButtonActive
+                                                          : {}),
+                                                      }}
+                                                      onClick={() =>
+                                                        openLeadSchedule(
+                                                          schedule.key,
+                                                          "lead-schedule"
+                                                        )
+                                                      }
+                                                    >
+                                                      {schedule.number}.000 · Lead schedule
+                                                    </button>
+
+                                                    <button
+                                                      type="button"
+                                                      style={{
+                                                        ...styles.leadSubButton,
+                                                        ...(activeLeadSubPage ===
+                                                        "supporting-working-paper"
+                                                          ? styles.leadSubButtonActive
+                                                          : {}),
+                                                      }}
+                                                      onClick={() =>
+                                                        openLeadSchedule(
+                                                          schedule.key,
+                                                          "supporting-working-paper"
+                                                        )
+                                                      }
+                                                    >
+                                                      {schedule.number}.001 · Supporting
+                                                      working paper
+                                                    </button>
+
+                                                    <button
+                                                      type="button"
+                                                      style={{
+                                                        ...styles.leadSubButton,
+                                                        ...(activeLeadSubPage ===
+                                                        "review-notes"
+                                                          ? styles.leadSubButtonActive
+                                                          : {}),
+                                                      }}
+                                                      onClick={() =>
+                                                        openLeadSchedule(
+                                                          schedule.key,
+                                                          "review-notes"
+                                                        )
+                                                      }
+                                                    >
+                                                      {schedule.number}.002 · Review notes
+                                                    </button>
+                                                  </div>
+                                                ) : null}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
               );
             })}
           </nav>
         </aside>
 
-        <section style={styles.workArea}>
-          <div style={styles.workHeader}>
-            <div>
+        <section
+          style={{
+            ...styles.workArea,
+            ...(isMappingMode ? styles.workAreaMapping : {}),
+          }}
+        >
+          {!isMappingMode && (
+            <div style={styles.workHeader}>
               <p style={styles.kicker}>{selectedSection?.number}</p>
               <h2 style={styles.workTitle}>{selectedSection?.title}</h2>
               <p style={styles.subtitle}>{selectedSection?.description}</p>
             </div>
-          </div>
+          )}
+
+          {activeSection === "financial-statements" && (
+            <div style={styles.financialQuickNav}>
+              {financialStatementQuickButtons.map((button) => (
+                <button
+                  key={button.targetId}
+                  type="button"
+                  style={styles.financialQuickButton}
+                  onClick={() => jumpToFinancialStatementSection(button.targetId)}
+                >
+                  {button.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {activeSection === "client-setup" && (
             <ClientSetupPanel
@@ -933,6 +758,7 @@ export default function AFSEngagementPage() {
               entityType={engagement.entity_type}
               financialYearEnd={engagement.financial_year_end}
               preparedBy={engagement.prepared_by}
+              onSaved={handleClientSetupSaved}
             />
           )}
 
@@ -945,86 +771,87 @@ export default function AFSEngagementPage() {
           )}
 
           {activeSection === "mapping" && (
-            <MappingPanel trialBalanceLines={trialBalanceLines} />
-          )}
-
-          {activeSection === "lead-schedules" && (
-            <Placeholder
-              title="Lead Schedules"
-              text="This is where current assets, non-current assets, liabilities, equity and income statement schedules will be prepared."
+            <MappingPanelNew
+              trialBalanceLines={trialBalanceLines}
+              onTrialBalanceLinesChanged={(lines) => setTrialBalanceLines(lines)}
+              onDataChanged={loadEngagement}
             />
           )}
 
-          {activeSection === "working-papers" && (
-            <section style={styles.card}>
-              <h3 style={styles.cardTitle}>Working papers</h3>
-
-              {workingPapers.length === 0 ? (
-                <p style={styles.emptyText}>No working papers created yet.</p>
-              ) : (
-                <div style={styles.stack}>
-                  {workingPapers.map((paper) => (
-                    <div key={paper.id} style={styles.smallItem}>
-                      <strong>{paper.title}</strong>
-                      <p style={styles.smallText}>
-                        {paper.section} · {paper.status}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+          {activeSection === "lead-schedules" && activeLeadSchedule === null && (
+            <PlaceholderCard
+              title="Lead Schedules"
+              text="Select a lead schedule from the working paper index on the left."
+            />
           )}
+
+          {activeSection === "lead-schedules" && activeLeadSchedule !== null && (
+  <>
+    
+    <LeadSchedulesPanel
+      trialBalanceLines={trialBalanceLines}
+      activeLeadSchedule={activeLeadSchedule}
+      activeLeadSubPage={activeLeadSubPage}
+    />
+  </>
+)}
+
+          {activeSection === "adjusting-journals" && (
+            <AdjustingJournalsPanel
+              engagementId={engagementId}
+              trialBalanceLines={trialBalanceLines}
+              onAccountCreated={(line) => {
+                setTrialBalanceLines((current) => {
+                  const code = String(line?.account_code || "").trim();
+                  if (!code) return current;
+                  const exists = current.some((item) => String(item.account_code || "").trim() === code);
+                  return exists ? current.map((item) => String(item.account_code || "").trim() === code ? { ...item, ...line } : item) : [...current, line as any];
+                });
+                loadEngagement();
+              }}
+              onTrialBalanceLinesChanged={(lines) => setTrialBalanceLines(lines as any)}
+              onDataChanged={loadEngagement}
+            />
+          )}
+
+          {activeSection === "tax-calculator" && <TaxCalculatorPanel />}
 
           {activeSection === "financial-statements" && (
-            <section style={styles.card}>
-              <h3 style={styles.cardTitle}>Financial Statements</h3>
-
-              {notes.length === 0 ? (
-                <p style={styles.emptyText}>
-                  No AFS notes created yet. Notes will be generated from mapped TB
-                  balances.
-                </p>
-              ) : (
-                <div style={styles.stack}>
-                  {notes.map((note) => (
-                    <div key={note.id} style={styles.smallItem}>
-                      <strong>
-                        {note.note_number}. {note.note_title}
-                      </strong>
-                      <p style={styles.smallText}>{note.note_body || ""}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+            <FinancialStatementsPanel
+              trialBalanceLines={trialBalanceLines}
+              engagement={engagement}
+              clientSetup={clientSetup}
+              people={clientPeople}
+            />
           )}
 
+          {activeSection === "review" && <ReviewPanel />}
+
           {activeSection === "minutes" && (
-            <Placeholder
+            <PlaceholderCard
               title="Minutes / Resolutions"
-              text="This is where approval minutes and director/member resolutions will be generated."
+              text="Director, member and shareholder approval documents will be generated here."
             />
           )}
 
           {activeSection === "compilation-report" && (
-            <Placeholder
+            <PlaceholderCard
               title="Compilation Report"
-              text="This is where the compilation report, practitioner sign-off and representation letter will sit."
+              text="Compilation report settings and final practitioner wording will be managed here."
             />
           )}
 
           {activeSection === "xbrl" && (
-            <Placeholder
+            <PlaceholderCard
               title="XBRL / iXBRL"
-              text="This is where XBRL preparation and submission checks will be handled later."
+              text="XBRL tagging and submission workflow will be added here."
             />
           )}
 
           {activeSection === "finalisation" && (
-            <Placeholder
+            <PlaceholderCard
               title="Finalisation"
-              text="This is where final review, file lock, PDF export and completion status will be handled."
+              text="Final checks, sign-off, lock file and export history will be managed here."
             />
           )}
         </section>
@@ -1033,373 +860,7 @@ export default function AFSEngagementPage() {
   );
 }
 
-function MappingPanel({
-  trialBalanceLines,
-}: {
-  trialBalanceLines: TrialBalanceLine[];
-}) {
-  const [selectedLineKey, setSelectedLineKey] = useState("");
-  const [selectedEndpoint, setSelectedEndpoint] =
-    useState<MappingEndpoint | null>(null);
-
-  const [searchText, setSearchText] = useState("");
-  const [accountFilter, setAccountFilter] = useState("Unmapped");
-
-  const [openStatements, setOpenStatements] = useState<Record<string, boolean>>(
-    {}
-  );
-  const [openMappingSections, setOpenMappingSections] = useState<
-    Record<string, boolean>
-  >({});
-  const [openSubgroups, setOpenSubgroups] = useState<Record<string, boolean>>(
-    {}
-  );
-
-  const enrichedLines = useMemo(() => {
-    return trialBalanceLines.map((line, index) => ({
-      ...line,
-      lineKey: getLineKey(line, index),
-      current: currentBalance(line),
-      prior: priorBalance(line),
-      suggested: suggestMapping(line),
-    }));
-  }, [trialBalanceLines]);
-
-  const selectedLine =
-    enrichedLines.find((line) => line.lineKey === selectedLineKey) || null;
-
-  const filteredLines = useMemo(() => {
-    const q = searchText.trim().toLowerCase();
-
-    return enrichedLines.filter((line) => {
-      const mapped = Boolean(line.mapping_category);
-
-      if (accountFilter === "Mapped" && !mapped) return false;
-      if (accountFilter === "Unmapped" && mapped) return false;
-
-      if (!q) return true;
-
-      return (
-        String(line.account_code || "").toLowerCase().includes(q) ||
-        String(line.account_name || "").toLowerCase().includes(q) ||
-        String(line.suggested || "").toLowerCase().includes(q)
-      );
-    });
-  }, [enrichedLines, searchText, accountFilter]);
-
-  const mappedCount = trialBalanceLines.filter((line) =>
-    Boolean(line.mapping_category)
-  ).length;
-
-  function toggleStatement(id: string) {
-    setOpenStatements((prev) => ({ ...prev, [id]: !prev[id] }));
-  }
-
-  function toggleMappingSection(id: string) {
-    setOpenMappingSections((prev) => ({ ...prev, [id]: !prev[id] }));
-  }
-
-  function toggleSubgroup(id: string) {
-    setOpenSubgroups((prev) => ({ ...prev, [id]: !prev[id] }));
-  }
-
-  function assignMapping() {
-    if (!selectedLine || !selectedEndpoint) {
-      alert("Select one account on the left and one mapping destination on the right.");
-      return;
-    }
-
-    alert(
-      `Next step will save: ${selectedLine.account_name || "Selected account"} → ${
-        selectedEndpoint.label
-      }`
-    );
-  }
-
-  return (
-    <section style={styles.mappingWrapper}>
-      <div style={styles.mappingHeaderRow}>
-        <div>
-          <h3 style={styles.cardTitle}>Mapping / Link Accounts</h3>
-          <p style={styles.emptyText}>
-            Select one account on the left and assign it to a clean AFS
-            destination. Detail schedules will come later.
-          </p>
-        </div>
-
-        <div style={styles.mappingStatsRow}>
-          <Stat label="Total lines" value={trialBalanceLines.length} />
-          <Stat label="Mapped" value={mappedCount} />
-          <Stat label="Unmapped" value={trialBalanceLines.length - mappedCount} />
-        </div>
-      </div>
-
-      <div style={styles.mappingGrid}>
-        <section style={styles.mapperPane}>
-          <div style={styles.panelHeader}>
-            <strong>Trial balance accounts</strong>
-
-            <select
-              style={styles.smallSelect}
-              value={accountFilter}
-              onChange={(e) => setAccountFilter(e.target.value)}
-            >
-              <option>Unmapped</option>
-              <option>Mapped</option>
-              <option>All</option>
-            </select>
-          </div>
-
-          <div style={styles.searchWrap}>
-            <input
-              style={styles.searchInput}
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Search account number, name or suggestion..."
-            />
-          </div>
-
-          <div style={styles.tableWrap}>
-            <table style={styles.mappingTable}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Account</th>
-                  <th style={styles.th}>Description</th>
-                  <th style={styles.thRight}>Current</th>
-                  <th style={styles.thRight}>Prior</th>
-                  <th style={styles.th}>Suggested</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {filteredLines.length === 0 ? (
-                  <tr>
-                    <td style={styles.td} colSpan={5}>
-                      No accounts found.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredLines.map((line) => {
-                    const isSelected = selectedLineKey === line.lineKey;
-
-                    return (
-                      <tr
-                        key={line.lineKey}
-                        onClick={() => setSelectedLineKey(line.lineKey)}
-                        style={{
-                          ...styles.tr,
-                          ...(isSelected ? styles.selectedRow : {}),
-                        }}
-                      >
-                        <td style={styles.tdCode}>{line.account_code || ""}</td>
-                        <td style={styles.td}>{line.account_name || ""}</td>
-                        <td style={styles.tdRight}>{formatMoney(line.current)}</td>
-                        <td style={styles.tdRight}>{formatMoney(line.prior)}</td>
-                        <td style={styles.tdMuted}>{line.suggested}</td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section style={styles.assignPane}>
-          <div style={styles.selectionBox}>
-            <strong>Selected account</strong>
-
-            {selectedLine ? (
-              <div style={styles.selectedPlainBox}>
-                <span>{selectedLine.account_code}</span>
-                <strong>{selectedLine.account_name}</strong>
-              </div>
-            ) : (
-              <p style={styles.emptyText}>No account selected.</p>
-            )}
-          </div>
-
-          <div style={styles.selectionBox}>
-            <strong>Selected destination</strong>
-
-            {selectedEndpoint ? (
-              <div style={styles.selectedDestination}>
-                <strong>{selectedEndpoint.label}</strong>
-                <span>
-                  {selectedEndpoint.presentation} · {selectedEndpoint.section}
-                </span>
-                {selectedEndpoint.smartRule ? (
-                  <small>{selectedEndpoint.smartRule}</small>
-                ) : null}
-              </div>
-            ) : (
-              <p style={styles.emptyText}>No mapping selected.</p>
-            )}
-
-            <button
-              type="button"
-              style={{
-                ...styles.primaryButton,
-                opacity: selectedLine && selectedEndpoint ? 1 : 0.5,
-              }}
-              disabled={!selectedLine || !selectedEndpoint}
-              onClick={assignMapping}
-            >
-              Assign mapping
-            </button>
-          </div>
-        </section>
-
-        <section style={styles.libraryPane}>
-          <div style={styles.panelHeader}>
-            <div>
-              <strong>Mapping Library</strong>
-              <p style={styles.libraryHint}>
-                Open the statement, then the section, then the subgroup.
-              </p>
-            </div>
-          </div>
-
-          <div style={styles.libraryScroll}>
-            {mappingLibrary.map((statement) => {
-              const statementOpen = Boolean(openStatements[statement.id]);
-
-              return (
-                <div key={statement.id} style={styles.statementBlock}>
-                  <button
-                    type="button"
-                    style={{
-                      ...styles.statementButton,
-                      ...(statementOpen ? styles.statementButtonOpen : {}),
-                    }}
-                    onClick={() => toggleStatement(statement.id)}
-                  >
-                    <span>{statementOpen ? "−" : "+"}</span>
-                    <strong>{statement.title}</strong>
-                  </button>
-
-                  {statementOpen && (
-                    <div style={styles.statementBody}>
-                      <p style={styles.statementDescription}>
-                        {statement.description}
-                      </p>
-
-                      {statement.sections.map((mappingSection) => {
-                        const sectionOpen = Boolean(
-                          openMappingSections[mappingSection.id]
-                        );
-
-                        return (
-                          <div
-                            key={mappingSection.id}
-                            style={styles.mappingSectionBlock}
-                          >
-                            <button
-                              type="button"
-                              style={{
-                                ...styles.mappingSectionButton,
-                                ...(sectionOpen
-                                  ? styles.mappingSectionButtonOpen
-                                  : {}),
-                              }}
-                              onClick={() =>
-                                toggleMappingSection(mappingSection.id)
-                              }
-                            >
-                              <span>{sectionOpen ? "−" : "+"}</span>
-                              <strong>{mappingSection.title}</strong>
-                              <em>
-                                {mappingSection.subgroups.reduce(
-                                  (total, subgroup) =>
-                                    total + subgroup.endpoints.length,
-                                  0
-                                )}
-                              </em>
-                            </button>
-
-                            {sectionOpen && (
-                              <div style={styles.mappingSectionBody}>
-                                <p style={styles.statementDescription}>
-                                  {mappingSection.description}
-                                </p>
-
-                                {mappingSection.subgroups.map((subgroup) => {
-                                  const subgroupOpen = Boolean(
-                                    openSubgroups[subgroup.id]
-                                  );
-
-                                  return (
-                                    <div
-                                      key={subgroup.id}
-                                      style={styles.subgroupBlock}
-                                    >
-                                      <button
-                                        type="button"
-                                        style={{
-                                          ...styles.subgroupButton,
-                                          ...(subgroupOpen
-                                            ? styles.subgroupButtonOpen
-                                            : {}),
-                                        }}
-                                        onClick={() =>
-                                          toggleSubgroup(subgroup.id)
-                                        }
-                                      >
-                                        <span>{subgroupOpen ? "−" : "+"}</span>
-                                        <strong>{subgroup.title}</strong>
-                                        <em>{subgroup.endpoints.length}</em>
-                                      </button>
-
-                                      {subgroupOpen && (
-                                        <div style={styles.endpointList}>
-                                          {subgroup.endpoints.map((endpoint) => {
-                                            const isSelected =
-                                              selectedEndpoint?.id === endpoint.id;
-
-                                            return (
-                                              <button
-                                                key={endpoint.id}
-                                                type="button"
-                                                style={{
-                                                  ...styles.endpointButton,
-                                                  ...(isSelected
-                                                    ? styles.endpointButtonSelected
-                                                    : {}),
-                                                }}
-                                                onClick={() =>
-                                                  setSelectedEndpoint(endpoint)
-                                                }
-                                              >
-                                                <span>{endpoint.label}</span>
-                                                {endpoint.smartRule ? (
-                                                  <small>Smart presentation</small>
-                                                ) : null}
-                                              </button>
-                                            );
-                                          })}
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      </div>
-    </section>
-  );
-}
-
-function Placeholder({ title, text }: { title: string; text: string }) {
+function PlaceholderCard({ title, text }: { title: string; text: string }) {
   return (
     <section style={styles.card}>
       <h3 style={styles.cardTitle}>{title}</h3>
@@ -1408,566 +869,327 @@ function Placeholder({ title, text }: { title: string; text: string }) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div style={styles.statBox}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function getLineKey(line: TrialBalanceLine, index: number) {
-  return line.id || `${line.account_code || "line"}-${index}`;
-}
-
-function toNumber(value: any) {
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) ? numberValue : 0;
-}
-
-function currentBalance(line: TrialBalanceLine) {
-  return (
-    toNumber(line.opening_balance) +
-    toNumber(line.current_year_balance ?? line.debit ?? 0)
-  );
-}
-
-function priorBalance(line: TrialBalanceLine) {
-  return toNumber(line.prior_year_balance ?? line.credit ?? 0);
-}
-
-function suggestMapping(line: TrialBalanceLine) {
-  const code = String(line.account_code || "").toLowerCase();
-  const name = String(line.account_name || "").toLowerCase();
-  const balance = currentBalance(line);
-
-  if (name.includes("bank") || name.includes("nedbank") || name.includes("cash")) {
-    return "Cash and bank";
-  }
-
-  if (
-    name.includes("vat") ||
-    name.includes("paye") ||
-    name.includes("uif") ||
-    name.includes("sdl") ||
-    name.includes("income tax") ||
-    name.includes("sars")
-  ) {
-    return "Tax and statutory control accounts";
-  }
-
-  if (
-    name.includes("shareholder") ||
-    name.includes("director") ||
-    name.includes("member") ||
-    name.includes("loan")
-  ) {
-    return balance < 0 ? "Loan payable" : "Loan receivable";
-  }
-
-  if (
-    name.includes("capital") ||
-    name.includes("retained") ||
-    name.includes("reserve") ||
-    code.startsWith("5")
-  ) {
-    return "Equity";
-  }
-
-  if (
-    name.includes("stock") ||
-    name.includes("inventory") ||
-    name.includes("raw material")
-  ) {
-    return "Inventory / cost of sales";
-  }
-
-  if (
-    name.includes("sales") ||
-    name.includes("revenue") ||
-    name.includes("income")
-  ) {
-    return "Revenue / income";
-  }
-
-  if (balance < 0) {
-    return "Liability / income";
-  }
-
-  return "Expenses";
-}
-
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("en-ZA", {
-    style: "currency",
-    currency: "ZAR",
-  }).format(Number(value || 0));
-}
-
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "100vh",
-    background: "#eef2f7",
-    padding: "22px",
-    color: "#111827",
+    background: "#eef4fb",
+    padding: "8px 12px 16px",
+    color: "#0f172a",
+    fontFamily:
+      'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    fontSize: "12px",
   },
   topBar: {
-    background: "white",
-    border: "1px solid #dbe3ef",
-    borderRadius: "16px",
-    padding: "18px",
-    marginBottom: "18px",
-    display: "grid",
-    gridTemplateColumns: "auto 1fr auto",
-    gap: "18px",
+    background: "#ffffff",
+    border: "1px solid #cfd8e6",
+    borderRadius: "8px",
+    padding: "6px 10px",
+    marginBottom: "8px",
+    minHeight: "34px",
+    display: "flex",
     alignItems: "center",
-    boxShadow: "0 8px 22px rgba(15, 23, 42, 0.05)",
+    justifyContent: "space-between",
+    gap: "10px",
+    boxShadow: "none",
   },
-  topTitleBlock: {
+  backButton: {
+    border: "1px solid #cbd5e1",
+    borderRadius: "6px",
+    padding: "5px 8px",
+    background: "#ffffff",
+    color: "#0f172a",
+    fontSize: "11px",
+    fontWeight: 750,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  fileHeaderLine: {
+    flex: 1,
     minWidth: 0,
-  },
-  kicker: {
-    margin: "0 0 5px",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
     fontSize: "12px",
-    fontWeight: 800,
-    color: "#2563eb",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+  },
+  fileHeaderLabel: {
+    color: "#1d4ed8",
+    fontWeight: 850,
     textTransform: "uppercase",
     letterSpacing: "0.08em",
+    fontSize: "10px",
+    whiteSpace: "nowrap",
   },
-  title: {
-    margin: 0,
-    fontSize: "25px",
-    lineHeight: 1.2,
+  fileHeaderDivider: {
+    color: "#94a3b8",
+    fontWeight: 700,
+    fontSize: "11px",
   },
-  subtitle: {
-    margin: "6px 0 0",
-    color: "#64748b",
-    fontSize: "13px",
+  fileHeaderClient: {
+    color: "#0f172a",
+    fontSize: "12px",
+    fontWeight: 850,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  fileHeaderMeta: {
+    color: "#475569",
+    fontSize: "11px",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   status: {
     borderRadius: "999px",
     background: "#eff6ff",
     color: "#1d4ed8",
-    padding: "8px 12px",
-    fontSize: "12px",
+    padding: "3px 7px",
+    fontSize: "10px",
     fontWeight: 800,
     whiteSpace: "nowrap",
   },
   fileLayout: {
     display: "grid",
-    gridTemplateColumns: "360px 1fr",
-    gap: "18px",
+    gridTemplateColumns: "200px minmax(0, 1fr)",
+    gap: "10px",
     alignItems: "start",
   },
   sidebar: {
-    background: "#ffffff",
-    border: "1px solid #dbe3ef",
-    borderRadius: "16px",
-    padding: "14px",
-    boxShadow: "0 8px 22px rgba(15, 23, 42, 0.05)",
+    background: "transparent",
+    borderRight: "1px solid #d8e1ef",
+    padding: "8px 8px 8px 0",
     position: "sticky",
-    top: "90px",
+    top: "62px",
+    maxHeight: "calc(100vh - 70px)",
+    overflow: "auto",
   },
   sidebarHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
-    padding: "8px 8px 14px",
-    borderBottom: "1px solid #e5e7eb",
-    marginBottom: "10px",
-    color: "#111827",
-    fontSize: "13px",
+    color: "#475569",
+    fontSize: "10px",
+    letterSpacing: "0.2em",
+    margin: "0 0 7px 5px",
+    textTransform: "uppercase",
   },
   sectionList: {
     display: "grid",
-    gap: "8px",
+    gap: "5px",
   },
-  sidebarSectionButton: {
-    width: "100%",
-    border: "1px solid #e5e7eb",
-    borderRadius: "12px",
-    background: "#ffffff",
-    padding: "10px",
-    cursor: "pointer",
-    display: "grid",
-    gridTemplateColumns: "42px 1fr",
-    gap: "10px",
-    alignItems: "start",
-    textAlign: "left",
-  },
-  sidebarSectionButtonActive: {
-    borderColor: "#2563eb",
-    background: "#eff6ff",
-  },
-  sectionNumber: {
-    width: "32px",
-    height: "32px",
-    borderRadius: "10px",
-    border: "1px solid #d1d5db",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#64748b",
-    fontWeight: 900,
-    fontSize: "12px",
-    background: "#f8fafc",
-  },
-  sectionNumberActive: {
-    borderColor: "#2563eb",
-    background: "#2563eb",
-    color: "white",
-  },
-  sectionText: {
+  sidebarGroup: {
     display: "grid",
     gap: "3px",
   },
+  sidebarSectionButton: {
+    width: "100%",
+    border: "1px solid #d7e0ec",
+    borderRadius: "7px",
+    background: "#ffffff",
+    padding: "7px 9px",
+    color: "#082f49",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+    textAlign: "left",
+    boxShadow: "none",
+    lineHeight: 1.15,
+  },
+  sidebarSectionButtonActive: {
+    background: "#1464b3",
+    border: "1px solid #1464b3",
+    color: "#ffffff",
+  },
+  leadScheduleTree: {
+    display: "grid",
+    gap: "2px",
+    padding: "1px 0 3px",
+  },
+  leadStatementBlock: {
+    display: "grid",
+    gap: "1px",
+  },
+  leadStatementButton: {
+    width: "100%",
+    border: "0",
+    background: "transparent",
+    color: "#0f172a",
+    padding: "4px 5px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "6px",
+    textAlign: "left",
+    textTransform: "uppercase",
+    letterSpacing: "0.07em",
+    fontSize: "9.5px",
+    fontWeight: 850,
+    cursor: "pointer",
+    lineHeight: 1.12,
+  },
+  leadGroupList: {
+    display: "grid",
+    gap: "1px",
+  },
+  leadGroupBlock: {
+    display: "grid",
+    gap: "1px",
+  },
+  leadGroupButton: {
+    width: "100%",
+    border: "0",
+    background: "transparent",
+    color: "#0f172a",
+    padding: "4px 5px 4px 14px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "6px",
+    textAlign: "left",
+    fontSize: "10.5px",
+    fontWeight: 850,
+    cursor: "pointer",
+    lineHeight: 1.14,
+  },
+  leadLeafList: {
+    display: "grid",
+    gap: "1px",
+    paddingLeft: "24px",
+  },
+  leadWpGroup: {
+    display: "grid",
+    gap: "1px",
+  },
+  leadLeafButton: {
+    width: "100%",
+    border: "0",
+    borderRadius: "5px",
+    background: "transparent",
+    color: "#334155",
+    padding: "3px 5px",
+    textAlign: "left",
+    fontSize: "10.5px",
+    fontWeight: 600,
+    cursor: "pointer",
+    lineHeight: 1.16,
+  },
+  leadLeafButtonActive: {
+    background: "#2563eb",
+    color: "#ffffff",
+    fontWeight: 850,
+  },
+  leadSubList: {
+    display: "grid",
+    gap: "1px",
+    padding: "2px 0 2px 16px",
+  },
+  leadSubButton: {
+    border: "0",
+    background: "transparent",
+    color: "#334155",
+    padding: "3px 5px",
+    textAlign: "left",
+    fontSize: "11px",
+    fontWeight: 750,
+    cursor: "pointer",
+    lineHeight: 1.15,
+  },
+  leadSubButtonActive: {
+    color: "#0f172a",
+    fontWeight: 900,
+    textDecoration: "underline",
+  },
+  leadToggle: {
+    color: "#64748b",
+    fontWeight: 850,
+    fontSize: "10px",
+  },
   workArea: {
     minWidth: 0,
+    display: "grid",
+    gap: "8px",
+  },
+  workAreaMapping: {
+    gap: "0px",
   },
   workHeader: {
-    background: "white",
+    background: "#ffffff",
     border: "1px solid #dbe3ef",
-    borderRadius: "16px",
-    padding: "18px",
-    marginBottom: "14px",
-    boxShadow: "0 8px 22px rgba(15, 23, 42, 0.05)",
+    borderRadius: "8px",
+    padding: "7px 10px",
+    boxShadow: "none",
+  },
+  kicker: {
+    margin: "0 0 2px",
+    color: "#2563eb",
+    fontSize: "9.5px",
+    fontWeight: 850,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
   },
   workTitle: {
     margin: 0,
-    fontSize: "23px",
+    color: "#0f172a",
+    fontSize: "14px",
+    lineHeight: 1.15,
+    fontWeight: 850,
+  },
+  subtitle: {
+    margin: "3px 0 0",
+    color: "#475569",
+    fontSize: "11px",
+    lineHeight: 1.25,
+  },
+
+  financialQuickNav: {
+    position: "sticky",
+    top: "0px",
+    zIndex: 40,
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "5px",
+    alignItems: "center",
+    border: "1px solid #cbd5e1",
+    background: "#f8fafc",
+    padding: "6px",
+    marginBottom: "10px",
+  },
+  financialQuickButton: {
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#0f172a",
+    padding: "4px 8px",
+    fontSize: "12px",
+    fontWeight: 850,
+    cursor: "pointer",
+    borderRadius: "5px",
   },
   card: {
-    background: "white",
+    background: "#ffffff",
     border: "1px solid #dbe3ef",
-    borderRadius: "16px",
-    padding: "18px",
-    boxShadow: "0 8px 22px rgba(15, 23, 42, 0.05)",
+    borderRadius: "8px",
+    padding: "10px",
+    boxShadow: "none",
   },
   cardTitle: {
     margin: 0,
-    fontSize: "18px",
+    fontSize: "14px",
+    color: "#0f172a",
+    fontWeight: 850,
+  },
+  emptyText: {
+    margin: "5px 0 0",
+    color: "#64748b",
+    fontSize: "11px",
+    lineHeight: 1.25,
   },
   secondaryButton: {
     border: "1px solid #d1d5db",
-    borderRadius: "12px",
-    padding: "10px 14px",
-    background: "white",
-    color: "#111827",
-    fontWeight: 800,
-    fontSize: "14px",
-    cursor: "pointer",
-  },
-  primaryButton: {
-    border: "none",
-    borderRadius: "10px",
-    padding: "10px 12px",
-    background: "#2563eb",
-    color: "white",
-    fontWeight: 900,
-    fontSize: "13px",
-    cursor: "pointer",
-  },
-  emptyText: {
-    margin: "6px 0 0",
-    color: "#64748b",
-    fontSize: "14px",
-  },
-  stack: {
-    display: "grid",
-    gap: "10px",
-  },
-  smallItem: {
-    border: "1px solid #e5e7eb",
-    borderRadius: "12px",
-    padding: "12px",
-  },
-  smallText: {
-    margin: "6px 0 0",
-    color: "#64748b",
-    fontSize: "13px",
-  },
-
-  mappingWrapper: {
-    background: "white",
-    border: "1px solid #dbe3ef",
-    borderRadius: "16px",
-    padding: "18px",
-    boxShadow: "0 8px 22px rgba(15, 23, 42, 0.05)",
-  },
-  mappingHeaderRow: {
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: "16px",
-    marginBottom: "16px",
-  },
-  mappingStatsRow: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 100px)",
-    gap: "10px",
-  },
-  statBox: {
-    border: "1px solid #dbe3ef",
-    borderRadius: "10px",
-    padding: "10px 12px",
-    background: "#f8fafc",
-    display: "grid",
-    gap: "4px",
-    fontSize: "12px",
-  },
-  mappingGrid: {
-    display: "grid",
-    gridTemplateColumns: "1.25fr 220px 1fr",
-    gap: "12px",
-    alignItems: "start",
-  },
-  mapperPane: {
-    border: "1px solid #cfd9e8",
-    borderRadius: "12px",
-    overflow: "hidden",
-    background: "white",
-  },
-  panelHeader: {
-    minHeight: "44px",
-    padding: "10px 12px",
-    background: "#f8fafc",
-    borderBottom: "1px solid #dbe3ef",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "10px",
-    fontSize: "13px",
-  },
-  smallSelect: {
-    border: "1px solid #b9c7d8",
-    borderRadius: "8px",
-    padding: "7px 10px",
-    background: "white",
-    fontSize: "12px",
-    fontWeight: 700,
-    color: "#0f172a",
-  },
-  searchWrap: {
-    padding: "10px",
-    borderBottom: "1px solid #e5eaf2",
-  },
-  searchInput: {
-    width: "100%",
-    border: "1px solid #c8d4e3",
-    borderRadius: "8px",
-    padding: "9px 10px",
-    fontSize: "13px",
-    outline: "none",
-    boxSizing: "border-box",
-  },
-  tableWrap: {
-    maxHeight: "520px",
-    overflow: "auto",
-  },
-  mappingTable: {
-    width: "100%",
-    borderCollapse: "collapse",
-    fontSize: "12px",
-  },
-  th: {
-    padding: "8px 9px",
-    background: "#f8fafc",
-    borderBottom: "1px solid #dbe3ef",
-    color: "#48617f",
-    textAlign: "left",
-    fontSize: "11px",
-    whiteSpace: "nowrap",
-  },
-  thRight: {
-    padding: "8px 9px",
-    background: "#f8fafc",
-    borderBottom: "1px solid #dbe3ef",
-    color: "#48617f",
-    textAlign: "right",
-    fontSize: "11px",
-    whiteSpace: "nowrap",
-  },
-  tr: {
-    cursor: "pointer",
-  },
-  selectedRow: {
-    background: "#eaf2ff",
-    outline: "1px solid #2563eb",
-    outlineOffset: "-1px",
-  },
-  td: {
-    padding: "8px 9px",
-    borderBottom: "1px solid #edf1f7",
-    color: "#0f172a",
-    whiteSpace: "nowrap",
-  },
-  tdCode: {
-    padding: "8px 9px",
-    borderBottom: "1px solid #edf1f7",
-    color: "#0f172a",
-    whiteSpace: "nowrap",
-    fontWeight: 800,
-  },
-  tdRight: {
-    padding: "8px 9px",
-    borderBottom: "1px solid #edf1f7",
-    color: "#0f172a",
-    whiteSpace: "nowrap",
-    textAlign: "right",
-  },
-  tdMuted: {
-    padding: "8px 9px",
-    borderBottom: "1px solid #edf1f7",
-    color: "#48617f",
-    whiteSpace: "nowrap",
-  },
-  assignPane: {
-    border: "1px solid #cfd9e8",
-    borderRadius: "12px",
-    background: "#f8fafc",
-    padding: "10px",
-    display: "grid",
-    gap: "12px",
-    fontSize: "13px",
-  },
-  selectionBox: {
-    display: "grid",
-    gap: "8px",
-  },
-  selectedPlainBox: {
-    border: "1px solid #c8d4e3",
-    borderRadius: "9px",
-    background: "white",
-    padding: "10px",
-    display: "grid",
-    gap: "4px",
-  },
-  selectedDestination: {
-    border: "1px solid #93b4f8",
-    borderRadius: "9px",
-    background: "#eff6ff",
-    padding: "10px",
-    display: "grid",
-    gap: "6px",
-    color: "#0f3fb8",
-  },
-  libraryPane: {
-    border: "1px solid #cfd9e8",
-    borderRadius: "12px",
-    overflow: "hidden",
-    background: "white",
-  },
-  libraryHint: {
-    margin: "4px 0 0",
-    color: "#48617f",
-    fontSize: "12px",
-  },
-  libraryScroll: {
-    maxHeight: "620px",
-    overflow: "auto",
-    padding: "10px",
-  },
-  statementBlock: {
-    marginBottom: "8px",
-  },
-  statementButton: {
-    width: "100%",
-    border: "1px solid #0f172a",
-    borderRadius: "8px",
-    background: "white",
-    color: "#0f172a",
-    padding: "10px 12px",
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    cursor: "pointer",
-    textAlign: "left",
-  },
-  statementButtonOpen: {
-    background: "#0f172a",
-    color: "white",
-  },
-  statementBody: {
-    border: "1px solid #dbe3ef",
-    borderTop: "none",
-    borderRadius: "0 0 8px 8px",
-    padding: "8px",
-  },
-  statementDescription: {
-    margin: "4px 2px 10px",
-    color: "#48617f",
-    fontSize: "12px",
-  },
-  mappingSectionBlock: {
-    marginBottom: "8px",
-  },
-  mappingSectionButton: {
-    width: "100%",
-    border: "1px solid #dbe3ef",
-    borderRadius: "8px",
-    background: "#f8fafc",
-    padding: "9px 10px",
-    color: "#0f172a",
-    display: "grid",
-    gridTemplateColumns: "18px 1fr 30px",
-    alignItems: "center",
-    gap: "8px",
-    cursor: "pointer",
-    textAlign: "left",
-  },
-  mappingSectionButtonOpen: {
-    background: "#eaf2ff",
-    color: "#0f3fb8",
-  },
-  mappingSectionBody: {
-    padding: "8px 0 0 12px",
-  },
-  subgroupBlock: {
-    marginBottom: "6px",
-  },
-  subgroupButton: {
-    width: "100%",
-    border: "1px solid #dbe3ef",
     borderRadius: "7px",
-    background: "white",
-    padding: "8px 10px",
+    padding: "6px 9px",
+    background: "#ffffff",
     color: "#0f172a",
-    display: "grid",
-    gridTemplateColumns: "18px 1fr 28px",
-    alignItems: "center",
-    gap: "8px",
-    cursor: "pointer",
-    textAlign: "left",
-    fontSize: "12px",
-  },
-  subgroupButtonOpen: {
-    background: "#f1f5f9",
-    color: "#0f3fb8",
-  },
-  endpointList: {
-    padding: "6px 0 8px 26px",
-    display: "grid",
-    gap: "2px",
-  },
-  endpointButton: {
-    width: "100%",
-    border: "none",
-    background: "transparent",
-    borderRadius: "6px",
-    padding: "7px 8px",
-    textAlign: "left",
-    color: "#0f172a",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "8px",
-    fontSize: "12px",
-  },
-  endpointButtonSelected: {
-    background: "#2563eb",
-    color: "white",
+    fontSize: "11px",
     fontWeight: 800,
+    cursor: "pointer",
   },
 };

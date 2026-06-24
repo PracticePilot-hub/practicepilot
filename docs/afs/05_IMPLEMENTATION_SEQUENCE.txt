@@ -1,0 +1,80 @@
+IMPLEMENTATION SEQUENCE
+
+Step 1 - Database foundation
+----------------------------
+Run 01_SQL_afs_report_disclosure_framework.sql.
+
+Step 2 - Add disclosure defaults files
+--------------------------------------
+Create these files:
+- app/afs/[engagementId]/afsDisclosureTypes.ts
+- app/afs/[engagementId]/afsDisclosureDefaults.ts
+
+Step 3 - Add API route
+----------------------
+Create:
+app/api/afs/engagements/[id]/report-disclosures/route.ts
+
+This API must:
+- GET default disclosures + saved overrides for engagement.
+- PATCH/POST save enabled/disabled flags, variants, custom text, manual values and order.
+- Save to afs_report_disclosure_settings and afs_report_manual_tables.
+
+Step 4 - Add AFS Report Settings UI
+-----------------------------------
+Do not put settings inside the printable report page.
+Settings belong under Financial Statements in the left sidebar:
+- Report sections
+- Cover page
+- General information
+- Directors' responsibilities
+- Directors' report
+- Compiler report
+- Accounting policies
+- Notes
+- Manual values / share capital
+- Letterhead/logo uploads
+
+Step 5 - Update FinancialStatementsPanel
+----------------------------------------
+FinancialStatementsPanel must render from:
+- defaults
+- saved settings
+- client setup
+- people
+- TB/mapping
+- lead schedules
+- manual tables
+
+Not hardcoded blocks.
+
+Step 6 - Fix balance sheet engine
+---------------------------------
+Once the disclosure framework is in place:
+- Update afsFinancialStatementEngine.ts.
+- Ensure sign convention is correct.
+- Add detailed child lines.
+- Add note numbers from mapping/disclosure register.
+- Hide zero lines.
+- Confirm SFP balances.
+
+Step 7 - Notes and lead schedule links
+--------------------------------------
+Notes must be generated from lead schedules and mapped balances:
+- Inventory
+- Cash
+- Receivables
+- Share capital
+- Retained income
+- Shareholders' loans
+- Payables
+- Tax
+- Revenue
+- Expenses
+
+Step 8 - Export
+---------------
+After screen rendering is stable:
+- PDF export
+- Word export if required
+- iXBRL later
