@@ -2,7 +2,6 @@
 
 import { existsSync } from "fs";
 import { NextResponse } from "next/server";
-import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +13,13 @@ type RouteContext = {
     manualId: string;
   }>;
 };
+
+const CHROMIUM_PACK_URL =
+  process.env.CHROMIUM_PACK_URL ||
+  "https://github.com/Sparticuz/chromium/releases/download/v141.0.0/chromium-v141.0.0-pack.tar";
+
+let cachedExecutablePath: string | null = null;
+let chromiumDownloadPromise: Promise<string> | null = null;
 
 function safeFilename(value: string) {
   return String(value || "PAIA Manual")
@@ -36,28 +42,46 @@ function getOrigin(request: Request) {
   return `${url.protocol}//${url.host}`;
 }
 
-async function getExecutablePath() {
+function getLocalChromePath() {
   if (process.env.PUPPETEER_EXECUTABLE_PATH) {
     return process.env.PUPPETEER_EXECUTABLE_PATH;
   }
 
-  if (process.platform === "darwin") {
-    const chromePath =
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  const chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
-    if (existsSync(chromePath)) {
-      return chromePath;
-    }
-
-    const chromeCanaryPath =
-      "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary";
-
-    if (existsSync(chromeCanaryPath)) {
-      return chromeCanaryPath;
-    }
+  if (existsSync(chromePath)) {
+    return chromePath;
   }
 
-  return await chromium.executablePath();
+  const chromeCanaryPath =
+    "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary";
+
+  if (existsSync(chromeCanaryPath)) {
+    return chromeCanaryPath;
+  }
+
+  return null;
+}
+
+async function getVercelChromiumPath() {
+  if (cachedExecutablePath) {
+    return cachedExecutablePath;
+  }
+
+  if (!chromiumDownloadPromise) {
+    chromiumDownloadPromise = import("@sparticuz/chromium-min")
+      .then((module) => module.default.executablePath(CHROMIUM_PACK_URL))
+      .then((path) => {
+        cachedExecutablePath = path;
+        return path;
+      })
+      .catch((error) => {
+        chromiumDownloadPromise = null;
+        throw error;
+      });
+  }
+
+  return chromiumDownloadPromise;
 }
 
 export async function GET(request: Request, context: RouteContext) {
@@ -66,22 +90,39 @@ export async function GET(request: Request, context: RouteContext) {
   try {
     const { manualId } = await context.params;
     const origin = getOrigin(request);
-
     const exportUrl = `${origin}/api/paia/manuals/${manualId}/export`;
 
-    const isLocalMac = process.platform === "darwin";
+    const isVercel = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
 
-    browser = await puppeteer.launch({
-      args: isLocalMac
-        ? ["--no-sandbox", "--disable-setuid-sandbox"]
-        : chromium.args,
-      executablePath: await getExecutablePath(),
-      headless: true,
-      defaultViewport: {
-        width: 1280,
-        height: 1800,
-      },
-    });
+    if (isVercel) {
+      const chromium = (await import("@sparticuz/chromium-min")).default;
+
+      browser = await puppeteer.launch({
+        args: chromium.args,
+        executablePath: await getVercelChromiumPath(),
+        headless: true,
+        defaultViewport: {
+          width: 1280,
+          height: 1800,
+        },
+      });
+    } else {
+      const localChromePath = getLocalChromePath();
+
+      if (!localChromePath) {
+        throw new Error("Local Google Chrome executable was not found.");
+      }
+
+      browser = await puppeteer.launch({
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        executablePath: localChromePath,
+        headless: true,
+        defaultViewport: {
+          width: 1280,
+          height: 1800,
+        },
+      });
+    }
 
     const page = await browser.newPage();
 
