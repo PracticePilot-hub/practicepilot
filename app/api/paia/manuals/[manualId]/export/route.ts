@@ -133,24 +133,41 @@ function rowsTable(headers: string[], rows: string[][]) {
         <tr>${headers.map((header) => `<th>${esc(header)}</th>`).join("")}</tr>
       </thead>
       <tbody>
-        ${rows
-          .map(
-            (row) => `
-              <tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>
+        ${
+          rows.length
+            ? rows
+                .map(
+                  (row) => `
+                    <tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>
+                  `
+                )
+                .join("")
+            : `
+              <tr>
+                <td colspan="${headers.length}">No records selected.</td>
+              </tr>
             `
-          )
-          .join("")}
+        }
       </tbody>
     </table>
   `;
 }
 
 function list(items: string[]) {
+  if (!items.length) {
+    return `<p class="muted">No items selected.</p>`;
+  }
+
   return `<ul class="plain-list">${items.map((item) => `<li>${item}</li>`).join("")}</ul>`;
 }
 
 function availableOn(row: AnyRow) {
-  return row.available_on_request ? "Request" : "—";
+  const options: string[] = [];
+
+  if (row.available_on_website) options.push("Website");
+  if (row.available_on_request) options.push("Request");
+
+  return options.length ? options.join(" / ") : "—";
 }
 
 export async function GET(_request: Request, context: RouteContext) {
@@ -196,9 +213,18 @@ export async function GET(_request: Request, context: RouteContext) {
       getRows(supabase, "paia_manual_signatories", manualId),
     ]);
 
-    const groupedRecords = groupBy(selected(records), "category_key");
+    const selectedRecords = selected(records);
+    const selectedLegislation = selected(legislation);
+    const selectedPurposes = selected(purposes);
+    const selectedDataSubjects = selected(dataSubjects);
+    const selectedInformationCategories = selected(informationCategories);
+    const selectedRecipients = selected(recipients);
+    const selectedCrossBorder = selected(crossBorder);
+    const selectedSecurityMeasures = selected(securityMeasures);
+
+    const groupedRecords = groupBy(selectedRecords, "category_key");
     const groupedInfoCategories = groupBy(
-      selected(informationCategories),
+      selectedInformationCategories,
       "person_type"
     );
 
@@ -228,56 +254,193 @@ export async function GET(_request: Request, context: RouteContext) {
           : row.signatory_capacity,
     }));
 
+    const revisionDate =
+      manual.next_review_date ||
+      (() => {
+        const date = new Date(manual.date_compiled || new Date());
+        date.setFullYear(date.getFullYear() + 1);
+        return date.toISOString().slice(0, 10);
+      })();
+
     const contentsRows = [
-      ["1", "Introduction"],
-      ["2", "Details of the private body"],
-      ["3", "Information Officer"],
-      ["4", "Guide on how to use PAIA"],
-      ["5", "Records available in terms of other legislation"],
-      ["6", "Categories of records held by the private body"],
-      ["7", "Processing of personal information"],
-      ["8", "Recipients, cross-border transfers and security measures"],
-      ["9", "Request procedure"],
-      ["10", "Fees"],
-      ["11", "Grounds for refusal and remedies"],
-      ["12", "Availability and approval"],
+      ["1", "List of acronyms and abbreviations"],
+      ["2", "Purpose of PAIA manual"],
+      ["3", "Details of the private body"],
+      ["4", "Information Officer"],
+      ["5", "Guide on how to use PAIA and how to obtain access to the Guide"],
+      ["6", "Categories of records available without a formal PAIA request"],
+      ["7", "Records available in terms of other legislation"],
+      ["8", "Subjects and categories of records held by the private body"],
+      ["9", "Processing of personal information"],
+      ["10", "Recipients, cross-border transfers and security measures"],
+      ["11", "Request procedure"],
+      ["12", "Fees"],
+      ["13", "Grounds for refusal and remedies"],
+      ["14", "Availability of the manual"],
+      ["15", "Updating of the manual"],
+      ["16", "Approval and sign-off"],
     ];
 
+    const acronymsHtml = `
+      <h2>1. List of acronyms and abbreviations</h2>
+      ${rowsTable(
+        ["Acronym / abbreviation", "Meaning"],
+        [
+          ["CEO", "Chief Executive Officer"],
+          ["DIO", "Deputy Information Officer"],
+          ["IO", "Information Officer"],
+          ["Minister", "Minister of Justice and Correctional Services"],
+          ["PAIA", "Promotion of Access to Information Act No. 2 of 2000, as amended"],
+          ["POPIA", "Protection of Personal Information Act No. 4 of 2013"],
+          ["Regulator", "Information Regulator"],
+          ["Republic", "Republic of South Africa"],
+        ].map((row) => [esc(row[0]), esc(row[1])])
+      )}
+    `;
+
+    const purposeHtml = `
+      <h2>2. Purpose of PAIA manual</h2>
+      <p>
+        This PAIA manual is intended to assist members of the public, requesters and data subjects
+        to understand the categories of records held by ${esc(manual.entity_name)}, the procedure
+        to request access to records, and the manner in which personal information is processed.
+      </p>
+      <p>
+        This manual is useful to enable a requester to:
+      </p>
+      <ol class="numbered-list">
+        <li>check the categories of records held by the private body which are available without a person having to submit a formal PAIA request;</li>
+        <li>obtain a sufficient understanding of how to make a request for access to a record of the private body;</li>
+        <li>understand the subjects on which the private body holds records and the categories of records held on each subject;</li>
+        <li>identify the records of the private body which are available in accordance with other South African legislation;</li>
+        <li>access the relevant contact details of the Information Officer who will assist with requests for access to information;</li>
+        <li>understand how to obtain access to the Guide on how to use PAIA, as updated and made available by the Information Regulator;</li>
+        <li>understand the purposes for which the private body processes personal information;</li>
+        <li>understand the categories of data subjects and categories of personal information processed by the private body;</li>
+        <li>understand the recipients or categories of recipients to whom personal information may be supplied;</li>
+        <li>understand whether personal information may be transferred or processed outside the Republic of South Africa; and</li>
+        <li>understand the general security measures implemented to protect the confidentiality, integrity and availability of personal information.</li>
+      </ol>
+    `;
+
+    const guideHtml = `
+      <h2>5. Guide on how to use PAIA and how to obtain access to the Guide</h2>
+      <p>
+        The Information Regulator has, in terms of section 10(1) of PAIA, as amended,
+        updated and made available the Guide on how to use PAIA. The Guide is intended
+        to assist any person who wishes to exercise any right contemplated in PAIA and POPIA.
+      </p>
+      <p>
+        The Guide is made available in an easily comprehensible form and manner, as may
+        reasonably be required by a person who wishes to exercise any right contemplated
+        in PAIA and POPIA.
+      </p>
+      <p>
+        The Guide contains, among other things, information relating to:
+      </p>
+      <ol class="numbered-list">
+        <li>the objects of PAIA and POPIA;</li>
+        <li>the contact details of Information Officers and Deputy Information Officers of public and private bodies, where applicable;</li>
+        <li>the manner and form of a request for access to records of public and private bodies;</li>
+        <li>the assistance available from Information Officers in terms of PAIA and POPIA;</li>
+        <li>the assistance available from the Information Regulator;</li>
+        <li>all remedies in law available regarding an act or failure to act in respect of a right or duty conferred or imposed by PAIA and POPIA;</li>
+        <li>the manner of lodging a complaint to the Information Regulator;</li>
+        <li>the manner of approaching a court with jurisdiction where applicable;</li>
+        <li>the provisions requiring public and private bodies to compile manuals and make them available;</li>
+        <li>the voluntary disclosure of categories of records by public and private bodies;</li>
+        <li>the notices and regulations regarding fees payable in relation to requests for access; and</li>
+        <li>the regulations made in terms of PAIA.</li>
+      </ol>
+      <p>
+        Members of the public can inspect or make copies of the Guide from the offices
+        of public and private bodies, including the office of the Information Regulator,
+        during normal working hours, where applicable.
+      </p>
+      <p>
+        The Guide may also be obtained from the Information Regulator, including through
+        the Information Regulator's official website or by request to the Information Regulator.
+      </p>
+      <p>
+        A copy of the Guide may also be requested from the Information Officer of
+        ${esc(manual.entity_name)} using the contact details set out in this manual.
+      </p>
+    `;
+
+    const recordsWithoutRequestHtml = `
+      <h2>6. Categories of records available without a formal PAIA request</h2>
+      <p>
+        Certain records may be made available without a requester having to submit a formal
+        PAIA request. These records may, where applicable, be available on the website of
+        the private body, by inspection at the offices of the private body, or upon request
+        to the Information Officer.
+      </p>
+      <p>
+        Records marked as available on request may still be subject to verification,
+        reasonable access procedures, fees where applicable, and any lawful ground for refusal
+        under PAIA.
+      </p>
+      ${rowsTable(
+        ["Category of records", "Website", "Available upon request"],
+        selectedRecords.map((row: AnyRow) => [
+          esc(row.record_name),
+          row.available_on_website ? "Yes" : "No",
+          row.available_on_request ? "Yes" : "No",
+        ])
+      )}
+    `;
+
     const requestProcedureHtml = `
-      <h2>9. Request procedure</h2>
+      <h2>11. Request procedure</h2>
       <p>
         Any requester who wishes to request access to a record of ${esc(manual.entity_name)}
         must complete the prescribed PAIA request form and submit it to the Information Officer.
-        The request must contain enough detail to enable the Information Officer to identify the
-        requester, the requested record, the form of access required and the right that the requester
-        seeks to exercise or protect.
+        The request must contain sufficient detail to enable the Information Officer to identify
+        the requester, the requested record, the form of access required, and the right that the
+        requester seeks to exercise or protect.
       </p>
       <p>
-        Requests must be submitted to the Information Officer using the contact details set out in
-        this manual. The requester may also be required to pay the prescribed request fee and any
-        applicable access fee before access is granted.
+        In terms of PAIA, a requester must be given access to a record of a private body if:
+      </p>
+      <ol class="numbered-list">
+        <li>the record is required for the exercise or protection of any rights;</li>
+        <li>the requester complies with the procedural requirements in PAIA relating to a request for access to that record; and</li>
+        <li>access to that record is not refused in terms of any ground for refusal contemplated in PAIA.</li>
+      </ol>
+      <p>
+        Requests must be submitted to the Information Officer using the contact details set out
+        in this manual. The requester may also be required to pay the prescribed request fee and
+        any applicable access fee before access is granted.
       </p>
       <p>
-        ${esc(manual.entity_name)} will process PAIA requests within the periods prescribed by PAIA,
-        subject to any extension permitted by the Act.
+        ${esc(manual.entity_name)} will process PAIA requests within the periods prescribed by
+        PAIA, subject to any extension permitted by the Act.
       </p>
     `;
 
     const feesHtml = `
-      <h2>10. Fees</h2>
+      <h2>12. Fees</h2>
       <p>
-        A requester may be required to pay the prescribed fees as set out in PAIA and its regulations.
-        These may include a request fee, search and preparation fees, reproduction fees and access fees,
-        depending on the nature of the request and the form of access required.
+        A requester may be required to pay the prescribed fees as set out in PAIA and its
+        regulations. These may include a request fee, search and preparation fees, reproduction
+        fees and access fees, depending on the nature of the request and the form of access required.
+      </p>
+      <p>
+        The Information Officer may require the requester to pay the prescribed request fee,
+        where applicable, before further processing the request.
       </p>
       <p>
         Personal requesters are not required to pay a request fee for access to records containing
         their own personal information, but access or reproduction fees may still apply where permitted.
       </p>
+      <p>
+        A fee for a copy of this manual, as contemplated in the PAIA regulations, may be payable
+        per each A4-size photocopy made where a physical copy is requested.
+      </p>
     `;
 
     const refusalHtml = `
-      <h2>11. Grounds for refusal and remedies</h2>
+      <h2>13. Grounds for refusal and remedies</h2>
       <p>
         Access to a record may be refused on any ground permitted under PAIA. These grounds include,
         among others, the protection of privacy of third parties, commercial information of third parties,
@@ -288,6 +451,43 @@ export async function GET(_request: Request, context: RouteContext) {
         If a request for access is refused, the requester will be informed of the decision and the reasons
         for refusal. A requester may lodge a complaint with the Information Regulator or approach a court
         with jurisdiction, as provided for in PAIA.
+      </p>
+      <p>
+        The remedies available to a requester include any complaint, application or court procedure made
+        available in terms of PAIA, POPIA and applicable law.
+      </p>
+    `;
+
+    const availabilityHtml = `
+      <h2>14. Availability of the manual</h2>
+      <p>
+        A copy of this manual is available:
+      </p>
+      <ol class="numbered-list">
+        <li>on the website of ${esc(manual.entity_name)}, where applicable;</li>
+        <li>at the head office or principal place of business of ${esc(manual.entity_name)} for public inspection during normal business hours, where applicable;</li>
+        <li>to any person upon request and upon payment of a reasonable prescribed fee, where applicable; and</li>
+        <li>to the Information Regulator upon request.</li>
+      </ol>
+      <p>
+        This manual may be made available electronically or in printed format, depending on the
+        manner of request and availability.
+      </p>
+    `;
+
+    const updatingHtml = `
+      <h2>15. Updating of the manual</h2>
+      <p>
+        The head of ${esc(manual.entity_name)} or the authorised Information Officer will update
+        this manual on a regular basis, or whenever material changes occur to the private body,
+        its records, its processing of personal information, its contact details, applicable legislation,
+        or any other information contained in this manual.
+      </p>
+      <p>
+        Date of compilation: ${esc(formatDate(manual.date_compiled))}
+      </p>
+      <p>
+        Date of revision / next review: ${esc(formatDate(revisionDate))}
       </p>
     `;
 
@@ -602,15 +802,17 @@ export async function GET(_request: Request, context: RouteContext) {
       word-wrap: break-word;
     }
 
-    .plain-list {
+    .plain-list,
+    .numbered-list {
       margin: 5px 0 10px 0;
       padding-left: 18px;
       font-size: 12px;
       line-height: 1.45;
     }
 
-    .plain-list li {
-      margin-bottom: 2px;
+    .plain-list li,
+    .numbered-list li {
+      margin-bottom: 3px;
     }
 
     .signature-grid {
@@ -697,22 +899,11 @@ export async function GET(_request: Request, context: RouteContext) {
   </section>
 
   <section class="sheet">
-    <h2>1. Introduction</h2>
-    <p>
-      The Promotion of Access to Information Act 2 of 2000 gives effect to the constitutional right of access
-      to information held by public and private bodies where that information is required for the exercise or
-      protection of any rights.
-    </p>
-    <p>
-      This manual has been prepared for ${esc(manual.entity_name)} in accordance with section 51 of PAIA and
-      describes the records held by the private body, the categories of personal information processed and the
-      procedure to be followed when requesting access to records.
-    </p>
-    <p>
-      This manual should be read together with PAIA, POPIA and the guide issued by the Information Regulator.
-    </p>
+    ${acronymsHtml}
 
-    <h2>2. Details of the private body</h2>
+    ${purposeHtml}
+
+    <h2>3. Details of the private body</h2>
     ${rowsTable(
       ["Detail", "Information"],
       [
@@ -727,7 +918,7 @@ export async function GET(_request: Request, context: RouteContext) {
       ]
     )}
 
-    <h2>3. Information Officer</h2>
+    <h2>4. Information Officer</h2>
     ${rowsTable(
       ["Detail", "Information"],
       [
@@ -738,37 +929,30 @@ export async function GET(_request: Request, context: RouteContext) {
       ]
     )}
 
-    <h2>4. Guide on how to use PAIA</h2>
-    <p>
-      The Information Regulator has compiled a guide containing information to assist any person who wishes
-      to exercise a right contemplated in PAIA. The guide explains, among other things, the objects of PAIA,
-      how to make a request for access to records, the remedies available and the prescribed fees.
-    </p>
-    <p>
-      The guide is available from the Information Regulator and may be accessed through the Information
-      Regulator's official website or requested directly from the Information Regulator.
-    </p>
+    ${guideHtml}
 
-    <h2>5. Records available in terms of other legislation</h2>
+    ${recordsWithoutRequestHtml}
+
+    <h2>7. Records available in terms of other legislation</h2>
     ${rowsTable(
       ["Legislation", "Records / comments"],
-      selected(legislation).map((row: AnyRow) => [
+      selectedLegislation.map((row: AnyRow) => [
         esc(row.legislation_name),
         esc(row.applicable_records),
       ])
     )}
 
-    <h2>6. Categories of records held by the private body</h2>
+    <h2>8. Subjects and categories of records held by the private body</h2>
     ${recordsHtml}
 
-    <h2>7. Processing of personal information</h2>
+    <h2>9. Processing of personal information</h2>
     <h3>Purposes of processing</h3>
-    ${list(selected(purposes).map((row: AnyRow) => esc(row.purpose_name)))}
+    ${list(selectedPurposes.map((row: AnyRow) => esc(row.purpose_name)))}
 
     <h3>Categories of data subjects</h3>
     ${rowsTable(
       ["Data subject", "Information processed"],
-      selected(dataSubjects).map((row: AnyRow) => [
+      selectedDataSubjects.map((row: AnyRow) => [
         esc(row.subject_name),
         esc(row.information_processed),
       ])
@@ -776,20 +960,20 @@ export async function GET(_request: Request, context: RouteContext) {
 
     ${infoCategoriesHtml}
 
-    <h2>8. Recipients of personal information</h2>
+    <h2>10. Recipients of personal information</h2>
     ${rowsTable(
       ["Recipient", "Information shared"],
-      selected(recipients).map((row: AnyRow) => [
+      selectedRecipients.map((row: AnyRow) => [
         esc(row.recipient_name),
         esc(row.information_shared),
       ])
     )}
 
-    <h2>8.1 Cross-border transfers</h2>
-    ${list(selected(crossBorder).map((row: AnyRow) => esc(row.description)))}
+    <h2>10.1 Cross-border transfers</h2>
+    ${list(selectedCrossBorder.map((row: AnyRow) => esc(row.description)))}
 
-    <h2>8.2 Security measures</h2>
-    ${list(selected(securityMeasures).map((row: AnyRow) => esc(row.measure_name)))}
+    <h2>10.2 Security measures</h2>
+    ${list(selectedSecurityMeasures.map((row: AnyRow) => esc(row.measure_name)))}
 
     ${requestProcedureHtml}
 
@@ -797,12 +981,12 @@ export async function GET(_request: Request, context: RouteContext) {
 
     ${refusalHtml}
 
+    ${availabilityHtml}
+
+    ${updatingHtml}
+
     <div class="approval-block">
-      <h2>12. Availability and approval</h2>
-      <p>
-        This manual is available for inspection at the offices of the private body, on the website where applicable,
-        and from the Information Regulator in accordance with PAIA.
-      </p>
+      <h2>16. Approval and sign-off</h2>
       <p>
         This manual has been prepared and approved by the private body and will be reviewed periodically.
       </p>
@@ -812,18 +996,12 @@ export async function GET(_request: Request, context: RouteContext) {
         ["Document control", "Details"],
         [
           ["Prepared for", esc(manual.entity_name)],
-          ["Prepared by", "Bizzacc Menlyn (Pty) Ltd"],
-          ["Reviewed by", esc(manual.information_officer_name || manual.reviewed_by || "—")],
-          [
-            "Approved by",
-            esc(
-              manual.information_officer_name
-                ? `${manual.information_officer_name} - ${manual.information_officer_position || "Information Officer"}`
-                : manual.approved_by || "—"
-            ),
-          ],
-          ["Date compiled", esc(formatDate(manual.date_compiled))],
-          ["Version", esc(manual.version_number || "1.0")],
+["Prepared by", esc(manual.prepared_by || "Bizzacc Menlyn (Pty) Ltd")],
+["Reviewed by", esc(manual.reviewed_by || "—")],
+["Approved by", esc(manual.approved_by || "—")],
+["Date compiled", esc(formatDate(manual.date_compiled))],
+["Date of revision / next review", esc(formatDate(revisionDate))],
+["Version", esc(manual.version_number || "1.0")],
         ]
       )}
 
