@@ -16,16 +16,25 @@ function getSupabaseAdmin() {
 
   const serviceRoleKey =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_KEY;
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  if (!supabaseUrl) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL.");
+  }
+
+  if (!serviceRoleKey) {
     throw new Error(
-      "Missing Supabase environment variables. Add NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to .env.local, then restart npm run dev."
+      "Missing server Supabase key. Add SUPABASE_SERVICE_ROLE_KEY in Vercel and redeploy."
     );
   }
 
-  return createClient(supabaseUrl, serviceRoleKey);
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
 
 export async function GET(_request: Request, context: RouteContext) {
@@ -37,13 +46,22 @@ export async function GET(_request: Request, context: RouteContext) {
       .from("paia_manuals")
       .select("*")
       .eq("id", manualId)
-      .single();
+      .limit(1);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ manual: data });
+    const manual = Array.isArray(data) ? data[0] : null;
+
+    if (!manual) {
+      return NextResponse.json(
+        { error: "PAIA manual not found." },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ manual });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message ?? "Failed to load PAIA manual." },
@@ -66,13 +84,22 @@ export async function PATCH(request: Request, context: RouteContext) {
       })
       .eq("id", manualId)
       .select("*")
-      .single();
+      .limit(1);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ manual: data });
+    const manual = Array.isArray(data) ? data[0] : null;
+
+    if (!manual) {
+      return NextResponse.json(
+        { error: "PAIA manual not found after update." },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ manual });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message ?? "Failed to update PAIA manual." },

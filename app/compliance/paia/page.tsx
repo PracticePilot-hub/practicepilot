@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import Link from "next/link";
 
 type PaiaManual = {
@@ -11,9 +11,9 @@ type PaiaManual = {
   entity_registration_number: string | null;
   entity_type: string | null;
   date_compiled: string | null;
+  version_number: string | null;
   status: string | null;
 };
-
 type NewManualForm = {
   entity_name: string;
   entity_registration_number: string;
@@ -34,123 +34,9 @@ const emptyForm: NewManualForm = {
   information_officer_email: "",
 };
 
-const s: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: "calc(100vh - 48px)",
-    background: "#f3f7fb",
-    padding: "36px",
-    color: "#0f172a",
-    fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  },
-  hero: {
-    background: "#ffffff",
-    border: "1px solid #d8e2ee",
-    borderRadius: 18,
-    padding: "30px 32px",
-    marginBottom: 26,
-  },
-  eyebrow: {
-    margin: 0,
-    color: "#1769e0",
-    fontSize: 13,
-    fontWeight: 900,
-    letterSpacing: "0.1em",
-    textTransform: "uppercase",
-  },
-  title: {
-    margin: "12px 0 0",
-    fontSize: 34,
-    fontWeight: 500,
-    lineHeight: 1.1,
-    color: "#0f172a",
-  },
-  sub: {
-    margin: "14px 0 0",
-    fontSize: 16,
-    color: "#667085",
-  },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "440px 1fr",
-    gap: 26,
-  },
-  card: {
-    background: "#ffffff",
-    border: "1px solid #d8e2ee",
-    borderRadius: 18,
-    overflow: "hidden",
-  },
-  cardBody: { padding: 24 },
-  h2: { margin: 0, fontSize: 22, fontWeight: 600, color: "#0f172a" },
-  fieldWrap: { display: "block", marginTop: 18 },
-  label: { display: "block", marginBottom: 8, fontSize: 13, fontWeight: 800, color: "#25364d" },
-  input: {
-    width: "100%",
-    boxSizing: "border-box",
-    height: 46,
-    border: "1px solid #cfd8e3",
-    borderRadius: 12,
-    padding: "0 14px",
-    fontSize: 15,
-    color: "#0f172a",
-    outline: "none",
-    background: "#ffffff",
-  },
-  button: {
-    width: "100%",
-    marginTop: 22,
-    height: 46,
-    border: "1px solid #1769e0",
-    borderRadius: 12,
-    background: "#1769e0",
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  error: {
-    marginTop: 14,
-    background: "#fff1f2",
-    border: "1px solid #fecaca",
-    color: "#991b1b",
-    padding: 12,
-    borderRadius: 10,
-    fontSize: 13,
-  },
-  listCard: { padding: 24 },
-  manualRow: {
-    display: "block",
-    border: "1px solid #d8e2ee",
-    borderRadius: 16,
-    padding: "18px 20px",
-    textDecoration: "none",
-    color: "inherit",
-    marginTop: 16,
-    background: "#ffffff",
-  },
-  manualName: { margin: 0, fontSize: 17, fontWeight: 800, color: "#0f172a" },
-  manualMeta: { marginTop: 7, fontSize: 14, color: "#667085" },
-  status: {
-    float: "right",
-    borderRadius: 999,
-    background: "#eef4ff",
-    color: "#1769e0",
-    padding: "6px 12px",
-    fontSize: 12,
-    fontWeight: 800,
-  },
-  empty: {
-    marginTop: 18,
-    border: "1px dashed #cfd8e3",
-    borderRadius: 14,
-    padding: 18,
-    color: "#667085",
-    fontSize: 14,
-  },
-};
-
 function formatDate(value: string | null) {
-  if (!value) return "No date";
+  if (!value) return "-";
+
   return new Date(value).toLocaleDateString("en-ZA", {
     year: "numeric",
     month: "short",
@@ -172,7 +58,11 @@ export default function PaiaManualsPage() {
     try {
       const res = await fetch("/api/paia/manuals", { cache: "no-store" });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Could not load PAIA manuals.");
+
+      if (!res.ok) {
+        throw new Error(json.error || "Could not load PAIA manuals.");
+      }
+
       setManuals(json.manuals ?? []);
     } catch (err: any) {
       setError(err?.message ?? "Could not load PAIA manuals.");
@@ -213,10 +103,16 @@ export default function PaiaManualsPage() {
       });
 
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Could not create PAIA manual.");
 
-      if (json.manual?.id) window.location.href = `/compliance/paia/${json.manual.id}`;
-      else await loadManuals();
+      if (!res.ok) {
+        throw new Error(json.error || "Could not create PAIA manual.");
+      }
+
+      if (json.manual?.id) {
+        window.location.href = `/compliance/paia/${json.manual.id}`;
+      } else {
+        await loadManuals();
+      }
     } catch (err: any) {
       setError(err?.message ?? "Could not create PAIA manual.");
     } finally {
@@ -227,10 +123,14 @@ export default function PaiaManualsPage() {
   return (
     <main style={s.page}>
       <section style={s.hero}>
-        <p style={s.eyebrow}>PracticePilot</p>
-        <h1 style={s.title}>PAIA Manuals</h1>
+        <div>
+          <p style={s.eyebrow}>PracticePilot</p>
+          <h1 style={s.title}>PAIA Manuals</h1>
+        </div>
+
         <p style={s.sub}>
-          Create and manage PAIA / POPIA manuals, records, information processing, security measures and sign-off.
+          Create and manage PAIA / POPIA manuals, records, information
+          processing, security measures and sign-off.
         </p>
       </section>
 
@@ -239,16 +139,61 @@ export default function PaiaManualsPage() {
           <div style={s.cardBody}>
             <h2 style={s.h2}>New PAIA manual</h2>
 
-            <Field label="Entity name" value={form.entity_name} onChange={(value) => updateField("entity_name", value)} placeholder="Example: ABC Trading (Pty) Ltd" required />
-            <Field label="Registration number" value={form.entity_registration_number} onChange={(value) => updateField("entity_registration_number", value)} placeholder="Optional" />
-            <Field label="Entity type" value={form.entity_type} onChange={(value) => updateField("entity_type", value)} />
-            <Field label="Date compiled" type="date" value={form.date_compiled} onChange={(value) => updateField("date_compiled", value)} />
-            <Field label="Information Officer" value={form.information_officer_name} onChange={(value) => updateField("information_officer_name", value)} placeholder="Optional" />
-            <Field label="Information Officer email" value={form.information_officer_email} onChange={(value) => updateField("information_officer_email", value)} placeholder="Optional" />
+            <Field
+              label="Entity name"
+              value={form.entity_name}
+              onChange={(value) => updateField("entity_name", value)}
+              placeholder="Example: ABC Trading (Pty) Ltd"
+              required
+            />
+
+            <Field
+              label="Registration number"
+              value={form.entity_registration_number}
+              onChange={(value) =>
+                updateField("entity_registration_number", value)
+              }
+              placeholder="Optional"
+            />
+
+            <Field
+              label="Entity type"
+              value={form.entity_type}
+              onChange={(value) => updateField("entity_type", value)}
+            />
+
+            <Field
+              label="Date compiled"
+              type="date"
+              value={form.date_compiled}
+              onChange={(value) => updateField("date_compiled", value)}
+            />
+
+            <Field
+              label="Information Officer"
+              value={form.information_officer_name}
+              onChange={(value) =>
+                updateField("information_officer_name", value)
+              }
+              placeholder="Optional"
+            />
+
+            <Field
+              label="Information Officer email"
+              value={form.information_officer_email}
+              onChange={(value) =>
+                updateField("information_officer_email", value)
+              }
+              placeholder="Optional"
+            />
 
             {error ? <div style={s.error}>{error}</div> : null}
 
-            <button type="submit" disabled={creating} style={{ ...s.button, opacity: creating ? 0.65 : 1 }}>
+            <button
+              type="submit"
+              disabled={creating}
+              style={{ ...s.button, opacity: creating ? 0.65 : 1 }}
+            >
               {creating ? "Creating..." : "Create PAIA manual"}
             </button>
           </div>
@@ -256,22 +201,54 @@ export default function PaiaManualsPage() {
 
         <section style={s.card}>
           <div style={s.listCard}>
-            <h2 style={s.h2}>Existing manuals</h2>
+            <div style={s.listHeader}>
+              <h2 style={s.h2}>Existing manuals</h2>
+              <span style={s.count}>{manuals.length} manual(s)</span>
+            </div>
 
             {loading ? (
               <div style={s.empty}>Loading PAIA manuals...</div>
             ) : manuals.length === 0 ? (
               <div style={s.empty}>No PAIA manuals created yet.</div>
             ) : (
-              manuals.map((manual) => (
-                <Link key={manual.id} href={`/compliance/paia/${manual.id}`} style={s.manualRow}>
-                  <span style={s.status}>{manual.status || "Draft"}</span>
-                  <h3 style={s.manualName}>{manual.entity_name}</h3>
-                  <div style={s.manualMeta}>
-                    {manual.entity_type || "Entity"} · {manual.entity_registration_number || "No registration number"} · Compiled {formatDate(manual.date_compiled)}
-                  </div>
-                </Link>
-              ))
+              <table style={s.table}>
+                <thead>
+                  <tr>
+                    <th style={s.th}>Entity</th>
+                    <th style={s.th}>Type</th>
+                    <th style={s.th}>Registration</th>
+                    <th style={s.th}>Compiled</th>
+                    <th style={s.th}>Version</th>
+                    <th style={s.th}>Status</th>
+                    <th style={s.thRight}>Action</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {manuals.map((manual) => (
+                    <tr key={manual.id}>
+                      <td style={s.tdStrong}>{manual.entity_name}</td>
+                      <td style={s.td}>{manual.entity_type || "-"}</td>
+                      <td style={s.td}>
+                        {manual.entity_registration_number || "-"}
+                      </td>
+                      <td style={s.td}>{formatDate(manual.date_compiled)}</td>
+<td style={s.td}>{manual.version_number || "1.0"}</td>
+<td style={s.td}>
+  <span style={s.status}>{manual.status || "draft"}</span>
+</td>
+                      <td style={s.tdRight}>
+                        <Link
+                          href={`/compliance/paia/${manual.id}`}
+                          style={s.openLink}
+                        >
+                          Open
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         </section>
@@ -280,11 +257,229 @@ export default function PaiaManualsPage() {
   );
 }
 
-function Field({ label, value, onChange, type = "text", placeholder, required = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; placeholder?: string; required?: boolean }) {
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  required = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+  required?: boolean;
+}) {
   return (
     <label style={s.fieldWrap}>
       <span style={s.label}>{label}</span>
-      <input type={type} value={value} required={required} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} style={s.input} />
+      <input
+        type={type}
+        value={value}
+        required={required}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        style={s.input}
+      />
     </label>
   );
 }
+
+const s: Record<string, CSSProperties> = {
+  page: {
+    minHeight: "calc(100vh - 48px)",
+    background: "#f3f7fb",
+    padding: "14px 18px",
+    color: "#0f172a",
+    fontFamily:
+      "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  },
+  hero: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "end",
+    gap: 18,
+    background: "#ffffff",
+    border: "1px solid #d8e2ee",
+    borderRadius: 12,
+    padding: "14px 20px",
+    marginBottom: 14,
+  },
+  eyebrow: {
+    margin: 0,
+    color: "#1769e0",
+    fontSize: 11,
+    fontWeight: 900,
+    letterSpacing: "0.1em",
+    textTransform: "uppercase",
+  },
+  title: {
+    margin: "5px 0 0",
+    fontSize: 25,
+    fontWeight: 800,
+    lineHeight: 1.05,
+    color: "#0f172a",
+  },
+  sub: {
+    margin: 0,
+    maxWidth: 720,
+    fontSize: 13,
+    color: "#667085",
+    textAlign: "right",
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "330px 1fr",
+    gap: 14,
+    alignItems: "start",
+  },
+  card: {
+    background: "#ffffff",
+    border: "1px solid #d8e2ee",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  cardBody: {
+    padding: 14,
+  },
+  h2: {
+    margin: 0,
+    fontSize: 17,
+    fontWeight: 800,
+    color: "#0f172a",
+  },
+  fieldWrap: {
+    display: "block",
+    marginTop: 8,
+  },
+  label: {
+    display: "block",
+    marginBottom: 3,
+    fontSize: 12,
+    fontWeight: 800,
+    color: "#25364d",
+  },
+  input: {
+    width: "100%",
+    boxSizing: "border-box",
+    height: 35,
+    border: "1px solid #cfd8e3",
+    borderRadius: 8,
+    padding: "0 9px",
+    fontSize: 13,
+    color: "#0f172a",
+    outline: "none",
+    background: "#ffffff",
+  },
+  button: {
+    width: "100%",
+    marginTop: 12,
+    height: 38,
+    border: "1px solid #1769e0",
+    borderRadius: 8,
+    background: "#1769e0",
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  error: {
+    marginTop: 8,
+    background: "#fff1f2",
+    border: "1px solid #fecaca",
+    color: "#991b1b",
+    padding: 8,
+    borderRadius: 8,
+    fontSize: 12,
+  },
+  listCard: {
+    padding: 12,
+  },
+  listHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  count: {
+    color: "#667085",
+    fontSize: 12,
+    fontWeight: 700,
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+  },
+  th: {
+    textAlign: "left",
+    padding: "6px 8px",
+    background: "#f8fbff",
+    borderTop: "1px solid #dbe5ef",
+    borderBottom: "1px solid #dbe5ef",
+    fontSize: 11,
+    fontWeight: 900,
+    color: "#34495e",
+    whiteSpace: "nowrap",
+  },
+  thRight: {
+    textAlign: "right",
+    padding: "6px 8px",
+    background: "#f8fbff",
+    borderTop: "1px solid #dbe5ef",
+    borderBottom: "1px solid #dbe5ef",
+    fontSize: 11,
+    fontWeight: 900,
+    color: "#34495e",
+    whiteSpace: "nowrap",
+  },
+  td: {
+    padding: "6px 8px",
+    borderBottom: "1px solid #edf2f7",
+    fontSize: 12,
+    color: "#34495e",
+    verticalAlign: "middle",
+  },
+  tdStrong: {
+    padding: "6px 8px",
+    borderBottom: "1px solid #edf2f7",
+    fontSize: 12,
+    color: "#0f172a",
+    fontWeight: 800,
+    verticalAlign: "middle",
+  },
+  tdRight: {
+    padding: "6px 8px",
+    borderBottom: "1px solid #edf2f7",
+    fontSize: 12,
+    color: "#34495e",
+    textAlign: "right",
+    verticalAlign: "middle",
+  },
+  status: {
+    display: "inline-block",
+    borderRadius: 999,
+    background: "#eef4ff",
+    color: "#1769e0",
+    padding: "2px 7px",
+    fontSize: 11,
+    fontWeight: 800,
+    textTransform: "lowercase",
+  },
+  openLink: {
+    display: "inline-block",
+    color: "#1769e0",
+    fontSize: 12,
+    fontWeight: 900,
+    textDecoration: "none",
+  },
+  empty: {
+    marginTop: 10,
+    border: "1px dashed #cfd8e3",
+    borderRadius: 10,
+    padding: 12,
+    color: "#667085",
+    fontSize: 13,
+  },
+};

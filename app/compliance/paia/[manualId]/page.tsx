@@ -597,6 +597,44 @@ export default function PaiaManualDetailPage() {
     }
   }
 
+  async function finaliseManual() {
+    if (!manual) return;
+
+    const confirmed = window.confirm(
+      "Finalise this PAIA manual? It will be marked as finalised. Future changes should be made through a new version."
+    );
+
+    if (!confirmed) return;
+
+    setSaving("finalise");
+    setMessage("");
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/paia/manuals/${manualId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...manual,
+          status: "finalised",
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json.error || "Could not finalise PAIA manual.");
+      }
+
+      setManual(json.manual);
+      setMessage("PAIA manual finalised.");
+    } catch (err: any) {
+      setError(err?.message ?? "Could not finalise PAIA manual.");
+    } finally {
+      setSaving("");
+    }
+  }
+
   async function saveSection(section: string, rows: unknown[]) {
     setSaving(section);
     setMessage("");
@@ -887,6 +925,7 @@ export default function PaiaManualDetailPage() {
               signatories={signatories}
               setSignatories={setSignatories}
               saveSignatories={() => saveSection("signatories", signatories)}
+              finaliseManual={finaliseManual}
               saving={saving}
               message={message}
             />
@@ -1407,6 +1446,7 @@ function GenerateSection({
   signatories,
   setSignatories,
   saveSignatories,
+  finaliseManual,
   saving,
   message,
 }: {
@@ -1425,6 +1465,7 @@ function GenerateSection({
   signatories: SignatoryRow[];
   setSignatories: React.Dispatch<React.SetStateAction<SignatoryRow[]>>;
   saveSignatories: () => void;
+  finaliseManual: () => void;
   saving: string;
   message: string;
 }) {
@@ -1491,6 +1532,7 @@ function GenerateSection({
 
   const completedChecks = checks.filter((check) => check.complete).length;
   const readyForExport = completedChecks === checks.length;
+  const isFinalised = String(manual.status || "").toLowerCase() === "finalised";
 
   return (
     <div style={s.card}>
@@ -1522,17 +1564,59 @@ function GenerateSection({
 
           <div
             style={{
-              border: readyForExport ? "1px solid #86efac" : "1px solid #fed7aa",
-              background: readyForExport ? "#dcfce7" : "#ffedd5",
-              color: readyForExport ? "#166534" : "#9a3412",
-              borderRadius: 999,
-              padding: "6px 10px",
-              fontSize: 12,
-              fontWeight: 900,
-              whiteSpace: "nowrap",
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              justifyContent: "flex-end",
+              flexWrap: "wrap",
             }}
           >
-            {readyForExport ? "Ready for export" : "Review required"}
+            <div
+              style={{
+                border: isFinalised
+                  ? "1px solid #93c5fd"
+                  : readyForExport
+                  ? "1px solid #86efac"
+                  : "1px solid #fed7aa",
+                background: isFinalised
+                  ? "#dbeafe"
+                  : readyForExport
+                  ? "#dcfce7"
+                  : "#ffedd5",
+                color: isFinalised
+                  ? "#1e40af"
+                  : readyForExport
+                  ? "#166534"
+                  : "#9a3412",
+                borderRadius: 999,
+                padding: "6px 10px",
+                fontSize: 12,
+                fontWeight: 900,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {isFinalised
+                ? "Finalised"
+                : readyForExport
+                ? "Ready for finalisation"
+                : "Review required"}
+            </div>
+
+            {readyForExport && !isFinalised ? (
+              <button
+                type="button"
+                onClick={finaliseManual}
+                disabled={saving === "finalise"}
+                style={{
+                  ...s.smallButton,
+                  background: saving === "finalise" ? "#e2e8f0" : "#166534",
+                  color: saving === "finalise" ? "#334155" : "#ffffff",
+                  borderColor: saving === "finalise" ? "#cbd5e1" : "#166534",
+                }}
+              >
+                {saving === "finalise" ? "Finalising..." : "Finalise manual"}
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -1768,8 +1852,10 @@ function GenerateSection({
             Export PAIA manual
           </div>
           <div style={{ ...s.message, marginTop: 4 }}>
-            {readyForExport
-              ? "Final review checks are complete. Open the printable manual."
+            {isFinalised
+              ? "This manual has been finalised. Open the issued printable manual."
+              : readyForExport
+              ? "Final review checks are complete. Finalise the manual before issuing it."
               : "Some review checks are incomplete. You can still open export, but the manual may be incomplete."}
           </div>
         </div>

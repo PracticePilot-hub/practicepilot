@@ -3,17 +3,25 @@ import { createClient } from "@supabase/supabase-js";
 import nodemailer from "nodemailer";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
+const supabaseSecretKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SECRET_KEY ||
+  process.env.SUPABASE_SERVICE_KEY;
 
 if (!supabaseUrl) {
   throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
 }
 
 if (!supabaseSecretKey) {
-  throw new Error("Missing SUPABASE_SECRET_KEY");
+  throw new Error("Missing server Supabase key");
 }
 
-const supabase = createClient(supabaseUrl, supabaseSecretKey);
+const supabase = createClient(supabaseUrl, supabaseSecretKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+  },
+});
 
 function getSmtpConfig() {
   const host = process.env.SMTP_HOST;
@@ -99,6 +107,14 @@ async function sendWelcomeEmail({
   });
 }
 
+function isAdminRole(role: string) {
+  return role === "Super Admin" || role === "Admin";
+}
+
+function isInternalRole(role: string) {
+  return role === "Super Admin" || role === "Admin" || role === "Staff";
+}
+
 export async function GET() {
   const { data, error } = await supabase
     .from("user_profiles")
@@ -126,10 +142,27 @@ export async function POST(req: Request) {
   const password = String(body.password || "").trim();
   const role = String(body.role || "Client Viewer").trim();
   const organisationId = String(body.organisationId || "").trim();
-  const canEditProjects = Boolean(body.canEditProjects);
-  const canAccessAccounting = Boolean(body.canAccessAccounting);
-  const canAccessProjects = Boolean(body.canAccessProjects);
-  const canAccessBudgeting = Boolean(body.canAccessBudgeting);
+
+  const adminRole = isAdminRole(role);
+  const internalRole = isInternalRole(role);
+
+  const canAccessCrm = adminRole ? true : Boolean(body.canAccessCrm);
+  const canAccessAccounting = adminRole ? true : Boolean(body.canAccessAccounting);
+  const canAccessAfs = adminRole ? true : Boolean(body.canAccessAfs);
+  const canAccessSecretarial = adminRole ? true : Boolean(body.canAccessSecretarial);
+  const canAccessProjects = adminRole ? true : Boolean(body.canAccessProjects);
+  const canAccessManagementReports = adminRole
+    ? true
+    : Boolean(body.canAccessManagementReports);
+  const canAccessPaia = adminRole ? true : Boolean(body.canAccessPaia);
+  const canAccessBudgeting = adminRole ? true : Boolean(body.canAccessBudgeting);
+
+  const canEditProjects =
+    adminRole || role === "Client Manager"
+      ? true
+      : canAccessProjects
+      ? Boolean(body.canEditProjects)
+      : false;
 
   if (!email) {
     return NextResponse.json({ error: "Email is required" }, { status: 400 });
@@ -142,11 +175,19 @@ export async function POST(req: Request) {
     );
   }
 
-  const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-  });
+  if (!internalRole && !organisationId) {
+    return NextResponse.json(
+      { error: "Client is required for client users" },
+      { status: 400 }
+    );
+  }
+
+  const { data: authData, error: authError } =
+    await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
 
   if (authError) {
     return NextResponse.json({ error: authError.message }, { status: 500 });
@@ -155,10 +196,11 @@ export async function POST(req: Request) {
   const userId = authData.user?.id;
 
   if (!userId) {
-    return NextResponse.json({ error: "Could not create auth user" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Could not create auth user" },
+      { status: 500 }
+    );
   }
-
-  const isInternalUser = role === "Super Admin" || role === "Admin" || role === "Staff";
 
   const { data, error } = await supabase
     .from("user_profiles")
@@ -168,11 +210,19 @@ export async function POST(req: Request) {
         full_name: fullName || null,
         email,
         role,
-        organisation_id: isInternalUser ? null : organisationId || null,
-        can_edit_projects: isInternalUser ? true : canEditProjects,
-        can_access_accounting: isInternalUser ? true : canAccessAccounting,
-        can_access_projects: true,
-        can_access_budgeting: isInternalUser ? true : canAccessBudgeting,
+        organisation_id: internalRole ? null : organisationId || null,
+
+        can_edit_projects: canEditProjects,
+
+        can_access_crm: canAccessCrm,
+        can_access_accounting: canAccessAccounting,
+        can_access_afs: canAccessAfs,
+        can_access_secretarial: canAccessSecretarial,
+        can_access_projects: canAccessProjects,
+        can_access_budgeting: canAccessBudgeting,
+        can_access_management_reports: canAccessManagementReports,
+        can_access_paia: canAccessPaia,
+
         access_enabled: true,
       },
     ])
@@ -200,7 +250,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       user: data,
-      warning: emailError instanceof Error ? emailError.message : "User created, but welcome email failed",
+      warning:
+        emailError instanceof Error
+          ? emailError.message
+          : "User created, but welcome email failed",
     });
   }
 
