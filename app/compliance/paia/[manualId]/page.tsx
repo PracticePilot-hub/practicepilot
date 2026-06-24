@@ -635,6 +635,43 @@ export default function PaiaManualDetailPage() {
     }
   }
 
+  async function createNewVersion() {
+    if (!manual) return;
+
+    const confirmed = window.confirm(
+      `Create a new draft version from ${manual.entity_name || "this manual"}? The current finalised version will remain unchanged.`
+    );
+
+    if (!confirmed) return;
+
+    setSaving("newVersion");
+    setMessage("");
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/paia/manuals/${manualId}/new-version`, {
+        method: "POST",
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json.error || "Could not create new PAIA manual version.");
+      }
+
+      if (json.manual?.id) {
+        window.location.href = `/compliance/paia/${json.manual.id}`;
+        return;
+      }
+
+      throw new Error("New PAIA manual version was created but no manual ID was returned.");
+    } catch (err: any) {
+      setError(err?.message ?? "Could not create new PAIA manual version.");
+    } finally {
+      setSaving("");
+    }
+  }
+
   async function saveSection(section: string, rows: unknown[]) {
     setSaving(section);
     setMessage("");
@@ -803,7 +840,6 @@ export default function PaiaManualDetailPage() {
         <section>
           <div style={s.sectionHeader}>
             <div>
-              <p style={s.sectionNo}>{String(activeIndex + 1).padStart(2, "0")}</p>
               <h1 style={s.h1}>{activeSection.label}</h1>
               <p style={s.sub}>{activeSection.sub}</p>
             </div>
@@ -926,6 +962,7 @@ export default function PaiaManualDetailPage() {
               setSignatories={setSignatories}
               saveSignatories={() => saveSection("signatories", signatories)}
               finaliseManual={finaliseManual}
+              createNewVersion={createNewVersion}
               saving={saving}
               message={message}
             />
@@ -1447,6 +1484,7 @@ function GenerateSection({
   setSignatories,
   saveSignatories,
   finaliseManual,
+  createNewVersion,
   saving,
   message,
 }: {
@@ -1466,6 +1504,7 @@ function GenerateSection({
   setSignatories: React.Dispatch<React.SetStateAction<SignatoryRow[]>>;
   saveSignatories: () => void;
   finaliseManual: () => void;
+  createNewVersion: () => void;
   saving: string;
   message: string;
 }) {
@@ -1615,6 +1654,22 @@ function GenerateSection({
                 }}
               >
                 {saving === "finalise" ? "Finalising..." : "Finalise manual"}
+              </button>
+            ) : null}
+
+            {isFinalised ? (
+              <button
+                type="button"
+                onClick={createNewVersion}
+                disabled={saving === "newVersion"}
+                style={{
+                  ...s.smallButton,
+                  background: saving === "newVersion" ? "#e2e8f0" : "#1769e0",
+                  color: saving === "newVersion" ? "#334155" : "#ffffff",
+                  borderColor: saving === "newVersion" ? "#cbd5e1" : "#1769e0",
+                }}
+              >
+                {saving === "newVersion" ? "Creating..." : "Create new version"}
               </button>
             ) : null}
           </div>
@@ -1853,7 +1908,7 @@ function GenerateSection({
           </div>
           <div style={{ ...s.message, marginTop: 4 }}>
             {isFinalised
-              ? "This manual has been finalised. Open the issued printable manual."
+              ? "This manual has been finalised. Open the issued printable manual, or create a new draft version for future changes."
               : readyForExport
               ? "Final review checks are complete. Finalise the manual before issuing it."
               : "Some review checks are incomplete. You can still open export, but the manual may be incomplete."}
