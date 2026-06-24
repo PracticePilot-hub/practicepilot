@@ -1,3 +1,5 @@
+// Path: app/admin/users/page.tsx
+
 "use client";
 
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
@@ -136,6 +138,9 @@ export default function AdminUsersPage() {
   const [loadingOrganisations, setLoadingOrganisations] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [sendingWelcomeId, setSendingWelcomeId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   const isInternalRole = useMemo(() => isInternalRoleValue(role), [role]);
   const isAdminRole = useMemo(() => isAdminRoleValue(role), [role]);
@@ -239,25 +244,33 @@ export default function AdminUsersPage() {
   }
 
   function toggleModule(key: ModuleKey) {
-    setModules((current) => ({
-      ...current,
-      [key]: !current[key],
-    }));
+    setModules((current) => {
+      const next = {
+        ...current,
+        [key]: !current[key],
+      };
 
-    if (key === "projects") {
-      setCanEditProjects((current) => (modules.projects ? false : current));
-    }
+      if (key === "projects" && !next.projects) {
+        setCanEditProjects(false);
+      }
+
+      return next;
+    });
   }
 
   function toggleEditModule(key: ModuleKey) {
-    setEditModules((current) => ({
-      ...current,
-      [key]: !current[key],
-    }));
+    setEditModules((current) => {
+      const next = {
+        ...current,
+        [key]: !current[key],
+      };
 
-    if (key === "projects") {
-      setEditCanEditProjects((current) => (editModules.projects ? false : current));
-    }
+      if (key === "projects" && !next.projects) {
+        setEditCanEditProjects(false);
+      }
+
+      return next;
+    });
   }
 
   async function handleCreateUser() {
@@ -277,6 +290,8 @@ export default function AdminUsersPage() {
     }
 
     setSaving(true);
+    setNotice(null);
+    setWarning(null);
 
     const response = await fetch("/api/users", {
       method: "POST",
@@ -317,7 +332,38 @@ export default function AdminUsersPage() {
     setOrganisationId("");
     setCanEditProjects(false);
     setModules(emptyModules);
+
+    if (data.warning) {
+      setWarning(`User was created, but the welcome email failed: ${data.warning}`);
+    } else {
+      setNotice("User created and welcome email sent.");
+    }
+
     setSaving(false);
+  }
+
+  async function resendWelcomeEmail(user: UserProfile) {
+    setSendingWelcomeId(user.id);
+    setNotice(null);
+    setWarning(null);
+
+    try {
+      const response = await fetch(`/api/users/${user.id}/send-welcome`, {
+        method: "POST",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not send login email.");
+      }
+
+      setNotice(`Login email sent to ${user.email}.`);
+    } catch (error: any) {
+      setWarning(error?.message || "Could not send login email.");
+    } finally {
+      setSendingWelcomeId(null);
+    }
   }
 
   function startEdit(user: UserProfile) {
@@ -352,6 +398,8 @@ export default function AdminUsersPage() {
     }
 
     setSavingEdit(true);
+    setNotice(null);
+    setWarning(null);
 
     const response = await fetch(`/api/users/${user.id}`, {
       method: "PATCH",
@@ -384,11 +432,15 @@ export default function AdminUsersPage() {
     }
 
     setUsers((prev) => prev.map((item) => (item.id === user.id ? data.user : item)));
+    setNotice("User updated.");
     setSavingEdit(false);
     cancelEdit();
   }
 
   async function toggleAccess(user: UserProfile) {
+    setNotice(null);
+    setWarning(null);
+
     const response = await fetch(`/api/users/${user.id}`, {
       method: "PATCH",
       headers: {
@@ -443,6 +495,9 @@ export default function AdminUsersPage() {
           Back to Clients
         </a>
       </div>
+
+      {notice ? <div style={styles.notice}>{notice}</div> : null}
+      {warning ? <div style={styles.warning}>{warning}</div> : null}
 
       <section style={styles.card}>
         <h2 style={styles.cardTitle}>Add New User</h2>
@@ -700,6 +755,14 @@ export default function AdminUsersPage() {
                           </button>
 
                           <button
+                            style={styles.emailButton}
+                            onClick={() => resendWelcomeEmail(user)}
+                            disabled={sendingWelcomeId === user.id}
+                          >
+                            {sendingWelcomeId === user.id ? "Sending..." : "Send login email"}
+                          </button>
+
+                          <button
                             style={user.access_enabled ? styles.blockButton : styles.enableButton}
                             onClick={() => toggleAccess(user)}
                           >
@@ -750,6 +813,26 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "14px",
     fontWeight: 600,
     textDecoration: "none",
+  },
+  notice: {
+    background: "#e8f8ee",
+    color: "#137333",
+    border: "1px solid #b8e6c8",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    marginBottom: "16px",
+    fontSize: "14px",
+    fontWeight: 700,
+  },
+  warning: {
+    background: "#fff8e6",
+    color: "#9a5b00",
+    border: "1px solid #ffd88a",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    marginBottom: "16px",
+    fontSize: "14px",
+    fontWeight: 700,
   },
   card: {
     background: "#ffffff",
@@ -939,6 +1022,17 @@ const styles: Record<string, CSSProperties> = {
     background: "#e8f3ff",
     color: "#0b5cab",
     border: "1px solid #c9e2ff",
+    borderRadius: "8px",
+    padding: "8px 12px",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+    marginRight: "8px",
+  },
+  emailButton: {
+    background: "#f3f6fb",
+    color: "#12304a",
+    border: "1px solid #d5dde6",
     borderRadius: "8px",
     padding: "8px 12px",
     fontSize: "13px",

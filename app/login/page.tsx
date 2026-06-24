@@ -1,3 +1,5 @@
+// Path: app/login/page.tsx
+
 "use client";
 
 import Image from "next/image";
@@ -85,21 +87,29 @@ export default function LoginPage() {
 
     setResetLoading(true);
 
-    const { error } = await supabase.auth.resetPasswordForEmail(
-      email.trim().toLowerCase(),
-      {
-        redirectTo: `${window.location.origin}/reset-password`,
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json.error || "Could not send reset email.");
       }
-    );
 
-    if (error) {
-      alert(error.message);
+      alert("Password reset email sent.");
+    } catch (error: any) {
+      alert(error?.message || "Could not send reset email.");
+    } finally {
       setResetLoading(false);
-      return;
     }
-
-    alert("Password reset email sent.");
-    setResetLoading(false);
   }
 
   return (
