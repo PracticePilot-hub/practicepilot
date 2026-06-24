@@ -317,6 +317,16 @@ const s: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     cursor: "pointer",
   },
+  secondaryButton: {
+    border: "1px solid #d5dde6",
+    background: "#f8fbff",
+    color: "#12304a",
+    borderRadius: 7,
+    padding: "8px 11px",
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: "pointer",
+  },
   dangerButton: {
     border: "1px solid #fecaca",
     background: "#fff1f2",
@@ -1908,27 +1918,46 @@ function GenerateSection({
           </div>
           <div style={{ ...s.message, marginTop: 4 }}>
             {isFinalised
-              ? "This manual has been finalised. Open the issued printable manual, or create a new draft version for future changes."
+              ? "This manual has been finalised. Download the issued PDF, or create a new draft version for future changes."
               : readyForExport
               ? "Final review checks are complete. Finalise the manual before issuing it."
-              : "Some review checks are incomplete. You can still open export, but the manual may be incomplete."}
+              : "Some review checks are incomplete. You can still preview or download the PDF, but the manual may be incomplete."}
           </div>
         </div>
 
-        <a
-          href={`/api/paia/manuals/${manual.id}/export`}
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            ...s.smallButton,
-            textDecoration: "none",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          Open export
-        </a>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <a
+            href={`/api/paia/manuals/${manual.id}/export`}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              ...s.secondaryButton,
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Open preview
+          </a>
+
+          <a
+            href={`/api/paia/manuals/${manual.id}/pdf`}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              ...s.smallButton,
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Download PDF
+          </a>
+        </div>
       </div>
     </div>
   );

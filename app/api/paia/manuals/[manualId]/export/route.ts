@@ -214,6 +214,9 @@ export async function GET(_request: Request, context: RouteContext) {
     ]);
 
     const selectedRecords = selected(records);
+    const publicRecords = selectedRecords.filter(
+      (row: AnyRow) => row.available_on_website === true
+    );
     const selectedLegislation = selected(legislation);
     const selectedPurposes = selected(purposes);
     const selectedDataSubjects = selected(dataSubjects);
@@ -372,22 +375,32 @@ export async function GET(_request: Request, context: RouteContext) {
       <p>
         Certain records may be made available without a requester having to submit a formal
         PAIA request. These records may, where applicable, be available on the website of
-        the private body, by inspection at the offices of the private body, or upon request
-        to the Information Officer.
+        the private body, by inspection at the offices of the private body, or by another
+        automatic access method adopted by the private body.
       </p>
+      ${
+        publicRecords.length > 0
+          ? rowsTable(
+              ["Category of records", "Method of access", "Notes"],
+              publicRecords.map((row: AnyRow) => [
+                esc(row.record_name),
+                "Website / publicly available",
+                escBlank(row.notes),
+              ])
+            )
+          : `
+            <p>
+              No categories of records are marked as automatically available without a formal
+              PAIA request, other than records that may be published on the website or otherwise
+              made publicly available by ${esc(manual.entity_name)} from time to time.
+            </p>
+          `
+      }
       <p>
-        Records marked as available on request may still be subject to verification,
-        reasonable access procedures, fees where applicable, and any lawful ground for refusal
-        under PAIA.
+        All other records listed in this manual are records held by the private body and may be
+        requested through the formal PAIA request procedure, subject to PAIA, POPIA, applicable
+        fees, verification requirements and any lawful ground for refusal.
       </p>
-      ${rowsTable(
-        ["Category of records", "Website", "Available upon request"],
-        selectedRecords.map((row: AnyRow) => [
-          esc(row.record_name),
-          row.available_on_website ? "Yes" : "No",
-          row.available_on_request ? "Yes" : "No",
-        ])
-      )}
     `;
 
     const requestProcedureHtml = `
@@ -614,7 +627,7 @@ export async function GET(_request: Request, context: RouteContext) {
       cursor: pointer;
     }
 
-    .toolbar a {
+    .toolbar a:first-child {
       background: #ffffff;
       color: #0f3b66;
     }
@@ -888,7 +901,7 @@ export async function GET(_request: Request, context: RouteContext) {
 <body>
   <div class="toolbar">
     <a href="/compliance/paia/${esc(manualId)}">← Back to working file</a>
-    <button type="button" onclick="window.print()">Print / Save PDF</button>
+    <a href="/api/paia/manuals/${esc(manualId)}/pdf">Download PDF</a>
   </div>
 
   ${coverHtml}
@@ -996,12 +1009,12 @@ export async function GET(_request: Request, context: RouteContext) {
         ["Document control", "Details"],
         [
           ["Prepared for", esc(manual.entity_name)],
-["Prepared by", esc(manual.prepared_by || "Bizzacc Menlyn (Pty) Ltd")],
-["Reviewed by", esc(manual.reviewed_by || "—")],
-["Approved by", esc(manual.approved_by || "—")],
-["Date compiled", esc(formatDate(manual.date_compiled))],
-["Date of revision / next review", esc(formatDate(revisionDate))],
-["Version", esc(manual.version_number || "1.0")],
+          ["Prepared by", esc(manual.prepared_by || "Bizzacc Menlyn (Pty) Ltd")],
+          ["Reviewed by", esc(manual.reviewed_by || "—")],
+          ["Approved by", esc(manual.approved_by || "—")],
+          ["Date compiled", esc(formatDate(manual.date_compiled))],
+          ["Date of revision / next review", esc(formatDate(revisionDate))],
+          ["Version", esc(manual.version_number || "1.0")],
         ]
       )}
 
