@@ -20,14 +20,23 @@ function getSupabaseAdmin() {
 
   const serviceRoleKey =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_KEY;
 
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Missing Supabase environment variables.");
+  if (!supabaseUrl) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL.");
   }
 
-  return createClient(supabaseUrl, serviceRoleKey) as any;
+  if (!serviceRoleKey) {
+    throw new Error("Missing server Supabase key.");
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  }) as any;
 }
 
 function esc(value: any) {
@@ -69,6 +78,8 @@ function categoryLabel(key: string) {
     operations: "Operational records",
     finances: "Finance and accounting records",
     information_technology: "Information technology records",
+    statutory: "Statutory records",
+    general: "General / Custom records",
     other: "Other records",
   };
 
@@ -108,7 +119,10 @@ async function getRows(
 
   const result = await query;
 
-  if (result.error) throw new Error(result.error.message);
+  if (result.error) {
+    throw new Error(result.error.message);
+  }
+
   return result.data || [];
 }
 
@@ -144,17 +158,21 @@ export async function GET(_request: Request, context: RouteContext) {
     const { manualId } = await context.params;
     const supabase = getSupabaseAdmin();
 
-    const manualResult = await supabase
+    const { data: manualRows, error: manualError } = await supabase
       .from("paia_manuals")
       .select("*")
       .eq("id", manualId)
-      .single();
+      .limit(1);
 
-    if (manualResult.error || !manualResult.data) {
-      return new NextResponse("PAIA manual not found.", { status: 404 });
+    if (manualError) {
+      return NextResponse.json({ error: manualError.message }, { status: 500 });
     }
 
-    const manual = manualResult.data;
+    const manual = Array.isArray(manualRows) ? manualRows[0] : null;
+
+    if (!manual) {
+      return new NextResponse("PAIA manual not found.", { status: 404 });
+    }
 
     const [
       records,
@@ -179,15 +197,20 @@ export async function GET(_request: Request, context: RouteContext) {
     ]);
 
     const groupedRecords = groupBy(selected(records), "category_key");
-    const groupedInfoCategories = groupBy(selected(informationCategories), "person_type");
+    const groupedInfoCategories = groupBy(
+      selected(informationCategories),
+      "person_type"
+    );
 
     const rawSignatoryRows =
       signatories.length > 0
         ? signatories
         : [
             {
-              signatory_name: manual.information_officer_name || "Information Officer",
-              signatory_capacity: manual.information_officer_position || "Information Officer",
+              signatory_name:
+                manual.information_officer_name || "Information Officer",
+              signatory_capacity:
+                manual.information_officer_position || "Information Officer",
               signature_label: "Signature",
               signed_at: "",
             },
@@ -734,6 +757,7 @@ export async function GET(_request: Request, context: RouteContext) {
         esc(row.applicable_records),
       ])
     )}
+
     <h2>6. Categories of records held by the private body</h2>
     ${recordsHtml}
 
@@ -751,6 +775,7 @@ export async function GET(_request: Request, context: RouteContext) {
     )}
 
     ${infoCategoriesHtml}
+
     <h2>8. Recipients of personal information</h2>
     ${rowsTable(
       ["Recipient", "Information shared"],
