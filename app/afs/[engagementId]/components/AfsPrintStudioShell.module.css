@@ -1,0 +1,399 @@
+.shell {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  height: calc(100dvh - 64px);
+  min-height: 0;
+  background: #f3f4f6;
+  color: #111827;
+  overflow: hidden;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.leftRail {
+  background: #111827;
+  color: #f9fafb;
+  border-right: 1px solid #030712;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.brandBlock {
+  flex: 0 0 auto;
+  padding: 12px 10px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.brandTitle {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.brandSubTitle {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 14px;
+  color: #cbd5e1;
+}
+
+.sideNav {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8px 6px;
+  overflow: auto;
+}
+
+.navGroup {
+  margin-bottom: 12px;
+}
+
+.navGroupTitle {
+  padding: 7px 6px 4px;
+  font-size: 10px;
+  line-height: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+}
+
+.navButton,
+.navButtonActive {
+  width: 100%;
+  display: block;
+  border: 0;
+  text-align: left;
+  padding: 6px 7px;
+  margin: 1px 0;
+  font-size: 11px;
+  line-height: 15px;
+  cursor: pointer;
+  background: transparent;
+  color: #e5e7eb;
+  border-left: 3px solid transparent;
+}
+
+.navButton:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.navButtonActive {
+  background: #f9fafb;
+  color: #111827;
+  border-left-color: #2563eb;
+  font-weight: 700;
+}
+
+.leftPanel {
+  flex: 0 0 auto;
+  max-height: 240px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 8px;
+  font-size: 11px;
+  color: #d1d5db;
+  overflow: auto;
+}
+
+.mainArea {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.headerBar {
+  flex: 0 0 auto;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  background: #ffffff;
+  border-bottom: 1px solid #d1d5db;
+  z-index: 30;
+}
+
+.headerIdentity {
+  min-width: 0;
+}
+
+.clientName {
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.yearEnd {
+  font-size: 11px;
+  line-height: 14px;
+  color: #4b5563;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+}
+
+.primaryButton,
+.secondaryButton,
+.zoomSelect {
+  height: 28px;
+  border: 1px solid #9ca3af;
+  background: #ffffff;
+  color: #111827;
+  font-size: 11px;
+  padding: 0 9px;
+}
+
+.primaryButton {
+  background: #111827;
+  color: #ffffff;
+  border-color: #111827;
+  font-weight: 700;
+}
+
+.primaryButton:disabled {
+  background: #9ca3af;
+  border-color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.secondaryButton:hover,
+.zoomSelect:hover {
+  background: #f9fafb;
+}
+
+.quickBar {
+  flex: 0 0 auto;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #f8fafc;
+  border-bottom: 1px solid #d1d5db;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+}
+
+.quickButton,
+.quickButtonActive {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #111827;
+  font-size: 10px;
+  line-height: 14px;
+  padding: 4px 7px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.quickButton:hover {
+  background: #eef2ff;
+}
+
+.quickButtonActive {
+  background: #111827;
+  color: #ffffff;
+  border-color: #111827;
+  font-weight: 700;
+}
+
+.workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.workspaceNoOptions {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.optionsPanel {
+  min-width: 0;
+  min-height: 0;
+  background: #ffffff;
+  border-right: 1px solid #d1d5db;
+  overflow: auto;
+  padding: 10px;
+}
+
+.optionsHeader {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
+}
+
+.optionsSubHeader,
+.emptyOptions {
+  margin-top: 3px;
+  font-size: 10px;
+  line-height: 14px;
+  color: #6b7280;
+}
+
+.optionList {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.optionRow,
+.optionRowDisabled {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  font-size: 11px;
+  line-height: 14px;
+  color: #111827;
+}
+
+.optionRowDisabled {
+  color: #9ca3af;
+}
+
+.optionLabel {
+  display: block;
+  font-weight: 600;
+}
+
+.optionDescription {
+  display: block;
+  margin-top: 1px;
+  color: #6b7280;
+  font-size: 10px;
+  line-height: 13px;
+}
+
+.canvasHost {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.canvasToolbar {
+  flex: 0 0 auto;
+  height: 31px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  background: #ffffff;
+  border-bottom: 1px solid #d1d5db;
+  font-size: 11px;
+  color: #374151;
+}
+
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+  background: #fffbeb;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.scrollArea {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 18px 36px;
+  background:
+    linear-gradient(90deg, rgba(17, 24, 39, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(17, 24, 39, 0.04) 1px, transparent 1px),
+    #e5e7eb;
+  background-size: 20px 20px;
+}
+
+.pageStackFit,
+.pageStack100,
+.pageStack110 {
+  width: 210mm;
+  margin: 0 auto;
+  transform-origin: top center;
+}
+
+.pageStackFit {
+  transform: scale(0.86);
+}
+
+.pageStack100 {
+  transform: scale(1);
+}
+
+.pageStack110 {
+  transform: scale(1.1);
+}
+
+.footer {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 5px 10px;
+  background: #ffffff;
+  border-top: 1px solid #d1d5db;
+  font-size: 11px;
+  color: #4b5563;
+}
+
+@media print {
+  .shell {
+    display: block;
+    height: auto;
+    min-height: 0;
+    background: #ffffff;
+    overflow: visible;
+  }
+
+  .leftRail,
+  .headerBar,
+  .quickBar,
+  .optionsPanel,
+  .canvasToolbar,
+  .footer {
+    display: none !important;
+  }
+
+  .mainArea,
+  .workspace,
+  .workspaceNoOptions,
+  .canvasHost,
+  .scrollArea {
+    display: block;
+    height: auto;
+    overflow: visible;
+    padding: 0;
+    background: #ffffff;
+  }
+
+  .pageStackFit,
+  .pageStack100,
+  .pageStack110 {
+    width: 210mm;
+    margin: 0;
+    transform: none;
+  }
+}

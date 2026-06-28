@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ClientSetupPanel from "./ClientSetupPanel";
 import TrialBalancePanel from "./TrialBalancePanel";
 import MappingPanelNew from "./MappingPanel";
@@ -12,6 +12,10 @@ import AdjustingJournalsPanel from "./AdjustingJournalsPanel";
 import ReviewPanel from "./ReviewPanel";
 import FinancialStatementsPanel from "./FinancialStatementsPanel";
 import TaxCalculatorPanel from "./TaxCalculatorPanel";
+import Link from "next/link";
+
+
+
 
 type AFSEngagement = {
   id: string;
@@ -345,7 +349,9 @@ function formatSectionTitle(section: { number: string; title: string }) {
 export default function AFSEngagementPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const engagementId = String(params.engagementId || "");
+  const isAfsPdfMode = searchParams.get("afsPdf") === "1";
 
   const [loading, setLoading] = useState(true);
   const [engagement, setEngagement] = useState<AFSEngagement | null>(null);
@@ -403,6 +409,12 @@ export default function AFSEngagementPage() {
       loadEngagement();
     }
   }, [engagementId]);
+
+  useEffect(() => {
+    if (isAfsPdfMode) {
+      setActiveSection("financial-statements");
+    }
+  }, [isAfsPdfMode]);
 
   function toggleLeadStatement(statementKey: string) {
     setOpenLeadStatements((current) => ({
@@ -522,10 +534,13 @@ export default function AFSEngagementPage() {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const target = document.getElementById(targetId);
-        if (target) {
-          window.history.replaceState(null, "", `#${targetId}`);
-          target.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
+        if (!target) return;
+
+        window.history.replaceState(null, "", `#${targetId}`);
+
+        const stickyOffset = 154;
+        const targetTop = target.getBoundingClientRect().top + window.scrollY - stickyOffset;
+        window.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
       });
     });
   }
@@ -537,6 +552,24 @@ export default function AFSEngagementPage() {
           <button style={styles.backButton} onClick={() => router.push("/afs")}>
             ← Back to AFS
           </button>
+
+<Link
+  href={`/afs/${engagementId}/print-studio`}
+  target="_blank"
+  rel="noreferrer"
+  style={{
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#ffffff",
+    background: "#111827",
+    border: "1px solid #111827",
+    padding: "7px 12px",
+    textDecoration: "none",
+    whiteSpace: "nowrap",
+  }}
+>
+  Open Print Studio ↗
+</Link>
 
           <div style={styles.fileHeaderLine}>
             <span style={styles.fileHeaderLabel}>AFS Working File</span>
@@ -550,6 +583,23 @@ export default function AFSEngagementPage() {
 
           <span style={styles.status}>{engagement.status || "Draft"}</span>
         </section>
+      )}
+
+      {activeSection === "financial-statements" && (
+        <div style={styles.financialQuickNavShell}>
+          <div style={styles.financialQuickNav}>
+            {financialStatementQuickButtons.map((button) => (
+              <button
+                key={button.targetId}
+                type="button"
+                style={styles.financialQuickButton}
+                onClick={() => jumpToFinancialStatementSection(button.targetId)}
+              >
+                {button.label}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
       <section style={styles.fileLayout}>
@@ -736,21 +786,6 @@ export default function AFSEngagementPage() {
             </div>
           )}
 
-          {activeSection === "financial-statements" && (
-            <div style={styles.financialQuickNav}>
-              {financialStatementQuickButtons.map((button) => (
-                <button
-                  key={button.targetId}
-                  type="button"
-                  style={styles.financialQuickButton}
-                  onClick={() => jumpToFinancialStatementSection(button.targetId)}
-                >
-                  {button.label}
-                </button>
-              ))}
-            </div>
-          )}
-
           {activeSection === "client-setup" && (
             <ClientSetupPanel
               engagementId={engagementId}
@@ -818,6 +853,7 @@ export default function AFSEngagementPage() {
 
           {activeSection === "financial-statements" && (
             <FinancialStatementsPanel
+              engagementId={engagementId}
               trialBalanceLines={trialBalanceLines}
               engagement={engagement}
               clientSetup={clientSetup}
@@ -891,6 +927,9 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: "space-between",
     gap: "10px",
     boxShadow: "none",
+    position: "sticky",
+    top: "54px",
+    zIndex: 1500,
   },
   backButton: {
     border: "1px solid #cbd5e1",
@@ -961,8 +1000,8 @@ const styles: Record<string, CSSProperties> = {
     borderRight: "1px solid #d8e1ef",
     padding: "8px 8px 8px 0",
     position: "sticky",
-    top: "62px",
-    maxHeight: "calc(100vh - 70px)",
+    top: "118px",
+    maxHeight: "calc(100vh - 126px)",
     overflow: "auto",
   },
   sidebarHeader: {
@@ -1140,10 +1179,16 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.25,
   },
 
-  financialQuickNav: {
+  financialQuickNavShell: {
     position: "sticky",
-    top: "0px",
-    zIndex: 40,
+    top: "96px",
+    zIndex: 1450,
+    background: "#eef4fb",
+    borderBottom: "1px solid #cbd5e1",
+    padding: "6px 8px 7px",
+    margin: "0 -12px 8px",
+  },
+  financialQuickNav: {
     display: "flex",
     flexWrap: "wrap",
     gap: "5px",
@@ -1151,7 +1196,7 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid #cbd5e1",
     background: "#f8fafc",
     padding: "6px",
-    marginBottom: "10px",
+    boxShadow: "0 2px 6px rgba(15, 23, 42, 0.08)",
   },
   financialQuickButton: {
     border: "1px solid #cbd5e1",

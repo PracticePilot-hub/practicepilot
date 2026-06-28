@@ -21,20 +21,24 @@ function nullable(value: unknown) {
   return text || null;
 }
 
+function normaliseAccountCode(value: unknown) {
+  return clean(value).replace(/\s+/g, "").toUpperCase();
+}
+
 function buildFullMappingPayload(body: any) {
-  const mappingCode = nullable(body.mapping_code ?? body.mappingCode ?? body.selectedMappingCode);
-  const mappingLabel = nullable(body.mapping_label ?? body.mappingLabel ?? body.selectedMappingLabel);
+  const mappingCode = nullable(body.mapping_code ?? body.mappingCode ?? body.selectedMappingCode ?? body.code);
+  const mappingLabel = nullable(body.mapping_label ?? body.mappingLabel ?? body.selectedMappingLabel ?? body.label ?? body.title);
   const mappingLeafId = nullable(body.mapping_leaf_id ?? body.mappingLeafId ?? body.leafId ?? body.mappingLeafID);
   const mappingStatement = nullable(body.mapping_statement ?? body.mappingStatement ?? body.statement);
-  const mappingSection = nullable(body.mapping_section ?? body.mappingSection ?? body.selectedMappingSection);
-  const mappingPath = nullable(body.mapping_path ?? body.mappingPath ?? body.selectedMappingPath);
+  const mappingSection = nullable(body.mapping_section ?? body.mappingSection ?? body.selectedMappingSection ?? body.section);
+  const mappingPath = nullable(body.mapping_path ?? body.mappingPath ?? body.selectedMappingPath ?? body.path);
   const mappingSmartRule = nullable(body.mapping_smart_rule ?? body.mappingSmartRule ?? body.smartRule);
   const mappingConfidence = nullable(body.mapping_confidence ?? body.mappingConfidence ?? body.confidence);
   const leadScheduleNumber = nullable(
     body.lead_schedule_number ?? body.leadScheduleNumber ?? body.leadNumber ?? mappingCode
   );
   const leadScheduleKey = nullable(
-    body.lead_schedule_key ?? body.leadScheduleKey ?? body.mapping_key ?? body.mappingKey
+    body.lead_schedule_key ?? body.leadScheduleKey ?? body.mapping_key ?? body.mappingKey ?? body.key
   );
 
   return {
@@ -164,7 +168,7 @@ export async function PATCH(req: NextRequest, context: any) {
     const supabase = getSupabaseServer();
 
     const lineId = clean(body.line_id ?? body.lineId ?? body.trial_balance_line_id ?? body.trialBalanceLineId ?? body.id);
-    const accountCode = clean(body.account_code ?? body.accountCode ?? body.account);
+    const accountCode = normaliseAccountCode(body.account_code ?? body.accountCode ?? body.account);
     const payload = buildFullMappingPayload(body);
 
     if (!lineId && !accountCode) {
@@ -204,7 +208,7 @@ export async function DELETE(req: NextRequest, context: any) {
     const supabase = getSupabaseServer();
 
     const lineId = clean(body.line_id ?? body.lineId ?? body.trial_balance_line_id ?? body.trialBalanceLineId ?? body.id);
-    const accountCode = clean(body.account_code ?? body.accountCode ?? body.account);
+    const accountCode = normaliseAccountCode(body.account_code ?? body.accountCode ?? body.account);
 
     if (!lineId && !accountCode) {
       return NextResponse.json({ error: "Line ID or account code is required." }, { status: 400 });

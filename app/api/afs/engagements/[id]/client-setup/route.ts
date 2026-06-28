@@ -41,15 +41,21 @@ export async function GET(req: NextRequest, context: any) {
 
     if (engagementError) throw engagementError;
 
+    const enrichedSetup = setup
+      ? enrichClientSetup(setup, engagement)
+      : null;
+
     return NextResponse.json({
-      setup: setup
-        ? {
-            ...setup,
-            financial_year_end: engagement?.financial_year_end || null,
-          }
-        : null,
+      setup: enrichedSetup,
+      clientSetup: enrichedSetup,
       people: people || [],
+      clientPeople: people || [],
+      client_people: people || [],
+      directors: people || [],
+      members: people || [],
+      trustees: people || [],
       engagement,
+      success: true,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -195,12 +201,11 @@ export async function PATCH(req: NextRequest, context: any) {
       updatedEngagement = engagementData;
     }
 
+    const enrichedSetup = enrichClientSetup(data, updatedEngagement);
+
     return NextResponse.json({
-      setup: {
-        ...data,
-        financial_year_end:
-          updatedEngagement?.financial_year_end || updatedYearEnd || null,
-      },
+      setup: enrichedSetup,
+      clientSetup: enrichedSetup,
       engagement: updatedEngagement,
       success: true,
     });
@@ -210,6 +215,151 @@ export async function PATCH(req: NextRequest, context: any) {
       { status: 500 }
     );
   }
+}
+
+function enrichClientSetup(setup: Record<string, any>, engagement: any) {
+  const registeredOffice = joinAddress([
+    setup.registered_office_line_1,
+    setup.registered_office_line_2,
+    setup.registered_office_city,
+    setup.registered_office_province,
+    setup.registered_office_postal_code,
+  ]);
+
+  const physicalAddress = joinAddress([
+    setup.physical_address_line_1,
+    setup.physical_address_line_2,
+    setup.physical_address_city,
+    setup.physical_address_province,
+    setup.physical_address_postal_code,
+  ]);
+
+  const postalAddress = joinAddress([
+    setup.postal_address_line_1,
+    setup.postal_address_line_2,
+    setup.postal_address_city,
+    setup.postal_address_province,
+    setup.postal_address_postal_code,
+  ]);
+
+  const bankerParts = [
+    setup.banker_name,
+    setup.account_holder ? `Account holder: ${setup.account_holder}` : null,
+    setup.account_type ? `Account type: ${setup.account_type}` : null,
+  ].filter(Boolean);
+
+  const bankers = bankerParts.length ? bankerParts.join("\n") : null;
+
+  const approvalDate =
+    setup.afs_approval_date || setup.signature_date || setup.publish_date || null;
+
+  const compilationReportDate =
+    setup.publish_date || setup.signature_date || setup.afs_approval_date || null;
+
+  const practitionerFirm = setup.practice_name || setup.member_firm || null;
+
+  const basisOfPreparation = setup.basis_of_preparation || null;
+  const typeOfEngagement = setup.type_of_engagement || null;
+
+  return {
+    ...setup,
+
+    financial_year_end:
+      engagement?.financial_year_end || setup.financial_year_end || null,
+
+    client_name: setup.registered_name || engagement?.client_name || null,
+    company_name: setup.registered_name || engagement?.client_name || null,
+    entity_name: setup.registered_name || engagement?.client_name || null,
+
+    country_of_incorporation: setup.country || null,
+    country_of_incorporation_and_domicile: setup.country || null,
+    domicile: setup.country || null,
+
+    financial_reporting_framework: basisOfPreparation,
+    reporting_framework: basisOfPreparation,
+    accounting_framework: basisOfPreparation,
+    framework: basisOfPreparation,
+    basis: basisOfPreparation,
+
+    level_of_assurance: typeOfEngagement,
+    engagement_type: typeOfEngagement,
+
+    income_tax_reference_number: setup.income_tax_number || null,
+    tax_reference_number: setup.income_tax_number || null,
+    income_tax_number: setup.income_tax_number || null,
+    tax_number: setup.income_tax_number || null,
+
+    practitioner_firm_name: practitionerFirm,
+    firm_name: practitionerFirm,
+    accounting_firm: practitionerFirm,
+    compiler_firm: practitionerFirm,
+    preparer_firm: practitionerFirm,
+
+    compiler_name: setup.practitioner_name || null,
+    prepared_by: setup.practitioner_name || null,
+    accountant_name: setup.practitioner_name || null,
+
+    compiler_designation: setup.practitioner_designation || null,
+    professional_designation: setup.practitioner_designation || null,
+    designation: setup.practitioner_designation || null,
+
+    registered_office: registeredOffice,
+    registered_address: registeredOffice,
+    registered_office_address: registeredOffice,
+    registeredAddress: registeredOffice,
+    registeredOffice: registeredOffice,
+    registeredOfficeAddress: registeredOffice,
+
+    business_address: physicalAddress,
+    physical_address: physicalAddress,
+    trading_address: physicalAddress,
+    businessAddress: physicalAddress,
+    physicalAddress: physicalAddress,
+    tradingAddress: physicalAddress,
+
+    postal_address: postalAddress,
+    mailing_address: postalAddress,
+    postalAddress,
+    mailingAddress: postalAddress,
+
+    bankers,
+    banker: setup.banker_name || null,
+    bank_name: setup.banker_name || null,
+    bankName: setup.banker_name || null,
+
+    approval_date: approvalDate,
+    directors_approval_date: approvalDate,
+    signed_date: setup.signature_date || null,
+    sign_off_date: approvalDate,
+
+    compilation_report_date: compilationReportDate,
+    compiler_report_date: compilationReportDate,
+    report_date: compilationReportDate,
+
+    contact_person: setup.public_officer_name || null,
+    primary_contact: setup.public_officer_name || null,
+    contactPerson: setup.public_officer_name || null,
+    primaryContact: setup.public_officer_name || null,
+
+    email: setup.public_officer_email || null,
+    email_address: setup.public_officer_email || null,
+    contact_email: setup.public_officer_email || null,
+    emailAddress: setup.public_officer_email || null,
+
+    telephone: setup.public_officer_cell || null,
+    phone: setup.public_officer_cell || null,
+    contact_number: setup.public_officer_cell || null,
+    telephone_number: setup.public_officer_cell || null,
+    contactNumber: setup.public_officer_cell || null,
+  };
+}
+
+function joinAddress(parts: any[]) {
+  const cleaned = parts
+    .map((part) => clean(part))
+    .filter((part): part is string => Boolean(part));
+
+  return cleaned.length ? cleaned.join("\n") : null;
 }
 
 function clean(value: any) {

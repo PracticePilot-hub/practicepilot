@@ -1,0 +1,57 @@
+.page {
+  width: 210mm;
+  min-height: 297mm;
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.16);
+  margin: 0 auto 18px;
+  position: relative;
+  box-sizing: border-box;
+  page-break-after: always;
+}
+
+.content {
+  min-height: 297mm;
+  padding: 20mm 22mm 24mm;
+  box-sizing: border-box;
+}
+
+.reportHeader {
+  margin-bottom: 6mm;
+  padding-bottom: 3mm;
+  border-bottom: 1px solid #111827;
+}
+
+.reportClientName {
+  font-size: 12.5px;
+  line-height: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+.reportMeta {
+  margin-top: 0;
+  font-size: 9.5px;
+  line-height: 11px;
+  color: #374151;
+}
+
+@media print {
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0;
+    box-shadow: none;
+    page-break-after: always;
+  }
+
+  .content {
+    min-height: 297mm;
+    padding: 20mm 22mm 24mm;
+  }
+
+  .reportHeader {
+    break-after: avoid;
+  }
+}

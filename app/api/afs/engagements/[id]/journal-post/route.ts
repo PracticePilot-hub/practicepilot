@@ -16,6 +16,10 @@ function clean(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function normaliseAccountCode(value: unknown) {
+  return clean(value).replace(/\s+/g, "").toUpperCase();
+}
+
 function toNumber(value: unknown) {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   const raw = clean(value);
@@ -50,12 +54,13 @@ function buildUpdatePayload(existing: any, movement: number) {
     "source_balance",
     "source_current_balance",
     "imported_balance",
-    "current_year_balance",
-    "current_balance",
     "debit",
-  ]);
+  ]) - firstNumber(existing, ["credit"]);
+
+  const fallbackCurrent = firstNumber(existing, ["current_year_balance", "current_balance", "final_balance"]);
+  const currentBase = Math.abs(sourceBalance) >= 0.005 ? sourceBalance : fallbackCurrent;
   const reclassifications = firstNumber(existing, ["reclassifications", "reclassification"]);
-  const finalBalance = sourceBalance + nextAdjustment + reclassifications;
+  const finalBalance = currentBase + movement + reclassifications;
 
   return {
     adjustments: nextAdjustment,
@@ -79,11 +84,11 @@ function payloadFallbacks(payload: Record<string, any>) {
       final_balance: payload.final_balance,
     }),
     compactPayload({
-      adjustments: payload.adjustments,
       current_year_balance: payload.current_year_balance,
     }),
     compactPayload({
-      current_year_balance: payload.current_year_balance,
+      debit: Math.max(0, payload.current_year_balance),
+      credit: Math.max(0, -payload.current_year_balance),
     }),
   ];
 }
@@ -135,7 +140,7 @@ export async function POST(req: NextRequest, context: any) {
     const movements = new Map<string, number>();
 
     for (const rawLine of rawLines) {
-      const accountCode = clean(rawLine.account_code ?? rawLine.accountCode).toUpperCase();
+      const accountCode = normaliseAccountCode(rawLine.account_code ?? rawLine.accountCode);
       if (!accountCode) continue;
 
       const debit = Math.max(0, toNumber(rawLine.debit));

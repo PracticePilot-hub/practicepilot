@@ -77,9 +77,6 @@ export async function POST(req: NextRequest, context: any) {
       lead_schedule_key: null,
     };
 
-    // Keep this schema-safe for old local DBs. Do not require a `description` column.
-    // The first payload is the full modern shape; later payloads progressively remove
-    // optional balance columns so one of them will fit the local schema.
     const payloads = [
       {
         ...base,
@@ -104,8 +101,9 @@ export async function POST(req: NextRequest, context: any) {
       },
       {
         ...base,
-        current_balance: 0,
-        prior_balance: 0,
+        debit: 0,
+        credit: 0,
+        prior_year_balance: 0,
       },
       base,
     ];

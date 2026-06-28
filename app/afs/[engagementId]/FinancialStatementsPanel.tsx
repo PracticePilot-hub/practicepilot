@@ -11,6 +11,7 @@ import {
 import AfsPpeNoteMatrix, { type AfsPpeClassRow } from "./AfsPpeNoteMatrix";
 
 type Props = {
+  engagementId?: string;
   trialBalanceLines: AfsTrialBalanceLine[];
   engagement?: {
     client_name: string;
@@ -286,6 +287,7 @@ const defaultReportOptions: ReportOptions = {
 };
 
 export default function FinancialStatementsPanel({
+  engagementId,
   trialBalanceLines,
   engagement,
   clientSetup,
@@ -379,6 +381,29 @@ export default function FinancialStatementsPanel({
   const noteNumbering = buildDynamicNoteNumbering(baseSfp, preliminarySpl, options);
   const sfp = noteNumbering.sfp;
   const spl = noteNumbering.spl;
+
+
+  const reportPageNumbers = (() => {
+    let page = 1;
+    const next = () => String(page++);
+    const numbers: Record<string, string> = {};
+
+    numbers.generalInfo = next();
+    numbers.index = next();
+    if (options.directorsResponsibilities) numbers.directorsResponsibilities = next();
+    if (options.directorsReport) numbers.directorsReport = next();
+    if (options.compilationReport) numbers.compilationReport = next();
+    numbers.sfp = next();
+    numbers.sci = next();
+    if (options.statementOfChangesInEquity) numbers.socie = next();
+    if (options.cashFlowStatement) numbers.cashFlow = next();
+    if (options.accountingPolicies) numbers.accountingPolicies = next();
+    if (options.notes) numbers.notes = next();
+    if (options.detailedIncomeStatement) numbers.detailedIncome = next();
+    if (options.taxComputation) numbers.taxComputation = next();
+
+    return numbers;
+  })();
 
   const assetTotal = findSectionTotal(sfp, ["asset"]);
   const equityTotal = findSectionTotal(sfp, ["equity"]);
@@ -538,2123 +563,47 @@ export default function FinancialStatementsPanel({
     setPrintProfile(profile);
     setIsGeneratingPdf(true);
 
-    let exportHost: HTMLDivElement | null = null;
-
     try {
-      await ensurePdfLibraries();
-
-      const sourceRoot = document.querySelector(".afs-print-root") as HTMLElement | null;
-      if (!sourceRoot) return;
-
-      const html2canvas = (window as any).html2canvas;
-      const JsPdfConstructor = (window as any).jspdf?.jsPDF;
-      if (!html2canvas || !JsPdfConstructor) {
-        alert("PDF library could not load. Check your internet connection and try again.");
+      const id = clean(engagementId);
+      if (!id) {
+        alert("Missing engagement id. Cannot export AFS PDF.");
         return;
       }
 
-      exportHost = document.createElement("div");
-      exportHost.className = "afs-pdf-export-host";
-      exportHost.style.position = "fixed";
-      exportHost.style.left = "-100000px";
-      exportHost.style.top = "0";
-      exportHost.style.width = "210mm";
-      exportHost.style.background = "#ffffff";
-      exportHost.style.zIndex = "-1";
-
-      const exportStyle = document.createElement("style");
-      exportStyle.textContent = `
-        .afs-pdf-export-host,
-        .afs-pdf-export-host * {
-          box-sizing: border-box !important;
-          color: #111827 !important;
-          font-family: Arial, Helvetica, sans-serif !important;
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-        }
-        .afs-pdf-export-host button,
-        .afs-pdf-export-host .afs-screen-only,
-        .afs-pdf-export-host .afs-print-hide,
-        .afs-pdf-export-host .print-hide,
-        .afs-pdf-export-host .print-edit-col,
-        .afs-pdf-export-host .statementModeToolbar,
-        .afs-pdf-export-host .inlineEditableToolbar,
-        .afs-pdf-export-host .compactNoteTabBar,
-        .afs-pdf-export-host .noteEditorActions,
-        .afs-pdf-export-host th.print-edit-col,
-        .afs-pdf-export-host td.print-edit-col { display: none !important; }
-        .afs-pdf-export-host .afs-print-root {
-          width: 210mm !important;
-          display: block !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          background: #ffffff !important;
-        }
-        .afs-pdf-export-host .afs-print-page {
-          width: 210mm !important;
-          max-width: none !important;
-          min-height: 297mm !important;
-          height: auto !important;
-          margin: 0 !important;
-          padding: 13mm 14mm 18mm 14mm !important;
-          border: 0 !important;
-          box-shadow: none !important;
-          background: #ffffff !important;
-          display: block !important;
-          overflow: visible !important;
-          page-break-after: auto !important;
-          break-after: auto !important;
-          font-size: 10.5pt !important;
-          line-height: 1.22 !important;
-        }
-        .afs-pdf-export-host #afs-cover {
-          height: 297mm !important;
-          min-height: 297mm !important;
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          text-align: center !important;
-          padding: 0 22mm !important;
-        }
-        .afs-pdf-export-host #afs-cover h1 {
-          font-size: 16px !important;
-          line-height: 1.12 !important;
-          margin: 0 0 3mm 0 !important;
-          font-weight: 900 !important;
-        }
-        .afs-pdf-export-host #afs-cover p,
-        .afs-pdf-export-host #afs-cover div,
-        .afs-pdf-export-host #afs-cover span {
-          font-size: 10.5px !important;
-          line-height: 1.28 !important;
-        }
-        .afs-pdf-export-host .afsPageEntityHeader {
-          margin: 0 0 8mm 0 !important;
-          padding: 0 0 1.8mm 0 !important;
-          border-bottom: 2px solid #111827 !important;
-        }
-        .afs-pdf-export-host .afsPageEntityHeader h1 {
-          font-size: 11.8pt !important;
-          line-height: 1.10 !important;
-          margin: 0 0 1mm 0 !important;
-          font-weight: 900 !important;
-        }
-        .afs-pdf-export-host .afsPageEntityHeader p {
-          font-size: 8.6pt !important;
-          line-height: 1.12 !important;
-          margin: 0.5mm 0 0 0 !important;
-          font-weight: 700 !important;
-        }
-        .afs-pdf-export-host h2 {
-          font-size: 15pt !important;
-          line-height: 1.12 !important;
-          margin: 0 0 5mm 0 !important;
-          padding-bottom: 1.6mm !important;
-          border-bottom: 2px solid #111827 !important;
-          font-weight: 900 !important;
-        }
-        .afs-pdf-export-host h3 {
-          font-size: 10.2pt !important;
-          line-height: 1.22 !important;
-          margin: 0 0 2.4mm 0 !important;
-          font-weight: 900 !important;
-        }
-        .afs-pdf-export-host h4 {
-          font-size: 10.2pt !important;
-          line-height: 1.20 !important;
-          margin: 3mm 0 1mm 0 !important;
-          font-weight: 900 !important;
-        }
-        .afs-pdf-export-host p,
-        .afs-pdf-export-host td,
-        .afs-pdf-export-host th,
-        .afs-pdf-export-host span,
-        .afs-pdf-export-host div {
-          font-size: 10.5pt !important;
-          line-height: 1.22 !important;
-        }
-        .afs-pdf-export-host table {
-          width: 100% !important;
-          border-collapse: collapse !important;
-        }
-        .afs-pdf-export-host #afs-directors-report p,
-        .afs-pdf-export-host #afs-directors-report td,
-        .afs-pdf-export-host #afs-directors-report th,
-        .afs-pdf-export-host #afs-directors-report span,
-        .afs-pdf-export-host #afs-directors-report div {
-          font-size: 10.2pt !important;
-          line-height: 1.20 !important;
-        }
-        .afs-pdf-export-host #afs-directors-report h4 {
-          font-size: 9.9pt !important;
-          margin: 3mm 0 1mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-compilation-report {
-          min-height: 297mm !important;
-          height: 297mm !important;
-          padding: 14mm 14mm 14mm 14mm !important;
-          overflow: hidden !important;
-        }
-        .afs-pdf-export-host #afs-compilation-report .afs-page-content,
-        .afs-pdf-export-host #afs-compilation-report .afs-compilation-report {
-          height: 269mm !important;
-          min-height: 269mm !important;
-          position: relative !important;
-          overflow: hidden !important;
-        }
-        .afs-pdf-export-host #afs-compilation-report .afs-compilation-letterhead-top img {
-          width: 182mm !important;
-          max-width: 182mm !important;
-          height: auto !important;
-          display: block !important;
-          object-fit: contain !important;
-        }
-        .afs-pdf-export-host #afs-compilation-report .afs-compilation-letterhead-bottom {
-          position: absolute !important;
-          left: 0 !important;
-          right: 0 !important;
-          bottom: 0 !important;
-          width: 100% !important;
-        }
-        .afs-pdf-export-host #afs-compilation-report .afs-compilation-letterhead-bottom img {
-          width: 182mm !important;
-          max-width: 182mm !important;
-          height: auto !important;
-          display: block !important;
-          object-fit: contain !important;
-        }
-        .afs-pdf-export-host #afs-compilation-report h3 {
-          font-size: 10pt !important;
-          line-height: 1.12 !important;
-          margin: 0 0 3mm 0 !important;
-          padding-bottom: 1.4mm !important;
-          border-bottom: 1px solid #111827 !important;
-          text-transform: uppercase !important;
-        }
-        .afs-pdf-export-host #afs-compilation-report h4 {
-          font-size: 7.5pt !important;
-          line-height: 1.12 !important;
-          margin: 1.7mm 0 0.8mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-compilation-report p,
-        .afs-pdf-export-host #afs-compilation-report td,
-        .afs-pdf-export-host #afs-compilation-report th,
-        .afs-pdf-export-host #afs-compilation-report span,
-        .afs-pdf-export-host #afs-compilation-report div {
-          font-size: 7.5pt !important;
-          line-height: 1.18 !important;
-        }
-        .afs-pdf-export-host #afs-compilation-report p { margin: 0 0 1.9mm 0 !important; }
-        .afs-pdf-export-host #afs-compilation-report .afs-compilation-letterhead-top { margin-bottom: 4mm !important; }
-        .afs-pdf-export-host .afs-page-footer { display: none !important; }
-        .afs-pdf-export-host .afs-print-hide { display: none !important; }
-        .afs-pdf-export-host .afs-page-break-before { break-before: page !important; page-break-before: always !important; }
-        .afs-pdf-export-host .afs-page-footer { display: none !important; }
-        .afs-pdf-export-host .afs-print-page { page-break-after: auto !important; break-after: auto !important; }
-        .afs-pdf-export-host #afs-accounting-policies h4 { margin: 1.5mm 0 0.7mm 0 !important; }
-        .afs-pdf-export-host #afs-accounting-policies .policySection { margin-bottom: 2.4mm !important; padding-bottom: 0 !important; border-bottom: none !important; page-break-inside: avoid !important; break-inside: avoid !important; }
-        .afs-pdf-export-host #afs-accounting-policies p { margin: 0 0 1mm 0 !important; }
-        .afs-pdf-export-host #afs-directors-report table,
-        .afs-pdf-export-host #afs-notes table { page-break-inside: avoid !important; break-inside: avoid !important; }
-        .afs-pdf-export-host #afs-notes h4 { margin-top: 3mm !important; }
-        .afs-pdf-export-host .loanTermsInlineLabel { display: none !important; }
-        .afs-pdf-export-host .loanTermsInlineCombined { padding: 0.8mm 0 2.2mm 5mm !important; border-bottom: none !important; }
-        .afs-pdf-export-host .loanTermsInput { border: none !important; padding: 0 !important; }
-        .afs-pdf-export-host .noteAmount,
-        .afs-pdf-export-host .noteTd { border-bottom: none !important; padding-top: 1.5mm !important; padding-bottom: 1.5mm !important; }
-        .afs-pdf-export-host .noteTotalAmount { border-top: 1.2px solid #111827 !important; border-bottom: 2px solid #111827 !important; }
-
-        .afs-pdf-export-host #afs-notes .noteRepeatedHeader { display: none !important; }
-        .afs-pdf-export-host #afs-notes .noteMasterHeader { display: table !important; margin: 2mm 0 4mm 0 !important; }
-        .afs-pdf-export-host #afs-notes .noteSectionAnchor { margin-top: 5mm !important; padding-top: 3mm !important; }
-        .afs-pdf-export-host #afs-notes .noteSectionAnchor:first-of-type { margin-top: 3mm !important; }
-        .afs-pdf-export-host #afs-notes .noteTd,
-        .afs-pdf-export-host #afs-notes .noteAmount { padding-top: 1.1mm !important; padding-bottom: 1.1mm !important; }
-
-        /* V54: remove repeated note years and light divider noise */
-        .afs-pdf-export-host #afs-notes .noteRepeatedHeader { display: none !important; }
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead { display: none !important; }
-        .afs-pdf-export-host #afs-notes .noteSectionAnchor,
-        .afs-pdf-export-host #afs-notes .noteSectionAnchorOff { border-top: 0 !important; padding-top: 1.5mm !important; margin-top: 4mm !important; }
-        .afs-pdf-export-host #afs-notes .noteStatementTable { margin-top: 1mm !important; margin-bottom: 3mm !important; }
-        .afs-pdf-export-host #afs-notes .noteTd,
-        .afs-pdf-export-host #afs-notes .noteAmount,
-        .afs-pdf-export-host #afs-notes .noteTotalLabel,
-        .afs-pdf-export-host #afs-notes .noteTotalAmount { font-size: 10.2pt !important; line-height: 1.16 !important; }
-        .afs-pdf-export-host #afs-accounting-policies .policySection { margin-bottom: 1.2mm !important; padding-bottom: 0 !important; border-bottom: 0 !important; break-inside: auto !important; page-break-inside: auto !important; }
-        .afs-pdf-export-host #afs-accounting-policies h4 { margin: 1.2mm 0 0.4mm 0 !important; }
-        .afs-pdf-export-host #afs-accounting-policies p { margin: 0 0 0.55mm 0 !important; }
-        .afs-pdf-export-host #afs-cover h1 { font-size: 14.5px !important; margin-bottom: 1.5mm !important; }
-        .afs-pdf-export-host #afs-cover p { margin: 0.45mm 0 !important; }
-
-        /* V55: final report presentation cleanup */
-        .afs-pdf-export-host #afs-cover { overflow: hidden !important; }
-        .afs-pdf-export-host #afs-cover h1 { font-size: 12.5px !important; margin-bottom: 0.8mm !important; }
-        .afs-pdf-export-host #afs-cover .afs-page-content,
-        .afs-pdf-export-host #afs-cover .afs-page-content > div { min-height: 0 !important; height: 100% !important; }
-
-        .afs-pdf-export-host #afs-general-info td,
-        .afs-pdf-export-host #afs-index td { border-bottom: 0 !important; }
-        .afs-pdf-export-host #afs-index .indexDots,
-        .afs-pdf-export-host #afs-index td:nth-child(2) { border-bottom: 0 !important; }
-
-        .afs-pdf-export-host #afs-accounting-policies .policySection { margin-bottom: 0.8mm !important; }
-        .afs-pdf-export-host #afs-accounting-policies h4 { margin: 0.9mm 0 0.25mm 0 !important; font-size: 10.1pt !important; }
-        .afs-pdf-export-host #afs-accounting-policies p { margin: 0 0 0.25mm 0 !important; }
-
-        .afs-pdf-export-host .reportSectionBlock { margin-bottom: 1.8mm !important; page-break-inside: avoid !important; break-inside: avoid !important; }
-        .afs-pdf-export-host #afs-directors-report h4 { margin: 2.1mm 0 0.6mm 0 !important; }
-        .afs-pdf-export-host #afs-directors-report p { margin: 0 0 1.1mm 0 !important; }
-
-        .afs-pdf-export-host #afs-notes .noteStatementTable,
-        .afs-pdf-export-host #afs-notes .noteStatementTable tbody,
-        .afs-pdf-export-host #afs-notes .noteStatementTable tr,
-        .afs-pdf-export-host #afs-notes .noteStatementTable td,
-        .afs-pdf-export-host #afs-notes .noteStatementTable span,
-        .afs-pdf-export-host #afs-notes .noteStatementTable div { border-bottom: 0 !important; text-decoration: none !important; }
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead { display: none !important; }
-        .afs-pdf-export-host #afs-notes .noteTh,
-        .afs-pdf-export-host #afs-notes .noteThRight { display: none !important; border: 0 !important; padding: 0 !important; }
-        .afs-pdf-export-host #afs-notes .noteTotalLabel,
-        .afs-pdf-export-host #afs-notes .noteTotalAmount { border-top: 1.2px solid #111827 !important; border-bottom: 1.8px solid #111827 !important; }
-        .afs-pdf-export-host #afs-notes h4 { margin: 3mm 0 1mm 0 !important; }
-        .afs-pdf-export-host #afs-notes p { margin: 0 0 1mm 0 !important; }
-
-        .afs-pdf-export-host #afs-compilation-report { height: 297mm !important; min-height: 297mm !important; overflow: hidden !important; }
-        .afs-pdf-export-host #afs-compilation-report .afs-page-content,
-        .afs-pdf-export-host #afs-compilation-report .afs-compilation-report { height: 269mm !important; min-height: 269mm !important; overflow: hidden !important; }
-        .afs-pdf-export-host #afs-compilation-report .afs-compilation-letterhead-top img,
-        .afs-pdf-export-host #afs-compilation-report .afs-compilation-letterhead-bottom img { width: 182mm !important; max-width: 182mm !important; height: auto !important; object-fit: contain !important; }
-
-
-        /* V56_FINAL_LAYOUT_CLEANUP */
-        .afs-pdf-export-host .statementModeToolbar,
-        .afs-pdf-export-host .afs-screen-only,
-        .afs-pdf-export-host .print-hide,
-        .afs-pdf-export-host .afs-print-hide { display: none !important; }
-
-        .afs-pdf-export-host #afs-cover h1 { font-size: 14px !important; margin-bottom: 1.8mm !important; }
-        .afs-pdf-export-host #afs-cover p { margin: 1.4mm 0 !important; }
-
-        .afs-pdf-export-host .afs-print-page {
-          padding: 13mm 14mm 18mm 14mm !important;
-          font-size: 10pt !important;
-          line-height: 1.16 !important;
-        }
-        .afs-pdf-export-host p,
-        .afs-pdf-export-host td,
-        .afs-pdf-export-host th,
-        .afs-pdf-export-host span,
-        .afs-pdf-export-host div {
-          font-size: 10pt !important;
-          line-height: 1.16 !important;
-        }
-        .afs-pdf-export-host h2 {
-          font-size: 14pt !important;
-          margin: 0 0 5mm 0 !important;
-          padding-bottom: 1.4mm !important;
-          border-bottom: 2px solid #111827 !important;
-        }
-        .afs-pdf-export-host h3 { font-size: 10pt !important; margin: 0 0 2mm 0 !important; }
-        .afs-pdf-export-host h4 { font-size: 9.6pt !important; margin: 2.2mm 0 0.7mm 0 !important; }
-
-        .afs-pdf-export-host #afs-directors-responsibilities p,
-        .afs-pdf-export-host #afs-directors-report p {
-          margin: 0 0 1.6mm 0 !important;
-          line-height: 1.14 !important;
-        }
-        .afs-pdf-export-host #afs-directors-report h4 { margin: 2.2mm 0 0.6mm 0 !important; }
-        .afs-pdf-export-host #afs-directors-report table { margin: 2.5mm 0 2.5mm 0 !important; }
-
-        /* remove messy light row gridlines - keep only financial total rules */
-        .afs-pdf-export-host #afs-index td,
-        .afs-pdf-export-host #afs-general-info td,
-        .afs-pdf-export-host #afs-directors-report td,
-        .afs-pdf-export-host #afs-sce td,
-        .afs-pdf-export-host #afs-notes td,
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-tax-computation td {
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-        }
-        .afs-pdf-export-host #afs-notes td,
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-tax-computation td,
-        .afs-pdf-export-host #afs-sce td { padding-top: 2.1mm !important; padding-bottom: 1.4mm !important; }
-        .afs-pdf-export-host #afs-notes th,
-        .afs-pdf-export-host #afs-detailed-income th,
-        .afs-pdf-export-host #afs-tax-computation th {
-          border-top: 1.2px solid #111827 !important;
-          border-bottom: 1.2px solid #111827 !important;
-          padding-top: 2mm !important;
-          padding-bottom: 1.4mm !important;
-        }
-        .afs-pdf-export-host #afs-sce th {
-          border-bottom: 1.2px solid #111827 !important;
-          padding-top: 2mm !important;
-          padding-bottom: 1.4mm !important;
-        }
-
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead { display: table-header-group !important; }
-        .afs-pdf-export-host #afs-notes .noteThRight { display: table-cell !important; border-top: 1.2px solid #111827 !important; border-bottom: 1.2px solid #111827 !important; padding: 2mm 0 1.4mm 7px !important; }
-        .afs-pdf-export-host #afs-notes .noteTh { border-top: 1.2px solid #111827 !important; border-bottom: 1.2px solid #111827 !important; }
-        .afs-pdf-export-host #afs-notes .noteTd,
-        .afs-pdf-export-host #afs-notes .noteAmount { border: 0 !important; text-decoration: none !important; padding-top: 1.4mm !important; padding-bottom: 1.1mm !important; }
-        .afs-pdf-export-host #afs-notes .noteTotalLabel,
-        .afs-pdf-export-host #afs-notes .noteTotalAmount,
-        .afs-pdf-export-host #afs-detailed-income td[style*="font-weight: 900"],
-        .afs-pdf-export-host #afs-tax-computation td[style*="font-weight: 900"] {
-          border-top: 1px solid #111827 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteSectionAnchor,
-        .afs-pdf-export-host #afs-notes .noteSectionAnchorOff { margin-top: 3mm !important; padding-top: 1mm !important; }
-
-        .afs-pdf-export-host #afs-tax-computation [style*="#ef4444"],
-        .afs-pdf-export-host #afs-tax-computation [style*="#b91c1c"] {
-          border-top: 1px solid #b91c1c !important;
-          color: #b91c1c !important;
-        }
-
-        /* V57: remove row-line noise and stop ugly mid-section page cuts */
-        .afs-pdf-export-host #afs-sce table,
-        .afs-pdf-export-host #afs-sce thead,
-        .afs-pdf-export-host #afs-sce tbody,
-        .afs-pdf-export-host #afs-sce tr,
-        .afs-pdf-export-host #afs-sce th,
-        .afs-pdf-export-host #afs-sce td,
-        .afs-pdf-export-host #afs-sce span,
-        .afs-pdf-export-host #afs-sce div,
-        .afs-pdf-export-host #afs-detailed-income table,
-        .afs-pdf-export-host #afs-detailed-income thead,
-        .afs-pdf-export-host #afs-detailed-income tbody,
-        .afs-pdf-export-host #afs-detailed-income tr,
-        .afs-pdf-export-host #afs-detailed-income th,
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-tax-computation table,
-        .afs-pdf-export-host #afs-tax-computation thead,
-        .afs-pdf-export-host #afs-tax-computation tbody,
-        .afs-pdf-export-host #afs-tax-computation tr,
-        .afs-pdf-export-host #afs-tax-computation th,
-        .afs-pdf-export-host #afs-tax-computation td {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-          box-shadow: none !important;
-        }
-        .afs-pdf-export-host #afs-sce th,
-        .afs-pdf-export-host #afs-detailed-income th,
-        .afs-pdf-export-host #afs-tax-computation th {
-          border-bottom: 1px solid #111827 !important;
-        }
-        .afs-pdf-export-host #afs-sce td,
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-tax-computation td {
-          padding-top: 1.15mm !important;
-          padding-bottom: 1.05mm !important;
-        }
-        .afs-pdf-export-host #afs-cash-flow .afs-print-hide { display: none !important; }
-        .afs-pdf-export-host #afs-notes .noteMasterHeader { display: table !important; margin: 1mm 0 2.5mm 0 !important; }
-        .afs-pdf-export-host #afs-notes .noteStatementTable { margin-top: 0.5mm !important; margin-bottom: 3.5mm !important; }
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead { display: table-header-group !important; }
-        .afs-pdf-export-host #afs-notes .noteTh,
-        .afs-pdf-export-host #afs-notes .noteThRight {
-          display: table-cell !important;
-          border-top: 1px solid #111827 !important;
-          border-bottom: 0 !important;
-          padding: 1.2mm 0 0.9mm 0 !important;
-          text-decoration: none !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteTd,
-        .afs-pdf-export-host #afs-notes .noteAmount,
-        .afs-pdf-export-host #afs-notes .noteTotalLabel,
-        .afs-pdf-export-host #afs-notes .noteTotalAmount,
-        .afs-pdf-export-host #afs-notes td,
-        .afs-pdf-export-host #afs-notes tr,
-        .afs-pdf-export-host #afs-notes span,
-        .afs-pdf-export-host #afs-notes div {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-          box-shadow: none !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteTotalLabel,
-        .afs-pdf-export-host #afs-notes .noteTotalAmount { font-weight: 900 !important; }
-        .afs-pdf-export-host #afs-notes h4 { margin: 3.5mm 0 1mm 0 !important; page-break-after: avoid !important; break-after: avoid !important; }
-        .afs-pdf-export-host #afs-notes p { margin: 0 0 0.9mm 0 !important; }
-        .afs-pdf-export-host #afs-notes .noteSectionAnchor,
-        .afs-pdf-export-host #afs-notes .noteSectionAnchorOff {
-          margin-top: 4mm !important;
-          padding-top: 0 !important;
-          border-top: 0 !important;
-          page-break-inside: avoid !important;
-          break-inside: avoid !important;
-        }
-        .afs-pdf-export-host #afs-directors-responsibilities p { margin: 0 0 1.15mm 0 !important; line-height: 1.12 !important; }
-        .afs-pdf-export-host #afs-directors-report .reportSectionBlock { margin-bottom: 2.2mm !important; break-inside: avoid !important; page-break-inside: avoid !important; }
-        .afs-pdf-export-host #afs-directors-report h4 { margin: 2.2mm 0 0.65mm 0 !important; }
-        .afs-pdf-export-host #afs-directors-report p { margin: 0 0 1.1mm 0 !important; }
-
-        /* V58 CONTROLLED EXPORT FOUNDATION - stop fighting inherited table borders and bad page cuts */
-        .afs-pdf-export-host .afs-print-page {
-          min-height: auto !important;
-          height: auto !important;
-          padding: 14mm 18mm 22mm 18mm !important;
-          font-size: 9.4pt !important;
-          line-height: 1.16 !important;
-        }
-        .afs-pdf-export-host #afs-cover {
-          min-height: 297mm !important;
-          height: 297mm !important;
-          padding: 0 22mm !important;
-        }
-        .afs-pdf-export-host #afs-cover h1 {
-          font-size: 13px !important;
-          margin: 0 0 1.5mm 0 !important;
-          line-height: 1.05 !important;
-        }
-        .afs-pdf-export-host #afs-cover p { margin: 0.8mm 0 !important; }
-        .afs-pdf-export-host p,
-        .afs-pdf-export-host td,
-        .afs-pdf-export-host th,
-        .afs-pdf-export-host span,
-        .afs-pdf-export-host div {
-          font-size: 9.4pt !important;
-          line-height: 1.16 !important;
-        }
-        .afs-pdf-export-host h2 {
-          font-size: 13.2pt !important;
-          margin: 0 0 4mm 0 !important;
-          padding-bottom: 1.2mm !important;
-          border-bottom: 1.4px solid #111827 !important;
-        }
-        .afs-pdf-export-host h4 {
-          font-size: 9.4pt !important;
-          margin: 2mm 0 0.7mm 0 !important;
-        }
-        .afs-pdf-export-host .afsPageEntityHeader {
-          margin: 0 0 7mm 0 !important;
-          padding-bottom: 1.4mm !important;
-          border-bottom: 1.4px solid #111827 !important;
-        }
-        .afs-pdf-export-host .afsPageEntityHeader h1 { font-size: 9.6pt !important; }
-        .afs-pdf-export-host .afsPageEntityHeader p { font-size: 7.8pt !important; }
-        .afs-pdf-export-host #afs-index td,
-        .afs-pdf-export-host #afs-general-info td,
-        .afs-pdf-export-host #afs-socie td,
-        .afs-pdf-export-host #afs-socie th,
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-detailed-income th,
-        .afs-pdf-export-host #afs-tax-computation td,
-        .afs-pdf-export-host #afs-tax-computation th,
-        .afs-pdf-export-host #afs-notes td,
-        .afs-pdf-export-host #afs-notes tr,
-        .afs-pdf-export-host #afs-notes th {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-          box-shadow: none !important;
-        }
-        .afs-pdf-export-host #afs-index td { padding-top: 2mm !important; padding-bottom: 1.3mm !important; }
-        .afs-pdf-export-host #afs-directors-responsibilities p,
-        .afs-pdf-export-host #afs-directors-report p {
-          margin: 0 0 1.15mm 0 !important;
-          line-height: 1.15 !important;
-        }
-        .afs-pdf-export-host #afs-directors-report .reportSectionBlock {
-          margin-bottom: 2.2mm !important;
-          break-inside: avoid !important;
-          page-break-inside: avoid !important;
-        }
-        .afs-pdf-export-host #afs-sce table,
-        .afs-pdf-export-host #afs-socie table,
-        .afs-pdf-export-host #afs-detailed-income table,
-        .afs-pdf-export-host #afs-tax-computation table,
-        .afs-pdf-export-host #afs-notes .noteStatementTable {
-          border-collapse: collapse !important;
-        }
-        .afs-pdf-export-host #afs-sce thead th,
-        .afs-pdf-export-host #afs-socie thead th,
-        .afs-pdf-export-host #afs-detailed-income thead th,
-        .afs-pdf-export-host #afs-tax-computation thead th,
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead th {
-          border-top: 1.2px solid #111827 !important;
-          border-bottom: 1.2px solid #111827 !important;
-          padding-top: 1.2mm !important;
-          padding-bottom: 1mm !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead,
-        .afs-pdf-export-host #afs-notes .noteRepeatedHeader {
-          display: table-header-group !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteMasterHeader { display: none !important; }
-        .afs-pdf-export-host #afs-notes .noteSectionAnchor,
-        .afs-pdf-export-host #afs-notes .noteSectionAnchorOff {
-          margin-top: 4mm !important;
-          padding-top: 0 !important;
-          border-top: 0 !important;
-          break-inside: auto !important;
-          page-break-inside: auto !important;
-        }
-        .afs-pdf-export-host #afs-notes h4 { margin: 3.2mm 0 1mm 0 !important; }
-        .afs-pdf-export-host #afs-notes p { margin: 0 0 1mm 0 !important; }
-        .afs-pdf-export-host #afs-notes .noteTotalLabel,
-        .afs-pdf-export-host #afs-notes .noteTotalAmount,
-        .afs-pdf-export-host #afs-detailed-income td[style*="font-weight: 900"],
-        .afs-pdf-export-host #afs-tax-computation td[style*="font-weight: 900"],
-        .afs-pdf-export-host #afs-sce td[style*="font-weight: 900"],
-        .afs-pdf-export-host #afs-socie td[style*="font-weight: 900"] {
-          border-top: 1px solid #111827 !important;
-        }
-        .afs-pdf-export-host .loanTermsInlineLabel { display: none !important; }
-        .afs-pdf-export-host .loanTermsInlineCombined { padding-left: 7mm !important; }
-
-      `;
-
-      exportStyle.textContent += `
-
-        /* V59: CaseWare-style PDF foundation fixes */
-        .afs-pdf-export-host,
-        .afs-pdf-export-host * {
-          font-family: Arial, Helvetica, sans-serif !important;
-          font-stretch: normal !important;
-          letter-spacing: normal !important;
-        }
-
-        .afs-pdf-export-host .afs-print-page {
-          padding: 13mm 18mm 18mm 18mm !important;
-          font-size: 9.6pt !important;
-          line-height: 1.18 !important;
-        }
-
-        .afs-pdf-export-host p,
-        .afs-pdf-export-host td,
-        .afs-pdf-export-host th,
-        .afs-pdf-export-host span,
-        .afs-pdf-export-host div {
-          font-family: Arial, Helvetica, sans-serif !important;
-          font-size: 9.6pt !important;
-          line-height: 1.18 !important;
-        }
-
-        .afs-pdf-export-host h2 {
-          font-family: Arial, Helvetica, sans-serif !important;
-          font-size: 13pt !important;
-          line-height: 1.12 !important;
-          margin: 0 0 5mm 0 !important;
-          padding-bottom: 1.3mm !important;
-          border-bottom: 1.4px solid #111827 !important;
-          text-decoration: none !important;
-        }
-
-        .afs-pdf-export-host h3,
-        .afs-pdf-export-host h4 {
-          font-family: Arial, Helvetica, sans-serif !important;
-          font-size: 9.7pt !important;
-          line-height: 1.14 !important;
-          margin: 2.4mm 0 0.8mm 0 !important;
-          padding: 0 !important;
-          text-decoration: none !important;
-        }
-
-        .afs-pdf-export-host #afs-cover h1 {
-          font-size: 11.8pt !important;
-          line-height: 1.12 !important;
-          margin: 0 0 1mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-cover p { margin: 0.6mm 0 !important; }
-
-        .afs-pdf-export-host .afsPageEntityHeader {
-          margin: 0 0 7mm 0 !important;
-          padding-bottom: 1.4mm !important;
-          border-bottom: 1.4px solid #111827 !important;
-        }
-        .afs-pdf-export-host .afsPageEntityHeader h1 { font-size: 9.4pt !important; line-height: 1.05 !important; margin: 0 0 0.6mm 0 !important; }
-        .afs-pdf-export-host .afsPageEntityHeader p { font-size: 7.7pt !important; line-height: 1.08 !important; margin: 0.25mm 0 0 0 !important; }
-
-        /* no index/general-information row rules */
-        .afs-pdf-export-host #afs-index td,
-        .afs-pdf-export-host #afs-general-info td,
-        .afs-pdf-export-host #afs-index .indexDots {
-          border: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-        }
-
-        /* Directors pages: break cleanly and stop mid-paragraph clipping */
-        .afs-pdf-export-host #afs-directors-responsibilities p,
-        .afs-pdf-export-host #afs-directors-report p {
-          margin: 0 0 1.35mm 0 !important;
-          line-height: 1.17 !important;
-          orphans: 3 !important;
-          widows: 3 !important;
-        }
-        .afs-pdf-export-host #afs-directors-report .reportSectionBlock {
-          margin: 0 0 2.2mm 0 !important;
-          padding: 0 !important;
-          border: 0 !important;
-          break-inside: avoid !important;
-          page-break-inside: avoid !important;
-        }
-        .afs-pdf-export-host #afs-directors-report table,
-        .afs-pdf-export-host #afs-directors-report tr,
-        .afs-pdf-export-host #afs-directors-report td,
-        .afs-pdf-export-host #afs-directors-report th {
-          break-inside: avoid !important;
-          page-break-inside: avoid !important;
-        }
-
-        /* Financial tables: remove the noisy light row lines everywhere */
-        .afs-pdf-export-host #afs-sce table,
-        .afs-pdf-export-host #afs-sce thead,
-        .afs-pdf-export-host #afs-sce tbody,
-        .afs-pdf-export-host #afs-sce tr,
-        .afs-pdf-export-host #afs-sce th,
-        .afs-pdf-export-host #afs-sce td,
-        .afs-pdf-export-host #afs-detailed-income table,
-        .afs-pdf-export-host #afs-detailed-income thead,
-        .afs-pdf-export-host #afs-detailed-income tbody,
-        .afs-pdf-export-host #afs-detailed-income tr,
-        .afs-pdf-export-host #afs-detailed-income th,
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-tax-computation table,
-        .afs-pdf-export-host #afs-tax-computation thead,
-        .afs-pdf-export-host #afs-tax-computation tbody,
-        .afs-pdf-export-host #afs-tax-computation tr,
-        .afs-pdf-export-host #afs-tax-computation th,
-        .afs-pdf-export-host #afs-tax-computation td,
-        .afs-pdf-export-host #afs-notes table,
-        .afs-pdf-export-host #afs-notes thead,
-        .afs-pdf-export-host #afs-notes tbody,
-        .afs-pdf-export-host #afs-notes tr,
-        .afs-pdf-export-host #afs-notes td,
-        .afs-pdf-export-host #afs-notes th {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-          box-shadow: none !important;
-        }
-
-        /* Keep only clean header rules. No line directly under heading before the table. */
-        .afs-pdf-export-host #afs-sfp thead th,
-        .afs-pdf-export-host #afs-sci thead th,
-        .afs-pdf-export-host #afs-sce thead th,
-        .afs-pdf-export-host #afs-cash-flow thead th,
-        .afs-pdf-export-host #afs-detailed-income thead th,
-        .afs-pdf-export-host #afs-tax-computation thead th,
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead th {
-          border-top: 1px solid #111827 !important;
-          border-bottom: 1px solid #111827 !important;
-          padding-top: 1.4mm !important;
-          padding-bottom: 1.3mm !important;
-        }
-
-        /* Notes must show year labels at each note table */
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead,
-        .afs-pdf-export-host #afs-notes .noteRepeatedHeader {
-          display: table-header-group !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteTh,
-        .afs-pdf-export-host #afs-notes .noteThRight {
-          display: table-cell !important;
-          border-top: 1px solid #111827 !important;
-          border-bottom: 1px solid #111827 !important;
-          padding: 1.3mm 0 1.1mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteMasterHeader { display: none !important; }
-        .afs-pdf-export-host #afs-notes .noteSectionAnchor,
-        .afs-pdf-export-host #afs-notes .noteSectionAnchorOff {
-          margin-top: 3.2mm !important;
-          padding-top: 0 !important;
-          border-top: 0 !important;
-          break-inside: avoid !important;
-          page-break-inside: avoid !important;
-        }
-        .afs-pdf-export-host #afs-notes h4 { margin: 2.2mm 0 0.9mm 0 !important; }
-        .afs-pdf-export-host #afs-notes p { margin: 0 0 0.8mm 0 !important; }
-        .afs-pdf-export-host #afs-notes .noteStatementTable { margin-top: 1.1mm !important; margin-bottom: 3mm !important; }
-        .afs-pdf-export-host #afs-notes .noteTd,
-        .afs-pdf-export-host #afs-notes .noteAmount {
-          padding-top: 1.0mm !important;
-          padding-bottom: 1.0mm !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteTotalLabel,
-        .afs-pdf-export-host #afs-notes .noteTotalAmount {
-          border-top: 1px solid #111827 !important;
-          border-bottom: 1.4px solid #111827 !important;
-          padding-top: 1.2mm !important;
-          padding-bottom: 1.2mm !important;
-        }
-        .afs-pdf-export-host .loanTermsInlineLabel { display: none !important; }
-        .afs-pdf-export-host .loanTermsInlineCombined {
-          padding: 0.4mm 0 1.2mm 5mm !important;
-          border: 0 !important;
-        }
-
-        /* SCE: remove ugly row grid; use spacing not lines */
-        .afs-pdf-export-host #afs-sce td,
-        .afs-pdf-export-host #afs-sce th {
-          padding-top: 1.05mm !important;
-          padding-bottom: 1.05mm !important;
-          border: 0 !important;
-        }
-        .afs-pdf-export-host #afs-sce thead th { border-bottom: 1px solid #111827 !important; }
-
-        /* Detailed income and tax: lines are too tight; use clean row spacing */
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-tax-computation td {
-          padding-top: 1.05mm !important;
-          padding-bottom: 1.05mm !important;
-          border: 0 !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income td[style*="font-weight: 900"],
-        .afs-pdf-export-host #afs-tax-computation td[style*="font-weight: 900"] {
-          border-top: 1px solid #111827 !important;
-          border-bottom: 0 !important;
-          padding-top: 1.6mm !important;
-          padding-bottom: 1.4mm !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income tr:last-child td,
-        .afs-pdf-export-host #afs-tax-computation tr:last-child td {
-          border-bottom: 1.4px solid #111827 !important;
-        }
-
-        /* Compilation report stays on the letterhead page only */
-        .afs-pdf-export-host #afs-compilation-report {
-          height: 297mm !important;
-          min-height: 297mm !important;
-          max-height: 297mm !important;
-          overflow: hidden !important;
-        }
-
-
-        /* V60: CaseWare/Draftworx line discipline + cleaner front page */
-        .afs-pdf-export-host a,
-        .afs-pdf-export-host a *,
-        .afs-pdf-export-host [style*="text-decoration"],
-        .afs-pdf-export-host [style*="textDecoration"] {
-          text-decoration: none !important;
-        }
-
-        .afs-pdf-export-host #afs-cover {
-          padding: 0 30mm !important;
-        }
-        .afs-pdf-export-host #afs-cover h1 {
-          font-size: 10.8pt !important;
-          line-height: 1.12 !important;
-          margin: 0 0 1.8mm 0 !important;
-          letter-spacing: 0.1px !important;
-        }
-        .afs-pdf-export-host #afs-cover p {
-          font-size: 9.3pt !important;
-          line-height: 1.22 !important;
-          margin: 0.6mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-cover p:first-of-type {
-          margin-bottom: 5mm !important;
-        }
-        .afs-pdf-export-host #afs-cover p:last-child {
-          margin-top: 5mm !important;
-        }
-
-        /* Use shorter, statement-style note/detail/tax tables instead of full-width long rules */
-        .afs-pdf-export-host #afs-notes .noteStatementTable,
-        .afs-pdf-export-host #afs-detailed-income table,
-        .afs-pdf-export-host #afs-tax-computation table {
-          width: 156mm !important;
-          max-width: 156mm !important;
-          margin-left: 0 !important;
-          margin-right: auto !important;
-          table-layout: fixed !important;
-          border-collapse: collapse !important;
-        }
-
-        /* Remove row/grid/label rules. Keep rules only where amounts need accountant-style emphasis. */
-        .afs-pdf-export-host #afs-notes .noteStatementTable td,
-        .afs-pdf-export-host #afs-notes .noteStatementTable th,
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-detailed-income th,
-        .afs-pdf-export-host #afs-tax-computation td,
-        .afs-pdf-export-host #afs-tax-computation th {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-          box-shadow: none !important;
-        }
-
-        /* Notes: keep year headings, but no long ruler through every note. */
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead { display: table-header-group !important; }
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead th {
-          border-top: 1px solid #111827 !important;
-          border-bottom: 1px solid #111827 !important;
-          padding: 1.05mm 0 0.9mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteTd,
-        .afs-pdf-export-host #afs-notes .noteAmount {
-          padding-top: 0.85mm !important;
-          padding-bottom: 0.85mm !important;
-          border: 0 !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteTotalLabel {
-          border: 0 !important;
-          padding-top: 1.05mm !important;
-          padding-bottom: 1.05mm !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteTotalAmount {
-          border-top: 1px solid #111827 !important;
-          border-bottom: 1.4px solid #111827 !important;
-          padding-top: 1.05mm !important;
-          padding-bottom: 1.05mm !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteSectionAnchor,
-        .afs-pdf-export-host #afs-notes .noteSectionAnchorOff {
-          margin-top: 4.2mm !important;
-          padding-top: 0 !important;
-          border: 0 !important;
-        }
-        .afs-pdf-export-host #afs-notes h4 { margin: 3.2mm 0 0.9mm 0 !important; }
-        .afs-pdf-export-host #afs-notes p { margin: 0 0 0.75mm 0 !important; }
-
-        /* Loan terms directly under the loan account, no "Terms" label, no indent. */
-        .afs-pdf-export-host .loanTermsInlineLabel { display: none !important; }
-        .afs-pdf-export-host .loanTermsInlineCombined {
-          padding: 0.15mm 0 0.95mm 0 !important;
-          border: 0 !important;
-          text-indent: 0 !important;
-        }
-        .afs-pdf-export-host .loanTermsInput { padding: 0 !important; border: 0 !important; text-indent: 0 !important; }
-
-        /* Detail income and tax: stop the long first-column rules. Amount columns only get emphasis. */
-        .afs-pdf-export-host #afs-detailed-income thead th,
-        .afs-pdf-export-host #afs-tax-computation thead th {
-          border-top: 1px solid #111827 !important;
-          border-bottom: 1px solid #111827 !important;
-          padding-top: 1.05mm !important;
-          padding-bottom: 0.95mm !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-tax-computation td {
-          padding-top: 0.85mm !important;
-          padding-bottom: 0.85mm !important;
-          border: 0 !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income td:first-child,
-        .afs-pdf-export-host #afs-tax-computation td:first-child {
-          border: 0 !important;
-          text-decoration: none !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income td:not(:first-child),
-        .afs-pdf-export-host #afs-tax-computation td:not(:first-child) {
-          border: 0 !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income td[style*="font-weight: 900"]:not(:first-child),
-        .afs-pdf-export-host #afs-tax-computation td[style*="font-weight: 900"]:not(:first-child),
-        .afs-pdf-export-host #afs-detailed-income tr:last-child td:not(:first-child),
-        .afs-pdf-export-host #afs-tax-computation tr:last-child td:not(:first-child) {
-          border-top: 1px solid #111827 !important;
-          border-bottom: 1.4px solid #111827 !important;
-          padding-top: 1.15mm !important;
-          padding-bottom: 1.05mm !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income td[style*="font-weight: 900"]:first-child,
-        .afs-pdf-export-host #afs-tax-computation td[style*="font-weight: 900"]:first-child,
-        .afs-pdf-export-host #afs-detailed-income tr:last-child td:first-child,
-        .afs-pdf-export-host #afs-tax-computation tr:last-child td:first-child {
-          border: 0 !important;
-          padding-top: 1.15mm !important;
-          padding-bottom: 1.05mm !important;
-        }
-        .afs-pdf-export-host #afs-tax-computation div[style*="border-bottom"],
-        .afs-pdf-export-host #afs-tax-computation div[style*="borderBottom"],
-        .afs-pdf-export-host #afs-tax-computation [style*="#e2e8f0"],
-        .afs-pdf-export-host #afs-tax-computation [style*="#cbd5e1"] {
-          border-bottom: 0 !important;
-        }
-
-
-        /* V62: real final override - removes visual noise and fixes page flow. */
-        .afs-print-root,
-        .afs-pdf-export-host,
-        .afs-print-root *,
-        .afs-pdf-export-host * {
-          font-family: Arial, Helvetica, sans-serif !important;
-          text-decoration: none !important;
-          box-shadow: none !important;
-        }
-        .afs-print-root .afs-print-page,
-        .afs-pdf-export-host .afs-print-page {
-          display: block !important;
-          grid-template-rows: none !important;
-          min-height: 297mm !important;
-          padding: 12mm 18mm 19mm 18mm !important;
-          overflow: visible !important;
-        }
-        .afs-print-root .afs-page-content,
-        .afs-pdf-export-host .afs-page-content {
-          display: block !important;
-          min-height: 0 !important;
-        }
-        .afs-print-root .afsPageEntityHeader,
-        .afs-pdf-export-host .afsPageEntityHeader {
-          margin: 0 0 9mm 0 !important;
-          padding: 0 0 2.8mm 0 !important;
-          border-bottom: 1.5px solid #111827 !important;
-        }
-        .afs-print-root .afsPageEntityHeader h1,
-        .afs-pdf-export-host .afsPageEntityHeader h1 {
-          font-size: 10.8pt !important;
-          line-height: 1.08 !important;
-          margin: 0 0 0.7mm 0 !important;
-        }
-        .afs-print-root .afsPageEntityHeader p,
-        .afs-pdf-export-host .afsPageEntityHeader p {
-          font-size: 8pt !important;
-          line-height: 1.10 !important;
-          margin: 0.35mm 0 0 0 !important;
-        }
-        .afs-print-root h2,
-        .afs-pdf-export-host h2 {
-          font-size: 13pt !important;
-          line-height: 1.12 !important;
-          margin: 0 0 7mm 0 !important;
-          padding-bottom: 2.2mm !important;
-          border-bottom: 1.5px solid #111827 !important;
-        }
-        .afs-print-root h3,
-        .afs-print-root h4,
-        .afs-pdf-export-host h3,
-        .afs-pdf-export-host h4 {
-          text-decoration: none !important;
-          border: 0 !important;
-        }
-        .afs-print-root #afs-index h2,
-        .afs-pdf-export-host #afs-index h2 {
-          margin-bottom: 8mm !important;
-          padding-bottom: 2.4mm !important;
-        }
-        .afs-print-root #afs-index table,
-        .afs-print-root #afs-index tr,
-        .afs-print-root #afs-index td,
-        .afs-pdf-export-host #afs-index table,
-        .afs-pdf-export-host #afs-index tr,
-        .afs-pdf-export-host #afs-index td {
-          border: 0 !important;
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          background: transparent !important;
-          background-image: none !important;
-        }
-        .afs-print-root #afs-index td,
-        .afs-pdf-export-host #afs-index td {
-          padding-top: 1.15mm !important;
-          padding-bottom: 1.15mm !important;
-        }
-        .afs-print-root #afs-general-info table,
-        .afs-print-root #afs-general-info tr,
-        .afs-print-root #afs-general-info td,
-        .afs-pdf-export-host #afs-general-info table,
-        .afs-pdf-export-host #afs-general-info tr,
-        .afs-pdf-export-host #afs-general-info td {
-          border: 0 !important;
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-        }
-        .afs-print-root #afs-general-info td,
-        .afs-pdf-export-host #afs-general-info td {
-          padding-top: 1.6mm !important;
-          padding-bottom: 1.6mm !important;
-        }
-        .afs-print-root #afs-directors-responsibilities p,
-        .afs-pdf-export-host #afs-directors-responsibilities p {
-          margin: 0 0 1.05mm 0 !important;
-          line-height: 1.14 !important;
-        }
-        .afs-print-root #afs-directors-report .reportSectionBlock,
-        .afs-pdf-export-host #afs-directors-report .reportSectionBlock {
-          margin: 0 0 2.2mm 0 !important;
-          break-inside: avoid-page !important;
-          page-break-inside: avoid !important;
-        }
-        .afs-print-root #afs-directors-report p,
-        .afs-pdf-export-host #afs-directors-report p {
-          margin: 0 0 0.9mm 0 !important;
-          line-height: 1.13 !important;
-        }
-        .afs-print-root #afs-directors-report table,
-        .afs-print-root #afs-directors-report tr,
-        .afs-print-root #afs-directors-report td,
-        .afs-print-root #afs-directors-report th,
-        .afs-pdf-export-host #afs-directors-report table,
-        .afs-pdf-export-host #afs-directors-report tr,
-        .afs-pdf-export-host #afs-directors-report td,
-        .afs-pdf-export-host #afs-directors-report th {
-          border: 0 !important;
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-        }
-        .afs-print-root #afs-directors-report thead th,
-        .afs-pdf-export-host #afs-directors-report thead th {
-          border-bottom: 1px solid #cbd5e1 !important;
-        }
-
-        /* Statements: only header rule + accountant amount rules, no stray top line before columns. */
-        .afs-print-root #afs-sfp thead th,
-        .afs-print-root #afs-sci thead th,
-        .afs-print-root #afs-cash-flow thead th,
-        .afs-pdf-export-host #afs-sfp thead th,
-        .afs-pdf-export-host #afs-sci thead th,
-        .afs-pdf-export-host #afs-cash-flow thead th {
-          border-top: 0 !important;
-          border-bottom: 1px solid #111827 !important;
-        }
-        .afs-print-root #afs-sfp td:first-child,
-        .afs-print-root #afs-sci td:first-child,
-        .afs-print-root #afs-cash-flow td:first-child,
-        .afs-pdf-export-host #afs-sfp td:first-child,
-        .afs-pdf-export-host #afs-sci td:first-child,
-        .afs-pdf-export-host #afs-cash-flow td:first-child {
-          border: 0 !important;
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-        }
-
-        /* SCE: absolutely no row underlines / first-column rules. */
-        .afs-print-root #afs-sce table,
-        .afs-print-root #afs-sce thead,
-        .afs-print-root #afs-sce tbody,
-        .afs-print-root #afs-sce tr,
-        .afs-print-root #afs-sce th,
-        .afs-print-root #afs-sce td,
-        .afs-print-root #afs-sce div,
-        .afs-print-root #afs-sce span,
-        .afs-pdf-export-host #afs-sce table,
-        .afs-pdf-export-host #afs-sce thead,
-        .afs-pdf-export-host #afs-sce tbody,
-        .afs-pdf-export-host #afs-sce tr,
-        .afs-pdf-export-host #afs-sce th,
-        .afs-pdf-export-host #afs-sce td,
-        .afs-pdf-export-host #afs-sce div,
-        .afs-pdf-export-host #afs-sce span {
-          border: 0 !important;
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-        }
-        .afs-print-root #afs-sce td,
-        .afs-pdf-export-host #afs-sce td {
-          padding-top: 0.85mm !important;
-          padding-bottom: 0.85mm !important;
-        }
-
-        /* Notes and schedules: no grid lines; short amount rules only for totals. */
-        .afs-print-root #afs-notes .noteSectionAnchor,
-        .afs-print-root #afs-notes .noteSectionAnchorOff,
-        .afs-pdf-export-host #afs-notes .noteSectionAnchor,
-        .afs-pdf-export-host #afs-notes .noteSectionAnchorOff {
-          margin-top: 4.2mm !important;
-          padding-top: 0 !important;
-          border: 0 !important;
-          break-inside: avoid-page !important;
-          page-break-inside: avoid !important;
-        }
-        .afs-print-root #afs-notes .noteStatementTable,
-        .afs-pdf-export-host #afs-notes .noteStatementTable {
-          width: 148mm !important;
-          max-width: 148mm !important;
-          border-collapse: collapse !important;
-          table-layout: fixed !important;
-          margin: 1.2mm 0 4mm 0 !important;
-        }
-        .afs-print-root #afs-notes .noteStatementTable col:first-child,
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:first-child { width: 86mm !important; }
-        .afs-print-root #afs-notes .noteStatementTable col:nth-child(2),
-        .afs-print-root #afs-notes .noteStatementTable col:nth-child(3),
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(2),
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(3) { width: 31mm !important; }
-        .afs-print-root #afs-notes table,
-        .afs-print-root #afs-notes tr,
-        .afs-print-root #afs-notes th,
-        .afs-print-root #afs-notes td,
-        .afs-print-root #afs-notes div,
-        .afs-print-root #afs-notes span,
-        .afs-pdf-export-host #afs-notes table,
-        .afs-pdf-export-host #afs-notes tr,
-        .afs-pdf-export-host #afs-notes th,
-        .afs-pdf-export-host #afs-notes td,
-        .afs-pdf-export-host #afs-notes div,
-        .afs-pdf-export-host #afs-notes span {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-        }
-        .afs-print-root #afs-notes .noteStatementTable thead th,
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead th {
-          border-bottom: 1px solid #111827 !important;
-          padding-top: 0.9mm !important;
-          padding-bottom: 0.9mm !important;
-        }
-        .afs-print-root #afs-notes .noteTd,
-        .afs-print-root #afs-notes .noteAmount,
-        .afs-pdf-export-host #afs-notes .noteTd,
-        .afs-pdf-export-host #afs-notes .noteAmount {
-          padding-top: 0.8mm !important;
-          padding-bottom: 0.8mm !important;
-          border: 0 !important;
-        }
-        .afs-print-root #afs-notes .noteTotalLabel,
-        .afs-pdf-export-host #afs-notes .noteTotalLabel {
-          border: 0 !important;
-          padding-top: 1.05mm !important;
-          padding-bottom: 1.05mm !important;
-        }
-        .afs-print-root #afs-notes .noteTotalAmount,
-        .afs-pdf-export-host #afs-notes .noteTotalAmount {
-          border-top: 0 !important;
-          border-bottom: 1.3px solid #111827 !important;
-          padding-top: 1.35mm !important;
-          padding-bottom: 1.15mm !important;
-          line-height: 1.25 !important;
-        }
-        .afs-print-root .loanTermsInlineCombined,
-        .afs-pdf-export-host .loanTermsInlineCombined {
-          padding: 0 0 1.05mm 0 !important;
-          margin: 0 !important;
-          text-indent: 0 !important;
-          border: 0 !important;
-        }
-        .afs-print-root .loanTermsInput,
-        .afs-pdf-export-host .loanTermsInput {
-          width: 100% !important;
-          padding: 0 !important;
-          margin: 0 !important;
-          border: 0 !important;
-          text-indent: 0 !important;
-          font-size: inherit !important;
-          line-height: inherit !important;
-        }
-        .afs-print-root .loanTermsInlineLabel,
-        .afs-pdf-export-host .loanTermsInlineLabel { display: none !important; }
-
-        /* Detailed income + tax computation: stop amount lines crossing through text/figures. */
-        .afs-print-root #afs-detailed-income table,
-        .afs-print-root #afs-tax-computation table,
-        .afs-pdf-export-host #afs-detailed-income table,
-        .afs-pdf-export-host #afs-tax-computation table {
-          width: 148mm !important;
-          max-width: 148mm !important;
-          border-collapse: collapse !important;
-          table-layout: fixed !important;
-          margin-left: 0 !important;
-          margin-right: auto !important;
-        }
-        .afs-print-root #afs-detailed-income table col:first-child,
-        .afs-print-root #afs-tax-computation table col:first-child,
-        .afs-pdf-export-host #afs-detailed-income table col:first-child,
-        .afs-pdf-export-host #afs-tax-computation table col:first-child { width: 86mm !important; }
-        .afs-print-root #afs-detailed-income table col:nth-child(2),
-        .afs-print-root #afs-detailed-income table col:nth-child(3),
-        .afs-print-root #afs-tax-computation table col:nth-child(2),
-        .afs-print-root #afs-tax-computation table col:nth-child(3),
-        .afs-pdf-export-host #afs-detailed-income table col:nth-child(2),
-        .afs-pdf-export-host #afs-detailed-income table col:nth-child(3),
-        .afs-pdf-export-host #afs-tax-computation table col:nth-child(2),
-        .afs-pdf-export-host #afs-tax-computation table col:nth-child(3) { width: 31mm !important; }
-        .afs-print-root #afs-detailed-income table,
-        .afs-print-root #afs-detailed-income thead,
-        .afs-print-root #afs-detailed-income tbody,
-        .afs-print-root #afs-detailed-income tr,
-        .afs-print-root #afs-detailed-income th,
-        .afs-print-root #afs-detailed-income td,
-        .afs-print-root #afs-tax-computation table,
-        .afs-print-root #afs-tax-computation thead,
-        .afs-print-root #afs-tax-computation tbody,
-        .afs-print-root #afs-tax-computation tr,
-        .afs-print-root #afs-tax-computation th,
-        .afs-print-root #afs-tax-computation td,
-        .afs-pdf-export-host #afs-detailed-income table,
-        .afs-pdf-export-host #afs-detailed-income thead,
-        .afs-pdf-export-host #afs-detailed-income tbody,
-        .afs-pdf-export-host #afs-detailed-income tr,
-        .afs-pdf-export-host #afs-detailed-income th,
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-tax-computation table,
-        .afs-pdf-export-host #afs-tax-computation thead,
-        .afs-pdf-export-host #afs-tax-computation tbody,
-        .afs-pdf-export-host #afs-tax-computation tr,
-        .afs-pdf-export-host #afs-tax-computation th,
-        .afs-pdf-export-host #afs-tax-computation td {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-        }
-        .afs-print-root #afs-detailed-income thead th,
-        .afs-print-root #afs-tax-computation thead th,
-        .afs-pdf-export-host #afs-detailed-income thead th,
-        .afs-pdf-export-host #afs-tax-computation thead th {
-          border-bottom: 1px solid #111827 !important;
-          padding-top: 0.95mm !important;
-          padding-bottom: 0.95mm !important;
-        }
-        .afs-print-root #afs-detailed-income td,
-        .afs-print-root #afs-tax-computation td,
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-tax-computation td {
-          padding-top: 0.85mm !important;
-          padding-bottom: 0.85mm !important;
-        }
-        .afs-print-root #afs-detailed-income tr:last-child td:not(:first-child),
-        .afs-print-root #afs-tax-computation tr:last-child td:not(:first-child),
-        .afs-pdf-export-host #afs-detailed-income tr:last-child td:not(:first-child),
-        .afs-pdf-export-host #afs-tax-computation tr:last-child td:not(:first-child) {
-          border-bottom: 1.3px solid #111827 !important;
-          padding-bottom: 1.2mm !important;
-        }
-        .afs-print-root #afs-tax-computation div,
-        .afs-pdf-export-host #afs-tax-computation div {
-          border-bottom: 0 !important;
-        }
-
-        /* Screen editor: remove artificial massive gaps; keep textareas normal. */
-        .afs-print-root .inlineEditorTextarea,
-        .afs-print-root textarea {
-          white-space: pre-wrap !important;
-        }
-
-      `;
-
-
-
-      exportStyle.textContent += `
-        /* V63 hard reset: final rules win over all previous print experiments */
-        .afs-pdf-export-host,
-        .afs-pdf-export-host * {
-          font-family: Arial, Helvetica, sans-serif !important;
-          letter-spacing: normal !important;
-          text-decoration: none !important;
-          box-shadow: none !important;
-        }
-        .afs-pdf-export-host .afs-print-page {
-          width: 210mm !important;
-          max-width: none !important;
-          padding: 15mm 18mm 18mm 18mm !important;
-          font-size: 9.2pt !important;
-          line-height: 1.16 !important;
-          overflow: visible !important;
-        }
-        .afs-pdf-export-host p,
-        .afs-pdf-export-host td,
-        .afs-pdf-export-host th,
-        .afs-pdf-export-host span,
-        .afs-pdf-export-host div {
-          font-size: 9.2pt !important;
-          line-height: 1.16 !important;
-        }
-        .afs-pdf-export-host .afsPageEntityHeader {
-          margin-bottom: 8.5mm !important;
-          padding-bottom: 2.2mm !important;
-          border-bottom: 1.2px solid #111827 !important;
-        }
-        .afs-pdf-export-host h2 {
-          margin: 0 0 7mm 0 !important;
-          padding-bottom: 2.2mm !important;
-          border-bottom: 1.2px solid #111827 !important;
-          font-size: 12.8pt !important;
-          line-height: 1.15 !important;
-        }
-        .afs-pdf-export-host #afs-compilation-report h3 {
-          margin: 0 0 3.5mm 0 !important;
-          padding-bottom: 1.8mm !important;
-          border-bottom: 1px solid #111827 !important;
-        }
-        .afs-pdf-export-host #afs-directors-responsibilities p {
-          font-size: 8.15pt !important;
-          line-height: 1.08 !important;
-          margin: 0 0 1mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-directors-report p,
-        .afs-pdf-export-host #afs-directors-report td,
-        .afs-pdf-export-host #afs-directors-report th {
-          font-size: 8.15pt !important;
-          line-height: 1.08 !important;
-        }
-        .afs-pdf-export-host #afs-directors-report h4 {
-          font-size: 8.3pt !important;
-          margin: 1.8mm 0 0.55mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-directors-report .reportSectionBlock {
-          margin-bottom: 1.6mm !important;
-          break-inside: auto !important;
-          page-break-inside: auto !important;
-        }
-        .afs-pdf-export-host #afs-directors-report table {
-          margin-top: 1mm !important;
-          margin-bottom: 1mm !important;
-        }
-
-        /* SFP/SCI/SCF: no extra random line before column headings */
-        .afs-pdf-export-host #afs-sfp table,
-        .afs-pdf-export-host #afs-sci table,
-        .afs-pdf-export-host #afs-cash-flow table {
-          margin-top: 0 !important;
-          border-top: 0 !important;
-        }
-        .afs-pdf-export-host #afs-sfp thead th,
-        .afs-pdf-export-host #afs-sci thead th,
-        .afs-pdf-export-host #afs-cash-flow thead th {
-          border-top: 0 !important;
-          border-bottom: 1px solid #111827 !important;
-        }
-
-        /* SCE: remove all row/first-column rules. Keep only column heading rule and amount-only totals. */
-        .afs-pdf-export-host #afs-socie table,
-        .afs-pdf-export-host #afs-socie thead,
-        .afs-pdf-export-host #afs-socie tbody,
-        .afs-pdf-export-host #afs-socie tr,
-        .afs-pdf-export-host #afs-socie th,
-        .afs-pdf-export-host #afs-socie td {
-          border: 0 !important;
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-          box-shadow: none !important;
-        }
-        .afs-pdf-export-host #afs-socie thead th {
-          border-bottom: 1px solid #111827 !important;
-          padding-bottom: 1.2mm !important;
-        }
-        .afs-pdf-export-host #afs-socie td:first-child,
-        .afs-pdf-export-host #afs-socie th:first-child {
-          border: 0 !important;
-          text-decoration: none !important;
-        }
-        .afs-pdf-export-host #afs-socie td:not(:first-child) {
-          border: 0 !important;
-          text-align: right !important;
-        }
-        .afs-pdf-export-host #afs-socie tr:last-child td:not(:first-child) {
-          border-top: 1px solid #111827 !important;
-          border-bottom: 1.2px solid #111827 !important;
-        }
-
-        /* Notes: Draftworx/CaseWare style - no row grid. Only headings and amount totals. */
-        .afs-pdf-export-host #afs-notes table,
-        .afs-pdf-export-host #afs-notes thead,
-        .afs-pdf-export-host #afs-notes tbody,
-        .afs-pdf-export-host #afs-notes tr,
-        .afs-pdf-export-host #afs-notes th,
-        .afs-pdf-export-host #afs-notes td,
-        .afs-pdf-export-host #afs-notes p,
-        .afs-pdf-export-host #afs-notes div,
-        .afs-pdf-export-host #afs-notes span {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-          box-shadow: none !important;
-        }
-        .afs-pdf-export-host #afs-notes h4 {
-          margin: 4.2mm 0 1.1mm 0 !important;
-          page-break-after: avoid !important;
-          break-after: avoid !important;
-        }
-        .afs-pdf-export-host #afs-notes p {
-          margin: 0 0 1mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteStatementTable {
-          margin-top: 1.3mm !important;
-          margin-bottom: 4mm !important;
-          table-layout: fixed !important;
-          width: 100% !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:first-child { width: auto !important; }
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(2),
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(3) { width: 28mm !important; }
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead { display: table-header-group !important; }
-        .afs-pdf-export-host #afs-notes .noteTh,
-        .afs-pdf-export-host #afs-notes .noteThRight,
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead th {
-          border-bottom: 1px solid #111827 !important;
-          padding: 0 0 1.2mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteTd,
-        .afs-pdf-export-host #afs-notes .noteAmount {
-          padding-top: 0.75mm !important;
-          padding-bottom: 0.75mm !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteAmount,
-        .afs-pdf-export-host #afs-notes .noteTotalAmount {
-          text-align: right !important;
-          font-variant-numeric: tabular-nums !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteTotalLabel {
-          border: 0 !important;
-          font-weight: 900 !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteTotalAmount {
-          border-top: 1px solid #111827 !important;
-          border-bottom: 1.2px solid #111827 !important;
-          padding-top: 1mm !important;
-          padding-bottom: 1mm !important;
-          font-weight: 900 !important;
-        }
-        .afs-pdf-export-host #afs-notes .loanTermsInlineCombined {
-          padding: 0.2mm 0 1mm 0 !important;
-          margin: 0 !important;
-          border: 0 !important;
-        }
-
-        /* Detailed income and tax comp: right-column amount rules only. */
-        .afs-pdf-export-host #afs-detailed-income table,
-        .afs-pdf-export-host #afs-tax-computation table {
-          width: 100% !important;
-          table-layout: fixed !important;
-          border-collapse: collapse !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income col:first-child,
-        .afs-pdf-export-host #afs-tax-computation col:first-child { width: auto !important; }
-        .afs-pdf-export-host #afs-detailed-income col:nth-child(2),
-        .afs-pdf-export-host #afs-detailed-income col:nth-child(3),
-        .afs-pdf-export-host #afs-tax-computation col:nth-child(2),
-        .afs-pdf-export-host #afs-tax-computation col:nth-child(3) { width: 29mm !important; }
-        .afs-pdf-export-host #afs-detailed-income th,
-        .afs-pdf-export-host #afs-tax-computation th,
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-tax-computation td {
-          border: 0 !important;
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income thead th,
-        .afs-pdf-export-host #afs-tax-computation thead th {
-          border-bottom: 1px solid #111827 !important;
-          padding-bottom: 1.2mm !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income td:first-child,
-        .afs-pdf-export-host #afs-tax-computation td:first-child { border: 0 !important; }
-        .afs-pdf-export-host #afs-detailed-income td:not(:first-child),
-        .afs-pdf-export-host #afs-tax-computation td:not(:first-child) {
-          text-align: right !important;
-          padding-top: 1mm !important;
-          padding-bottom: 1mm !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income tr:last-child td:not(:first-child),
-        .afs-pdf-export-host #afs-tax-computation tr:last-child td:not(:first-child) {
-          border-top: 1px solid #111827 !important;
-          border-bottom: 1.2px solid #111827 !important;
-        }
-        .afs-pdf-export-host #afs-tax-computation .taxComputationSettings,
-        .afs-pdf-export-host #afs-tax-computation div[style*="border-bottom"] {
-          border-bottom: 0 !important;
-        }
-      `;
-
-      exportStyle.textContent += `
-
-
-        /* V64 final corrective override: remove remaining ugly lines and fix PDF spacing/columns */
-        .afs-pdf-export-host .afs-print-page {
-          padding: 14mm 18mm 18mm 18mm !important;
-        }
-        .afs-pdf-export-host .afsPageEntityHeader {
-          margin-bottom: 9mm !important;
-          padding-bottom: 3mm !important;
-        }
-        .afs-pdf-export-host h2 {
-          margin-bottom: 7mm !important;
-          padding-bottom: 3mm !important;
-        }
-        .afs-pdf-export-host #afs-directors-responsibilities p {
-          font-size: 7.45pt !important;
-          line-height: 1.02 !important;
-          margin: 0 0 0.85mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-directors-responsibilities .signatureBlock,
-        .afs-pdf-export-host #afs-directors-responsibilities div[style*="border-top"] {
-          margin-top: 4mm !important;
-        }
-        .afs-pdf-export-host #afs-directors-report p,
-        .afs-pdf-export-host #afs-directors-report td,
-        .afs-pdf-export-host #afs-directors-report th,
-        .afs-pdf-export-host #afs-directors-report div {
-          font-size: 7.75pt !important;
-          line-height: 1.03 !important;
-        }
-        .afs-pdf-export-host #afs-directors-report h4 {
-          font-size: 7.9pt !important;
-          margin: 1.45mm 0 0.45mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-directors-report .reportSectionBlock { margin-bottom: 1.35mm !important; }
-
-        .afs-pdf-export-host #afs-sfp table,
-        .afs-pdf-export-host #afs-sci table,
-        .afs-pdf-export-host #afs-cash-flow table,
-        .afs-pdf-export-host #afs-socie table,
-        .afs-pdf-export-host #afs-detailed-income table,
-        .afs-pdf-export-host #afs-tax-computation table,
-        .afs-pdf-export-host #afs-notes .noteStatementTable {
-          border-collapse: separate !important;
-          border-spacing: 0 !important;
-        }
-
-        .afs-pdf-export-host #afs-sfp thead th,
-        .afs-pdf-export-host #afs-sci thead th,
-        .afs-pdf-export-host #afs-cash-flow thead th,
-        .afs-pdf-export-host #afs-socie thead th,
-        .afs-pdf-export-host #afs-detailed-income thead th,
-        .afs-pdf-export-host #afs-tax-computation thead th,
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead th {
-          border-top: 0 !important;
-          border-bottom: 1px solid #111827 !important;
-          padding: 1.2mm 1.7mm 1.3mm 1.7mm !important;
-          box-shadow: none !important;
-        }
-
-        .afs-pdf-export-host #afs-socie td,
-        .afs-pdf-export-host #afs-socie th,
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-detailed-income th,
-        .afs-pdf-export-host #afs-tax-computation td,
-        .afs-pdf-export-host #afs-tax-computation th,
-        .afs-pdf-export-host #afs-notes td,
-        .afs-pdf-export-host #afs-notes th {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-        }
-
-        .afs-pdf-export-host #afs-socie td:first-child,
-        .afs-pdf-export-host #afs-socie th:first-child,
-        .afs-pdf-export-host #afs-detailed-income td:first-child,
-        .afs-pdf-export-host #afs-tax-computation td:first-child {
-          border: 0 !important;
-          text-decoration: none !important;
-          box-shadow: none !important;
-        }
-        .afs-pdf-export-host #afs-socie tr:last-child td:not(:first-child),
-        .afs-pdf-export-host #afs-detailed-income tr:last-child td:not(:first-child),
-        .afs-pdf-export-host #afs-tax-computation tr:last-child td:not(:first-child) {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          box-shadow: none !important;
-        }
-
-        .afs-pdf-export-host #afs-notes .noteStatementTable { width: 100% !important; }
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:first-child { width: 70% !important; }
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(2),
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(3) { width: 15% !important; }
-        .afs-pdf-export-host #afs-notes .noteSectionAnchor,
-        .afs-pdf-export-host #afs-notes .noteSectionAnchorOff {
-          margin-top: 5.3mm !important;
-          break-inside: avoid !important;
-          page-break-inside: avoid !important;
-        }
-        .afs-pdf-export-host #afs-notes h4 { margin: 0 0 1.4mm 0 !important; }
-        .afs-pdf-export-host #afs-notes .noteTd,
-        .afs-pdf-export-host #afs-notes .noteAmount,
-        .afs-pdf-export-host #afs-notes .noteTotalLabel,
-        .afs-pdf-export-host #afs-notes .noteTotalAmount {
-          padding-top: 0.82mm !important;
-          padding-bottom: 0.82mm !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteTotalAmount {
-          border: 0 !important;
-          box-shadow: none !important;
-        }
-        .afs-pdf-export-host #afs-notes .loanTermsInlineCombined {
-          padding: 0.15mm 1.7mm 1.0mm 1.7mm !important;
-          margin: 0 !important;
-        }
-        .afs-pdf-export-host #afs-notes .loanTermsInput { padding: 0 !important; border: 0 !important; }
-
-        .afs-pdf-export-host #afs-detailed-income table,
-        .afs-pdf-export-host #afs-tax-computation table { width: 100% !important; }
-        .afs-pdf-export-host #afs-detailed-income col:first-child,
-        .afs-pdf-export-host #afs-tax-computation col:first-child { width: 68% !important; }
-        .afs-pdf-export-host #afs-detailed-income col:nth-child(2),
-        .afs-pdf-export-host #afs-detailed-income col:nth-child(3),
-        .afs-pdf-export-host #afs-tax-computation col:nth-child(2),
-        .afs-pdf-export-host #afs-tax-computation col:nth-child(3) { width: 16% !important; }
-        .afs-pdf-export-host #afs-detailed-income td:not(:first-child),
-        .afs-pdf-export-host #afs-tax-computation td:not(:first-child) {
-          text-align: right !important;
-          padding-left: 1.7mm !important;
-          padding-right: 1.7mm !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income td[style*="font-weight: 900"]:not(:first-child),
-        .afs-pdf-export-host #afs-tax-computation td[style*="font-weight: 900"]:not(:first-child) {
-          border: 0 !important;
-          box-shadow: none !important;
-        }
-        .afs-pdf-export-host #afs-tax-computation .taxComputationSettings,
-        .afs-pdf-export-host #afs-tax-computation .taxComputationSettings * { border: 0 !important; box-shadow: none !important; }
-      `;
-
-
-
-      exportStyle.textContent += `
-        /* V66 PDF FOUNDATION RESET: no html shadow rules, no black blocks, no long amount bands */
-        .afs-pdf-export-host *,
-        .afs-pdf-export-host #afs-socie *,
-        .afs-pdf-export-host #afs-notes *,
-        .afs-pdf-export-host #afs-detailed-income *,
-        .afs-pdf-export-host #afs-tax-computation * {
-          background: transparent !important;
-          background-color: transparent !important;
-          background-image: none !important;
-          box-shadow: none !important;
-          text-shadow: none !important;
-          text-decoration: none !important;
-        }
-
-        .afs-pdf-export-host .afs-print-page {
-          padding: 15mm 18mm 18mm 18mm !important;
-          overflow: visible !important;
-        }
-        .afs-pdf-export-host .afsPageEntityHeader {
-          margin-bottom: 9mm !important;
-          padding-bottom: 2.6mm !important;
-          border-bottom: 1.2px solid #111827 !important;
-        }
-        .afs-pdf-export-host h2 {
-          margin: 0 0 8mm 0 !important;
-          padding-bottom: 2.6mm !important;
-          border-bottom: 1.2px solid #111827 !important;
-        }
-        .afs-pdf-export-host #afs-index h2,
-        .afs-pdf-export-host #afs-general-info h2,
-        .afs-pdf-export-host #afs-directors-responsibilities h2,
-        .afs-pdf-export-host #afs-directors-report h2,
-        .afs-pdf-export-host #afs-sfp h2,
-        .afs-pdf-export-host #afs-sci h2,
-        .afs-pdf-export-host #afs-socie h2,
-        .afs-pdf-export-host #afs-cash-flow h2,
-        .afs-pdf-export-host #afs-accounting-policies h2,
-        .afs-pdf-export-host #afs-notes h2,
-        .afs-pdf-export-host #afs-detailed-income h2,
-        .afs-pdf-export-host #afs-tax-computation h2 {
-          padding-bottom: 2.2mm !important;
-        }
-
-        .afs-pdf-export-host #afs-directors-responsibilities p {
-          font-size: 7.7pt !important;
-          line-height: 1.06 !important;
-          margin: 0 0 1.05mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-directors-report p,
-        .afs-pdf-export-host #afs-directors-report td,
-        .afs-pdf-export-host #afs-directors-report th,
-        .afs-pdf-export-host #afs-directors-report div {
-          font-size: 7.65pt !important;
-          line-height: 1.05 !important;
-        }
-        .afs-pdf-export-host #afs-directors-report h4 {
-          font-size: 7.9pt !important;
-          margin: 1.6mm 0 0.6mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-directors-report .reportSectionBlock {
-          margin-bottom: 1.45mm !important;
-          break-inside: avoid !important;
-          page-break-inside: avoid !important;
-        }
-
-        .afs-pdf-export-host table { border-collapse: separate !important; border-spacing: 0 !important; }
-        .afs-pdf-export-host th,
-        .afs-pdf-export-host td,
-        .afs-pdf-export-host tr,
-        .afs-pdf-export-host tbody,
-        .afs-pdf-export-host thead {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          border-left: 0 !important;
-          border-right: 0 !important;
-          outline: 0 !important;
-        }
-
-        .afs-pdf-export-host #afs-sfp thead th,
-        .afs-pdf-export-host #afs-sci thead th,
-        .afs-pdf-export-host #afs-cash-flow thead th,
-        .afs-pdf-export-host #afs-socie thead th,
-        .afs-pdf-export-host #afs-detailed-income thead th,
-        .afs-pdf-export-host #afs-tax-computation thead th,
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead th {
-          border-bottom: 0.8px solid #111827 !important;
-          padding-bottom: 1.25mm !important;
-        }
-
-        .afs-pdf-export-host #afs-socie td:first-child,
-        .afs-pdf-export-host #afs-socie td:first-child *,
-        .afs-pdf-export-host #afs-socie th:first-child,
-        .afs-pdf-export-host #afs-socie th:first-child * {
-          border: 0 !important;
-          border-bottom: 0 !important;
-          text-decoration: none !important;
-          background: transparent !important;
-        }
-        .afs-pdf-export-host #afs-socie td,
-        .afs-pdf-export-host #afs-socie th {
-          padding-top: 0.95mm !important;
-          padding-bottom: 0.95mm !important;
-        }
-
-        .afs-pdf-export-host #afs-sfp td:not(:first-child),
-        .afs-pdf-export-host #afs-sci td:not(:first-child),
-        .afs-pdf-export-host #afs-cash-flow td:not(:first-child),
-        .afs-pdf-export-host #afs-socie td:not(:first-child),
-        .afs-pdf-export-host #afs-notes td:not(:first-child),
-        .afs-pdf-export-host #afs-detailed-income td:not(:first-child),
-        .afs-pdf-export-host #afs-tax-computation td:not(:first-child) {
-          text-align: right !important;
-          font-variant-numeric: tabular-nums !important;
-          border: 0 !important;
-        }
-
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:first-child { width: auto !important; }
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(2),
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(3) { width: 24mm !important; }
-        .afs-pdf-export-host #afs-detailed-income col:first-child,
-        .afs-pdf-export-host #afs-tax-computation col:first-child { width: auto !important; }
-        .afs-pdf-export-host #afs-detailed-income col:nth-child(2),
-        .afs-pdf-export-host #afs-detailed-income col:nth-child(3),
-        .afs-pdf-export-host #afs-tax-computation col:nth-child(2),
-        .afs-pdf-export-host #afs-tax-computation col:nth-child(3) { width: 24mm !important; }
-
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-tax-computation td,
-        .afs-pdf-export-host #afs-notes .noteTd,
-        .afs-pdf-export-host #afs-notes .noteAmount,
-        .afs-pdf-export-host #afs-notes .noteTotalLabel,
-        .afs-pdf-export-host #afs-notes .noteTotalAmount {
-          padding-top: 0.9mm !important;
-          padding-bottom: 0.9mm !important;
-        }
-
-        .afs-pdf-export-host #afs-notes .noteTotalAmount,
-        .afs-pdf-export-host #afs-detailed-income tr:last-child td:not(:first-child),
-        .afs-pdf-export-host #afs-tax-computation tr:last-child td:not(:first-child) {
-          border-top: 0 !important;
-          border-bottom: 0.75px solid #111827 !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteTotalLabel { border: 0 !important; }
-
-        .afs-pdf-export-host #afs-notes .noteSectionAnchor,
-        .afs-pdf-export-host #afs-notes .noteSectionAnchorOff {
-          margin-top: 6mm !important;
-          padding-top: 0 !important;
-          break-inside: avoid !important;
-          page-break-inside: avoid !important;
-        }
-        .afs-pdf-export-host #afs-notes h4 {
-          margin: 0 0 1.3mm 0 !important;
-          break-after: avoid !important;
-          page-break-after: avoid !important;
-        }
-        .afs-pdf-export-host #afs-notes p { margin: 0 0 1mm 0 !important; }
-        .afs-pdf-export-host #afs-notes .loanTermsInlineCombined {
-          padding: 0.15mm 0 1.0mm 0 !important;
-          margin: 0 !important;
-          border: 0 !important;
-        }
-        .afs-pdf-export-host #afs-notes .loanTermsInput,
-        .afs-pdf-export-host #afs-notes input,
-        .afs-pdf-export-host #afs-notes textarea {
-          border: 0 !important;
-          padding: 0 !important;
-          background: transparent !important;
-        }
-
-        .afs-pdf-export-host #afs-tax-computation .taxComputationSettings,
-        .afs-pdf-export-host #afs-tax-computation .taxComputationSettings * {
-          border: 0 !important;
-          background: transparent !important;
-        }
-
-        /* V67 final targeted export override: keep lines short, fix right columns, reduce directors split. */
-        .afs-pdf-export-host .afs-print-page {
-          padding: 13mm 17mm 16mm 17mm !important;
-          min-height: 297mm !important;
-          max-height: none !important;
-          width: 210mm !important;
-          max-width: 210mm !important;
-          box-sizing: border-box !important;
-          font-family: Arial, Helvetica, sans-serif !important;
-        }
-        .afs-pdf-export-host .afsPageEntityHeader {
-          margin-bottom: 8mm !important;
-          padding-bottom: 2.4mm !important;
-          border-bottom: 0.65px solid #111827 !important;
-        }
-        .afs-pdf-export-host h2 {
-          margin-bottom: 7mm !important;
-          padding-bottom: 2.4mm !important;
-          border-bottom: 0.65px solid #111827 !important;
-        }
-        .afs-pdf-export-host #afs-directors-responsibilities p {
-          font-size: 7.25pt !important;
-          line-height: 1.04 !important;
-          margin: 0 0 0.82mm 0 !important;
-        }
-        .afs-pdf-export-host #afs-directors-responsibilities .signatureGrid {
-          margin-top: 5mm !important;
-          grid-template-columns: 58mm 58mm !important;
-          gap: 16mm !important;
-        }
-        .afs-pdf-export-host #afs-directors-responsibilities .signatureBox,
-        .afs-pdf-export-host #afs-directors-responsibilities .signatureBox * {
-          font-size: 7.8pt !important;
-          line-height: 1.12 !important;
-        }
-        .afs-pdf-export-host .signatureLine {
-          width: 56mm !important;
-          max-width: 56mm !important;
-          border-top: 0.65px solid #111827 !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteStatementTable,
-        .afs-pdf-export-host #afs-detailed-income table,
-        .afs-pdf-export-host #afs-tax-computation table {
-          width: 100% !important;
-          table-layout: fixed !important;
-          border-collapse: collapse !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:first-child,
-        .afs-pdf-export-host #afs-detailed-income col:first-child,
-        .afs-pdf-export-host #afs-tax-computation col:first-child {
-          width: auto !important;
-        }
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(2),
-        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(3),
-        .afs-pdf-export-host #afs-detailed-income col:nth-child(2),
-        .afs-pdf-export-host #afs-detailed-income col:nth-child(3),
-        .afs-pdf-export-host #afs-tax-computation col:nth-child(2),
-        .afs-pdf-export-host #afs-tax-computation col:nth-child(3) {
-          width: 23mm !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income thead th,
-        .afs-pdf-export-host #afs-tax-computation thead th,
-        .afs-pdf-export-host #afs-notes .noteStatementTable thead th {
-          border-top: 0 !important;
-          border-bottom: 0.65px solid #111827 !important;
-          padding: 0.8mm 1.1mm 1.0mm 1.1mm !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income td,
-        .afs-pdf-export-host #afs-tax-computation td,
-        .afs-pdf-export-host #afs-notes .noteStatementTable td {
-          border: 0 !important;
-          text-decoration: none !important;
-          padding: 0.9mm 1.1mm !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income td:not(:first-child),
-        .afs-pdf-export-host #afs-tax-computation td:not(:first-child),
-        .afs-pdf-export-host #afs-notes .noteStatementTable td:not(:first-child) {
-          text-align: right !important;
-          vertical-align: bottom !important;
-          font-variant-numeric: tabular-nums !important;
-        }
-        .afs-pdf-export-host #afs-detailed-income tr:last-child td:nth-child(2),
-        .afs-pdf-export-host #afs-detailed-income tr:last-child td:nth-child(3),
-        .afs-pdf-export-host #afs-tax-computation tr:last-child td:nth-child(2),
-        .afs-pdf-export-host #afs-tax-computation tr:last-child td:nth-child(3),
-        .afs-pdf-export-host #afs-notes .noteTotalAmount {
-          border-top: 0.65px solid #111827 !important;
-          border-bottom: 0.65px solid #111827 !important;
-        }
-        .afs-pdf-export-host #afs-notes .loanTermsInlineCombined,
-        .afs-pdf-export-host #afs-notes .loanTermsInlineCombined *,
-        .afs-pdf-export-host #afs-notes .loanTermsInlineText,
-        .afs-pdf-export-host #afs-notes .loanTermsText {
-          padding-left: 0 !important;
-          margin-left: 0 !important;
-          border: 0 !important;
-          text-indent: 0 !important;
-        }
-        .afs-pdf-export-host #afs-tax-computation .print-edit-col,
-        .afs-pdf-export-host #afs-detailed-income .print-edit-col,
-        .afs-pdf-export-host #afs-notes .print-edit-col { display: none !important; }
-      `;
-
-      exportHost.appendChild(exportStyle);
-
-      const clonedRoot = sourceRoot.cloneNode(true) as HTMLElement;
-      clonedRoot.className = profile === "draft" ? "afs-print-root afs-print-draft" : "afs-print-root afs-print-final";
-      replaceFormControlsForPdf(clonedRoot);
-      clonedRoot.querySelectorAll(".afs-page-footer").forEach((footer) => footer.remove());
-      exportHost.appendChild(clonedRoot);
-      document.body.appendChild(exportHost);
-
-      await waitForPdfImages(exportHost);
-      await new Promise((resolve) => window.setTimeout(resolve, 250));
-
-      const pdf = new JsPdfConstructor({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
-      const pageWidthMm = 210;
-      const pageHeightMm = 297;
-      const pages = Array.from(clonedRoot.querySelectorAll(".afs-print-page")) as HTMLElement[];
-      let pdfPageNumber = 0;
-      let createdAnyPdfPage = false;
-
-      for (const pageElement of pages) {
-        const canvas = await html2canvas(pageElement, {
-          scale: 2,
-          backgroundColor: "#ffffff",
-          useCORS: true,
-          allowTaint: true,
-          logging: false,
-          windowWidth: pageElement.scrollWidth,
-          windowHeight: pageElement.scrollHeight,
-        });
-
-        const pxPerMm = canvas.width / pageWidthMm;
-        const forceSinglePdfPage =
-          pageElement.id === "afs-cover" ||
-          pageElement.id === "afs-general-info" ||
-          pageElement.id === "afs-index" ||
-          pageElement.id === "afs-compilation-report" ||
-          pageElement.id === "afs-sfp" ||
-          pageElement.id === "afs-sci" ||
-          pageElement.id === "afs-socie" ||
-          pageElement.id === "afs-cash-flow";
-
-        if (forceSinglePdfPage) {
-          const isCoverPdfPage = pageElement.id === "afs-cover";
-          if (createdAnyPdfPage) pdf.addPage();
-          createdAnyPdfPage = true;
-          if (!isCoverPdfPage) pdfPageNumber += 1;
-          const imageData = canvas.toDataURL("image/jpeg", 0.96);
-          const fixedPageImageHeightMm = Math.min(pageHeightMm, canvas.height / pxPerMm);
-          pdf.addImage(imageData, "JPEG", 0, 0, pageWidthMm, fixedPageImageHeightMm, undefined, "FAST");
-          if (profile === "draft") {
-            pdf.setTextColor(15, 23, 42);
-            pdf.setFont("helvetica", "bold");
-            pdf.setFontSize(54);
-            pdf.text("DRAFT", pageWidthMm / 2, pageHeightMm / 2, { align: "center", angle: -32 });
-          }
-          if (!isCoverPdfPage) {
-            pdf.setTextColor(17, 24, 39);
-            pdf.setFont("helvetica", "normal");
-            pdf.setFontSize(8);
-            pdf.text(String(pdfPageNumber), pageWidthMm / 2, pageHeightMm - 8, { align: "center" });
-          }
-          continue;
-        }
-
-        const normalBottomMm = 38;
-        const continuationTopMm = 31;
-        const continuationBottomMm = 38;
-        const canvasScaleY = canvas.height / Math.max(pageElement.scrollHeight, 1);
-        const pageElementRect = pageElement.getBoundingClientRect();
-        const candidateElements = Array.from(
-          pageElement.querySelectorAll(".afsPageEntityHeader, h2, h3, h4, p, tr, table, section, .policySection, .noteSectionAnchor, .noteSectionAnchorOff, .reportSectionBlock")
-        ) as HTMLElement[];
-        const safeBreaks = candidateElements
-          .flatMap((element) => {
-            const rect = element.getBoundingClientRect();
-            const top = Math.floor((rect.top - pageElementRect.top + pageElement.scrollTop) * canvasScaleY);
-            const bottom = Math.floor((rect.bottom - pageElementRect.top + pageElement.scrollTop) * canvasScaleY);
-            const points: number[] = [bottom];
-            if (
-              element.matches(".reportSectionBlock, .policySection, .noteSectionAnchor, .noteSectionAnchorOff, h4, p, table, tr") &&
-              top > 0
-            ) {
-              points.push(top);
-            }
-            return points;
-          })
-          .filter((point) => Number.isFinite(point) && point > 40 && point < canvas.height - 40)
-          .sort((a, b) => a - b);
-
-        function chooseSafeSliceHeight(startY: number, maxHeightPx: number, remainingPx: number) {
-          if (remainingPx <= maxHeightPx) return remainingPx;
-          const target = startY + maxHeightPx;
-          const minAcceptable = startY + Math.floor(10 * pxPerMm);
-          const safetyGap = Math.floor(3 * pxPerMm);
-          const reversedBreaks = [...safeBreaks].reverse();
-          const safe = reversedBreaks.find((breakPoint) => breakPoint >= minAcceptable && breakPoint <= target - safetyGap);
-          if (safe) return safe - startY;
-          const fallback = reversedBreaks.find((breakPoint) => breakPoint > startY + Math.floor(6 * pxPerMm) && breakPoint <= target - Math.floor(1 * pxPerMm));
-          return fallback ? fallback - startY : maxHeightPx;
-        }
-
-        let y = 0;
-
-        while (y < canvas.height) {
-          const isContinuationSlice = y > 0;
-          const destinationTopMm = isContinuationSlice ? continuationTopMm : 0;
-          const availableHeightMm = pageHeightMm - destinationTopMm - (isContinuationSlice ? continuationBottomMm : normalBottomMm);
-          const currentSliceMaxHeightPx = Math.floor(availableHeightMm * pxPerMm);
-          const remaining = canvas.height - y;
-          const currentSliceHeight = chooseSafeSliceHeight(y, currentSliceMaxHeightPx, remaining);
-          if (currentSliceHeight < 18 * pxPerMm && y > 0) break;
-
-          const sliceCanvas = document.createElement("canvas");
-          sliceCanvas.width = canvas.width;
-          sliceCanvas.height = Math.floor(pageHeightMm * pxPerMm);
-          const ctx = sliceCanvas.getContext("2d");
-          if (!ctx) break;
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-
-          const destinationTopPx = Math.floor(destinationTopMm * pxPerMm);
-          ctx.drawImage(
-            canvas,
-            0,
-            y,
-            canvas.width,
-            currentSliceHeight,
-            0,
-            destinationTopPx,
-            canvas.width,
-            currentSliceHeight
-          );
-
-          if (y > 0 && isCanvasEffectivelyBlank(sliceCanvas)) {
-            y += currentSliceHeight;
-            continue;
-          }
-
-          if (createdAnyPdfPage) pdf.addPage();
-          createdAnyPdfPage = true;
-          pdfPageNumber += 1;
-          const imageData = sliceCanvas.toDataURL("image/jpeg", 0.96);
-          pdf.addImage(imageData, "JPEG", 0, 0, pageWidthMm, pageHeightMm, undefined, "FAST");
-
-          if (isContinuationSlice) {
-            pdf.setTextColor(17, 24, 39);
-            pdf.setFont("helvetica", "bold");
-            pdf.setFontSize(8.6);
-            pdf.text(clean(clientName), 14, 14);
-            if (clean(registrationNumber)) {
-              pdf.text(`(Registration number: ${clean(registrationNumber)})`, 14, 18);
-            }
-            pdf.text(`Financial Statements for the year ended ${formatDateLong(yearEnd || "")}`, 14, 22);
-            pdf.setDrawColor(17, 24, 39);
-            pdf.setLineWidth(0.45);
-            pdf.line(14, 25, pageWidthMm - 14, 25);
-          }
-
-          if (profile === "draft") {
-            pdf.setTextColor(15, 23, 42);
-            pdf.setFont("helvetica", "bold");
-            pdf.setFontSize(54);
-            pdf.text("DRAFT", pageWidthMm / 2, pageHeightMm / 2, { align: "center", angle: -32 });
-          }
-
-          pdf.setTextColor(17, 24, 39);
-          pdf.setFont("helvetica", "normal");
-          pdf.setFontSize(8);
-          pdf.text(String(pdfPageNumber), pageWidthMm / 2, pageHeightMm - 8, { align: "center" });
-          y += currentSliceHeight;
-        }
+      const response = await fetch(`/api/afs/engagements/${id}/financial-statements-pdf?profile=${profile}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        let message = "Failed to generate AFS PDF.";
+        try {
+          const result = await response.json();
+          message = result?.error || message;
+        } catch {
+          // response was not JSON
+        }
+        throw new Error(message);
       }
 
-      const fileSafeClientName = clean(clientName).replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "") || "AFS";
-      pdf.save(`${fileSafeClientName}_${yearEnd || "year_end"}_${profile}.pdf`);
-    } catch (error) {
-      console.error(error);
-      alert("PDF export failed. Please try again.");
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const safeClientName = clientName.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "") || "AFS";
+      link.href = url;
+      link.download = `${safeClientName}_${profile === "draft" ? "draft" : "final"}_AFS.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      alert(error?.message || "Failed to generate AFS PDF.");
     } finally {
-      if (exportHost?.parentNode) exportHost.parentNode.removeChild(exportHost);
       setIsGeneratingPdf(false);
     }
   }
+
+  
 
   return (
     <div style={styles.wrapper}>
@@ -4773,6 +2722,336 @@ export default function FinancialStatementsPanel({
         }
 
 
+        /* V76 hard layout reset: screen and export use the same A4 geometry.
+           Amount columns sit on the right of the A4 content area. Rules are short and only under amount columns. */
+        .afs-print-root .afs-print-page,
+        .afs-pdf-export-host .afs-print-page {
+          width: 210mm !important;
+          min-height: 297mm !important;
+          max-height: 297mm !important;
+          padding: 18mm 18mm 13mm 18mm !important;
+          box-sizing: border-box !important;
+          overflow: hidden !important;
+          background: #ffffff !important;
+        }
+        .afs-print-root #afs-directors-responsibilities .pageContent,
+        .afs-pdf-export-host #afs-directors-responsibilities .pageContent,
+        .afs-print-root #afs-directors-report .pageContent,
+        .afs-pdf-export-host #afs-directors-report .pageContent {
+          font-size: 8.4pt !important;
+          line-height: 1.12 !important;
+        }
+        .afs-print-root #afs-directors-responsibilities p,
+        .afs-pdf-export-host #afs-directors-responsibilities p,
+        .afs-print-root #afs-directors-report p,
+        .afs-pdf-export-host #afs-directors-report p {
+          margin: 0 0 1.15mm 0 !important;
+          font-size: 8.4pt !important;
+          line-height: 1.12 !important;
+        }
+        .afs-print-root .signatureLine,
+        .afs-pdf-export-host .signatureLine {
+          width: 54mm !important;
+          min-width: 54mm !important;
+          max-width: 54mm !important;
+        }
+        .afs-print-root #afs-sfp table,
+        .afs-print-root #afs-sci table,
+        .afs-print-root #afs-cash-flow table,
+        .afs-print-root #afs-detailed-income table,
+        .afs-print-root #afs-tax-computation table,
+        .afs-pdf-export-host #afs-sfp table,
+        .afs-pdf-export-host #afs-sci table,
+        .afs-pdf-export-host #afs-cash-flow table,
+        .afs-pdf-export-host #afs-detailed-income table,
+        .afs-pdf-export-host #afs-tax-computation table {
+          width: 100% !important;
+          max-width: 100% !important;
+          margin-left: 0 !important;
+          margin-right: 0 !important;
+          table-layout: fixed !important;
+          border-collapse: separate !important;
+          border-spacing: 0 !important;
+        }
+        .afs-print-root #afs-sfp col:first-child,
+        .afs-print-root #afs-sci col:first-child,
+        .afs-print-root #afs-cash-flow col:first-child,
+        .afs-pdf-export-host #afs-sfp col:first-child,
+        .afs-pdf-export-host #afs-sci col:first-child,
+        .afs-pdf-export-host #afs-cash-flow col:first-child { width: 64% !important; }
+        .afs-print-root #afs-sfp col:nth-child(2),
+        .afs-print-root #afs-sci col:nth-child(2),
+        .afs-print-root #afs-cash-flow col:nth-child(2),
+        .afs-pdf-export-host #afs-sfp col:nth-child(2),
+        .afs-pdf-export-host #afs-sci col:nth-child(2),
+        .afs-pdf-export-host #afs-cash-flow col:nth-child(2) { width: 8% !important; }
+        .afs-print-root #afs-sfp col:nth-child(3),
+        .afs-print-root #afs-sfp col:nth-child(4),
+        .afs-print-root #afs-sci col:nth-child(3),
+        .afs-print-root #afs-sci col:nth-child(4),
+        .afs-print-root #afs-cash-flow col:nth-child(3),
+        .afs-print-root #afs-cash-flow col:nth-child(4),
+        .afs-pdf-export-host #afs-sfp col:nth-child(3),
+        .afs-pdf-export-host #afs-sfp col:nth-child(4),
+        .afs-pdf-export-host #afs-sci col:nth-child(3),
+        .afs-pdf-export-host #afs-sci col:nth-child(4),
+        .afs-pdf-export-host #afs-cash-flow col:nth-child(3),
+        .afs-pdf-export-host #afs-cash-flow col:nth-child(4) { width: 14% !important; }
+        .afs-print-root #afs-detailed-income col:first-child,
+        .afs-print-root #afs-tax-computation col:first-child,
+        .afs-pdf-export-host #afs-detailed-income col:first-child,
+        .afs-pdf-export-host #afs-tax-computation col:first-child { width: 70% !important; }
+        .afs-print-root #afs-detailed-income col:nth-child(2),
+        .afs-print-root #afs-detailed-income col:nth-child(3),
+        .afs-print-root #afs-tax-computation col:nth-child(2),
+        .afs-print-root #afs-tax-computation col:nth-child(3),
+        .afs-pdf-export-host #afs-detailed-income col:nth-child(2),
+        .afs-pdf-export-host #afs-detailed-income col:nth-child(3),
+        .afs-pdf-export-host #afs-tax-computation col:nth-child(2),
+        .afs-pdf-export-host #afs-tax-computation col:nth-child(3) { width: 15% !important; }
+        .afs-print-root #afs-sci td,
+        .afs-print-root #afs-sci th,
+        .afs-print-root #afs-cash-flow td,
+        .afs-print-root #afs-cash-flow th,
+        .afs-pdf-export-host #afs-sci td,
+        .afs-pdf-export-host #afs-sci th,
+        .afs-pdf-export-host #afs-cash-flow td,
+        .afs-pdf-export-host #afs-cash-flow th {
+          border-left: 0 !important;
+          border-right: 0 !important;
+          background: transparent !important;
+        }
+        .afs-print-root #afs-sci td:first-child,
+        .afs-print-root #afs-sci th:first-child,
+        .afs-print-root #afs-cash-flow td:first-child,
+        .afs-print-root #afs-cash-flow th:first-child,
+        .afs-pdf-export-host #afs-sci td:first-child,
+        .afs-pdf-export-host #afs-sci th:first-child,
+        .afs-pdf-export-host #afs-cash-flow td:first-child,
+        .afs-pdf-export-host #afs-cash-flow th:first-child {
+          border-top: 0 !important;
+          border-bottom: 0 !important;
+        }
+        .afs-print-root #afs-sci td:not(:first-child),
+        .afs-print-root #afs-cash-flow td:not(:first-child),
+        .afs-pdf-export-host #afs-sci td:not(:first-child),
+        .afs-pdf-export-host #afs-cash-flow td:not(:first-child) {
+          text-align: right !important;
+          border-top: 0 !important;
+          border-bottom: 0 !important;
+        }
+        .afs-print-root #afs-notes .noteStatementTable,
+        .afs-pdf-export-host #afs-notes .noteStatementTable {
+          width: 100% !important;
+          max-width: 100% !important;
+          table-layout: fixed !important;
+          border-collapse: separate !important;
+          border-spacing: 0 !important;
+        }
+        .afs-print-root #afs-notes .noteStatementTable col:first-child,
+        .afs-pdf-export-host #afs-notes .noteStatementTable col:first-child { width: 70% !important; }
+        .afs-print-root #afs-notes .noteStatementTable col:nth-child(2),
+        .afs-print-root #afs-notes .noteStatementTable col:nth-child(3),
+        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(2),
+        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(3) { width: 15% !important; }
+        .afs-print-root #afs-notes .noteAmount,
+        .afs-print-root #afs-notes .noteTotalAmount,
+        .afs-pdf-export-host #afs-notes .noteAmount,
+        .afs-pdf-export-host #afs-notes .noteTotalAmount {
+          text-align: right !important;
+          padding-left: 2mm !important;
+          padding-right: 0 !important;
+        }
+        .afs-print-root #afs-notes .noteTotalAmount,
+        .afs-pdf-export-host #afs-notes .noteTotalAmount,
+        .afs-print-root #afs-detailed-income .detailedIncomeTotalAmount,
+        .afs-print-root #afs-detailed-income .detailedIncomeFinalAmount,
+        .afs-print-root #afs-tax-computation .taxComputationTotalAmount,
+        .afs-print-root #afs-tax-computation .taxComputationFinalAmount,
+        .afs-pdf-export-host #afs-detailed-income .detailedIncomeTotalAmount,
+        .afs-pdf-export-host #afs-detailed-income .detailedIncomeFinalAmount,
+        .afs-pdf-export-host #afs-tax-computation .taxComputationTotalAmount,
+        .afs-pdf-export-host #afs-tax-computation .taxComputationFinalAmount {
+          border-top: 0.8px solid #111827 !important;
+          background: transparent !important;
+        }
+        .afs-print-root #afs-detailed-income tr:last-child td:not(:first-child),
+        .afs-print-root #afs-tax-computation tr:last-child td:not(:first-child),
+        .afs-pdf-export-host #afs-detailed-income tr:last-child td:not(:first-child),
+        .afs-pdf-export-host #afs-tax-computation tr:last-child td:not(:first-child) {
+          border-bottom: 0.8px solid #111827 !important;
+        }
+
+
+        /* V77 final screen/export table correction:
+           - keep amount columns on the right, not the middle
+           - restore short accountant rules for SOCI and Cash Flow
+           - stop random long rules running from note column to amount columns
+           - nudge Detailed IS and Tax Comp year headings to the right */
+        .afs-print-root #afs-sfp table,
+        .afs-print-root #afs-sci table,
+        .afs-print-root #afs-cash-flow table,
+        .afs-pdf-export-host #afs-sfp table,
+        .afs-pdf-export-host #afs-sci table,
+        .afs-pdf-export-host #afs-cash-flow table {
+          width: 100% !important;
+          max-width: 100% !important;
+          table-layout: fixed !important;
+          border-collapse: separate !important;
+          border-spacing: 0 !important;
+        }
+        .afs-print-root #afs-sfp col:first-child,
+        .afs-print-root #afs-sci col:first-child,
+        .afs-print-root #afs-cash-flow col:first-child,
+        .afs-pdf-export-host #afs-sfp col:first-child,
+        .afs-pdf-export-host #afs-sci col:first-child,
+        .afs-pdf-export-host #afs-cash-flow col:first-child { width: 72% !important; }
+        .afs-print-root #afs-sfp col:nth-child(2),
+        .afs-print-root #afs-sci col:nth-child(2),
+        .afs-print-root #afs-cash-flow col:nth-child(2),
+        .afs-pdf-export-host #afs-sfp col:nth-child(2),
+        .afs-pdf-export-host #afs-sci col:nth-child(2),
+        .afs-pdf-export-host #afs-cash-flow col:nth-child(2) { width: 6% !important; }
+        .afs-print-root #afs-sfp col:nth-child(3),
+        .afs-print-root #afs-sfp col:nth-child(4),
+        .afs-print-root #afs-sci col:nth-child(3),
+        .afs-print-root #afs-sci col:nth-child(4),
+        .afs-print-root #afs-cash-flow col:nth-child(3),
+        .afs-print-root #afs-cash-flow col:nth-child(4),
+        .afs-pdf-export-host #afs-sfp col:nth-child(3),
+        .afs-pdf-export-host #afs-sfp col:nth-child(4),
+        .afs-pdf-export-host #afs-sci col:nth-child(3),
+        .afs-pdf-export-host #afs-sci col:nth-child(4),
+        .afs-pdf-export-host #afs-cash-flow col:nth-child(3),
+        .afs-pdf-export-host #afs-cash-flow col:nth-child(4) { width: 11% !important; }
+
+        .afs-print-root #afs-sci td,
+        .afs-print-root #afs-sci th,
+        .afs-print-root #afs-cash-flow td,
+        .afs-print-root #afs-cash-flow th,
+        .afs-pdf-export-host #afs-sci td,
+        .afs-pdf-export-host #afs-sci th,
+        .afs-pdf-export-host #afs-cash-flow td,
+        .afs-pdf-export-host #afs-cash-flow th {
+          border-left: 0 !important;
+          border-right: 0 !important;
+          background: transparent !important;
+        }
+        .afs-print-root #afs-sci td:first-child,
+        .afs-print-root #afs-sci th:first-child,
+        .afs-print-root #afs-cash-flow td:first-child,
+        .afs-print-root #afs-cash-flow th:first-child,
+        .afs-pdf-export-host #afs-sci td:first-child,
+        .afs-pdf-export-host #afs-sci th:first-child,
+        .afs-pdf-export-host #afs-cash-flow td:first-child,
+        .afs-pdf-export-host #afs-cash-flow th:first-child {
+          border: 0 !important;
+        }
+        .afs-print-root #afs-sci thead th,
+        .afs-print-root #afs-cash-flow thead th,
+        .afs-pdf-export-host #afs-sci thead th,
+        .afs-pdf-export-host #afs-cash-flow thead th {
+          border-top: 0 !important;
+          border-bottom: 1px solid #111827 !important;
+        }
+        .afs-print-root #afs-sci td:not(:first-child),
+        .afs-print-root #afs-cash-flow td:not(:first-child),
+        .afs-pdf-export-host #afs-sci td:not(:first-child),
+        .afs-pdf-export-host #afs-cash-flow td:not(:first-child) {
+          text-align: right !important;
+          border-top: 0 !important;
+          border-bottom: 0 !important;
+          padding-left: 1.5mm !important;
+          padding-right: 0 !important;
+        }
+        /* SOCI amount-column rules only on subtotal/total rows. */
+        .afs-print-root #afs-sci tbody tr:nth-child(3) td:nth-last-child(-n+2),
+        .afs-print-root #afs-sci tbody tr:nth-child(7) td:nth-last-child(-n+2),
+        .afs-print-root #afs-sci tbody tr:nth-child(9) td:nth-last-child(-n+2),
+        .afs-print-root #afs-sci tbody tr:nth-child(13) td:nth-last-child(-n+2),
+        .afs-pdf-export-host #afs-sci tbody tr:nth-child(3) td:nth-last-child(-n+2),
+        .afs-pdf-export-host #afs-sci tbody tr:nth-child(7) td:nth-last-child(-n+2),
+        .afs-pdf-export-host #afs-sci tbody tr:nth-child(9) td:nth-last-child(-n+2),
+        .afs-pdf-export-host #afs-sci tbody tr:nth-child(13) td:nth-last-child(-n+2) {
+          border-top: 0.85px solid #111827 !important;
+        }
+        .afs-print-root #afs-sci tbody tr:nth-child(9) td:nth-last-child(-n+2),
+        .afs-print-root #afs-sci tbody tr:nth-child(13) td:nth-last-child(-n+2),
+        .afs-pdf-export-host #afs-sci tbody tr:nth-child(9) td:nth-last-child(-n+2),
+        .afs-pdf-export-host #afs-sci tbody tr:nth-child(13) td:nth-last-child(-n+2) {
+          border-bottom: 1.4px double #111827 !important;
+        }
+        /* Cash flow amount-column rules only on the accounting subtotal/total rows. */
+        .afs-print-root #afs-cash-flow tbody tr td[style*="font-weight: 900"]:not(:first-child),
+        .afs-pdf-export-host #afs-cash-flow tbody tr td[style*="font-weight: 900"]:not(:first-child) {
+          border-top: 0.85px solid #111827 !important;
+        }
+        .afs-print-root #afs-cash-flow tbody tr:last-child td:nth-last-child(-n+2),
+        .afs-pdf-export-host #afs-cash-flow tbody tr:last-child td:nth-last-child(-n+2) {
+          border-bottom: 1.4px double #111827 !important;
+        }
+
+        .afs-print-root #afs-notes .noteStatementTable,
+        .afs-pdf-export-host #afs-notes .noteStatementTable {
+          width: 100% !important;
+          max-width: 100% !important;
+          table-layout: fixed !important;
+          border-collapse: separate !important;
+          border-spacing: 0 !important;
+          margin: 1.5mm 0 6mm 0 !important;
+        }
+        .afs-print-root #afs-notes .noteStatementTable col:first-child,
+        .afs-pdf-export-host #afs-notes .noteStatementTable col:first-child { width: 72% !important; }
+        .afs-print-root #afs-notes .noteStatementTable col:nth-child(2),
+        .afs-print-root #afs-notes .noteStatementTable col:nth-child(3),
+        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(2),
+        .afs-pdf-export-host #afs-notes .noteStatementTable col:nth-child(3) { width: 14% !important; }
+        .afs-print-root #afs-notes .noteAmount,
+        .afs-print-root #afs-notes .noteTotalAmount,
+        .afs-pdf-export-host #afs-notes .noteAmount,
+        .afs-pdf-export-host #afs-notes .noteTotalAmount {
+          text-align: right !important;
+          padding-left: 1.5mm !important;
+          padding-right: 0 !important;
+        }
+        .afs-print-root #afs-notes .noteTotalAmount,
+        .afs-pdf-export-host #afs-notes .noteTotalAmount {
+          border-top: 0.85px solid #111827 !important;
+          border-bottom: 1.4px double #111827 !important;
+        }
+
+        .afs-print-root #afs-detailed-income table,
+        .afs-print-root #afs-tax-computation table,
+        .afs-pdf-export-host #afs-detailed-income table,
+        .afs-pdf-export-host #afs-tax-computation table {
+          width: 100% !important;
+          max-width: 100% !important;
+          table-layout: fixed !important;
+          border-collapse: separate !important;
+          border-spacing: 0 !important;
+        }
+        .afs-print-root #afs-detailed-income col:first-child,
+        .afs-print-root #afs-tax-computation col:first-child,
+        .afs-pdf-export-host #afs-detailed-income col:first-child,
+        .afs-pdf-export-host #afs-tax-computation col:first-child { width: 74% !important; }
+        .afs-print-root #afs-detailed-income col:nth-child(2),
+        .afs-print-root #afs-detailed-income col:nth-child(3),
+        .afs-print-root #afs-tax-computation col:nth-child(2),
+        .afs-print-root #afs-tax-computation col:nth-child(3),
+        .afs-pdf-export-host #afs-detailed-income col:nth-child(2),
+        .afs-pdf-export-host #afs-detailed-income col:nth-child(3),
+        .afs-pdf-export-host #afs-tax-computation col:nth-child(2),
+        .afs-pdf-export-host #afs-tax-computation col:nth-child(3) { width: 13% !important; }
+        .afs-print-root #afs-detailed-income td:not(:first-child),
+        .afs-print-root #afs-tax-computation td:not(:first-child),
+        .afs-pdf-export-host #afs-detailed-income td:not(:first-child),
+        .afs-pdf-export-host #afs-tax-computation td:not(:first-child) {
+          text-align: right !important;
+          padding-left: 1.5mm !important;
+          padding-right: 0 !important;
+        }
+
+
       `}</style>
       <div className="afs-screen-only" style={styles.printToolbar}>
         <div>
@@ -4812,7 +3091,7 @@ export default function FinancialStatementsPanel({
           </div>
         </AfsPage>
 
-        <AfsPage id="afs-general-info" title="General Information" pageNo="1"
+        <AfsPage id="afs-general-info" title="General Information" pageNo={reportPageNumbers.generalInfo}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -4836,31 +3115,31 @@ export default function FinancialStatementsPanel({
           />
         </AfsPage>
 
-        <AfsPage id="afs-index" title="Index" pageNo="2"
+        <AfsPage id="afs-index" title="Index" pageNo={reportPageNumbers.index}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
           >
           <table style={styles.indexTable}>
             <tbody>
-              <IndexRow label="General Information" page="1" />
-              {options.directorsResponsibilities ? <IndexRow label="Directors' Responsibilities and Approval" page="3" /> : null}
-              {options.directorsReport ? <IndexRow label="Directors' Report" page="4" /> : null}
-              {options.compilationReport ? <IndexRow label="Independent Compiler's Report" page="6" /> : null}
-              <IndexRow label="Statement of Financial Position" page="7" />
-              <IndexRow label="Statement of Comprehensive Income" page="8" />
-              {options.statementOfChangesInEquity ? <IndexRow label="Statement of Changes in Equity" page="9" /> : null}
-              {options.cashFlowStatement ? <IndexRow label="Statement of Cash Flows" page="10" /> : null}
-              {options.accountingPolicies ? <IndexRow label="Accounting Policies" page="11" /> : null}
-              {options.notes ? <IndexRow label="Notes to the Financial Statements" page="12" /> : null}
-              {options.detailedIncomeStatement ? <IndexRow label="Detailed Income Statement" page="16" /> : null}
-              {options.taxComputation ? <IndexRow label="Tax Computation" page="17" /> : null}
+              <IndexRow label="General Information" page={reportPageNumbers.generalInfo} />
+              {options.directorsResponsibilities ? <IndexRow label="Directors' Responsibilities and Approval" page={reportPageNumbers.directorsResponsibilities} /> : null}
+              {options.directorsReport ? <IndexRow label="Directors' Report" page={reportPageNumbers.directorsReport} /> : null}
+              {options.compilationReport ? <IndexRow label="Independent Compiler's Report" page={reportPageNumbers.compilationReport} /> : null}
+              <IndexRow label="Statement of Financial Position" page={reportPageNumbers.sfp} />
+              <IndexRow label="Statement of Comprehensive Income" page={reportPageNumbers.sci} />
+              {options.statementOfChangesInEquity ? <IndexRow label="Statement of Changes in Equity" page={reportPageNumbers.socie} /> : null}
+              {options.cashFlowStatement ? <IndexRow label="Statement of Cash Flows" page={reportPageNumbers.cashFlow} /> : null}
+              {options.accountingPolicies ? <IndexRow label="Accounting Policies" page={reportPageNumbers.accountingPolicies} /> : null}
+              {options.notes ? <IndexRow label="Notes to the Financial Statements" page={reportPageNumbers.notes} /> : null}
+              {options.detailedIncomeStatement ? <IndexRow label="Detailed Income Statement" page={reportPageNumbers.detailedIncome} /> : null}
+              {options.taxComputation ? <IndexRow label="Tax Computation" page={reportPageNumbers.taxComputation} /> : null}
             </tbody>
           </table>
         </AfsPage>
 
         {options.directorsResponsibilities ? (
-          <AfsPage id="afs-directors-responsibilities" title="Directors' Responsibilities and Approval" pageNo="3"
+          <AfsPage id="afs-directors-responsibilities" title="Directors' Responsibilities and Approval" pageNo={reportPageNumbers.directorsResponsibilities}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -4894,7 +3173,7 @@ export default function FinancialStatementsPanel({
         ) : null}
 
         {options.directorsReport ? (
-          <AfsPage id="afs-directors-report" title="Directors' Report" pageNo="4"
+          <AfsPage id="afs-directors-report" title="Directors' Report" pageNo={reportPageNumbers.directorsReport}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -4929,7 +3208,7 @@ export default function FinancialStatementsPanel({
           <AfsPage
             id="afs-compilation-report"
             title="Practitioner's Compilation Report"
-            pageNo="6"
+            pageNo={reportPageNumbers.compilationReport}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -4997,7 +3276,7 @@ export default function FinancialStatementsPanel({
           </AfsPage>
         ) : null}
 
-        <AfsPage id="afs-sfp" title="Statement of Financial Position" pageNo="7"
+        <AfsPage id="afs-sfp" title="Statement of Financial Position" pageNo={reportPageNumbers.sfp}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -5013,7 +3292,7 @@ export default function FinancialStatementsPanel({
         </AfsPage>
 
         <span id="afs-spl" className="afs-screen-anchor" />
-        <AfsPage id="afs-sci" title="Statement of Comprehensive Income" pageNo="8"
+        <AfsPage id="afs-sci" title="Statement of Comprehensive Income" pageNo={reportPageNumbers.sci}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -5027,7 +3306,7 @@ export default function FinancialStatementsPanel({
         </AfsPage>
 
         {options.statementOfChangesInEquity ? (
-          <AfsPage id="afs-socie" title="Statement of Changes in Equity" pageNo="9"
+          <AfsPage id="afs-socie" title="Statement of Changes in Equity" pageNo={reportPageNumbers.socie}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -5043,7 +3322,7 @@ export default function FinancialStatementsPanel({
         ) : null}
 
         {options.cashFlowStatement ? (
-          <AfsPage id="afs-cash-flow" title="Statement of Cash Flows" pageNo="10"
+          <AfsPage id="afs-cash-flow" title="Statement of Cash Flows" pageNo={reportPageNumbers.cashFlow}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -5063,7 +3342,7 @@ export default function FinancialStatementsPanel({
         ) : null}
 
         {options.accountingPolicies ? (
-          <AfsPage id="afs-accounting-policies" title="Accounting Policies" pageNo="11"
+          <AfsPage id="afs-accounting-policies" title="Accounting Policies" pageNo={reportPageNumbers.accountingPolicies}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -5083,7 +3362,7 @@ export default function FinancialStatementsPanel({
         ) : null}
 
         {options.notes ? (
-          <AfsPage id="afs-notes" title="Notes to the Annual Financial Statements" pageNo="12"
+          <AfsPage id="afs-notes" title="Notes to the Annual Financial Statements" pageNo={reportPageNumbers.notes}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -5112,7 +3391,7 @@ export default function FinancialStatementsPanel({
         {options.detailedIncomeStatement ? (
           <>
           <span id="afs-detailed-income-statement" className="afs-screen-anchor" />
-          <AfsPage id="afs-detailed-income" title="Detailed Income Statement" pageNo="16"
+          <AfsPage id="afs-detailed-income" title="Detailed Income Statement" pageNo={reportPageNumbers.detailedIncome}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -5129,7 +3408,7 @@ export default function FinancialStatementsPanel({
         {options.taxComputation ? (
           <>
           <span id="afs-tax" className="afs-screen-anchor" />
-          <AfsPage id="afs-tax-computation" title="Tax Computation" pageNo="17"
+          <AfsPage id="afs-tax-computation" title="Tax Computation" pageNo={reportPageNumbers.taxComputation}
             clientName={clientName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -10425,10 +8704,10 @@ const styles: Record<string, CSSProperties> = {
     color: "#0f172a",
   },
   detailedIncomeDescriptionCol: {
-    width: "auto",
+    width: "70%",
   },
   detailedIncomeAmountCol: {
-    width: "92px",
+    width: "15%",
   },
   detailedIncomeTh: {
     textAlign: "left",
@@ -10504,13 +8783,13 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "15px",
   },
   statementColDescription: {
-    width: "58%",
+    width: "64%",
   },
   statementColNote: {
     width: "8%",
   },
   statementColAmount: {
-    width: "17%",
+    width: "14%",
   },
   statementTh: {
     textAlign: "left",
