@@ -21,9 +21,13 @@ type Project = {
   id: string;
   name: string;
   number_of_phases: number;
-  status: "Active" | "Completed";
+  status: "Active" | "Completed" | string;
   created_at: string;
   organisation_id?: string | null;
+  client_income_total?: number | null;
+  client_income_vat_mode?: string | null;
+  client_payment_count?: number | null;
+  current_supplier_phase?: number | null;
   organisations?: {
     id: string;
     name: string;
@@ -49,6 +53,25 @@ type UserProfile = {
   can_access_projects: boolean;
 };
 
+function formatCurrency(value: number | null | undefined) {
+  const amount = Number(value || 0);
+
+  return new Intl.NumberFormat("en-ZA", {
+    style: "currency",
+    currency: "ZAR",
+  }).format(amount);
+}
+
+function formatDate(dateValue: string | null | undefined) {
+  if (!dateValue) return "-";
+
+  return new Date(dateValue).toLocaleDateString("en-ZA", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export default function ProjectManagementPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
@@ -58,6 +81,10 @@ export default function ProjectManagementPage() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [numberOfPhases, setNumberOfPhases] = useState("");
+
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [sortBy, setSortBy] = useState("Project A-Z");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -77,18 +104,59 @@ export default function ProjectManagementPage() {
     return organisations.find((organisation) => organisation.id === selectedOrganisationId) || null;
   }, [organisations, selectedOrganisationId]);
 
-  const filteredProjects = useMemo(() => {
+  const visibleProjects = useMemo(() => {
     if (!profile) return [];
 
-    if (isInternalUser) {
-      if (!selectedOrganisationId) return [];
-      if (selectedOrganisationId === "all") return projects;
+    let rows: Project[] = [];
 
-      return projects.filter((project) => project.organisation_id === selectedOrganisationId);
+    if (isInternalUser) {
+      if (!selectedOrganisationId) rows = [];
+      else if (selectedOrganisationId === "all") rows = projects;
+      else rows = projects.filter((project) => project.organisation_id === selectedOrganisationId);
+    } else {
+      rows = projects.filter((project) => project.organisation_id === profile.organisation_id);
     }
 
-    return projects.filter((project) => project.organisation_id === profile.organisation_id);
-  }, [projects, selectedOrganisationId, profile, isInternalUser]);
+    const search = searchText.trim().toLowerCase();
+
+    if (search) {
+      rows = rows.filter((project) => {
+        const clientName = project.organisations?.name || "";
+        return (
+          project.name.toLowerCase().includes(search) ||
+          clientName.toLowerCase().includes(search) ||
+          String(project.number_of_phases || "").includes(search)
+        );
+      });
+    }
+
+    if (statusFilter !== "All") {
+      rows = rows.filter((project) => project.status === statusFilter);
+    }
+
+    const sortedRows = [...rows];
+
+    sortedRows.sort((a, b) => {
+      if (sortBy === "Project A-Z") return a.name.localeCompare(b.name);
+      if (sortBy === "Project Z-A") return b.name.localeCompare(a.name);
+      if (sortBy === "Client A-Z") {
+        return (a.organisations?.name || "").localeCompare(b.organisations?.name || "");
+      }
+      if (sortBy === "Newest") {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+      if (sortBy === "Oldest") {
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      }
+
+      return 0;
+    });
+
+    return sortedRows;
+  }, [projects, selectedOrganisationId, profile, isInternalUser, searchText, statusFilter, sortBy]);
+
+  const activeProjectCount = visibleProjects.filter((project) => project.status === "Active").length;
+  const completedProjectCount = visibleProjects.filter((project) => project.status === "Completed").length;
 
   async function loadPage() {
     setLoading(true);
@@ -212,6 +280,12 @@ export default function ProjectManagementPage() {
     setSaving(false);
   }
 
+  function clearFilters() {
+    setSearchText("");
+    setStatusFilter("All");
+    setSortBy("Project A-Z");
+  }
+
   if (loading) {
     return (
       <main style={styles.page}>
@@ -222,40 +296,37 @@ export default function ProjectManagementPage() {
 
   return (
     <main style={styles.page}>
-      <div style={styles.header}>
+      <section style={styles.heroPanel}>
         <div>
+          <div style={styles.kicker}>PracticePilot</div>
           <h1 style={styles.title}>Project Management</h1>
-          <p style={styles.subtitle}>
-            Track project phases, billing percentages, invoices and payments.
-          </p>
         </div>
 
-        {canAddProject && (
-          <button style={styles.primaryButton} onClick={openNewProjectForm}>
-            + Add New Project
-          </button>
-        )}
-      </div>
+        <p style={styles.heroText}>
+          Manage project income, supplier budgets, phase payment lists, POPs, cashflow and exception reporting.
+        </p>
+      </section>
 
-      <section style={styles.clientBar}>
-        {isInternalUser ? (
-          <>
+      <div style={styles.layoutGrid}>
+        <aside style={styles.leftPanel}>
+          <h2 style={styles.panelTitle}>Project control</h2>
+
+          {isInternalUser ? (
             <div style={styles.fieldGroup}>
-              <label style={styles.label}>Working Client</label>
-
+              <label style={styles.label}>Working client</label>
               <select
-                style={styles.clientSelect}
+                style={styles.input}
                 value={selectedOrganisationId}
                 onChange={(e) => {
                   setSelectedOrganisationId(e.target.value);
                   setShowNewProject(false);
                   setProjectName("");
                   setNumberOfPhases("");
+                  setSearchText("");
                 }}
               >
                 <option value="">Choose client</option>
                 <option value="all">All Projects</option>
-
                 {organisations.map((organisation) => (
                   <option key={organisation.id} value={organisation.id}>
                     {organisation.name}
@@ -264,8 +335,15 @@ export default function ProjectManagementPage() {
                 ))}
               </select>
             </div>
+          ) : (
+            <div style={styles.infoBox}>
+              <strong>{selectedOrganisation?.name || "Client"}</strong>
+              <span>Showing your projects only</span>
+            </div>
+          )}
 
-            <div style={styles.clientContext}>
+          {isInternalUser && (
+            <div style={styles.infoBox}>
               {selectedOrganisationId === "all" ? (
                 <>
                   <strong>All Clients</strong>
@@ -275,8 +353,7 @@ export default function ProjectManagementPage() {
                 <>
                   <strong>{selectedOrganisation.name}</strong>
                   <span>
-                    {selectedOrganisation.status} ·{" "}
-                    {selectedOrganisation.access_enabled ? "Access Enabled" : "Access Blocked"}
+                    {selectedOrganisation.status} · {selectedOrganisation.access_enabled ? "Access Enabled" : "Access Blocked"}
                   </span>
                 </>
               ) : (
@@ -286,260 +363,443 @@ export default function ProjectManagementPage() {
                 </>
               )}
             </div>
-          </>
-        ) : (
-          <div style={styles.clientContext}>
-            <strong>{selectedOrganisation?.name || "Client"}</strong>
-            <span>Showing your projects only</span>
-          </div>
-        )}
-      </section>
+          )}
 
-      {showNewProject && selectedOrganisation && (
-        <section style={styles.card}>
-          <h2 style={styles.cardTitle}>New Project for {selectedOrganisation.name}</h2>
-
-          <div style={styles.formGrid}>
-            <div style={styles.fieldGroup}>
-              <label style={styles.label}>Project Name</label>
-              <input
-                style={styles.input}
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                placeholder="Example: House Smith"
-              />
+          <div style={styles.statGridSmall}>
+            <div style={styles.statBoxSmall}>
+              <span>Total</span>
+              <strong>{visibleProjects.length}</strong>
             </div>
-
-            <div style={styles.fieldGroup}>
-              <label style={styles.label}>Number of Phases</label>
-              <input
-                style={styles.input}
-                type="number"
-                min="1"
-                value={numberOfPhases}
-                onChange={(e) => setNumberOfPhases(e.target.value)}
-                placeholder="Example: 5"
-              />
+            <div style={styles.statBoxSmall}>
+              <span>Active</span>
+              <strong>{activeProjectCount}</strong>
+            </div>
+            <div style={styles.statBoxSmall}>
+              <span>Completed</span>
+              <strong>{completedProjectCount}</strong>
             </div>
           </div>
 
-          <div style={styles.actions}>
-            <button
-              style={styles.secondaryButton}
-              onClick={() => {
-                setShowNewProject(false);
-                setProjectName("");
-                setNumberOfPhases("");
-              }}
-            >
-              Cancel
+          {canAddProject && (
+            <button style={styles.primaryButtonFull} onClick={openNewProjectForm}>
+              + Add New Project
             </button>
+          )}
 
-            <button style={styles.primaryButton} onClick={handleCreateProject} disabled={saving}>
-              {saving ? "Saving..." : "Save Project"}
+          {showNewProject && selectedOrganisation && (
+            <div style={styles.createBox}>
+              <h3 style={styles.createTitle}>New project</h3>
+              <p style={styles.createSubtitle}>{selectedOrganisation.name}</p>
+
+              <div style={styles.fieldGroup}>
+                <label style={styles.label}>Project name</label>
+                <input
+                  style={styles.input}
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  placeholder="Example: Vitality Wellness"
+                />
+              </div>
+
+              <div style={styles.fieldGroup}>
+                <label style={styles.label}>Number of phases</label>
+                <input
+                  style={styles.input}
+                  type="number"
+                  min="1"
+                  value={numberOfPhases}
+                  onChange={(e) => setNumberOfPhases(e.target.value)}
+                  placeholder="Example: 5"
+                />
+              </div>
+
+              <div style={styles.buttonRow}>
+                <button
+                  style={styles.secondaryButton}
+                  onClick={() => {
+                    setShowNewProject(false);
+                    setProjectName("");
+                    setNumberOfPhases("");
+                  }}
+                >
+                  Cancel
+                </button>
+                <button style={styles.primaryButton} onClick={handleCreateProject} disabled={saving}>
+                  {saving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+          )}
+        </aside>
+
+        <section style={styles.rightPanel}>
+          <div style={styles.tableHeaderRow}>
+            <div>
+              <h2 style={styles.panelTitle}>
+                {isInternalUser
+                  ? selectedOrganisationId === "all"
+                    ? "All Projects"
+                    : selectedOrganisation
+                    ? `${selectedOrganisation.name} Projects`
+                    : "Projects"
+                  : `${selectedOrganisation?.name || "Client"} Projects`}
+              </h2>
+              <p style={styles.resultText}>Showing {visibleProjects.length} project(s)</p>
+            </div>
+
+            <button style={styles.clearButton} onClick={clearFilters}>
+              Clear filters
             </button>
           </div>
+
+          <div style={styles.filtersGrid}>
+            <div style={styles.fieldGroupCompact}>
+              <label style={styles.label}>Project / client</label>
+              <input
+                style={styles.input}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                placeholder="Search project or client..."
+              />
+            </div>
+
+            <div style={styles.fieldGroupCompact}>
+              <label style={styles.label}>Status</label>
+              <select
+                style={styles.input}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="All">All</option>
+                <option value="Active">Active</option>
+                <option value="Completed">Completed</option>
+              </select>
+            </div>
+
+            <div style={styles.fieldGroupCompact}>
+              <label style={styles.label}>Sort by</label>
+              <select style={styles.input} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="Project A-Z">Project A-Z</option>
+                <option value="Project Z-A">Project Z-A</option>
+                <option value="Client A-Z">Client A-Z</option>
+                <option value="Newest">Newest</option>
+                <option value="Oldest">Oldest</option>
+              </select>
+            </div>
+          </div>
+
+          {visibleProjects.length === 0 ? (
+            <div style={styles.emptyState}>No projects found for the current selection.</div>
+          ) : (
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Project</th>
+                    <th style={styles.th}>Client</th>
+                    <th style={{ ...styles.th, textAlign: "right" }}>Phases</th>
+                    <th style={{ ...styles.th, textAlign: "right" }}>Income</th>
+                    <th style={styles.th}>Current Phase</th>
+                    <th style={styles.th}>Status</th>
+                    <th style={styles.th}>Created</th>
+                    <th style={{ ...styles.th, textAlign: "right" }}>Action</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {visibleProjects.map((project) => (
+                    <tr key={project.id}>
+                      <td style={styles.tdStrong}>{project.name}</td>
+                      <td style={styles.td}>{project.organisations?.name || "Not linked"}</td>
+                      <td style={{ ...styles.td, textAlign: "right" }}>{project.number_of_phases}</td>
+                      <td style={{ ...styles.td, textAlign: "right" }}>
+                        {project.client_income_total ? formatCurrency(project.client_income_total) : "-"}
+                      </td>
+                      <td style={styles.td}>
+                        {project.current_supplier_phase
+                          ? `Phase ${project.current_supplier_phase}`
+                          : "Not set"}
+                      </td>
+                      <td style={styles.td}>
+                        <span style={project.status === "Completed" ? styles.statusDone : styles.statusActive}>
+                          {project.status}
+                        </span>
+                      </td>
+                      <td style={styles.td}>{formatDate(project.created_at)}</td>
+                      <td style={{ ...styles.td, textAlign: "right" }}>
+                        <Link href={`/project-management/${project.id}`} style={styles.openLink}>
+                          Open
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
-      )}
-
-      <section style={styles.card}>
-        <h2 style={styles.cardTitle}>
-          {isInternalUser
-            ? selectedOrganisationId === "all"
-              ? "Active Projects"
-              : selectedOrganisation
-              ? `${selectedOrganisation.name} Projects`
-              : "Active Projects"
-            : `${selectedOrganisation?.name || "Client"} Projects`}
-        </h2>
-
-        {filteredProjects.length === 0 ? (
-          <div style={styles.emptyState}>No projects created for this client yet.</div>
-        ) : (
-          <div style={styles.projectList}>
-            {filteredProjects.map((project) => (
-  <Link
-    key={project.id}
-    href={`/project-management/${project.id}`}
-    style={styles.projectRow}
-  >
-    <div>
-      <h3 style={styles.projectName}>{project.name}</h3>
-
-      <p style={styles.projectMeta}>
-        Client: {project.organisations?.name || "Not linked"}
-      </p>
-
-      <p style={styles.projectMeta}>
-        {project.number_of_phases} phase
-        {project.number_of_phases === 1 ? "" : "s"} · {project.status}
-      </p>
-    </div>
-  </Link>
-))}
-          </div>
-        )}
-      </section>
+      </div>
     </main>
   );
 }
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
-    padding: "32px",
-    background: "#f6f8fb",
+    padding: "18px",
+    background: "#eef3f8",
     minHeight: "100vh",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "24px",
-  },
-  title: {
-    fontSize: "32px",
-    fontWeight: 700,
-    margin: 0,
     color: "#12304a",
   },
-  subtitle: {
-    marginTop: "8px",
-    color: "#5b6775",
-    fontSize: "15px",
-  },
-  clientBar: {
+  heroPanel: {
     display: "grid",
-    gridTemplateColumns: "360px 1fr",
-    gap: "20px",
+    gridTemplateColumns: "1fr 1.5fr",
+    gap: "24px",
     alignItems: "end",
     background: "#ffffff",
-    borderRadius: "16px",
-    padding: "20px",
-    marginBottom: "20px",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
-    border: "1px solid #e5eaf0",
+    border: "1px solid #d8e2ef",
+    padding: "18px 22px",
+    marginBottom: "14px",
   },
-  clientSelect: {
-    height: "44px",
-    borderRadius: "10px",
-    border: "1px solid #d5dde6",
-    padding: "0 12px",
-    fontSize: "15px",
-    outline: "none",
-    background: "#ffffff",
-    color: "#12304a",
+  kicker: {
+    color: "#0b63ff",
+    fontSize: "12px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginBottom: "6px",
   },
-  clientContext: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-    color: "#12304a",
+  title: {
+    fontSize: "28px",
+    fontWeight: 900,
+    margin: 0,
+    color: "#0f2742",
+  },
+  heroText: {
+    margin: 0,
+    color: "#56657a",
     fontSize: "14px",
+    lineHeight: 1.5,
   },
-  card: {
-    background: "#ffffff",
-    borderRadius: "16px",
-    padding: "24px",
-    marginBottom: "20px",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
-    border: "1px solid #e5eaf0",
-  },
-  cardTitle: {
-    fontSize: "20px",
-    margin: "0 0 20px 0",
-    color: "#12304a",
-  },
-  formGrid: {
+  layoutGrid: {
     display: "grid",
-    gridTemplateColumns: "1fr 220px",
-    gap: "20px",
+    gridTemplateColumns: "320px 1fr",
+    gap: "14px",
+    alignItems: "start",
+  },
+  leftPanel: {
+    background: "#ffffff",
+    border: "1px solid #d8e2ef",
+    padding: "16px",
+  },
+  rightPanel: {
+    background: "#ffffff",
+    border: "1px solid #d8e2ef",
+    padding: "12px",
+    minWidth: 0,
+  },
+  panelTitle: {
+    fontSize: "18px",
+    margin: "0 0 8px 0",
+    color: "#0f2742",
+    fontWeight: 900,
+  },
+  resultText: {
+    margin: 0,
+    color: "#64748b",
+    fontSize: "13px",
+    fontWeight: 700,
   },
   fieldGroup: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
+    display: "grid",
+    gap: "6px",
+    marginBottom: "12px",
+  },
+  fieldGroupCompact: {
+    display: "grid",
+    gap: "5px",
   },
   label: {
-    fontSize: "14px",
-    fontWeight: 600,
-    color: "#34495e",
+    fontSize: "12px",
+    fontWeight: 900,
+    color: "#334155",
   },
   input: {
-    height: "42px",
-    borderRadius: "10px",
-    border: "1px solid #d5dde6",
-    padding: "0 12px",
-    fontSize: "15px",
-    outline: "none",
+    height: "34px",
+    border: "1px solid #cbd5e1",
+    padding: "0 9px",
+    fontSize: "13px",
     background: "#ffffff",
+    color: "#12304a",
+    outline: "none",
+    borderRadius: 0,
   },
-  actions: {
+  infoBox: {
+    display: "grid",
+    gap: "4px",
+    border: "1px solid #d8e2ef",
+    background: "#f8fafc",
+    padding: "10px",
+    marginBottom: "12px",
+    fontSize: "13px",
+    color: "#12304a",
+  },
+  statGridSmall: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: "8px",
+    marginBottom: "12px",
+  },
+  statBoxSmall: {
+    display: "grid",
+    gap: "4px",
+    border: "1px solid #d8e2ef",
+    background: "#ffffff",
+    padding: "10px",
+    fontSize: "11px",
+    color: "#64748b",
+    textTransform: "uppercase",
+    fontWeight: 900,
+  },
+  primaryButtonFull: {
+    width: "100%",
+    background: "#0b5cab",
+    color: "#ffffff",
+    border: "1px solid #0b5cab",
+    padding: "10px 12px",
+    fontSize: "13px",
+    fontWeight: 900,
+    cursor: "pointer",
+    borderRadius: 0,
+  },
+  createBox: {
+    borderTop: "2px solid #0f2742",
+    marginTop: "14px",
+    paddingTop: "14px",
+  },
+  createTitle: {
+    margin: 0,
+    fontSize: "16px",
+    fontWeight: 900,
+    color: "#0f2742",
+  },
+  createSubtitle: {
+    margin: "4px 0 12px 0",
+    fontSize: "12px",
+    color: "#64748b",
+    fontWeight: 700,
+  },
+  buttonRow: {
     display: "flex",
     justifyContent: "flex-end",
-    gap: "12px",
-    marginTop: "24px",
+    gap: "8px",
+    marginTop: "12px",
   },
   primaryButton: {
     background: "#0b5cab",
     color: "#ffffff",
-    border: "none",
-    borderRadius: "10px",
-    padding: "11px 18px",
-    fontSize: "14px",
-    fontWeight: 600,
+    border: "1px solid #0b5cab",
+    padding: "9px 12px",
+    fontSize: "13px",
+    fontWeight: 900,
     cursor: "pointer",
+    borderRadius: 0,
   },
   secondaryButton: {
     background: "#eef3f8",
     color: "#12304a",
-    border: "none",
-    borderRadius: "10px",
-    padding: "11px 18px",
-    fontSize: "14px",
-    fontWeight: 600,
+    border: "1px solid #cbd5e1",
+    padding: "9px 12px",
+    fontSize: "13px",
+    fontWeight: 900,
     cursor: "pointer",
+    borderRadius: 0,
   },
-  emptyState: {
-    padding: "32px",
-    textAlign: "center",
-    color: "#7b8794",
-    border: "1px dashed #c9d3df",
-    borderRadius: "14px",
-    background: "#fafcff",
-  },
-  projectList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-  },
-  projectRow: {
+  tableHeaderRow: {
     display: "flex",
     justifyContent: "space-between",
-    alignItems: "center",
-    padding: "18px",
-    border: "1px solid #e5eaf0",
-    borderRadius: "14px",
-    background: "#fbfdff",
-    textDecoration: "none",
+    alignItems: "start",
+    gap: "12px",
+    marginBottom: "10px",
+  },
+  clearButton: {
+    background: "#ffffff",
+    color: "#12304a",
+    border: "1px solid #cbd5e1",
+    padding: "8px 12px",
+    fontSize: "12px",
+    fontWeight: 900,
     cursor: "pointer",
+    borderRadius: 0,
   },
-  projectName: {
-    margin: 0,
-    fontSize: "18px",
-    color: "#12304a",
+  filtersGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 150px 170px",
+    gap: "8px",
+    marginBottom: "12px",
   },
-  projectMeta: {
-    margin: "6px 0 0 0",
-    fontSize: "14px",
-    color: "#5b6775",
+  tableWrap: {
+    border: "1px solid #d8e2ef",
+    overflowX: "auto",
   },
-  openButton: {
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    fontSize: "13px",
+  },
+  th: {
     background: "#eef3f8",
+    color: "#334155",
+    textAlign: "left",
+    padding: "9px 8px",
+    borderBottom: "1px solid #cbd5e1",
+    fontSize: "12px",
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  },
+  td: {
+    padding: "9px 8px",
+    borderBottom: "1px solid #e5edf6",
     color: "#12304a",
-    borderRadius: "10px",
-    padding: "10px 16px",
-    fontSize: "14px",
-    fontWeight: 600,
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+  },
+  tdStrong: {
+    padding: "9px 8px",
+    borderBottom: "1px solid #e5edf6",
+    color: "#0f2742",
+    fontWeight: 900,
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+  },
+  statusActive: {
+    display: "inline-block",
+    padding: "3px 8px",
+    background: "#eaf3ff",
+    color: "#0b5cab",
+    border: "1px solid #bfdbfe",
+    fontSize: "12px",
+    fontWeight: 900,
+  },
+  statusDone: {
+    display: "inline-block",
+    padding: "3px 8px",
+    background: "#ecfdf3",
+    color: "#027a48",
+    border: "1px solid #bbf7d0",
+    fontSize: "12px",
+    fontWeight: 900,
+  },
+  openLink: {
+    color: "#0b5cab",
     textDecoration: "none",
+    fontWeight: 900,
+  },
+  emptyState: {
+    padding: "28px",
+    textAlign: "center",
+    color: "#64748b",
+    border: "1px dashed #cbd5e1",
+    background: "#f8fafc",
+    fontWeight: 700,
   },
 };
