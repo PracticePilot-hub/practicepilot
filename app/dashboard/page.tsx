@@ -17,7 +17,30 @@ type UserProfile = {
   email: string;
   role: string;
   access_enabled: boolean;
+  can_access_crm?: boolean;
+  can_access_accounting?: boolean;
+  can_access_afs?: boolean;
+  can_access_secretarial?: boolean;
+  can_access_projects?: boolean;
+  can_access_management_reports?: boolean;
+  can_access_paia?: boolean;
 };
+
+function isInternalRole(role: string) {
+  return role === "Super Admin" || role === "Admin" || role === "Staff";
+}
+
+function getFirstAllowedClientModule(profile: UserProfile) {
+  if (profile.can_access_projects) return "/project-management";
+  if (profile.can_access_crm) return "/crm";
+  if (profile.can_access_accounting) return "/accounting-system";
+  if (profile.can_access_afs) return "/afs";
+  if (profile.can_access_secretarial) return "/secretarial";
+  if (profile.can_access_management_reports) return "/management-reports";
+  if (profile.can_access_paia) return "/compliance/paia";
+
+  return "";
+}
 
 type DbTask = {
   id: string;
@@ -278,12 +301,12 @@ const [editMeetingLocation, setEditMeetingLocation] = useState("");
 
 useEffect(() => {
   loadProfile();
-  loadAdHocOptions();
 }, []);
 
   useEffect(() => {
+    if (!profile || !isInternalRole(profile.role)) return;
     loadTasks();
-  }, [visibleMonth]);
+  }, [visibleMonth, profile]);
 
   useEffect(() => {
     if (!selectedTask || !currentUserId) return;
@@ -336,7 +359,24 @@ useEffect(() => {
       return;
     }
 
-    setProfile(data);
+    const profileData = data as UserProfile;
+
+    if (!isInternalRole(profileData.role)) {
+      const clientModulePath = getFirstAllowedClientModule(profileData);
+
+      if (clientModulePath) {
+        window.location.href = clientModulePath;
+        return;
+      }
+
+      alert("You do not have access to any PracticePilot module.");
+      await supabase.auth.signOut();
+      window.location.href = "/login";
+      return;
+    }
+
+    setProfile(profileData);
+    await loadAdHocOptions();
     setLoading(false);
   }
 

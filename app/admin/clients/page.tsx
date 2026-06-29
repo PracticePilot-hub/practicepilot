@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 type Organisation = {
   id: string;
@@ -13,6 +14,23 @@ type Organisation = {
   logo_url: string | null;
   created_at: string;
 };
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl) {
+  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+}
+
+if (!supabaseAnonKey) {
+  throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
+}
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+function isAdminRole(role: string) {
+  return role === "Super Admin" || role === "Admin";
+}
 
 export default function AdminClientsPage() {
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
@@ -34,8 +52,42 @@ export default function AdminClientsPage() {
   const [editLogoUrl, setEditLogoUrl] = useState("");
 
   useEffect(() => {
-    loadOrganisations();
+    loadSecurePage();
   }, []);
+
+  async function loadSecurePage() {
+    setLoading(true);
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      window.location.href = "/login";
+      return;
+    }
+
+    const { data: profileData, error: profileError } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .eq("user_id", user.id)
+      .single();
+
+    if (profileError || !profileData) {
+      alert("Could not load your user profile.");
+      window.location.href = "/login";
+      return;
+    }
+
+    if (!profileData.access_enabled || !isAdminRole(profileData.role)) {
+      alert("You do not have access to Admin Clients.");
+      window.location.href = "/project-management";
+      return;
+    }
+
+    await loadOrganisations();
+  }
 
   async function loadOrganisations() {
     setLoading(true);
@@ -146,28 +198,29 @@ export default function AdminClientsPage() {
     setSavingEdit(false);
     cancelEdit();
   }
-async function uploadLogo(organisation: Organisation, file: File | null) {
-  if (!file) return;
 
-  const formData = new FormData();
-  formData.append("file", file);
+  async function uploadLogo(organisation: Organisation, file: File | null) {
+    if (!file) return;
 
-  const response = await fetch(`/api/organisations/${organisation.id}/logo`, {
-    method: "POST",
-    body: formData,
-  });
+    const formData = new FormData();
+    formData.append("file", file);
 
-  const data = await response.json();
+    const response = await fetch(`/api/organisations/${organisation.id}/logo`, {
+      method: "POST",
+      body: formData,
+    });
 
-  if (!response.ok) {
-    alert(data.error || "Could not upload logo.");
-    return;
+    const data = await response.json();
+
+    if (!response.ok) {
+      alert(data.error || "Could not upload logo.");
+      return;
+    }
+
+    setOrganisations((prev) =>
+      prev.map((item) => (item.id === organisation.id ? data.organisation : item))
+    );
   }
-
-  setOrganisations((prev) =>
-    prev.map((item) => (item.id === organisation.id ? data.organisation : item))
-  );
-}
 
   async function toggleAccess(organisation: Organisation) {
     const response = await fetch(`/api/organisations/${organisation.id}`, {
@@ -215,6 +268,14 @@ async function uploadLogo(organisation: Organisation, file: File | null) {
     );
   }
 
+  if (loading) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.emptyState}>Loading...</div>
+      </main>
+    );
+  }
+
   return (
     <main style={styles.page}>
       <div style={styles.header}>
@@ -242,15 +303,15 @@ async function uploadLogo(organisation: Organisation, file: File | null) {
             />
           </div>
 
-        <div style={styles.fieldGroup}>
-             <label style={styles.label}>Logo URL</label>
-             <input
+          <div style={styles.fieldGroup}>
+            <label style={styles.label}>Logo URL</label>
+            <input
               style={styles.input}
               value={logoUrl}
               onChange={(e) => setLogoUrl(e.target.value)}
               placeholder="Paste logo image URL"
-             />
-        </div>
+            />
+          </div>
 
           <div style={styles.fieldGroup}>
             <label style={styles.label}>Contact Person</label>
@@ -293,9 +354,7 @@ async function uploadLogo(organisation: Organisation, file: File | null) {
       <section style={styles.card}>
         <h2 style={styles.cardTitle}>Clients</h2>
 
-        {loading ? (
-          <div style={styles.emptyState}>Loading clients...</div>
-        ) : organisations.length === 0 ? (
+        {organisations.length === 0 ? (
           <div style={styles.emptyState}>No clients created yet.</div>
         ) : (
           <table style={styles.table}>
@@ -330,34 +389,38 @@ async function uploadLogo(organisation: Organisation, file: File | null) {
                       )}
                     </td>
 
-                   <td style={styles.td}>
-  {isEditing ? (
-    <div style={styles.logoCell}>
-      <input
-        style={styles.tableInput}
-        value={editLogoUrl}
-        onChange={(e) => setEditLogoUrl(e.target.value)}
-        placeholder="Logo URL"
-      />
+                    <td style={styles.td}>
+                      {isEditing ? (
+                        <div style={styles.logoCell}>
+                          <input
+                            style={styles.tableInput}
+                            value={editLogoUrl}
+                            onChange={(e) => setEditLogoUrl(e.target.value)}
+                            placeholder="Logo URL"
+                          />
 
-   <label style={styles.uploadButton}>
-  Upload Logo
-  <input
-    type="file"
-    accept="image/*"
-    style={{ display: "none" }}
-    onChange={(e) => uploadLogo(organisation, e.target.files?.[0] || null)}
-  />
-</label>
-
-    </div>
-
-  ) : organisation.logo_url ? (
-    <img src={organisation.logo_url} alt={organisation.name} style={styles.logoPreview} />
-  ) : (
-    "-"
-  )}
-</td>
+                          <label style={styles.uploadButton}>
+                            Upload Logo
+                            <input
+                              type="file"
+                              accept="image/*"
+                              style={{ display: "none" }}
+                              onChange={(e) =>
+                                uploadLogo(organisation, e.target.files?.[0] || null)
+                              }
+                            />
+                          </label>
+                        </div>
+                      ) : organisation.logo_url ? (
+                        <img
+                          src={organisation.logo_url}
+                          alt={organisation.name}
+                          style={styles.logoPreview}
+                        />
+                      ) : (
+                        "-"
+                      )}
+                    </td>
 
                     <td style={styles.td}>
                       {isEditing ? (
@@ -684,35 +747,31 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     cursor: "pointer",
   },
-
   logoCell: {
-  display: "flex",
-  flexDirection: "column",
-  gap: "8px",
-},
-logoPreview: {
-  maxWidth: "90px",
-  maxHeight: "45px",
-  objectFit: "contain",
-  border: "1px solid #e5eaf0",
-  borderRadius: "6px",
-  padding: "4px",
-  background: "#ffffff",
-},
-
-uploadButton: {
-  display: "inline-block",
-  background: "#0b5cab",
-  color: "#ffffff",
-  border: "none",
-  borderRadius: "8px",
-  padding: "8px 12px",
-  fontSize: "13px",
-  fontWeight: 700,
-  cursor: "pointer",
-  textAlign: "center",
-  width: "120px",
-},
-
-
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+  logoPreview: {
+    maxWidth: "90px",
+    maxHeight: "45px",
+    objectFit: "contain",
+    border: "1px solid #e5eaf0",
+    borderRadius: "6px",
+    padding: "4px",
+    background: "#ffffff",
+  },
+  uploadButton: {
+    display: "inline-block",
+    background: "#0b5cab",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "8px",
+    padding: "8px 12px",
+    fontSize: "13px",
+    fontWeight: 700,
+    cursor: "pointer",
+    textAlign: "center",
+    width: "120px",
+  },
 };

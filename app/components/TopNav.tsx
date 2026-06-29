@@ -2,21 +2,38 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-const navItems = [
-  { label: "PilotHub", href: "/dashboard" },
-  { label: "CRM", href: "/crm" },
-  { label: "Accounting", href: "/accounting-system" },
-  { label: "Financial Statements", href: "/afs" },
-  { label: "PAIA Manuals", href: "/compliance/paia" },
-  { label: "Secretarial", href: "/secretarial" },
-  { label: "Projects", href: "/project-management" },
-  { label: "Management Reports", href: "/management-reports" },
-  { label: "Admin Clients", href: "/admin/clients" },
-  { label: "Admin Users", href: "/admin/users" },
-  { label: "CubeChem", href: "/cubechem" },
-];
+type UserProfile = {
+  id: string;
+  user_id: string;
+  full_name: string | null;
+  email: string;
+  role: string;
+  access_enabled: boolean;
+  can_access_crm?: boolean;
+  can_access_accounting?: boolean;
+  can_access_afs?: boolean;
+  can_access_secretarial?: boolean;
+  can_access_projects?: boolean;
+  can_access_management_reports?: boolean;
+  can_access_paia?: boolean;
+};
+
+type NavItem = {
+  label: string;
+  href: string;
+  show: boolean;
+};
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+const supabase =
+  supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey)
+    : null;
 
 function isActivePath(pathname: string, href: string) {
   if (href === "/dashboard") return pathname === "/" || pathname.startsWith("/dashboard");
@@ -25,30 +42,180 @@ function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function isAdminRole(role: string) {
+  return role === "Super Admin" || role === "Admin";
+}
+
+function isInternalRole(role: string) {
+  return role === "Super Admin" || role === "Admin" || role === "Staff";
+}
+
+function canAccessCubeChem(email: string) {
+  const normalisedEmail = email.toLowerCase().trim();
+
+  return (
+    normalisedEmail === "ferdi_v@bizzacc.co.za" ||
+    normalisedEmail === "christo.botha@cubechem.co.za"
+  );
+}
+
 export default function TopNav() {
   const pathname = usePathname() || "";
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProfile() {
+      try {
+        if (!supabase) {
+          setLoading(false);
+          return;
+        }
+
+        const { data: authData } = await supabase.auth.getUser();
+        const authUser = authData.user;
+
+        if (!authUser?.id) {
+          if (!cancelled) {
+            setProfile(null);
+            setLoading(false);
+          }
+          return;
+        }
+
+        const { data: profileData, error: profileError } = await supabase
+          .from("user_profiles")
+          .select("*")
+          .eq("user_id", authUser.id)
+          .single();
+
+        if (profileError || !profileData) {
+          if (!cancelled) {
+            setProfile(null);
+            setLoading(false);
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setProfile(profileData);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("TOP NAV PROFILE ERROR:", error);
+
+        if (!cancelled) {
+          setProfile(null);
+          setLoading(false);
+        }
+      }
+    }
+
+    loadProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const navItems = useMemo<NavItem[]>(() => {
+    const role = profile?.role || "";
+    const email = profile?.email || "";
+    const admin = isAdminRole(role);
+    const internal = isInternalRole(role);
+    const accessEnabled = Boolean(profile?.access_enabled);
+
+    return [
+      {
+        label: "PilotHub",
+        href: "/dashboard",
+        show: accessEnabled && internal,
+      },
+      {
+        label: "CRM",
+        href: "/crm",
+        show: accessEnabled && Boolean(profile?.can_access_crm),
+      },
+      {
+        label: "Accounting",
+        href: "/accounting-system",
+        show: accessEnabled && Boolean(profile?.can_access_accounting),
+      },
+      {
+        label: "Financial Statements",
+        href: "/afs",
+        show: accessEnabled && Boolean(profile?.can_access_afs),
+      },
+      {
+        label: "PAIA Manuals",
+        href: "/compliance/paia",
+        show: accessEnabled && Boolean(profile?.can_access_paia),
+      },
+      {
+        label: "Secretarial",
+        href: "/secretarial",
+        show: accessEnabled && Boolean(profile?.can_access_secretarial),
+      },
+      {
+        label: "Projects",
+        href: "/project-management",
+        show: accessEnabled && Boolean(profile?.can_access_projects),
+      },
+      {
+        label: "Management Reports",
+        href: "/management-reports",
+        show: accessEnabled && Boolean(profile?.can_access_management_reports),
+      },
+      {
+        label: "Admin Clients",
+        href: "/admin/clients",
+        show: accessEnabled && admin,
+      },
+      {
+        label: "Admin Users",
+        href: "/admin/users",
+        show: accessEnabled && admin,
+      },
+      {
+        label: "CubeChem",
+        href: "/cubechem",
+        show: accessEnabled && canAccessCubeChem(email),
+      },
+    ];
+  }, [profile]);
+
+  const visibleNavItems = navItems.filter((item) => item.show);
 
   return (
     <header style={styles.shell}>
       <div style={styles.inner}>
-        <Link href="/dashboard" style={styles.brand}>PracticePilot</Link>
+        <Link href="/dashboard" style={styles.brand}>
+          PracticePilot
+        </Link>
 
         <nav style={styles.nav} aria-label="Main navigation">
-          {navItems.map((item) => {
-            const active = isActivePath(pathname, item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                style={{ ...styles.navLink, ...(active ? styles.navLinkActive : {}) }}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
+          {loading
+            ? null
+            : visibleNavItems.map((item) => {
+                const active = isActivePath(pathname, item.href);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    style={{ ...styles.navLink, ...(active ? styles.navLinkActive : {}) }}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
         </nav>
 
-        <Link href="/login" style={styles.logout}>Logout</Link>
+        <Link href="/login" style={styles.logout}>
+          Logout
+        </Link>
       </div>
     </header>
   );

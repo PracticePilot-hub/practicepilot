@@ -3,6 +3,7 @@
 "use client";
 
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 type Organisation = {
   id: string;
@@ -54,6 +55,23 @@ const roleOptions = [
   "Client Manager",
   "Client Viewer",
 ];
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl) {
+  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+}
+
+if (!supabaseAnonKey) {
+  throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
+}
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+function isAdminRoleValueSecure(role: string) {
+  return role === "Super Admin" || role === "Admin";
+}
 
 const moduleOptions: { key: ModuleKey; label: string }[] = [
   { key: "crm", label: "CRM" },
@@ -148,9 +166,8 @@ export default function AdminUsersPage() {
   const isEditAdminRole = useMemo(() => isAdminRoleValue(editRole), [editRole]);
 
   useEffect(() => {
-    loadUsers();
-    loadOrganisations();
-  }, []);
+  loadSecurePage();
+}, []);
 
   useEffect(() => {
     if (isInternalRole) {
@@ -212,6 +229,42 @@ export default function AdminUsersPage() {
       });
     }
   }, [editRole, isEditInternalRole, isEditAdminRole]);
+
+async function loadSecurePage() {
+  setLoading(true);
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    window.location.href = "/login";
+    return;
+  }
+
+  const { data: profileData, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("*")
+    .eq("user_id", user.id)
+    .single();
+
+  if (profileError || !profileData) {
+    alert("Could not load your user profile.");
+    window.location.href = "/login";
+    return;
+  }
+
+  if (!profileData.access_enabled || !isAdminRoleValueSecure(profileData.role)) {
+    alert("You do not have access to Admin Users.");
+    window.location.href = "/project-management";
+    return;
+  }
+
+  await loadUsers();
+  await loadOrganisations();
+}
+
 
   async function loadUsers() {
     setLoading(true);
