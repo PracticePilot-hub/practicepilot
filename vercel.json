@@ -4,5 +4,10 @@
       "path": "/api/cron/generate-tasks",
       "schedule": "0 4 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/afs/engagements/[id]/export-pdf/route.ts": {
+      "maxDuration": 60
+    }
+  }
 }
