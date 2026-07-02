@@ -1,4 +1,6 @@
+import { existsSync } from "fs";
 import { NextRequest, NextResponse } from "next/server";
+import puppeteer from "puppeteer-core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,92 +12,15 @@ type RouteContext = {
   }>;
 };
 
+const CHROMIUM_PACK_URL =
+  process.env.CHROMIUM_PACK_URL ||
+  "https://github.com/Sparticuz/chromium/releases/download/v141.0.0/chromium-v141.0.0-pack.x64.tar";
+
+let cachedExecutablePath: string | null = null;
+let chromiumDownloadPromise: Promise<string> | null = null;
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function findLocalChromeExecutable() {
-  const candidates = [
-    process.env.PUPPETEER_EXECUTABLE_PATH,
-    process.env.CHROME_EXECUTABLE_PATH,
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/chromium",
-  ].filter(Boolean) as string[];
-
-  const fs = await import("fs/promises");
-
-  for (const candidate of candidates) {
-    try {
-      await fs.access(candidate);
-      return candidate;
-    } catch {
-      // keep looking
-    }
-  }
-
-  return null;
-}
-
-async function getBrowserLaunchOptions() {
-  const isProduction = process.env.NODE_ENV === "production";
-
-  if (isProduction || process.env.VERCEL) {
-    const chromium = await import("@sparticuz/chromium");
-
-    return {
-      args: chromium.default.args,
-      executablePath: await chromium.default.executablePath(),
-      headless: true,
-    };
-  }
-
-  const localExecutablePath = await findLocalChromeExecutable();
-
-  if (!localExecutablePath) {
-    throw new Error(
-      "Could not find a local Chrome executable. Install Google Chrome or set CHROME_EXECUTABLE_PATH.",
-    );
-  }
-
-  return {
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--font-render-hinting=none",
-      "--disable-extensions",
-      "--disable-background-networking",
-    ],
-    executablePath: localExecutablePath,
-    headless: true,
-  };
-}
-
-function getBaseUrl(request: NextRequest) {
-  const configured =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.SITE_URL ||
-    process.env.VERCEL_URL ||
-    "";
-
-  if (configured) {
-    if (configured.startsWith("http://") || configured.startsWith("https://")) {
-      return configured.replace(/\/$/, "");
-    }
-
-    return `https://${configured.replace(/\/$/, "")}`;
-  }
-
-  const protocol = request.headers.get("x-forwarded-proto") || "http";
-  const host = request.headers.get("host") || "localhost:3000";
-
-  return `${protocol}://${host}`;
 }
 
 function safeFilename(value: string) {
@@ -119,8 +44,68 @@ function cleanTitle(value: string) {
     .trim();
 }
 
+function getOrigin(request: NextRequest) {
+  const url = new URL(request.url);
+
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+
+  if (forwardedHost) {
+    return `${forwardedProto || "https"}://${forwardedHost}`;
+  }
+
+  return `${url.protocol}//${url.host}`;
+}
+
+function getLocalChromePath() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+
+  if (process.env.CHROME_EXECUTABLE_PATH) {
+    return process.env.CHROME_EXECUTABLE_PATH;
+  }
+
+  const chromePath =
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+  if (existsSync(chromePath)) {
+    return chromePath;
+  }
+
+  const chromeCanaryPath =
+    "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary";
+
+  if (existsSync(chromeCanaryPath)) {
+    return chromeCanaryPath;
+  }
+
+  return null;
+}
+
+async function getVercelChromiumPath() {
+  if (cachedExecutablePath) {
+    return cachedExecutablePath;
+  }
+
+  if (!chromiumDownloadPromise) {
+    chromiumDownloadPromise = import("@sparticuz/chromium-min")
+      .then((module) => module.default.executablePath(CHROMIUM_PACK_URL))
+      .then((path) => {
+        cachedExecutablePath = path;
+        return path;
+      })
+      .catch((error) => {
+        chromiumDownloadPromise = null;
+        throw error;
+      });
+  }
+
+  return chromiumDownloadPromise;
+}
+
 export async function GET(request: NextRequest, context: RouteContext) {
-  let browser: any = null;
+  let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
 
   try {
     const { id } = await context.params;
@@ -132,52 +117,75 @@ export async function GET(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const puppeteer = await import("puppeteer-core");
-    const launchOptions = await getBrowserLaunchOptions();
-    const baseUrl = getBaseUrl(request);
+    const origin = getOrigin(request);
     const isDraft =
-  request.nextUrl.searchParams.get("draft") === "1" ||
-  request.nextUrl.searchParams.get("draft") === "true";
+      request.nextUrl.searchParams.get("draft") === "1" ||
+      request.nextUrl.searchParams.get("draft") === "true";
 
-const exportUrl = `${baseUrl}/afs/${id}/print-studio/export?serverPdf=1${
-  isDraft ? "&draft=1" : ""
-}`;
+    const exportUrl = `${origin}/afs/${id}/print-studio/export?serverPdf=1${
+      isDraft ? "&draft=1" : ""
+    }`;
 
+    const isVercel = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
 
-    browser = await puppeteer.default.launch(launchOptions as any);
+    if (isVercel) {
+      const chromium = (await import("@sparticuz/chromium-min")).default;
+
+      browser = await puppeteer.launch({
+        args: chromium.args,
+        executablePath: await getVercelChromiumPath(),
+        headless: true,
+        defaultViewport: {
+          width: 1240,
+          height: 1754,
+        },
+      });
+    } else {
+      const localChromePath = getLocalChromePath();
+
+      if (!localChromePath) {
+        throw new Error("Local Google Chrome executable was not found.");
+      }
+
+      browser = await puppeteer.launch({
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        executablePath: localChromePath,
+        headless: true,
+        defaultViewport: {
+          width: 1240,
+          height: 1754,
+        },
+      });
+    }
 
     const page = await browser.newPage();
-page.setDefaultNavigationTimeout(45_000);
-page.setDefaultTimeout(45_000);
 
-const cookieHeader = request.headers.get("cookie") || "";
+    page.setDefaultNavigationTimeout(60_000);
+    page.setDefaultTimeout(60_000);
 
-if (cookieHeader) {
-  await page.setExtraHTTPHeaders({
-    cookie: cookieHeader,
-  });
-}
-    await page.setViewport({
-      width: 1240,
-      height: 1754,
-      deviceScaleFactor: 1,
-    });
+    const cookieHeader = request.headers.get("cookie") || "";
+
+    if (cookieHeader) {
+      await page.setExtraHTTPHeaders({
+        cookie: cookieHeader,
+      });
+    }
 
     await page.goto(exportUrl, {
       waitUntil: "domcontentloaded",
-      timeout: 45_000,
+      timeout: 60_000,
     });
 
     await page.waitForFunction(
       () => {
-        const text = document.body?.innerText || "";
+        const text = (document.body?.innerText || "").toLowerCase();
+
         return (
-          text.includes("Annual financial statements") &&
-          text.includes("Statement of Financial Position") &&
-          text.includes("Tax Computation")
+          text.includes("annual financial statements") &&
+          text.includes("statement of financial position")
         );
       },
-      { timeout: 45_000 },
+      { timeout: 60_000 },
     );
 
     await page.emulateMediaType("print");
@@ -221,7 +229,6 @@ if (cookieHeader) {
       };
     });
 
-    // Small stabilisation delay after export-mode event; keep it short so export feels alive.
     await sleep(100);
 
     const pdfBytes = await page.pdf({
@@ -237,9 +244,6 @@ if (cookieHeader) {
       },
     });
 
-    await browser.close();
-    browser = null;
-
     const pdfBuffer = Buffer.from(pdfBytes);
     const finalTitle = cleanTitle(exportInfo?.title || `${id} AFS`);
     const finalFilename = `${safeFilename(finalTitle)}.pdf`;
@@ -251,19 +255,10 @@ if (cookieHeader) {
         "Content-Disposition": `attachment; filename="${finalFilename}"`,
         "Cache-Control": "no-store, max-age=0",
         "X-AFS-PDF-Title": finalTitle,
+        "X-AFS-PDF-Draft": isDraft ? "true" : "false",
       },
     });
   } catch (error: any) {
-    if (browser) {
-      try {
-        await browser.close();
-      } catch {
-        // ignore close errors
-      }
-    }
-
-    console.error("AFS PDF export failed", error);
-
     return NextResponse.json(
       {
         success: false,
@@ -271,5 +266,9 @@ if (cookieHeader) {
       },
       { status: 500 },
     );
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
   }
 }
