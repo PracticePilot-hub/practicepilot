@@ -147,9 +147,16 @@ const exportUrl = `${baseUrl}/afs/${id}/print-studio/export?serverPdf=1${
     browser = await puppeteer.default.launch(launchOptions as any);
 
     const page = await browser.newPage();
-    page.setDefaultNavigationTimeout(120_000);
-    page.setDefaultTimeout(120_000);
+page.setDefaultNavigationTimeout(120_000);
+page.setDefaultTimeout(120_000);
 
+const cookieHeader = request.headers.get("cookie") || "";
+
+if (cookieHeader) {
+  await page.setExtraHTTPHeaders({
+    cookie: cookieHeader,
+  });
+}
     await page.setViewport({
       width: 1240,
       height: 1754,
