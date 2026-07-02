@@ -3554,14 +3554,14 @@ const isDraftPdf =
 
 
           .afsExportOnlyRoot article {
-            width: 210mm !important;
-            min-height: 297mm !important;
-            height: 297mm !important;
-            margin: 0 !important;
-            overflow: hidden !important;
-            page-break-after: always !important;
-            break-after: page !important;
-          }
+  width: 210mm !important;
+  min-height: 297mm !important;
+  height: auto !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  page-break-after: always !important;
+  break-after: page !important;
+}
 
           .afsExportOnlyRoot article:last-of-type {
             page-break-after: auto !important;
