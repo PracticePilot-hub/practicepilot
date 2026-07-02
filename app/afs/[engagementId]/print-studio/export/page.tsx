@@ -2069,13 +2069,47 @@ const isDraftPdf =
 
   function renderDirectorsReportAuthorisationExportPage() {
     const authorisationTextBlock =
-      ((activeDirectorsReportTexts as any)?.directorsReportAuthorisation ||
-        (defaultDirectorsReportTexts as any)?.directorsReportAuthorisation ||
-        {}) as { title?: string; text?: string };
+  ((activeDirectorsReportTexts as any)?.directorsReportAuthorisation ||
+    (activeDirectorsReportTexts as any)?.authorisation ||
+    (defaultDirectorsReportTexts as any)?.directorsReportAuthorisation ||
+    (defaultDirectorsReportTexts as any)?.authorisation ||
+    {}) as { title?: string; text?: string };
 
-    const title =
-      authorisationTextBlock.title ||
-      "15. Authorisation of annual financial statements";
+const directorsReportSectionsBeforeAuthorisation = [
+  reportOptions.directorsReportGeneralReview,
+  reportOptions.directorsReportIncorporation,
+  reportOptions.directorsReportNatureBusiness,
+  reportOptions.directorsReportReviewActivities,
+  reportOptions.directorsReportFinancialResults,
+  reportOptions.directorsReportEventsAfter,
+  reportOptions.directorsReportDividends,
+  reportOptions.directorsReportShareCapital,
+  reportOptions.directorsReportDirectors,
+  reportOptions.directorsReportSecretary,
+  reportOptions.directorsReportExternalAccountant,
+  reportOptions.directorsReportInterestContracts,
+  reportOptions.directorsReportBorrowingLimitations,
+  reportOptions.directorsReportShareholder,
+  reportOptions.directorsReportGoingConcern,
+  reportOptions.directorsReportLiquiditySolvency,
+  reportOptions.directorsReportLitigation,
+  reportOptions.directorsReportSocialEthics,
+  reportOptions.directorsReportSubsidiaries,
+  reportOptions.directorsReportAssociates,
+  reportOptions.directorsReportJointVentures,
+  reportOptions.directorsReportNonCurrentAssets,
+];
+
+const authorisationNumber =
+  directorsReportSectionsBeforeAuthorisation.filter(Boolean).length + 1;
+
+const cleanAuthorisationTitle = String(
+  authorisationTextBlock.title || "Authorisation of annual financial statements",
+)
+  .replace(/^\d+\.\s*/, "")
+  .trim();
+
+const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
     const rawText =
       authorisationTextBlock.text ||
