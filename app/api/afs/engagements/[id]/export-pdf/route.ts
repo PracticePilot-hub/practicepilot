@@ -147,8 +147,8 @@ const exportUrl = `${baseUrl}/afs/${id}/print-studio/export?serverPdf=1${
     browser = await puppeteer.default.launch(launchOptions as any);
 
     const page = await browser.newPage();
-page.setDefaultNavigationTimeout(120_000);
-page.setDefaultTimeout(120_000);
+page.setDefaultNavigationTimeout(45_000);
+page.setDefaultTimeout(45_000);
 
 const cookieHeader = request.headers.get("cookie") || "";
 
@@ -165,7 +165,7 @@ if (cookieHeader) {
 
     await page.goto(exportUrl, {
       waitUntil: "domcontentloaded",
-      timeout: 120_000,
+      timeout: 45_000,
     });
 
     await page.waitForFunction(
@@ -177,7 +177,7 @@ if (cookieHeader) {
           text.includes("Tax Computation")
         );
       },
-      { timeout: 120_000 },
+      { timeout: 45_000 },
     );
 
     await page.emulateMediaType("print");
@@ -222,7 +222,7 @@ if (cookieHeader) {
     });
 
     // Small stabilisation delay after export-mode event; keep it short so export feels alive.
-    await sleep(250);
+    await sleep(100);
 
     const pdfBytes = await page.pdf({
       format: "A4",
