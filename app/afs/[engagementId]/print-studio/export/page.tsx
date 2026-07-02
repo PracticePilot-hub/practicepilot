@@ -2067,6 +2067,57 @@ const isDraftPdf =
     directorsReportTexts: activeDirectorsReportTexts,
   };
 
+  const directorsReportFirstPageOptionKeys = [
+    "directorsReportGeneralReview",
+    "directorsReportIncorporation",
+    "directorsReportNatureBusiness",
+    "directorsReportReviewActivities",
+    "directorsReportFinancialResults",
+    "directorsReportEventsAfter",
+    "directorsReportDividends",
+    "directorsReportShareCapital",
+    "directorsReportDirectors",
+    "directorsReportSecretary",
+    "directorsReportExternalAccountant",
+    "directorsReportInterestContracts",
+    "directorsReportBorrowingLimitations",
+    "directorsReportShareholder",
+  ];
+
+  const directorsReportContinuationOptionKeys = [
+    "directorsReportGoingConcern",
+    "directorsReportLiquiditySolvency",
+    "directorsReportLitigation",
+    "directorsReportSocialEthics",
+    "directorsReportSubsidiaries",
+    "directorsReportAssociates",
+    "directorsReportJointVentures",
+    "directorsReportNonCurrentAssets",
+    "directorsReportAuthorisation",
+    "directorsReportOther1",
+    "directorsReportOther2",
+    "directorsReportOther3",
+    "directorsReportOther4",
+    "directorsReportOther5",
+    "directorsReportOther6",
+    "directorsReportOther7",
+    "directorsReportOther8",
+    "directorsReportOther9",
+    "directorsReportOther10",
+  ];
+
+  const directorsReportContinuationStartNumber =
+    directorsReportFirstPageOptionKeys.filter(
+      (key) => Boolean((reportOptions as any)[key]),
+    ).length;
+
+  const showDirectorsReportContinuation =
+    directorsReportContinuationOptionKeys.some((key) =>
+      Boolean((reportOptions as any)[key]),
+    );
+
+
+
   function renderDirectorsReportAuthorisationExportPage() {
     const authorisationTextBlock =
   ((activeDirectorsReportTexts as any)?.directorsReportAuthorisation ||
@@ -3590,9 +3641,9 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           .afsExportOnlyRoot article {
   width: 210mm !important;
   min-height: 297mm !important;
-  height: auto !important;
+  height: 297mm !important;
   margin: 0 !important;
-  overflow: visible !important;
+  overflow: hidden !important;
   page-break-after: always !important;
   break-after: page !important;
 }
@@ -3927,7 +3978,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             </div>
           ) : null}
 
-          {reportOptions.directorsReport ? (
+        {reportOptions.directorsReport ? (
             <div id="print-directors-report">
               <AfsA4Page {...reportHeaderProps}>
                 <section
@@ -3938,15 +3989,83 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   <DirectorsReportBlock
                     context={{
                       ...narrativeContext,
+
+                      directorsReportGoingConcern: false,
+                      directorsReportLiquiditySolvency: false,
+                      directorsReportLitigation: false,
+                      directorsReportSocialEthics: false,
+                      directorsReportSubsidiaries: false,
+                      directorsReportAssociates: false,
+                      directorsReportJointVentures: false,
+                      directorsReportNonCurrentAssets: false,
                       directorsReportAuthorisation: false,
+                      directorsReportOther1: false,
+                      directorsReportOther2: false,
+                      directorsReportOther3: false,
+                      directorsReportOther4: false,
+                      directorsReportOther5: false,
+                      directorsReportOther6: false,
+                      directorsReportOther7: false,
+                      directorsReportOther8: false,
+                      directorsReportOther9: false,
+                      directorsReportOther10: false,
                     }}
                   />
                 </section>
               </AfsA4Page>
 
-              {reportOptions.directorsReportAuthorisation
-                ? renderDirectorsReportAuthorisationExportPage()
-                : null}
+              {showDirectorsReportContinuation ? (
+                <AfsA4Page {...reportHeaderProps}>
+                  <section
+                    style={{ fontSize: 11, lineHeight: 1.45, color: "#111827" }}
+                  >
+                    <h1 style={pageHeadingStyle()}>
+                      {reportTitle(entityType)} continued
+                    </h1>
+
+                    <DirectorsReportBlock
+                      startNumber={directorsReportContinuationStartNumber}
+                      context={{
+                        ...narrativeContext,
+
+                        directorsReportGeneralReview: false,
+                        directorsReportIncorporation: false,
+                        directorsReportNatureBusiness: false,
+                        directorsReportReviewActivities: false,
+                        directorsReportFinancialResults: false,
+                        directorsReportEventsAfter: false,
+                        directorsReportDividends: false,
+                        directorsReportShareCapital: false,
+                        directorsReportDirectors: false,
+                        directorsReportSecretary: false,
+                        directorsReportExternalAccountant: false,
+                        directorsReportInterestContracts: false,
+                        directorsReportBorrowingLimitations: false,
+                        directorsReportShareholder: false,
+
+                        directorsReportGoingConcern:
+                          reportOptions.directorsReportGoingConcern,
+                        directorsReportLiquiditySolvency:
+                          reportOptions.directorsReportLiquiditySolvency,
+                        directorsReportLitigation:
+                          reportOptions.directorsReportLitigation,
+                        directorsReportSocialEthics:
+                          reportOptions.directorsReportSocialEthics,
+                        directorsReportSubsidiaries:
+                          reportOptions.directorsReportSubsidiaries,
+                        directorsReportAssociates:
+                          reportOptions.directorsReportAssociates,
+                        directorsReportJointVentures:
+                          reportOptions.directorsReportJointVentures,
+                        directorsReportNonCurrentAssets:
+                          reportOptions.directorsReportNonCurrentAssets,
+                        directorsReportAuthorisation:
+                          reportOptions.directorsReportAuthorisation,
+                      }}
+                    />
+                  </section>
+                </AfsA4Page>
+              ) : null}
             </div>
           ) : null}
 

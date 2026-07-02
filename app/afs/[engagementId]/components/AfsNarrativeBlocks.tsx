@@ -314,10 +314,16 @@ const directorsReportOrder: Array<{
   { key: "other10", option: "directorsReportOther10" },
 ];
 
-export function DirectorsReportBlock({ context }: { context: NarrativeContext }) {
+export function DirectorsReportBlock({
+  context,
+  startNumber = 0,
+}: {
+  context: NarrativeContext;
+  startNumber?: number;
+}) {
   const defaults = buildDefaultDirectorsReportTexts(context || {});
   const texts = { ...defaults, ...(context?.directorsReportTexts || {}) };
-  let number = 0;
+  let number = startNumber;
 
   return (
     <div>
