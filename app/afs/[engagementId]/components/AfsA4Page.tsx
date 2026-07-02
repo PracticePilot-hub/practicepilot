@@ -19,10 +19,10 @@ export default function AfsA4Page({
   showReportHeader = false,
 }: AfsA4PageProps) {
   return (
-    <article className={styles.page}>
-      <div className={styles.content}>
+    <article className={styles.page} data-afs-a4-page="true">
+      <div className={styles.content} data-afs-a4-content="true">
         {showReportHeader ? (
-          <header className={styles.reportHeader}>
+          <header className={styles.reportHeader} data-afs-report-header="true">
             <div className={styles.reportClientName}>{clientName}</div>
 
             {registrationNumber ? (

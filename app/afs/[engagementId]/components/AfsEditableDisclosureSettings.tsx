@@ -1,28 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import {
+  EditableDisclosureSection,
+  EditableDisclosureTextMap,
+} from "./AfsPolicyNoteDefaults";
 
-export type EditableDisclosureText = {
-  title: string;
-  text: string;
-};
-
-export type EditableDisclosureTextMap = Record<string, EditableDisclosureText>;
-
-export type EditableDisclosureSection = {
-  key: string;
-  optionKey: string;
-  label: string;
-  group?: string;
-  groupLabel?: string;
-  defaultOpen?: boolean;
-  introText?: string;
-};
+type ToggleReportOption = (key: string, checked: boolean) => void;
 
 type Props = {
   sections: EditableDisclosureSection[];
   reportOptions: Record<string, boolean>;
-  toggleReportOption: (key: string, checked: boolean) => void;
+  toggleReportOption: ToggleReportOption;
   texts: EditableDisclosureTextMap;
   defaults: EditableDisclosureTextMap;
   onChangeTitle: (key: string, value: string) => void;
@@ -38,11 +27,57 @@ type GroupedSections = {
   sections: EditableDisclosureSection[];
 };
 
+
+const styles: Record<string, CSSProperties> = {
+  notesModeBar: {
+    position: "sticky",
+    top: 0,
+    zIndex: 20,
+    display: "grid",
+    gridTemplateColumns: "1fr auto auto",
+    gap: 4,
+    alignItems: "center",
+    margin: "0 0 2px",
+    padding: "6px",
+    border: "1px solid #cbd5e1",
+    background: "#f8fafc",
+    boxShadow: "0 1px 2px rgba(15, 23, 42, 0.08)",
+  },
+  notesModeLabel: {
+    fontSize: 10,
+    fontWeight: 900,
+    color: "#334155",
+  },
+  notesModeButton: {
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#111827",
+    fontSize: 10,
+    fontWeight: 800,
+    padding: "4px 8px",
+    cursor: "pointer",
+  },
+  notesModeActive: {
+    border: "1px solid #111827",
+    background: "#111827",
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: 900,
+    padding: "4px 8px",
+    cursor: "pointer",
+  },
+};
+
+
 function normaliseGroup(section: EditableDisclosureSection) {
   return {
     groupKey: section.group || "other",
     groupLabel: section.groupLabel || section.group || "Other",
   };
+}
+
+function sectionLabel(section: EditableDisclosureSection) {
+  return section.title || section.defaultTitle || section.label || section.key;
 }
 
 export default function AfsEditableDisclosureSettings({
@@ -77,88 +112,77 @@ export default function AfsEditableDisclosureSettings({
     return Array.from(map.values());
   }, [sections]);
 
-  // Minimal view: every group starts collapsed.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  const [openEditorKey, setOpenEditorKey] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Record<string, boolean>>({});
+  const [notesMode, setNotesMode] = useState<"review" | "edit">("review");
+  const isNotesMode = sections.some((section) => String(section.key || "").startsWith("notes"));
 
-  function toggleGroup(groupKey: string) {
-    setOpenGroups((current) => ({
-      ...current,
-      [groupKey]: !current[groupKey],
-    }));
-  }
-
-  function confirmReset(sectionKey: string, sectionTitle: string) {
-    const confirmed = window.confirm(
-      `Reset "${sectionTitle}" to the PracticePilot default wording?\n\nThis will discard your custom title and wording for this section.`
-    );
-
-    if (confirmed) {
-      onReset(sectionKey);
+  useEffect(() => {
+    if (!isNotesMode) {
+      return;
     }
-  }
 
-  function confirmResetAll() {
-    const confirmed = window.confirm(
-      "Reset ALL disclosures in this section to PracticePilot defaults?\n\nThis will discard all custom titles and wording for this section."
-    );
+    try {
+      const savedMode = window.localStorage.getItem("afs-notes-mode-global");
+      if (savedMode === "review" || savedMode === "edit") {
+        setNotesMode(savedMode);
+      }
+    } catch {
+      // ignore localStorage failures
+    }
+  }, [isNotesMode]);
 
-    if (confirmed) {
-      onResetAll();
+  function changeNotesMode(nextMode: "review" | "edit") {
+    setNotesMode(nextMode);
+
+    try {
+      window.localStorage.setItem("afs-notes-mode-global", nextMode);
+      window.dispatchEvent(new CustomEvent("afs-notes-mode-change", { detail: nextMode }));
+    } catch {
+      window.dispatchEvent(new CustomEvent("afs-notes-mode-change", { detail: nextMode }));
     }
   }
 
   return (
-    <div style={{ display: "grid", gap: 7 }}>
-      <div
+    <div style={{ display: "grid", gap: 8 }}>
+      {isNotesMode ? (
+        <div style={styles.notesModeBar}>
+          <span style={styles.notesModeLabel}>Notes view</span>
+          <button
+            type="button"
+            onClick={() => changeNotesMode("review")}
+            style={notesMode === "review" ? styles.notesModeActive : styles.notesModeButton}
+          >
+            AFS
+          </button>
+          <button
+            type="button"
+            onClick={() => changeNotesMode("edit")}
+            style={notesMode === "edit" ? styles.notesModeActive : styles.notesModeButton}
+          >
+            Work
+          </button>
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={onResetAll}
         style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1fr) auto",
-          gap: 8,
-          alignItems: "start",
-          paddingBottom: 8,
-          borderBottom: "1px solid #e5e7eb",
+          justifySelf: "end",
+          fontSize: 10,
+          border: "1px solid #cbd5e1",
+          background: "#ffffff",
+          padding: "4px 8px",
+          cursor: "pointer",
         }}
       >
-        <div>
-          <div style={{ fontSize: 10, color: "#6b7280", lineHeight: 1.35 }}>
-            Open a group, tick only what applies, and edit wording where needed.
-          </div>
-
-          <div
-            style={{
-              marginTop: 4,
-              fontSize: 9,
-              color: "#047857",
-              fontWeight: 700,
-            }}
-          >
-            Changes auto-save.
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={confirmResetAll}
-          style={{
-            height: 24,
-            border: "1px solid #cbd5e1",
-            background: "#ffffff",
-            fontSize: 10,
-            fontWeight: 700,
-            padding: "0 7px",
-            cursor: "pointer",
-            whiteSpace: "nowrap",
-          }}
-        >
-          Defaults
-        </button>
-      </div>
+        Defaults
+      </button>
 
       {groupedSections.map((group) => {
-        const isOpen = Boolean(openGroups[group.groupKey]);
-        const selectedCount = group.sections.filter((section) =>
-          Boolean(reportOptions[section.optionKey])
+        const selectedCount = group.sections.filter(
+          (section) => Boolean(reportOptions[section.optionKey])
         ).length;
 
         return (
@@ -171,99 +195,64 @@ export default function AfsEditableDisclosureSettings({
           >
             <button
               type="button"
-              onClick={() => toggleGroup(group.groupKey)}
+              onClick={() =>
+                setOpenGroups((current) => ({
+                  ...current,
+                  [group.groupKey]: !current[group.groupKey],
+                }))
+              }
               style={{
                 width: "100%",
-                display: "grid",
-                gridTemplateColumns: "16px minmax(0, 1fr) auto",
-                gap: 6,
-                alignItems: "center",
                 border: 0,
-                background: isOpen ? "#f8fafc" : "#ffffff",
-                padding: "8px 7px",
+                background: "#f8fafc",
+                padding: "7px 8px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontSize: 11,
+                fontWeight: 800,
                 cursor: "pointer",
-                textAlign: "left",
+                color: "#111827",
               }}
             >
-              <span
-                style={{
-                  width: 14,
-                  height: 14,
-                  display: "inline-grid",
-                  placeItems: "center",
-                  border: "1px solid #cbd5e1",
-                  fontSize: 9,
-                  fontWeight: 900,
-                  color: "#111827",
-                  lineHeight: 1,
-                }}
-              >
-                {isOpen ? "−" : "+"}
+              <span>
+                {openGroups[group.groupKey] ? "−" : "+"} {group.groupLabel}
               </span>
-
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 900,
-                  color: "#111827",
-                  lineHeight: 1.25,
-                  minWidth: 0,
-                }}
-              >
-                {group.groupLabel}
-              </span>
-
-              <span
-                style={{
-                  fontSize: 9,
-                  fontWeight: 800,
-                  color: selectedCount > 0 ? "#047857" : "#6b7280",
-                  whiteSpace: "nowrap",
-                }}
-              >
+              <span style={{ color: "#047857" }}>
                 {selectedCount}/{group.sections.length}
               </span>
             </button>
 
-            {isOpen ? (
-              <div style={{ display: "grid", gap: 5, padding: 6 }}>
+            {openGroups[group.groupKey] ? (
+              <div style={{ display: "grid", gap: 6, padding: 8 }}>
                 {group.sections.map((section) => {
-                  const checked = Boolean(reportOptions[section.optionKey]);
+                  const isChecked = Boolean(reportOptions[section.optionKey]);
                   const current = texts[section.key] ||
                     defaults[section.key] || {
-                      title: section.label,
-                      text: "",
+                      title: sectionLabel(section),
+                      text: section.defaultText || "",
                     };
-                  const defaultText = defaults[section.key] || {
-                    title: section.label,
-                    text: "",
-                  };
-                  const changed =
-                    current.title !== defaultText.title ||
-                    current.text !== defaultText.text;
-                  const editorOpen = openEditorKey === section.key;
-                  const visibleTitle = current.title || section.label;
+                  const isEditing = Boolean(editing[section.key]);
 
                   return (
                     <div
                       key={section.key}
                       style={{
-                        border: "1px solid #e5e7eb",
-                        background: checked ? "#ffffff" : "#f9fafb",
-                        padding: 7,
+                        borderTop: "1px solid #edf2f7",
+                        paddingTop: 6,
                       }}
                     >
                       <div
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "16px minmax(0, 1fr) auto auto",
+                          gridTemplateColumns: "18px 1fr auto auto",
                           gap: 6,
                           alignItems: "center",
                         }}
                       >
                         <input
                           type="checkbox"
-                          checked={checked}
+                          checked={isChecked}
                           onChange={(event) =>
                             toggleReportOption(
                               section.optionKey,
@@ -271,62 +260,36 @@ export default function AfsEditableDisclosureSettings({
                             )
                           }
                         />
-
-                        <div
-                          style={{
-                            fontSize: 11,
-                            lineHeight: "14px",
-                            fontWeight: 800,
-                            color: checked ? "#111827" : "#6b7280",
-                            minWidth: 0,
-                          }}
-                        >
-                          {visibleTitle}
-
-                          {changed ? (
-                            <span
-                              style={{
-                                marginLeft: 6,
-                                fontSize: 9,
-                                color: "#92400e",
-                                fontWeight: 800,
-                              }}
-                            >
-                              Edited
-                            </span>
-                          ) : null}
-                        </div>
-
+                        <strong style={{ fontSize: 11 }}>
+                          {current.title || sectionLabel(section)}
+                        </strong>
                         <button
                           type="button"
                           onClick={() =>
-                            setOpenEditorKey(editorOpen ? null : section.key)
+                            setEditing((state) => ({
+                              ...state,
+                              [section.key]: !isEditing,
+                            }))
                           }
                           style={{
-                            height: 22,
+                            fontSize: 10,
                             border: "1px solid #cbd5e1",
-                            background: editorOpen ? "#111827" : "#ffffff",
-                            color: editorOpen ? "#ffffff" : "#111827",
-                            fontSize: 9,
-                            fontWeight: 700,
-                            padding: "0 6px",
+                            background: isEditing ? "#111827" : "#ffffff",
+                            color: isEditing ? "#ffffff" : "#111827",
+                            padding: "3px 6px",
                             cursor: "pointer",
                           }}
                         >
-                          {editorOpen ? "Close" : "Edit"}
+                          {isEditing ? "Close" : isNotesMode ? "Heading" : "Edit"}
                         </button>
-
                         <button
                           type="button"
-                          onClick={() => confirmReset(section.key, visibleTitle)}
-                          title="Reset this section to PracticePilot default wording"
+                          onClick={() => onReset(section.key)}
                           style={{
-                            height: 22,
+                            fontSize: 10,
                             border: "1px solid #cbd5e1",
                             background: "#ffffff",
-                            fontSize: 9,
-                            fontWeight: 700,
-                            padding: "0 6px",
+                            padding: "3px 6px",
                             cursor: "pointer",
                           }}
                         >
@@ -334,52 +297,58 @@ export default function AfsEditableDisclosureSettings({
                         </button>
                       </div>
 
-                      {editorOpen ? (
-                        <div style={{ marginTop: 7, display: "grid", gap: 5 }}>
+                      {isEditing ? (
+                        <div style={{ display: "grid", gap: 5, marginTop: 6 }}>
                           <input
                             value={current.title}
                             onChange={(event) =>
                               onChangeTitle(section.key, event.target.value)
                             }
-                            placeholder="Title"
                             style={{
-                              width: "100%",
-                              height: 24,
-                              border: "1px solid #cbd5e1",
-                              padding: "3px 5px",
                               fontSize: 10,
-                              background: "#ffffff",
-                            }}
-                          />
-
-                          <textarea
-                            value={current.text}
-                            onChange={(event) =>
-                              onChangeText(section.key, event.target.value)
-                            }
-                            placeholder="Wording"
-                            rows={5}
-                            style={{
-                              width: "100%",
-                              border: "1px solid #cbd5e1",
                               padding: 5,
-                              fontSize: 10,
-                              lineHeight: 1.35,
-                              resize: "vertical",
-                              background: "#ffffff",
+                              border: "1px solid #cbd5e1",
                             }}
                           />
-
-                          <div
-                            style={{
-                              fontSize: 9,
-                              color: "#6b7280",
-                              lineHeight: 1.35,
-                            }}
-                          >
-                            {tokenHelp ||
-                              "Tokens available: {clientName}, {yearEnd}, {framework}, {currency}, {currentYear}, {priorYear}."}
-                          </div>
+                          {!isNotesMode ? (
+                            <textarea
+                              value={current.text}
+                              onChange={(event) =>
+                                onChangeText(section.key, event.target.value)
+                              }
+                              rows={5}
+                              style={{
+                                fontSize: 10,
+                                padding: 5,
+                                border: "1px solid #cbd5e1",
+                                resize: "vertical",
+                              }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                fontSize: 10,
+                                color: "#64748b",
+                                lineHeight: 1.35,
+                                border: "1px solid #e5e7eb",
+                                background: "#f8fafc",
+                                padding: 6,
+                              }}
+                            >
+                              Structured note content is edited directly inside the note in Work mode. This panel only controls the note heading and whether the note is included.
+                            </div>
+                          )}
+                          {tokenHelp && !isNotesMode ? (
+                            <div
+                              style={{
+                                fontSize: 9,
+                                color: "#64748b",
+                                lineHeight: 1.35,
+                              }}
+                            >
+                              {tokenHelp}
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>

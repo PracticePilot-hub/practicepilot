@@ -2,17 +2,6 @@
 
 import React from "react";
 
-export type AfsPerson = {
-  name?: string | null;
-  full_name?: string | null;
-  person_name?: string | null;
-  nationality?: string | null;
-  designation?: string | null;
-  person_type?: string | null;
-  appointment_date?: string | null;
-  resignation_date?: string | null;
-};
-
 export type DirectorsReportSectionKey =
   | "generalReview"
   | "incorporation"
@@ -48,130 +37,156 @@ export type DirectorsReportSectionKey =
   | "other9"
   | "other10";
 
-export type DirectorsReportTextOverrides = Record<
-  DirectorsReportSectionKey,
-  {
-    title: string;
-    text: string;
-  }
+export type DirectorsReportTextOverrides = Partial<
+  Record<DirectorsReportSectionKey, { title?: string | null; text?: string | null }>
 >;
 
-export type AfsNarrativeContext = {
-  clientName: string;
-  entityType: string;
-  yearEnd: string;
+type NarrativeContext = Record<string, any> & {
+  clientName?: string | null;
+  entityType?: string | null;
+  yearEnd?: string | null;
   registrationNumber?: string | null;
-  bodyLabel: string;
-  bodyLabelCapitalised: string;
-  roleLabel: string;
-  framework: string;
-  approvalDate: string;
-  compilationDate: string;
-  practitionerFirm: string;
-  practitionerName: string;
-  practitionerDesignation: string;
+  bodyLabel?: string | null;
+  bodyLabelCapitalised?: string | null;
+  roleLabel?: string | null;
+  framework?: string | null;
+  approvalDate?: string | null;
+  compilationDate?: string | null;
+  practitionerFirm?: string | null;
+  practitionerName?: string | null;
+  practitionerDesignation?: string | null;
+  practitionerLogoUrl?: string | null;
+  practitionerFooterLogoUrl?: string | null;
   natureOfBusiness?: string | null;
   country?: string | null;
-  directors: AfsPerson[];
-
-  directorsReportGeneralReview?: boolean;
-  directorsReportIncorporation?: boolean;
-  directorsReportNatureBusiness?: boolean;
-  directorsReportReviewActivities?: boolean;
-  directorsReportFinancialResults?: boolean;
-  directorsReportEventsAfter?: boolean;
-  directorsReportDividends?: boolean;
-  directorsReportShareCapital?: boolean;
-  directorsReportDirectors?: boolean;
-  directorsReportSecretary?: boolean;
-  directorsReportExternalAccountant?: boolean;
-  directorsReportInterestContracts?: boolean;
-  directorsReportBorrowingLimitations?: boolean;
-  directorsReportShareholder?: boolean;
-  directorsReportGoingConcern?: boolean;
-  directorsReportLiquiditySolvency?: boolean;
-  directorsReportLitigation?: boolean;
-  directorsReportSocialEthics?: boolean;
-  directorsReportSubsidiaries?: boolean;
-  directorsReportAssociates?: boolean;
-  directorsReportJointVentures?: boolean;
-  directorsReportNonCurrentAssets?: boolean;
-  directorsReportAuthorisation?: boolean;
-  directorsReportOther1?: boolean;
-  directorsReportOther2?: boolean;
-  directorsReportOther3?: boolean;
-  directorsReportOther4?: boolean;
-  directorsReportOther5?: boolean;
-  directorsReportOther6?: boolean;
-  directorsReportOther7?: boolean;
-  directorsReportOther8?: boolean;
-  directorsReportOther9?: boolean;
-  directorsReportOther10?: boolean;
-
+  directors?: any[];
   directorsReportTexts?: DirectorsReportTextOverrides;
 };
 
-function getPersonName(person: AfsPerson) {
+function value(context: NarrativeContext, key: string, fallback = "") {
+  const item = context?.[key];
+  if (item === null || item === undefined || String(item).trim() === "") return fallback;
+  return String(item);
+}
+
+function bodyLabel(context: NarrativeContext) {
+  return value(context, "bodyLabel", "directors");
+}
+
+function bodyLabelCapitalised(context: NarrativeContext) {
+  return value(context, "bodyLabelCapitalised", "Directors");
+}
+
+function roleLabel(context: NarrativeContext) {
+  return value(context, "roleLabel", "Directors");
+}
+
+function isCloseCorporation(context: NarrativeContext) {
+  const entity = value(context, "entityType", "").toLowerCase();
+  return entity.includes("close") || entity.includes("cc") || entity.includes("close corporation");
+}
+
+function isTrust(context: NarrativeContext) {
+  const entity = value(context, "entityType", "").toLowerCase();
+  return entity.includes("trust");
+}
+
+function governingAct(context: NarrativeContext) {
+  if (isCloseCorporation(context)) return "the Close Corporations Act of South Africa";
+  if (isTrust(context)) return "the applicable trust deed and legislation";
+  return "the Companies Act of South Africa";
+}
+
+function frameworkLabel(context: NarrativeContext) {
+  return value(context, "framework", "the applicable financial reporting framework");
+}
+
+function singleBodyLabel(context: NarrativeContext) {
+  const body = bodyLabel(context).toLowerCase();
+  if (body.includes("member")) return "member";
+  if (body.includes("trustee")) return "trustee";
+  if (body.includes("director")) return "director";
+  return body.replace(/s$/, "") || "director";
+}
+
+function tokenise(text: string, context: NarrativeContext) {
+  return String(text || "")
+    .replaceAll("{clientName}", value(context, "clientName", "the entity"))
+    .replaceAll("{yearEnd}", value(context, "yearEnd", "the reporting date"))
+    .replaceAll("{framework}", value(context, "framework", "the applicable financial reporting framework"))
+    .replaceAll("{bodyLabel}", bodyLabel(context))
+    .replaceAll("{bodyLabelCapitalised}", bodyLabelCapitalised(context))
+    .replaceAll("{roleLabel}", roleLabel(context))
+    .replaceAll("{approvalDate}", value(context, "approvalDate", "________________"))
+    .replaceAll("{compilationDate}", value(context, "compilationDate", "________________"))
+    .replaceAll("{practitionerFirm}", value(context, "practitionerFirm", "the practitioner"))
+    .replaceAll("{practitionerName}", value(context, "practitionerName", "the practitioner"))
+    .replaceAll("{practitionerDesignation}", value(context, "practitionerDesignation", ""))
+    .replaceAll("{natureOfBusiness}", value(context, "natureOfBusiness", "the principal activities of the entity"))
+    .replaceAll("{country}", value(context, "country", "South Africa"));
+}
+
+function paragraphs(text: string, context: NarrativeContext) {
+  return tokenise(text, context)
+    .split(/\n{2,}/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function personName(person: any) {
   return (
-    person.full_name ||
-    person.person_name ||
-    person.name ||
+    person?.full_name ||
+    person?.person_name ||
+    person?.name ||
+    person?.display_name ||
     "Name not captured"
   );
 }
 
-function safeText(value: unknown, fallback = "") {
-  const text = String(value || "").trim();
-  return text || fallback;
+function personRole(person: any) {
+  return (
+    person?.designation ||
+    person?.capacity ||
+    person?.role ||
+    person?.type ||
+    person?.person_type ||
+    "Director"
+  );
 }
 
-function replaceTokens(text: string, context: AfsNarrativeContext) {
-  return text
-    .replaceAll("{clientName}", context.clientName)
-    .replaceAll("{yearEnd}", context.yearEnd)
-    .replaceAll("{bodyLabel}", context.bodyLabel)
-    .replaceAll("{bodyLabelCapitalised}", context.bodyLabelCapitalised)
-    .replaceAll("{roleLabel}", context.roleLabel)
-    .replaceAll("{framework}", context.framework)
-    .replaceAll("{approvalDate}", context.approvalDate)
-    .replaceAll("{country}", context.country || "South Africa")
-    .replaceAll(
-      "{natureOfBusiness}",
-      context.natureOfBusiness || "the principal activities of the entity"
-    )
-    .replaceAll("{practitionerFirm}", context.practitionerFirm)
-    .replaceAll("{practitionerName}", context.practitionerName);
-}
+function defaultText(context: NarrativeContext): DirectorsReportTextOverrides {
+  const client = value(context, "clientName", "The entity");
+  const yearEnd = value(context, "yearEnd", "the reporting date");
+  const framework = value(context, "framework", "the applicable financial reporting framework");
+  const body = bodyLabel(context);
+  const bodyCap = bodyLabelCapitalised(context);
+  const nature = value(context, "natureOfBusiness", "the principal activities disclosed in these annual financial statements");
+  const approval = value(context, "approvalDate", "________________");
 
-export function buildDefaultDirectorsReportTexts(
-  context: AfsNarrativeContext
-): DirectorsReportTextOverrides {
   return {
     generalReview: {
       title: "General review",
-      text: "The {bodyLabel} submit their report on the annual financial statements of {clientName} for the year ended {yearEnd}.",
+      text: `The ${body} submit their report on the annual financial statements of {clientName} for the year ended {yearEnd}.`,
     },
     incorporation: {
       title: "Incorporation",
-      text: "{clientName} is incorporated in {country}.",
+      text: `${client} is incorporated in {country}.`,
     },
     natureBusiness: {
       title: "Nature of business",
-      text: context.natureOfBusiness
-        ? "The principal activities of the entity are {natureOfBusiness}."
-        : "The principal activities of the entity have not yet been captured.",
+      text: `The principal activities of the entity are ${nature}.`,
     },
     reviewActivities: {
       title: "Review of activities",
-      text: "The entity continued to conduct its operations during the year under review. The financial position and results of operations are set out in these annual financial statements.",
+      text: "The entity continued to conduct its principal activities during the year under review. The operating results and the state of affairs of the entity are fully set out in the attached annual financial statements and, in the opinion of the {body}, do not require further comment except as disclosed in this report. There were no major changes in the nature of the business or operations during the year, unless otherwise disclosed.",
     },
     financialResults: {
       title: "Financial results",
-      text: "The annual financial statements have been prepared in accordance with {framework}. The {bodyLabel} have considered the financial results for the year under review and are satisfied that the annual financial statements fairly reflect the financial position and performance of the entity based on the information available to them.",
+      text: `The financial results of the entity for the year ended ${yearEnd} are set out in these annual financial statements. The annual financial statements have been prepared in accordance with ${framework}. The ${body} have considered the results for the year under review, the financial position at year end and the related disclosures, and are satisfied that these annual financial statements fairly reflect the affairs of the entity based on the accounting records and information available to them.`,
     },
     eventsAfter: {
       title: "Events after the reporting date",
-      text: "The {bodyLabel} are not aware of any material matter or circumstance arising since the end of the financial year and up to the date of this report that requires disclosure or adjustment in the annual financial statements.",
+      text: `All events subsequent to the reporting date and for which the applicable financial reporting framework requires adjustment or disclosure have been considered. The ${body} are not aware of any material matter or circumstance arising since the end of the financial year and up to the date of approval of these annual financial statements that requires further adjustment or disclosure.`,
     },
     dividends: {
       title: "Dividends",
@@ -182,12 +197,12 @@ export function buildDefaultDirectorsReportTexts(
       text: "There have been no changes to the authorised or issued share capital during the year under review, unless otherwise disclosed in these annual financial statements.",
     },
     directors: {
-      title: context.roleLabel,
-      text: "",
+      title: roleLabel(context),
+      text: "The directors in office during the year and up to the date of this report are set out below.",
     },
     secretary: {
       title: "Secretary",
-      text: "The company secretary details are disclosed in the general information section where applicable.",
+      text: "The company secretary details are disclosed where applicable.",
     },
     externalAccountant: {
       title: "External accountant / compiler",
@@ -195,11 +210,11 @@ export function buildDefaultDirectorsReportTexts(
     },
     interestContracts: {
       title: "Interest in contracts",
-      text: "No material contracts involving directors’ interests were entered into during the year under review, unless otherwise disclosed.",
+      text: `No material contracts in which ${body} had an interest and which significantly affected the affairs of the entity were entered into during the year, unless otherwise disclosed.`,
     },
     borrowingLimitations: {
       title: "Borrowing limitations",
-      text: "The borrowing powers of the entity are subject to the applicable governing documents and statutory requirements.",
+      text: "Borrowing powers are exercised by the directors in terms of the applicable constitutional documents and relevant legislation.",
     },
     shareholder: {
       title: "Shareholder",
@@ -207,19 +222,19 @@ export function buildDefaultDirectorsReportTexts(
     },
     goingConcern: {
       title: "Going concern",
-      text: "The annual financial statements have been prepared on the basis of accounting policies applicable to a going concern. This basis presumes that funds will be available to finance future operations and that the realisation of assets and settlement of liabilities, contingent obligations and commitments will occur in the ordinary course of business.",
+      text: "The annual financial statements have been prepared on the basis of accounting policies applicable to a going concern. This basis presumes that funds will be available to finance future operations and that the realisation of assets and settlement of liabilities, contingent obligations and commitments will occur in the ordinary course of business. The {body} have reviewed the entity’s budgets, expected cash flows and available resources and are satisfied that the entity has adequate resources to continue in operational existence for the foreseeable future, unless otherwise disclosed in these annual financial statements.",
     },
     liquiditySolvency: {
       title: "Liquidity and solvency",
-      text: "The {bodyLabel} have considered the liquidity and solvency position of the entity and are satisfied that the entity is able to meet its obligations as they become due in the ordinary course of business, unless otherwise disclosed in these annual financial statements.",
+      text: `The ${body} have considered the liquidity and solvency position of the entity, including available cash resources, forecast commitments and liabilities falling due after the reporting date. Based on the information available to them, the ${body} are satisfied that the entity is able to meet its obligations as they become due in the ordinary course of business, unless otherwise disclosed in these annual financial statements.`,
     },
     litigation: {
       title: "Litigation",
-      text: "The {bodyLabel} are not aware of any legal or arbitration proceedings that may have a material effect on the financial position of the entity, unless otherwise disclosed.",
+      text: "The directors are not aware of any material legal or arbitration proceedings, pending or threatened, which may have a material effect on the financial position of the entity.",
     },
     socialEthics: {
       title: "Social and ethics committee",
-      text: "Social and ethics committee matters are disclosed where applicable.",
+      text: "The social and ethics committee disclosure is included where applicable.",
     },
     subsidiaries: {
       title: "Interest in subsidiaries",
@@ -235,458 +250,443 @@ export function buildDefaultDirectorsReportTexts(
     },
     nonCurrentAssets: {
       title: "Non-current assets",
-      text: "Movements in non-current assets are disclosed in the notes to the annual financial statements where applicable.",
+      text: "Details of material non-current assets are disclosed in the notes to the annual financial statements.",
     },
     authorisation: {
       title: "Authorisation of annual financial statements",
-      text: "The annual financial statements were authorised for issue by the {bodyLabel} on {approvalDate}.",
+      text: `The annual financial statements were authorised for issue by the ${body} on ${approval}.`,
     },
-    other1: {
-      title: "Other matter 1",
-      text: "Additional directors’ report disclosure to be edited.",
-    },
-    other2: {
-      title: "Other matter 2",
-      text: "Additional directors’ report disclosure to be edited.",
-    },
-    other3: {
-      title: "Other matter 3",
-      text: "Additional directors’ report disclosure to be edited.",
-    },
-    other4: {
-      title: "Other matter 4",
-      text: "Additional directors’ report disclosure to be edited.",
-    },
-    other5: {
-      title: "Other matter 5",
-      text: "Additional directors’ report disclosure to be edited.",
-    },
-    other6: {
-      title: "Other matter 6",
-      text: "Additional directors’ report disclosure to be edited.",
-    },
-    other7: {
-      title: "Other matter 7",
-      text: "Additional directors’ report disclosure to be edited.",
-    },
-    other8: {
-      title: "Other matter 8",
-      text: "Additional directors’ report disclosure to be edited.",
-    },
-    other9: {
-      title: "Other matter 9",
-      text: "Additional directors’ report disclosure to be edited.",
-    },
-    other10: {
-      title: "Other matter 10",
-      text: "Additional directors’ report disclosure to be edited.",
-    },
+    other1: { title: "Other matter 1", text: "" },
+    other2: { title: "Other matter 2", text: "" },
+    other3: { title: "Other matter 3", text: "" },
+    other4: { title: "Other matter 4", text: "" },
+    other5: { title: "Other matter 5", text: "" },
+    other6: { title: "Other matter 6", text: "" },
+    other7: { title: "Other matter 7", text: "" },
+    other8: { title: "Other matter 8", text: "" },
+    other9: { title: "Other matter 9", text: "" },
+    other10: { title: "Other matter 10", text: "" },
   };
 }
 
-const paragraph: React.CSSProperties = {
-  margin: "0 0 10px",
-  fontSize: 11,
-  lineHeight: 1.48,
-};
+export function buildDefaultDirectorsReportTexts(
+  context: NarrativeContext
+): DirectorsReportTextOverrides {
+  return defaultText(context || {});
+}
 
-const heading2: React.CSSProperties = {
-  fontSize: 12,
-  lineHeight: 1.3,
-  fontWeight: 800,
-  margin: "16px 0 6px",
-};
+const directorsReportOrder: Array<{
+  key: DirectorsReportSectionKey;
+  option: string;
+}> = [
+  { key: "generalReview", option: "directorsReportGeneralReview" },
+  { key: "incorporation", option: "directorsReportIncorporation" },
+  { key: "natureBusiness", option: "directorsReportNatureBusiness" },
+  { key: "reviewActivities", option: "directorsReportReviewActivities" },
+  { key: "financialResults", option: "directorsReportFinancialResults" },
+  { key: "eventsAfter", option: "directorsReportEventsAfter" },
+  { key: "dividends", option: "directorsReportDividends" },
+  { key: "shareCapital", option: "directorsReportShareCapital" },
+  { key: "directors", option: "directorsReportDirectors" },
+  { key: "secretary", option: "directorsReportSecretary" },
+  { key: "externalAccountant", option: "directorsReportExternalAccountant" },
+  { key: "interestContracts", option: "directorsReportInterestContracts" },
+  { key: "borrowingLimitations", option: "directorsReportBorrowingLimitations" },
+  { key: "shareholder", option: "directorsReportShareholder" },
+  { key: "goingConcern", option: "directorsReportGoingConcern" },
+  { key: "liquiditySolvency", option: "directorsReportLiquiditySolvency" },
+  { key: "litigation", option: "directorsReportLitigation" },
+  { key: "socialEthics", option: "directorsReportSocialEthics" },
+  { key: "subsidiaries", option: "directorsReportSubsidiaries" },
+  { key: "associates", option: "directorsReportAssociates" },
+  { key: "jointVentures", option: "directorsReportJointVentures" },
+  { key: "nonCurrentAssets", option: "directorsReportNonCurrentAssets" },
+  { key: "authorisation", option: "directorsReportAuthorisation" },
+  { key: "other1", option: "directorsReportOther1" },
+  { key: "other2", option: "directorsReportOther2" },
+  { key: "other3", option: "directorsReportOther3" },
+  { key: "other4", option: "directorsReportOther4" },
+  { key: "other5", option: "directorsReportOther5" },
+  { key: "other6", option: "directorsReportOther6" },
+  { key: "other7", option: "directorsReportOther7" },
+  { key: "other8", option: "directorsReportOther8" },
+  { key: "other9", option: "directorsReportOther9" },
+  { key: "other10", option: "directorsReportOther10" },
+];
 
-const mutedHeading: React.CSSProperties = {
-  ...heading2,
-  color: "#9ca3af",
-};
+export function DirectorsReportBlock({ context }: { context: NarrativeContext }) {
+  const defaults = buildDefaultDirectorsReportTexts(context || {});
+  const texts = { ...defaults, ...(context?.directorsReportTexts || {}) };
+  let number = 0;
 
-function OffDisclosure({ title }: { title: string }) {
   return (
-    <div style={{ margin: "10px 0 4px" }}>
-      <div style={mutedHeading}>{title}</div>
-      <p style={{ ...paragraph, color: "#6b7280" }}>
-        Section switched off. Turn it on to include and edit this disclosure.
-      </p>
+    <div>
+      {directorsReportOrder.map(({ key, option }) => {
+        if (!context?.[option]) return null;
+
+        const item = texts[key] || defaults[key];
+        const text = item?.text || "";
+        const title = item?.title || defaults[key]?.title || "";
+
+        if (!text.trim() && key.toString().startsWith("other")) return null;
+
+        number += 1;
+
+        return (
+          <section key={key} style={styles.reportSection}>
+            <h2 style={styles.reportHeading}>{number}. {title}</h2>
+            {key === "directors" ? <DirectorsTable context={context} /> : null}
+            {paragraphs(text, context).map((paragraph, index) => (
+              <p key={`${key}-${index}`} style={styles.paragraph}>{paragraph}</p>
+            ))}
+          </section>
+        );
+      })}
     </div>
   );
 }
 
-function NumberedSection({
-  number,
-  title,
-  children,
-}: {
-  number: number;
-  title: string;
-  children: React.ReactNode;
-}) {
+function DirectorsTable({ context }: { context: NarrativeContext }) {
+  const directors = Array.isArray(context?.directors) ? context.directors : [];
+  if (!directors.length) return null;
+
   return (
-    <div className="reportSectionBlock" style={{ marginBottom: 12 }}>
-      <h2 style={heading2}>
-        {number}. {title}
-      </h2>
-      {children}
-    </div>
+    <table style={styles.directorsTable}>
+      <thead>
+        <tr>
+          <th style={styles.thLeft}>{roleLabel(context).replace(/s$/, "")}</th>
+          <th style={styles.thLeft}>Designation</th>
+          <th style={styles.thLeft}>Nationality</th>
+        </tr>
+      </thead>
+      <tbody>
+        {directors.map((person, index) => (
+          <tr key={`${personName(person)}-${index}`}>
+            <td style={styles.tdLeft}>{personName(person)}</td>
+            <td style={styles.tdLeft}>{personRole(person)}</td>
+            <td style={styles.tdLeft}>{person?.nationality || ""}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
-function renderText(text: string, context: AfsNarrativeContext) {
-  const rendered = replaceTokens(text, context);
-  const paragraphs = rendered
-    .split(/\n{2,}/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  return paragraphs.map((item, index) => (
-    <p key={index} style={paragraph}>
-      {item}
-    </p>
-  ));
-}
-
-export function DirectorsResponsibilitiesBlock({
-  context,
-}: {
-  context: AfsNarrativeContext;
-}) {
-  const {
-    clientName,
-    bodyLabel,
-    bodyLabelCapitalised,
-    framework,
-    approvalDate,
-    directors,
-  } = context;
+export function DirectorsResponsibilitiesBlock({ context }: { context: NarrativeContext }) {
+  const body = bodyLabel(context);
+  const bodyCap = bodyLabelCapitalised(context);
+  const singularBody = singleBodyLabel(context);
+  const framework = frameworkLabel(context);
+  const act = governingAct(context);
+  const approvalDate = value(context, "approvalDate", "________________");
+  const isCc = isCloseCorporation(context);
+  const signatories = Array.isArray(context?.directors) && context.directors.length
+    ? context.directors
+    : [{ name: "" }, { name: "" }];
 
   return (
-    <>
-      <p style={paragraph}>
-        The {bodyLabel} are responsible for the preparation and fair presentation
-        of the annual financial statements of {clientName}, and for such internal
-        control as the {bodyLabel} determine is necessary to enable the
-        preparation of annual financial statements that are free from material
-        misstatement, whether due to fraud or error.
+    <section>
+      <p style={styles.paragraph}>
+        The {body} are required in terms of {act} to maintain adequate accounting records and are responsible for the content and integrity of the annual financial statements and related financial information included in this report. It is their responsibility to ensure that the annual financial statements fairly present the financial position of the entity as at the end of the financial year and the results of its operations and cash flows for the year then ended, in conformity with {framework}.
       </p>
 
-      <p style={paragraph}>
-        The {bodyLabel} are also responsible for maintaining adequate accounting
-        records and for the selection and application of appropriate accounting
-        policies, supported by reasonable and prudent judgements and estimates.
+      <p style={styles.paragraph}>
+        The annual financial statements have been prepared on the going concern basis and are based on appropriate accounting policies consistently applied and supported by reasonable and prudent judgements and estimates. The {body} are responsible for selecting and applying these accounting policies, making accounting estimates that are reasonable in the circumstances, and ensuring that the annual financial statements are prepared from accounting records and supporting information that are complete and reliable.
       </p>
 
-      <p style={paragraph}>
-        The annual financial statements have been prepared in accordance with{" "}
-        {framework}. The {bodyLabel} acknowledge that they are ultimately
-        responsible for the system of internal financial control established by
-        the entity and place considerable importance on maintaining a strong
-        control environment.
+      <p style={styles.paragraph}>
+        The {body} acknowledge that they are ultimately responsible for the system of internal financial control established by the entity and place considerable importance on maintaining a strong control environment. To enable the {body} to meet these responsibilities, the {body} set standards for internal control aimed at reducing the risk of error, fraud or loss in a cost-effective manner. These standards include the proper delegation of responsibilities, effective accounting procedures, adequate segregation of duties where practical, and controls designed to safeguard, verify and maintain accountability over the assets of the entity.
       </p>
 
-      <p style={paragraph}>
-        The controls are designed to reduce, but cannot eliminate, the risk of
-        material misstatement or loss. The {bodyLabel} are not aware of any
-        material breakdown in the functioning of these controls during the year
-        under review.
+      <p style={styles.paragraph}>
+        These controls and procedures are monitored as considered appropriate in the circumstances. The {body} are responsible for taking reasonable steps to prevent and detect fraud and other irregularities and for ensuring that the entity conducts its affairs in accordance with applicable laws and regulations. While no system of internal control can provide absolute assurance against material misstatement or loss, the {body} are of the opinion, based on the information and explanations available to them, that the system of internal control provides reasonable assurance that the financial records may be relied upon for the preparation of the annual financial statements.
       </p>
 
-      <p style={paragraph}>
-        In preparing the annual financial statements, the {bodyLabel} have
-        assessed the entity’s ability to continue as a going concern. The annual
-        financial statements have been prepared on the going concern basis unless
-        otherwise indicated in these annual financial statements.
+      <p style={styles.paragraph}>
+        In preparing the annual financial statements, the {body} are responsible for assessing the entity’s ability to continue as a going concern, disclosing matters related to going concern where applicable, and using the going concern basis of accounting unless the {body} either intend to liquidate the entity or to cease operations, or have no realistic alternative but to do so. The {body} have reviewed the entity’s cash flow forecast, available resources and expected future operations and have no reason to believe that the entity will not continue as a going concern for the foreseeable future, unless otherwise disclosed in these annual financial statements.
       </p>
 
-      <p style={paragraph}>
-        The independent compiler is responsible for reporting on the annual
-        financial statements in accordance with the applicable compilation
-        engagement standard. The annual financial statements have been approved
-        by the {bodyLabel} on {approvalDate} and are signed on their behalf by:
+      {isCc ? (
+        <p style={styles.paragraph}>
+          The member confirms, to the best of their knowledge and belief and based on the information available at the date of approval, that the close corporation has maintained accounting records as required by the Close Corporations Act of South Africa and that the annual financial statements are in agreement with those records. The member has also considered the solvency and liquidity position of the close corporation at the reporting date.
+        </p>
+      ) : (
+        <p style={styles.paragraph}>
+          The {body} are responsible for ensuring that the entity complies with the requirements of the Companies Act of South Africa insofar as they relate to annual financial statements. The {body} have considered the solvency and liquidity position of the entity and are satisfied that the entity will be able to meet its obligations as they become due in the ordinary course of business, unless otherwise disclosed in this report.
+        </p>
+      )}
+
+      <p style={styles.paragraph}>
+        The independent practitioner’s report, where applicable, is presented separately and should be read together with these annual financial statements. The practitioner’s responsibilities are limited to the engagement described in that report and do not reduce the responsibility of the {body} for the annual financial statements.
       </p>
 
-      <div
-        style={{
-          marginTop: 42,
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 42,
-        }}
-      >
-        {(directors.length ? directors : [{ name: bodyLabelCapitalised }]).map(
-          (person, index) => (
-            <div key={index}>
-              <div
-                style={{
-                  borderTop: "1px solid #111827",
-                  paddingTop: 6,
-                  fontWeight: 700,
-                }}
-              >
-                {getPersonName(person)}
-              </div>
-            </div>
-          )
-        )}
+      <p style={styles.paragraph}>
+        The annual financial statements set out in this report were approved by the {body} on {approvalDate} and are signed on their behalf by:
+      </p>
+
+      <div style={styles.signatureGrid}>
+        {signatories.map((person, index) => (
+          <div key={index} style={styles.signatureBlock}>
+            <div style={styles.signatureLine} />
+            <div>{personName(person) !== "Name not captured" ? personName(person) : bodyCap}</div>
+            <div style={styles.signatureCaption}>{personRole(person) || singularBody}</div>
+          </div>
+        ))}
       </div>
-    </>
+    </section>
   );
 }
 
-export function DirectorsReportBlock({
-  context,
+
+function uniqueStrings(values: string[]) {
+  const seen = new Set<string>();
+  return values
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .filter((item) => {
+      if (seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    });
+}
+
+function LogoWithFallback({
+  sources,
+  alt,
+  style,
 }: {
-  context: AfsNarrativeContext;
+  sources: string[];
+  alt: string;
+  style: React.CSSProperties;
 }) {
-  const defaults = buildDefaultDirectorsReportTexts(context);
-  const texts = context.directorsReportTexts || defaults;
+  const cleanSources = uniqueStrings(sources);
+  const [index, setIndex] = React.useState(0);
 
-  const options: Record<DirectorsReportSectionKey, boolean> = {
-    generalReview: context.directorsReportGeneralReview ?? true,
-    incorporation: context.directorsReportIncorporation ?? true,
-    natureBusiness: context.directorsReportNatureBusiness ?? true,
-    reviewActivities: context.directorsReportReviewActivities ?? true,
-    financialResults: context.directorsReportFinancialResults ?? true,
-    eventsAfter: context.directorsReportEventsAfter ?? true,
-    dividends: context.directorsReportDividends ?? true,
-    shareCapital: context.directorsReportShareCapital ?? true,
-    directors: context.directorsReportDirectors ?? true,
-    secretary: context.directorsReportSecretary ?? false,
-    externalAccountant: context.directorsReportExternalAccountant ?? true,
-    interestContracts: context.directorsReportInterestContracts ?? false,
-    borrowingLimitations: context.directorsReportBorrowingLimitations ?? false,
-    shareholder: context.directorsReportShareholder ?? true,
-    goingConcern: context.directorsReportGoingConcern ?? true,
-    liquiditySolvency: context.directorsReportLiquiditySolvency ?? true,
-    litigation: context.directorsReportLitigation ?? false,
-    socialEthics: context.directorsReportSocialEthics ?? false,
-    subsidiaries: context.directorsReportSubsidiaries ?? false,
-    associates: context.directorsReportAssociates ?? false,
-    jointVentures: context.directorsReportJointVentures ?? false,
-    nonCurrentAssets: context.directorsReportNonCurrentAssets ?? false,
-    authorisation: context.directorsReportAuthorisation ?? true,
-    other1: context.directorsReportOther1 ?? false,
-    other2: context.directorsReportOther2 ?? false,
-    other3: context.directorsReportOther3 ?? false,
-    other4: context.directorsReportOther4 ?? false,
-    other5: context.directorsReportOther5 ?? false,
-    other6: context.directorsReportOther6 ?? false,
-    other7: context.directorsReportOther7 ?? false,
-    other8: context.directorsReportOther8 ?? false,
-    other9: context.directorsReportOther9 ?? false,
-    other10: context.directorsReportOther10 ?? false,
-  };
-
-  let sectionNo = 1;
-
-  function nextNumber() {
-    const current = sectionNo;
-    sectionNo += 1;
-    return current;
-  }
-
-  function titleFor(key: DirectorsReportSectionKey) {
-    return texts[key]?.title || defaults[key].title;
-  }
-
-  function textFor(key: DirectorsReportSectionKey) {
-    return texts[key]?.text || defaults[key].text;
-  }
-
-  function renderNormalSection(key: DirectorsReportSectionKey) {
-    const title = titleFor(key);
-
-    if (!options[key]) {
-      return <OffDisclosure key={key} title={title} />;
-    }
-
-    return (
-      <NumberedSection key={key} number={nextNumber()} title={title}>
-        {renderText(textFor(key), context)}
-      </NumberedSection>
-    );
-  }
-
-  function renderDirectorsSection() {
-    const key: DirectorsReportSectionKey = "directors";
-    const title = titleFor(key);
-
-    if (!options.directors) {
-      return <OffDisclosure key={key} title={title} />;
-    }
-
-    return (
-      <NumberedSection key={key} number={nextNumber()} title={title}>
-        {context.directors.length ? (
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: 11,
-              marginTop: 6,
-            }}
-          >
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", paddingBottom: 5 }}>
-                  {context.roleLabel.slice(0, -1)}
-                </th>
-                <th style={{ textAlign: "left", paddingBottom: 5 }}>Office</th>
-                <th style={{ textAlign: "left", paddingBottom: 5 }}>
-                  Designation
-                </th>
-                <th style={{ textAlign: "left", paddingBottom: 5 }}>
-                  Nationality
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {context.directors.map((person, index) => (
-                <tr key={index}>
-                  <td style={{ padding: "5px 0" }}>{getPersonName(person)}</td>
-                  <td style={{ padding: "5px 0" }}>
-                    {person.resignation_date ? "Resigned" : "Current"}
-                  </td>
-                  <td style={{ padding: "5px 0" }}>
-                    {person.designation || context.roleLabel.slice(0, -1)}
-                  </td>
-                  <td style={{ padding: "5px 0" }}>
-                    {person.nationality || "South African"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p style={paragraph}>
-            No {context.roleLabel.toLowerCase()} have been captured.
-          </p>
-        )}
-      </NumberedSection>
-    );
-  }
+  if (!cleanSources.length || index >= cleanSources.length) return null;
 
   return (
-    <>
-      {renderNormalSection("generalReview")}
-      {renderNormalSection("incorporation")}
-      {renderNormalSection("natureBusiness")}
-      {renderNormalSection("reviewActivities")}
-      {renderNormalSection("financialResults")}
-      {renderNormalSection("eventsAfter")}
-      {renderNormalSection("dividends")}
-      {renderNormalSection("shareCapital")}
-      {renderDirectorsSection()}
-      {renderNormalSection("secretary")}
-      {renderNormalSection("externalAccountant")}
-      {renderNormalSection("interestContracts")}
-      {renderNormalSection("borrowingLimitations")}
-      {renderNormalSection("shareholder")}
-      {renderNormalSection("goingConcern")}
-      {renderNormalSection("liquiditySolvency")}
-      {renderNormalSection("litigation")}
-      {renderNormalSection("socialEthics")}
-      {renderNormalSection("subsidiaries")}
-      {renderNormalSection("associates")}
-      {renderNormalSection("jointVentures")}
-      {renderNormalSection("nonCurrentAssets")}
-      {renderNormalSection("authorisation")}
-      {renderNormalSection("other1")}
-      {renderNormalSection("other2")}
-      {renderNormalSection("other3")}
-      {renderNormalSection("other4")}
-      {renderNormalSection("other5")}
-      {renderNormalSection("other6")}
-      {renderNormalSection("other7")}
-      {renderNormalSection("other8")}
-      {renderNormalSection("other9")}
-      {renderNormalSection("other10")}
-    </>
+    <img
+      src={cleanSources[index]}
+      alt={alt}
+      style={style}
+      onError={() => setIndex((current) => current + 1)}
+    />
   );
 }
 
-export function CompilationReportBlock({
-  context,
-}: {
-  context: AfsNarrativeContext;
-}) {
-  const {
-    clientName,
-    yearEnd,
-    framework,
-    compilationDate,
-    practitionerFirm,
-    practitionerName,
-    practitionerDesignation,
-  } = context;
+export function CompilationReportBlock({ context }: { context: NarrativeContext }) {
+  const clientName = value(context, "clientName", "the entity");
+  const framework = value(
+    context,
+    "framework",
+    "the applicable financial reporting framework"
+  );
+  const practitionerName = value(context, "practitionerName", "Compiler");
+  const practitionerDesignation = value(context, "practitionerDesignation", "");
+  const practitionerFirm = value(context, "practitionerFirm", "");
+  const compilationDate = value(context, "compilationDate", "________________");
+
+  const topLogoCandidates = uniqueStrings([
+    value(context, "practitionerLogoUrl", ""),
+    "/bizzacc-logo.png",
+    "/BizzaccLogo.png",
+    "/bizzacc/BizzaccLogo.png",
+    "/bizzacc/bizzacc-logo.png",
+    "/bizzacc/letterhead-top.png",
+    "/letterhead-top.png",
+  ]);
+
+  const footerLogoCandidates = uniqueStrings([
+    value(context, "practitionerFooterLogoUrl", ""),
+    "/bizzacc-footer.png",
+    "/BizzaccFooter.png",
+    "/bizzacc/BizzaccFooter.png",
+    "/bizzacc/letterhead-bottom.png",
+    "/letterhead-bottom.png",
+  ]);
 
   return (
-    <>
-      <p style={{ ...paragraph, fontWeight: 800 }}>
-        To the management of {clientName}
-      </p>
-
-      <p style={paragraph}>
-        We have compiled the annual financial statements of {clientName}, based
-        on information provided by management. These annual financial statements
-        comprise the statement of financial position as at {yearEnd}, the
-        statement of comprehensive income, statement of changes in equity,
-        statement of cash flows, accounting policies and other explanatory
-        information.
-      </p>
-
-      <p style={paragraph}>
-        Management is responsible for the annual financial statements and for the
-        accuracy and completeness of the information provided to us for the
-        purpose of the compilation engagement.
-      </p>
-
-      <p style={paragraph}>
-        We performed this compilation engagement in accordance with International
-        Standard on Related Services 4410 (Revised), Compilation Engagements.
-      </p>
-
-      <p style={paragraph}>
-        We have applied our expertise in accounting and financial reporting to
-        assist management in the preparation and presentation of these annual
-        financial statements in accordance with {framework}. We have complied
-        with relevant ethical requirements, including the principles of
-        integrity, objectivity, professional competence and due care.
-      </p>
-
-      <p style={paragraph}>
-        A compilation engagement involves applying expertise in accounting and
-        financial reporting to assist management in the preparation and
-        presentation of financial information. It does not include performing
-        procedures designed to obtain assurance on the annual financial
-        statements.
-      </p>
-
-      <p style={paragraph}>
-        Since a compilation engagement is not an assurance engagement, we are not
-        required to verify the accuracy or completeness of the information
-        provided by management. Accordingly, we do not express an audit opinion or
-        a review conclusion on these annual financial statements.
-      </p>
-
-      <div style={{ marginTop: 44 }}>
-        <div
-          style={{
-            width: 280,
-            borderTop: "1px solid #111827",
-            paddingTop: 6,
-          }}
-        >
-          <strong>{practitionerFirm}</strong>
-          <br />
-          {practitionerName}
-          <br />
-          {practitionerDesignation}
-          <br />
-          <br />
-          {compilationDate}
+    <section>
+      <div style={styles.letterheadTop}>
+        <LogoWithFallback
+          sources={topLogoCandidates}
+          alt={`${practitionerFirm || "Practitioner"} logo`}
+          style={styles.letterheadLogo}
+        />
+        <div style={styles.letterheadFirmBlock}>
+          {practitionerFirm ? (
+            <div style={styles.letterheadFirmName}>{practitionerFirm}</div>
+          ) : null}
+          <div style={styles.letterheadFirmMeta}>
+            Independent practitioner’s compilation report
+          </div>
         </div>
       </div>
-    </>
+
+      <p style={styles.paragraph}>
+        We have compiled the annual financial statements of {clientName}, as set out in this report, based on information provided by management. These annual financial statements comprise the statement of financial position as at {value(context, "yearEnd", "the reporting date")}, the statement of comprehensive income, statement of changes in equity and statement of cash flows for the year then ended, and the notes to the annual financial statements, including a summary of significant accounting policies and other explanatory information.
+      </p>
+
+      <p style={styles.paragraph}>
+        We performed this compilation engagement in accordance with International Standard on Related Services 4410 (Revised), Compilation Engagements. We have applied our expertise in accounting and financial reporting to assist management in the preparation and presentation of these annual financial statements in accordance with {framework}.
+      </p>
+
+      <p style={styles.paragraph}>
+        We have complied with relevant ethical requirements, including the principles of integrity, objectivity, professional competence and due care, confidentiality and professional behaviour. A compilation engagement involves applying accounting and financial reporting expertise to assist management in presenting financial information in accordance with the selected reporting framework.
+      </p>
+
+      <p style={styles.paragraph}>
+        These annual financial statements and the accuracy and completeness of the records, documents, explanations and other information used to compile them are the responsibility of management. Management is also responsible for the judgements, estimates and accounting policies applied in the preparation of the annual financial statements.
+      </p>
+
+      <p style={styles.paragraph}>
+        Since a compilation engagement is not an assurance engagement, we are not required to verify the accuracy or completeness of the information provided to us to compile these annual financial statements. Accordingly, we do not express an audit opinion or a review conclusion on whether these annual financial statements are prepared in accordance with {framework}.
+      </p>
+
+      <p style={styles.paragraph}>
+        Our report is intended solely for the use of management and those charged with governance of the entity and should be read together with the annual financial statements, accounting policies and notes included in this report.
+      </p>
+
+      <div style={styles.compilationSignatureBlock}>
+        <div style={styles.signatureLine} />
+        {practitionerFirm ? <p style={styles.paragraph}><strong>{practitionerFirm}</strong></p> : null}
+        <p style={styles.paragraph}><strong>{practitionerName}</strong></p>
+        {practitionerDesignation ? <p style={styles.paragraph}>{practitionerDesignation}</p> : null}
+        <p style={styles.paragraph}>{compilationDate}</p>
+      </div>
+
+      <div style={styles.letterheadBottom}>
+        <LogoWithFallback
+          sources={footerLogoCandidates}
+          alt={`${practitionerFirm || "Practitioner"} footer`}
+          style={styles.letterheadFooterLogo}
+        />
+        <div style={styles.letterheadFooterText}>
+          {practitionerFirm || "Independent practitioner"}
+        </div>
+      </div>
+    </section>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  paragraph: {
+    margin: "0 0 8.5px",
+    fontSize: 11.55,
+    lineHeight: 1.45,
+  },
+  reportSection: {
+    marginBottom: 13,
+    breakInside: "avoid",
+    pageBreakInside: "avoid",
+  },
+  reportHeading: {
+    fontSize: 12.9,
+    lineHeight: 1.25,
+    fontWeight: 900,
+    margin: "13px 0 5px",
+  },
+  directorsTable: {
+    width: "100%",
+    borderCollapse: "collapse",
+    margin: "2px 0 8px",
+    fontSize: 10.5,
+  },
+  thLeft: {
+    textAlign: "left",
+    borderBottom: "1px solid #111827",
+    padding: "3px 4px",
+    fontWeight: 900,
+  },
+  tdLeft: {
+    textAlign: "left",
+    borderBottom: "1px solid #e5e7eb",
+    padding: "3px 4px",
+  },
+  compilationSignatureBlock: {
+    marginTop: 28,
+    breakInside: "avoid",
+    pageBreakInside: "avoid",
+  },
+  signatureGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 30,
+    marginTop: 30,
+    breakInside: "avoid",
+    pageBreakInside: "avoid",
+  },
+  signatureBlock: {
+    fontSize: 10.9,
+    lineHeight: 1.25,
+  },
+  signatureCaption: {
+    marginTop: 2,
+    color: "#374151",
+    fontSize: 10.4,
+  },
+  signatureLine: {
+    borderTop: "1px solid #111827",
+    height: 1,
+    marginBottom: 6,
+    width: "80%",
+  },
+  letterheadTop: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+    margin: "0 0 14px",
+    padding: "0 0 9px",
+    borderBottom: "1px solid #d1d5db",
+    breakInside: "avoid",
+    pageBreakInside: "avoid",
+  },
+  letterheadLogo: {
+    maxWidth: 170,
+    maxHeight: 58,
+    objectFit: "contain",
+    display: "block",
+  },
+  letterheadFirmBlock: {
+    textAlign: "right",
+    marginLeft: "auto",
+    fontSize: 10.6,
+    lineHeight: 1.25,
+    color: "#374151",
+  },
+  letterheadFirmName: {
+    fontWeight: 900,
+    color: "#111827",
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  letterheadFirmMeta: {
+    fontSize: 10.2,
+    color: "#4b5563",
+  },
+  letterheadBottom: {
+    marginTop: 28,
+    paddingTop: 9,
+    borderTop: "1px solid #d1d5db",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    breakInside: "avoid",
+    pageBreakInside: "avoid",
+  },
+  letterheadFooterLogo: {
+    maxWidth: 150,
+    maxHeight: 36,
+    objectFit: "contain",
+    display: "block",
+  },
+  letterheadFooterText: {
+    marginLeft: "auto",
+    textAlign: "right",
+    fontSize: 9.6,
+    lineHeight: 1.25,
+    color: "#6b7280",
+  },
+};

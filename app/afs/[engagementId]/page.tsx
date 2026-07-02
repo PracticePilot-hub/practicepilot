@@ -12,7 +12,7 @@ import AdjustingJournalsPanel from "./AdjustingJournalsPanel";
 import ReviewPanel from "./ReviewPanel";
 import FinancialStatementsPanel from "./FinancialStatementsPanel";
 import TaxCalculatorPanel from "./TaxCalculatorPanel";
-import Link from "next/link";
+
 
 
 
@@ -553,10 +553,12 @@ export default function AFSEngagementPage() {
             ← Back to AFS
           </button>
 
-<Link
-  href={`/afs/${engagementId}/print-studio`}
-  target="_blank"
-  rel="noreferrer"
+<button
+  type="button"
+  onClick={() => {
+    if (!engagementId) return;
+    window.open(`/afs/${String(engagementId)}/print-studio`, "_blank", "noopener,noreferrer");
+  }}
   style={{
     fontSize: 12,
     fontWeight: 600,
@@ -566,10 +568,12 @@ export default function AFSEngagementPage() {
     padding: "7px 12px",
     textDecoration: "none",
     whiteSpace: "nowrap",
+    cursor: engagementId ? "pointer" : "not-allowed",
+    opacity: engagementId ? 1 : 0.55,
   }}
 >
   Open Print Studio ↗
-</Link>
+</button>
 
           <div style={styles.fileHeaderLine}>
             <span style={styles.fileHeaderLabel}>AFS Working File</span>

@@ -1,57 +1,647 @@
+/* PracticePilot AFS - professional document typography v3
+   Purpose:
+   - one stronger professional typography system across the full AFS pack
+   - improve readability without using global zoom/scaling hacks
+   - keep General Information values close to labels
+   - keep the latest improved notes direction, but make it feel part of the same report
+*/
+
 .page {
   width: 210mm;
   min-height: 297mm;
+  box-sizing: border-box;
   background: #ffffff;
   color: #111827;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.16);
   margin: 0 auto 18px;
-  position: relative;
-  box-sizing: border-box;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.11);
+  overflow: hidden;
   page-break-after: always;
+  break-after: page;
+}
+
+.page:last-child {
+  page-break-after: auto;
+  break-after: auto;
 }
 
 .content {
-  min-height: 297mm;
-  padding: 20mm 22mm 24mm;
   box-sizing: border-box;
+  width: 100%;
+  min-height: 297mm;
+  padding: 16mm 17mm 16mm;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11.65px;
+  line-height: 1.43;
+  color: #111827;
 }
 
 .reportHeader {
-  margin-bottom: 6mm;
-  padding-bottom: 3mm;
-  border-bottom: 1px solid #111827;
+  margin: 0 0 14px;
+  padding: 0 0 7px;
+  border-bottom: 1.2px solid #111827;
 }
 
 .reportClientName {
-  font-size: 12.5px;
-  line-height: 15px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
+  margin: 0 0 2px;
+  font-size: 11.1px;
+  line-height: 1.15;
+  font-weight: 850;
+  letter-spacing: 0.01em;
   text-transform: uppercase;
 }
 
 .reportMeta {
-  margin-top: 0;
-  font-size: 9.5px;
-  line-height: 11px;
+  margin: 0;
+  font-size: 9.1px;
+  line-height: 1.18;
   color: #374151;
 }
 
+/* ------------------------------------------------------------------
+   Whole-document typography baseline.
+------------------------------------------------------------------ */
+
+.content :where(p, li, div, span, td, th, input, textarea, button) {
+  font-family: Arial, Helvetica, sans-serif !important;
+}
+
+.content :where(p, li) {
+  font-size: 11.55px !important;
+  line-height: 1.44 !important;
+  color: #111827;
+}
+
+.content :where(p) {
+  margin: 0 0 7.5px !important;
+}
+
+.content :where(h1) {
+  margin: 0 0 12px !important;
+  padding: 0 0 6px !important;
+  border-bottom: 1.2px solid #111827 !important;
+  font-size: 16.2px !important;
+  line-height: 1.17 !important;
+  font-weight: 850 !important;
+  letter-spacing: -0.005em !important;
+  color: #111827 !important;
+}
+
+.content :where(h2) {
+  margin: 13px 0 6px !important;
+  font-size: 13.05px !important;
+  line-height: 1.22 !important;
+  font-weight: 850 !important;
+  color: #111827 !important;
+}
+
+.content :where(h3) {
+  margin: 8px 0 4px !important;
+  font-size: 11.45px !important;
+  line-height: 1.25 !important;
+  font-weight: 820 !important;
+  color: #111827 !important;
+}
+
+.content :where(section) > p,
+.content :where(article) > p {
+  font-size: 11.55px !important;
+  line-height: 1.45 !important;
+}
+
+/* ------------------------------------------------------------------
+   Tables/statements/notes baseline.
+   No global right-align of second columns — amount cells align themselves.
+------------------------------------------------------------------ */
+
+.content :where(table) {
+  width: 100% !important;
+  max-width: 100% !important;
+  border-collapse: collapse !important;
+  table-layout: fixed !important;
+  margin: 6px 0 13px !important;
+  font-size: 10.95px !important;
+  line-height: 1.31 !important;
+}
+
+.content :where(th) {
+  font-size: 10.75px !important;
+  line-height: 1.24 !important;
+  font-weight: 850 !important;
+  color: #111827 !important;
+  padding: 3.2px 3.2px !important;
+  vertical-align: bottom !important;
+}
+
+.content :where(td) {
+  font-size: 10.85px !important;
+  line-height: 1.30 !important;
+  color: #111827 !important;
+  padding: 2.8px 3.2px !important;
+  vertical-align: top !important;
+}
+
+.content :where(th, td) {
+  text-align: left;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+}
+
+.content :where(td[style*="right"], th[style*="right"], [data-total-amount="true"]) {
+  text-align: right !important;
+  white-space: nowrap !important;
+}
+
+.content :where(thead th) {
+  border-bottom: 1px solid #111827 !important;
+}
+
+.content :where([data-total-label="true"]) {
+  font-weight: 850 !important;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+}
+
+.content :where([data-total-amount="true"]) {
+  font-weight: 850 !important;
+  border-top: 1px solid #111827 !important;
+  border-bottom: 1.35px solid #111827 !important;
+}
+
+/* ------------------------------------------------------------------
+   General Information / two-column details.
+   This fixes the far-right values issue by making the table a proper
+   professional information block, not a full-page numeric statement.
+------------------------------------------------------------------ */
+
+.content :where(table[data-general-info="true"], .generalInfoTable, .infoTable) {
+  width: 72% !important;
+  max-width: 132mm !important;
+  margin-left: 0 !important;
+  margin-right: auto !important;
+  table-layout: fixed !important;
+}
+
+.content :where(table[data-general-info="true"] th, table[data-general-info="true"] td,
+.generalInfoTable th, .generalInfoTable td,
+.infoTable th, .infoTable td) {
+  text-align: left !important;
+  white-space: normal !important;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  padding-top: 2.5px !important;
+  padding-bottom: 2.5px !important;
+}
+
+.content :where(table[data-general-info="true"] th:first-child, table[data-general-info="true"] td:first-child,
+.generalInfoTable th:first-child, .generalInfoTable td:first-child,
+.infoTable th:first-child, .infoTable td:first-child) {
+  width: 42% !important;
+  font-weight: 850 !important;
+}
+
+.content :where(table[data-general-info="true"] th:nth-child(2), table[data-general-info="true"] td:nth-child(2),
+.generalInfoTable th:nth-child(2), .generalInfoTable td:nth-child(2),
+.infoTable th:nth-child(2), .infoTable td:nth-child(2)) {
+  width: 58% !important;
+  text-align: left !important;
+}
+
+/* ------------------------------------------------------------------
+   Narrative report pages.
+------------------------------------------------------------------ */
+
+.content :where(#print-directors-responsibilities, #print-directors-report, #print-compiler-report, #print-policies) {
+  font-size: 11.55px !important;
+  line-height: 1.45 !important;
+}
+
+.content :where(#print-directors-responsibilities p, #print-directors-report p, #print-compiler-report p, #print-policies p) {
+  font-size: 11.55px !important;
+  line-height: 1.45 !important;
+  margin-bottom: 8px !important;
+}
+
+/* ------------------------------------------------------------------
+   Notes: keep improved compact note layout but align with document scale.
+------------------------------------------------------------------ */
+
+.content #print-notes {
+  font-size: 10.9px !important;
+  line-height: 1.34 !important;
+}
+
+.content #print-notes h1 {
+  font-size: 15.8px !important;
+  margin-bottom: 13px !important;
+}
+
+.content #print-notes h2 {
+  font-size: 12px !important;
+  margin: 11px 0 5px !important;
+}
+
+.content #print-notes table {
+  width: 80% !important;
+  max-width: 80% !important;
+  margin: 4px 0 13px auto !important;
+  table-layout: fixed !important;
+}
+
+.content #print-notes table th,
+.content #print-notes table td {
+  font-size: 10.75px !important;
+  line-height: 1.29 !important;
+}
+
+/* Print/export should use true A4 pages, not screen shadows. */
 @media print {
   .page {
-    width: 210mm;
-    min-height: 297mm;
-    margin: 0;
-    box-shadow: none;
-    page-break-after: always;
+    margin: 0 !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
   }
 
   .content {
-    min-height: 297mm;
-    padding: 20mm 22mm 24mm;
+    padding: 16mm 17mm 16mm !important;
+  }
+}
+
+/* ------------------------------------------------------------------
+   PracticePilot AFS readability override v4
+   Purpose: one stronger professional typography layer across the report,
+   including inline-rendered sections. This is intentionally appended last.
+------------------------------------------------------------------ */
+
+.content {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 12.2px !important;
+  line-height: 1.46 !important;
+  color: #111827 !important;
+}
+
+.content :where(section, article) {
+  font-size: 12px !important;
+  line-height: 1.48 !important;
+  color: #111827 !important;
+}
+
+.content :where(p, li, div, span) {
+  font-family: Arial, Helvetica, sans-serif !important;
+}
+
+.content :where(p, li) {
+  font-size: 12px !important;
+  line-height: 1.48 !important;
+}
+
+.content :where(h1) {
+  font-size: 17.2px !important;
+  line-height: 1.18 !important;
+  font-weight: 850 !important;
+  letter-spacing: -0.005em !important;
+  margin: 0 0 13px !important;
+  padding: 0 0 6px !important;
+  border-bottom: 1.25px solid #111827 !important;
+  color: #111827 !important;
+}
+
+.content :where(h2) {
+  font-size: 13.4px !important;
+  line-height: 1.22 !important;
+  font-weight: 850 !important;
+  margin: 13px 0 6px !important;
+}
+
+.content :where(h3) {
+  font-size: 12.15px !important;
+  line-height: 1.25 !important;
+  font-weight: 820 !important;
+  margin: 9px 0 4px !important;
+}
+
+.content :where(table) {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 11.35px !important;
+  line-height: 1.31 !important;
+}
+
+.content :where(th) {
+  font-size: 11.15px !important;
+  line-height: 1.24 !important;
+  font-weight: 850 !important;
+}
+
+.content :where(td) {
+  font-size: 11.2px !important;
+  line-height: 1.30 !important;
+}
+
+/* General information must read like a professional info page, not a statement table. */
+.content #print-general-info table {
+  width: 76% !important;
+  max-width: 138mm !important;
+  margin-left: 0 !important;
+  margin-right: auto !important;
+  table-layout: fixed !important;
+}
+
+.content #print-general-info td {
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
+  border: 0 !important;
+  white-space: normal !important;
+  text-align: left !important;
+}
+
+.content #print-general-info td:first-child {
+  width: 34% !important;
+  font-weight: 850 !important;
+}
+
+.content #print-general-info td:nth-child(2) {
+  width: 66% !important;
+  text-align: left !important;
+}
+
+/* Narrative pages need professional weight and readability. */
+.content #print-directors-responsibilities,
+.content #print-directors-report,
+.content #print-compiler-report,
+.content #print-policies {
+  font-size: 12px !important;
+  line-height: 1.48 !important;
+}
+
+.content #print-directors-responsibilities p,
+.content #print-directors-report p,
+.content #print-compiler-report p,
+.content #print-policies p {
+  font-size: 12px !important;
+  line-height: 1.48 !important;
+  margin-bottom: 8.2px !important;
+}
+
+/* Keep the improved note layout, but scale it to match the rest of the document. */
+.content #print-notes {
+  font-size: 11.25px !important;
+  line-height: 1.35 !important;
+}
+
+.content #print-notes h1 {
+  font-size: 16.3px !important;
+}
+
+.content #print-notes h2 {
+  font-size: 12.45px !important;
+}
+
+.content #print-notes table {
+  width: 84% !important;
+  max-width: 84% !important;
+  margin-left: auto !important;
+  margin-right: 0 !important;
+  table-layout: fixed !important;
+}
+
+.content #print-notes th,
+.content #print-notes td {
+  font-size: 11.05px !important;
+  line-height: 1.30 !important;
+}
+
+/* Statement pages: slightly stronger without turning the report into 16 pages again. */
+.content #print-sfp table,
+.content #print-soci table,
+.content #print-sce table,
+.content #print-cash-flow table,
+.content #print-detailed-income table,
+.content #print-tax table {
+  font-size: 11.25px !important;
+  line-height: 1.29 !important;
+}
+
+.content #print-sfp th,
+.content #print-sfp td,
+.content #print-soci th,
+.content #print-soci td,
+.content #print-sce th,
+.content #print-sce td,
+.content #print-cash-flow th,
+.content #print-cash-flow td,
+.content #print-detailed-income th,
+.content #print-detailed-income td,
+.content #print-tax th,
+.content #print-tax td {
+  font-size: 11.15px !important;
+  line-height: 1.28 !important;
+}
+
+@media print {
+  .content {
+    font-size: 12.05px !important;
+    line-height: 1.44 !important;
+  }
+
+  .content :where(p, li) {
+    font-size: 11.9px !important;
+    line-height: 1.45 !important;
+  }
+
+  .content :where(td) {
+    font-size: 11px !important;
+  }
+}/* ------------------------------------------------------------------
+   PracticePilot AFS print-boundary stabiliser v2
+   Purpose:
+   - CSS-module safe selectors only.
+   - Each AfsA4Page article starts on a fresh PDF page.
+   - Long narrative pages may flow naturally over more than one physical page.
+   - The next AFS section must not begin in the leftover space of the prior section.
+   - Do not shrink/crimp Directors' Report wording to force a one-page result.
+------------------------------------------------------------------ */
+
+/* Notes must keep both current and prior year columns visible. */
+.content :global(#print-notes) table,
+.content :global(#afs-notes) table {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  table-layout: fixed !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+.content :global(#print-notes) col:nth-child(1),
+.content :global(#afs-notes) col:nth-child(1) {
+  width: auto !important;
+}
+
+.content :global(#print-notes) col:nth-child(2),
+.content :global(#print-notes) col:nth-child(3),
+.content :global(#afs-notes) col:nth-child(2),
+.content :global(#afs-notes) col:nth-child(3) {
+  width: 25mm !important;
+  min-width: 25mm !important;
+  max-width: 25mm !important;
+}
+
+.content :global(#print-notes) th:nth-child(2),
+.content :global(#print-notes) th:nth-child(3),
+.content :global(#print-notes) td:nth-child(2),
+.content :global(#print-notes) td:nth-child(3),
+.content :global(#afs-notes) th:nth-child(2),
+.content :global(#afs-notes) th:nth-child(3),
+.content :global(#afs-notes) td:nth-child(2),
+.content :global(#afs-notes) td:nth-child(3) {
+  width: 25mm !important;
+  min-width: 25mm !important;
+  max-width: 25mm !important;
+  text-align: right !important;
+  white-space: nowrap !important;
+  padding-left: 3px !important;
+  padding-right: 3px !important;
+  overflow: visible !important;
+}
+
+.content :global(#print-notes) th:first-child,
+.content :global(#print-notes) td:first-child,
+.content :global(#afs-notes) th:first-child,
+.content :global(#afs-notes) td:first-child {
+  width: auto !important;
+  max-width: none !important;
+  text-align: left !important;
+  overflow: visible !important;
+}
+
+/* Keep individual notes together where practical, but do not force a whole
+   Notes section to become one indivisible block. */
+.content :global(#print-notes) section,
+.content :global(#afs-notes) section {
+  break-inside: avoid-page !important;
+  page-break-inside: avoid !important;
+  margin-bottom: 7.5mm !important;
+}
+
+/* Directors' Report must keep its professional wording and normal document
+   typography. Do not compress it just to fit one page. */
+.content :global(#print-directors-report),
+.content :global(#print-directors-report) * {
+  max-height: none !important;
+}
+
+.content :global(#print-directors-report) p,
+.content :global(#print-directors-report) li {
+  font-size: inherit !important;
+  line-height: inherit !important;
+}
+
+/* Remove section-level page breaks from inner report blocks.
+   The A4 page/article wrapper controls page boundaries. */
+.content :global(#print-compiler-report),
+.content :global(#print-sfp),
+.content :global(#print-soci),
+.content :global(#print-sce),
+.content :global(#print-cash-flow),
+.content :global(#print-policies),
+.content :global(#print-notes),
+.content :global(#print-detailed-income),
+.content :global(#afs-detailed-income),
+.content :global(#print-tax) {
+  break-before: auto !important;
+  page-break-before: auto !important;
+}
+
+@media print {
+  :global(html),
+  :global(body) {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  /* Stronger than break-after: every AFS page shell after the first starts
+     on a fresh PDF page. This prevents the next report section from starting
+     in the remaining blank space of the previous physical page. */
+  .page {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    height: auto !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    display: block !important;
+
+    break-before: page !important;
+    page-break-before: always !important;
+    break-after: auto !important;
+    page-break-after: auto !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+
+  .page:first-child {
+    break-before: auto !important;
+    page-break-before: auto !important;
+  }
+
+  .page:last-child {
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
+
+  .content {
+    width: auto !important;
+    min-height: 297mm !important;
+    height: auto !important;
+    padding: 16mm 17mm 16mm !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+
+  /* Avoid orphaning just the report header at the bottom of a page. */
+  .reportHeader,
+  .reportHeader * {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   .reportHeader {
-    break-after: avoid;
+    margin-top: 0 !important;
+  }
+
+  /* CSS-module safe heading orphan control. */
+  .content :global(h1),
+  .content :global(h2),
+  .content :global(h3) {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  .content :global(#print-notes) table,
+  .content :global(#afs-notes) table {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    table-layout: fixed !important;
+  }
+
+  .content :global(#print-notes) col:nth-child(2),
+  .content :global(#print-notes) col:nth-child(3),
+  .content :global(#afs-notes) col:nth-child(2),
+  .content :global(#afs-notes) col:nth-child(3) {
+    width: 25mm !important;
+    min-width: 25mm !important;
+    max-width: 25mm !important;
   }
 }

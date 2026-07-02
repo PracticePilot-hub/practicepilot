@@ -1,14 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "../../../lib/supabaseServer";
 
-type RouteContext = {
-  params: Promise<{
-    id: string;
-  }>;
-};
-
-async function getEngagementId(context: RouteContext) {
-  const params = await context.params;
+async function getIdFromContext(context: any) {
+  const params = await context?.params;
   const id = params?.id;
 
   if (!id || typeof id !== "string") {
@@ -18,14 +12,14 @@ async function getEngagementId(context: RouteContext) {
   return id;
 }
 
-function normaliseJson(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+function normaliseJson(value: any) {
+  if (!value || typeof value !== "object") return {};
   return value;
 }
 
-export async function GET(_req: NextRequest, context: RouteContext) {
+export async function GET(req: NextRequest, context: any) {
   try {
-    const engagementId = await getEngagementId(context);
+    const engagementId = await getIdFromContext(context);
     const supabase = getSupabaseServer();
 
     const { data, error } = await supabase
@@ -44,6 +38,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
       noteTexts: data?.note_texts || {},
       coverSettings: data?.cover_settings || {},
       compilerReportSettings: data?.compiler_report_settings || {},
+      statementOverrides: data?.statement_overrides || {},
       success: true,
     });
   } catch (error: any) {
@@ -57,13 +52,13 @@ export async function GET(_req: NextRequest, context: RouteContext) {
   }
 }
 
-export async function PATCH(req: NextRequest, context: RouteContext) {
+export async function PATCH(req: NextRequest, context: any) {
   try {
-    const engagementId = await getEngagementId(context);
+    const engagementId = await getIdFromContext(context);
     const body = await req.json();
     const supabase = getSupabaseServer();
 
-    const updatePayload: Record<string, unknown> = {
+    const updatePayload: Record<string, any> = {
       engagement_id: engagementId,
       updated_at: new Date().toISOString(),
     };
@@ -98,6 +93,12 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       );
     }
 
+    if (body.statementOverrides !== undefined) {
+      updatePayload.statement_overrides = normaliseJson(
+        body.statementOverrides
+      );
+    }
+
     const { data, error } = await supabase
       .from("afs_print_studio_settings")
       .upsert(updatePayload, { onConflict: "engagement_id" })
@@ -114,6 +115,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       noteTexts: data?.note_texts || {},
       coverSettings: data?.cover_settings || {},
       compilerReportSettings: data?.compiler_report_settings || {},
+      statementOverrides: data?.statement_overrides || {},
       success: true,
     });
   } catch (error: any) {

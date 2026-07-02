@@ -2,21 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import AfsPrintStudioShell, {
+import type {
   AfsReportOption,
   AfsStudioSection,
-} from "../components/AfsPrintStudioShell";
-import AfsA4Page from "../components/AfsA4Page";
+} from "../../components/AfsPrintStudioShell";
+import AfsA4Page from "../../components/AfsA4Page";
 import AfsStatementTable, {
   AfsStatementRow,
-} from "../components/AfsStatementTable";
-import AfsDirectorsReportSettings from "../components/AfsDirectorsReportSettings";
-import AfsEditableDisclosureSettings from "../components/AfsEditableDisclosureSettings";
-import AfsStatementOverrideSettings from "../components/AfsStatementOverrideSettings";
-import AfsStructuredNotesPanel from "./AfsStructuredNotesPanel";
-import AfsFlightDeck, {
+} from "../../components/AfsStatementTable";
+import AfsDirectorsReportSettings from "../../components/AfsDirectorsReportSettings";
+import AfsEditableDisclosureSettings from "../../components/AfsEditableDisclosureSettings";
+import AfsStatementOverrideSettings from "../../components/AfsStatementOverrideSettings";
+import AfsStructuredNotesPanel from "../AfsStructuredNotesPanel";
+import {
   buildAfsFlightDeckIssuesFromEngine,
-} from "./AfsFlightDeck";
+} from "../AfsFlightDeck";
 import {
   DirectorsResponsibilitiesBlock,
   DirectorsReportBlock,
@@ -24,7 +24,7 @@ import {
   buildDefaultDirectorsReportTexts,
   DirectorsReportSectionKey,
   DirectorsReportTextOverrides,
-} from "../components/AfsNarrativeBlocks";
+} from "../../components/AfsNarrativeBlocks";
 import {
   accountingPolicySections,
   noteSections,
@@ -32,12 +32,12 @@ import {
   buildDefaultNoteTexts,
   renderDisclosureText,
   EditableDisclosureTextMap,
-} from "../components/AfsPolicyNoteDefaults";
+} from "../../components/AfsPolicyNoteDefaults";
 import {
   buildAfsPrintStatementEngine,
   AfsStatementOverrides,
   AfsNoteKey,
-} from "../components/AfsPrintStatementEngine";
+} from "../../components/AfsPrintStatementEngine";
 
 type EngagementData = {
   id: string;
@@ -92,6 +92,14 @@ type StatementBucket = {
   note?: string | number | null;
   current: number;
   prior: number;
+};
+
+type NoteAmountLine = {
+  id?: string;
+  label: string;
+  current: number;
+  prior: number;
+  meta?: Record<string, any>;
 };
 
 type ReportOptions = {
@@ -364,7 +372,6 @@ const defaultReportOptions: ReportOptions = {
   showCoverNoAssuranceStatement: true,
 };
 
-
 function safeNumber(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -451,7 +458,7 @@ function bucketLabel(line: TrialBalanceLine) {
 
 function addToBuckets(
   buckets: Map<string, StatementBucket>,
-  line: TrialBalanceLine
+  line: TrialBalanceLine,
 ) {
   const key = bucketKey(line);
   const current = normaliseAmount(line, rawCurrent(line));
@@ -501,7 +508,7 @@ function lineSearchText(line: TrialBalanceLine) {
 
 function buildBuckets(
   lines: TrialBalanceLine[],
-  matcher: (line: TrialBalanceLine) => boolean
+  matcher: (line: TrialBalanceLine) => boolean,
 ) {
   const buckets = new Map<string, StatementBucket>();
 
@@ -510,7 +517,7 @@ function buildBuckets(
   return Array.from(buckets.values())
     .filter(
       (bucket) =>
-        Math.round(bucket.current) !== 0 || Math.round(bucket.prior) !== 0
+        Math.round(bucket.current) !== 0 || Math.round(bucket.prior) !== 0,
     )
     .sort((a, b) => a.label.localeCompare(b.label));
 }
@@ -532,9 +539,187 @@ function sumBuckets(buckets: StatementBucket[]) {
       current: total.current + bucket.current,
       prior: total.prior + bucket.prior,
     }),
-    { current: 0, prior: 0 }
+    { current: 0, prior: 0 },
   );
 }
+
+
+function statementRowHasAmountFields(row: AfsStatementRow) {
+  const item = row as any;
+  return item?.current !== undefined || item?.prior !== undefined;
+}
+
+function statementRowRoundedAmount(row: AfsStatementRow, side: "current" | "prior") {
+  const item = row as any;
+  return Math.round(safeNumber(item?.[side]));
+}
+
+function statementRowHasNonZeroAmount(row: AfsStatementRow) {
+  if (!statementRowHasAmountFields(row)) return false;
+  return (
+    statementRowRoundedAmount(row, "current") !== 0 ||
+    statementRowRoundedAmount(row, "prior") !== 0
+  );
+}
+
+function isDetailedIncomeHeadingRow(row: AfsStatementRow) {
+  const item = row as any;
+  const type = String(item?.type || "").toLowerCase();
+
+  if (type === "section" || type === "subsection") return true;
+  if (statementRowHasAmountFields(row)) return false;
+
+  const label = String(item?.label || "").trim();
+  return label.length > 0;
+}
+
+function isDetailedIncomeSpacerRow(row: AfsStatementRow) {
+  const item = row as any;
+  return String(item?.type || "").toLowerCase() === "spacer";
+}
+
+function isZeroDetailedIncomeAmountRow(row: AfsStatementRow) {
+  if (!statementRowHasAmountFields(row)) return false;
+  return !statementRowHasNonZeroAmount(row);
+}
+
+function cleanDetailedIncomeRowsForReport(rows: AfsStatementRow[]) {
+  const firstPass = (rows || []).filter(
+    (row) => !isDetailedIncomeSpacerRow(row) && !isZeroDetailedIncomeAmountRow(row),
+  );
+
+  return firstPass.filter((row, index) => {
+    if (!isDetailedIncomeHeadingRow(row)) return true;
+
+    for (let nextIndex = index + 1; nextIndex < firstPass.length; nextIndex += 1) {
+      const nextRow = firstPass[nextIndex];
+
+      if (isDetailedIncomeHeadingRow(nextRow)) return false;
+      if (statementRowHasNonZeroAmount(nextRow)) return true;
+    }
+
+    return false;
+  });
+}
+
+
+function isShareholderLoanTrialBalanceLine(line: TrialBalanceLine) {
+  const text = lineSearchText(line);
+
+  if (
+    includesAny(text, [
+      "share capital",
+      "ordinary share",
+      "issued share",
+      "retained",
+      "accumulated",
+      "revenue",
+      "sales",
+      "expense",
+      "asset",
+    ])
+  ) {
+    return false;
+  }
+
+  return includesAny(text, [
+    "shareholder",
+    "shareholder loan",
+    "shareholders loan",
+    "shareholders' loan",
+    "director loan",
+    "directors loan",
+    "member loan",
+    "members loan",
+    "loan from shareholder",
+    "loan to shareholder",
+    "loan from director",
+    "loan to director",
+    "loan from member",
+    "loan to member",
+  ]);
+}
+
+function readableLoanAccountLabel(line: TrialBalanceLine) {
+  const raw =
+    line.account_name ||
+    line.mapping_label ||
+    line.mapping_category ||
+    line.lead_schedule_key ||
+    "Shareholders' loans";
+
+  return String(raw)
+    .replace(/^\s*\d+[\s./-]*/g, "")
+    .replace(/\s*[-–—]\s*(shareholder'?s?|director'?s?|member'?s?)\s*loans?$/i, "")
+    .replace(/\s*\((shareholder'?s?|director'?s?|member'?s?)\s*loans?\)\s*$/i, "")
+    .trim() || String(raw);
+}
+
+function buildShareholderLoanSplitRows(
+  lines: TrialBalanceLine[],
+  fallbackRows: any[],
+) {
+  const grouped = new Map<string, NoteAmountLine>();
+
+  (lines || [])
+    .filter(isShareholderLoanTrialBalanceLine)
+    .forEach((line) => {
+      const label = readableLoanAccountLabel(line);
+      const key =
+        line.id ||
+        line.account_code ||
+        label.toLowerCase().replace(/[^a-z0-9]+/g, "-") ||
+        "shareholder-loan";
+
+      const current = normaliseAmount(line, rawCurrent(line));
+      const prior = normaliseAmount(line, rawPrior(line));
+
+      if (!grouped.has(label)) {
+        grouped.set(label, {
+          id: String(key),
+          label,
+          current: 0,
+          prior: 0,
+          meta: {
+            source: "trial-balance-split",
+            accountCode: line.account_code,
+          },
+        });
+      }
+
+      const row = grouped.get(label);
+      if (!row) return;
+      row.current += current;
+      row.prior += prior;
+    });
+
+  const splitRows = Array.from(grouped.values())
+    .filter(
+      (row) =>
+        Math.round(row.current || 0) !== 0 || Math.round(row.prior || 0) !== 0,
+    )
+    .sort((a, b) => String(a.label).localeCompare(String(b.label)));
+
+  const fallbackVisible = (fallbackRows || []).filter(
+    (row) =>
+      Math.round(Number(row?.current || 0)) !== 0 ||
+      Math.round(Number(row?.prior || 0)) !== 0,
+  );
+
+  if (splitRows.length > 1) return splitRows;
+
+  if (
+    splitRows.length === 1 &&
+    !String(splitRows[0].label || "")
+      .toLowerCase()
+      .includes("shareholders")
+  ) {
+    return splitRows;
+  }
+
+  return fallbackVisible;
+}
+
 
 function buildSfpRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
   const nonCurrentAssets = buildBuckets(lines, (line) => {
@@ -572,7 +757,7 @@ function buildSfpRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
     );
   }).filter(
     (bucket) =>
-      !nonCurrentAssets.some((existing) => existing.key === bucket.key)
+      !nonCurrentAssets.some((existing) => existing.key === bucket.key),
   );
 
   const equity = buildBuckets(lines, (line) => {
@@ -619,7 +804,7 @@ function buildSfpRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
     );
   }).filter(
     (bucket) =>
-      !nonCurrentLiabilities.some((existing) => existing.key === bucket.key)
+      !nonCurrentLiabilities.some((existing) => existing.key === bucket.key),
   );
 
   const ncaTotal = sumBuckets(nonCurrentAssets);
@@ -741,7 +926,7 @@ function buildSociRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
       "investment income",
     ]);
   }).filter(
-    (bucket) => !revenue.some((existing) => existing.key === bucket.key)
+    (bucket) => !revenue.some((existing) => existing.key === bucket.key),
   );
 
   const operatingExpenses = buildBuckets(lines, (line) => {
@@ -754,7 +939,7 @@ function buildSociRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
   }).filter(
     (bucket) =>
       !costOfSales.some((existing) => existing.key === bucket.key) &&
-      !otherIncome.some((existing) => existing.key === bucket.key)
+      !otherIncome.some((existing) => existing.key === bucket.key),
   );
 
   const financeCosts = buildBuckets(lines, (line) => {
@@ -843,11 +1028,7 @@ function getSetupValue(setup: ClientSetupData | null, keys: string[]) {
 
     if (Array.isArray(value) && value.length > 0) return value;
 
-    if (
-      value !== null &&
-      value !== undefined &&
-      String(value).trim() !== ""
-    ) {
+    if (value !== null && value !== undefined && String(value).trim() !== "") {
       return value;
     }
   }
@@ -868,10 +1049,7 @@ function formatMultiline(value: unknown) {
 
 function getPersonName(person: PersonData) {
   return (
-    person.full_name ||
-    person.person_name ||
-    person.name ||
-    "Name not captured"
+    person.full_name || person.person_name || person.name || "Name not captured"
   );
 }
 
@@ -882,7 +1060,7 @@ function isDirectorLike(person: PersonData) {
       person.designation ||
       person.capacity ||
       person.person_type ||
-      ""
+      "",
   ).toLowerCase();
 
   return (
@@ -982,15 +1160,14 @@ function subsectionHeadingStyle() {
 
 function pageHeadingStyle() {
   return {
-    fontSize: 16,
+    fontSize: 15.4,
     fontWeight: 800,
-    margin: "0 0 18px",
+    margin: "0 0 16px",
     paddingBottom: 7,
-    borderBottom: "1.5px solid #111827",
-    textTransform: "uppercase" as const,
+    borderBottom: "1.25px solid #111827",
+    textTransform: "none" as const,
   };
 }
-
 
 function isGenericNoteText(value: unknown) {
   return String(value || "")
@@ -999,7 +1176,7 @@ function isGenericNoteText(value: unknown) {
 }
 
 function cleanNoteTextMap(
-  input: EditableDisclosureTextMap
+  input: EditableDisclosureTextMap,
 ): EditableDisclosureTextMap {
   const next: EditableDisclosureTextMap = {};
 
@@ -1021,77 +1198,40 @@ function taxAmount(value: number) {
   return rounded < 0 ? `(${formatted})` : formatted;
 }
 
-function statementRowHasAmountFields(row: AfsStatementRow) {
-  const item = row as any;
-  return item?.current !== undefined || item?.prior !== undefined;
-}
-
-function statementRowRoundedAmount(row: AfsStatementRow, side: "current" | "prior") {
-  const item = row as any;
-  return Math.round(safeNumber(item?.[side]));
-}
-
-function statementRowHasNonZeroAmount(row: AfsStatementRow) {
-  if (!statementRowHasAmountFields(row)) return false;
-  return (
-    statementRowRoundedAmount(row, "current") !== 0 ||
-    statementRowRoundedAmount(row, "prior") !== 0
-  );
-}
-
-function isDetailedIncomeHeadingRow(row: AfsStatementRow) {
-  const item = row as any;
-  const type = String(item?.type || "").toLowerCase();
-
-  if (type === "section" || type === "subsection") return true;
-  if (statementRowHasAmountFields(row)) return false;
-
-  const label = String(item?.label || "").trim();
-  return label.length > 0;
-}
-
-function isDetailedIncomeSpacerRow(row: AfsStatementRow) {
-  const item = row as any;
-  return String(item?.type || "").toLowerCase() === "spacer";
-}
-
-function isZeroDetailedIncomeAmountRow(row: AfsStatementRow) {
-  if (!statementRowHasAmountFields(row)) return false;
-  return !statementRowHasNonZeroAmount(row);
-}
-
-function cleanDetailedIncomeRowsForReport(rows: AfsStatementRow[]) {
-  const firstPass = (rows || []).filter(
-    (row) => !isDetailedIncomeSpacerRow(row) && !isZeroDetailedIncomeAmountRow(row),
-  );
-
-  return firstPass.filter((row, index) => {
-    if (!isDetailedIncomeHeadingRow(row)) return true;
-
-    for (let nextIndex = index + 1; nextIndex < firstPass.length; nextIndex += 1) {
-      const nextRow = firstPass[nextIndex];
-
-      if (isDetailedIncomeHeadingRow(nextRow)) return false;
-      if (statementRowHasNonZeroAmount(nextRow)) return true;
-    }
-
-    return false;
-  });
-}
-
-
-export default function AfsPrintStudioPage() {
+export default function AfsPrintStudioExportPage() {
   const params = useParams();
   const engagementId = String(params?.engagementId || "");
 
   const [loading, setLoading] = useState(true);
   const [activeSectionId, setActiveSectionId] = useState("cover-page");
-  const [cashFlowViewMode, setCashFlowViewMode] = useState<"afs" | "work">("afs");
+  const [cashFlowViewMode, setCashFlowViewMode] = useState<"afs" | "work">(
+    "afs",
+  );
+
+  const [isPrintExportMode, setIsPrintExportMode] = useState(false);
+
+  useEffect(() => {
+    const onExportMode = (event: Event) => {
+      setIsPrintExportMode(Boolean((event as CustomEvent<boolean>).detail));
+    };
+    const onBeforePrint = () => setIsPrintExportMode(true);
+    const onAfterPrint = () => setIsPrintExportMode(false);
+
+    window.addEventListener("afs-print-export-mode", onExportMode);
+    window.addEventListener("beforeprint", onBeforePrint);
+    window.addEventListener("afterprint", onAfterPrint);
+
+    return () => {
+      window.removeEventListener("afs-print-export-mode", onExportMode);
+      window.removeEventListener("beforeprint", onBeforePrint);
+      window.removeEventListener("afterprint", onAfterPrint);
+    };
+  }, []);
   const [engagement, setEngagement] = useState<EngagementData | null>(null);
   const [clientSetup, setClientSetup] = useState<ClientSetupData | null>(null);
-  const [trialBalanceLines, setTrialBalanceLines] = useState<TrialBalanceLine[]>(
-    []
-  );
+  const [trialBalanceLines, setTrialBalanceLines] = useState<
+    TrialBalanceLine[]
+  >([]);
   const [clientPeople, setClientPeople] = useState<PersonData[]>([]);
   const [reportOptions, setReportOptions] =
     useState<ReportOptions>(defaultReportOptions);
@@ -1099,8 +1239,9 @@ export default function AfsPrintStudioPage() {
     useState<DirectorsReportTextOverrides | null>(null);
   const [accountingPolicyTexts, setAccountingPolicyTexts] =
     useState<EditableDisclosureTextMap | null>(null);
-  const [noteTexts, setNoteTexts] =
-    useState<EditableDisclosureTextMap | null>(null);
+  const [noteTexts, setNoteTexts] = useState<EditableDisclosureTextMap | null>(
+    null,
+  );
   const [statementOverrides, setStatementOverrides] =
     useState<AfsStatementOverrides>({});
   const [printStudioSettingsLoaded, setPrintStudioSettingsLoaded] =
@@ -1116,9 +1257,12 @@ export default function AfsPrintStudioPage() {
     setPrintStudioSettingsLoaded(false);
 
     try {
-      const engagementRes = await fetch(`/api/afs/engagements/${engagementId}`, {
-        cache: "no-store",
-      });
+      const engagementRes = await fetch(
+        `/api/afs/engagements/${engagementId}`,
+        {
+          cache: "no-store",
+        },
+      );
 
       const engagementData = await engagementRes.json();
 
@@ -1128,13 +1272,13 @@ export default function AfsPrintStudioPage() {
           engagementData.trialBalanceLines ||
             engagementData.trial_balance_lines ||
             engagementData.lines ||
-            []
+            [],
         );
       }
 
       const setupRes = await fetch(
         `/api/afs/engagements/${engagementId}/client-setup`,
-        { cache: "no-store" }
+        { cache: "no-store" },
       );
 
       const setupData = await setupRes.json();
@@ -1153,13 +1297,13 @@ export default function AfsPrintStudioPage() {
             setupData.directors ||
             setupData.members ||
             setupData.trustees ||
-            []
+            [],
         );
       }
 
       const settingsRes = await fetch(
         `/api/afs/engagements/${engagementId}/print-studio-settings`,
-        { cache: "no-store" }
+        { cache: "no-store" },
       );
 
       const settingsData = await settingsRes.json();
@@ -1233,7 +1377,10 @@ export default function AfsPrintStudioPage() {
           const cleanedSavedNoteTexts = cleanNoteTextMap(savedNoteTexts);
           setNoteTexts(cleanedSavedNoteTexts);
 
-          if (JSON.stringify(cleanedSavedNoteTexts) !== JSON.stringify(savedNoteTexts)) {
+          if (
+            JSON.stringify(cleanedSavedNoteTexts) !==
+            JSON.stringify(savedNoteTexts)
+          ) {
             savePrintStudioSettingsToSupabase({
               noteTexts: cleanedSavedNoteTexts,
             });
@@ -1280,20 +1427,22 @@ export default function AfsPrintStudioPage() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),
-        }
+        },
       );
 
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || "Failed to save Print Studio settings.");
+        throw new Error(
+          result.error || "Failed to save Print Studio settings.",
+        );
       }
 
       setPrintStudioSaveStatus("saved");
 
       window.setTimeout(() => {
         setPrintStudioSaveStatus((current) =>
-          current === "saved" ? "idle" : current
+          current === "saved" ? "idle" : current,
         );
       }, 1600);
     } catch (error) {
@@ -1314,7 +1463,7 @@ export default function AfsPrintStudioPage() {
   }
 
   function saveDirectorsReportTextsEverywhere(
-    next: DirectorsReportTextOverrides
+    next: DirectorsReportTextOverrides,
   ) {
     if (!engagementId) return;
 
@@ -1327,7 +1476,7 @@ export default function AfsPrintStudioPage() {
   }
 
   function saveAccountingPolicyTextsEverywhere(
-    next: EditableDisclosureTextMap
+    next: EditableDisclosureTextMap,
   ) {
     if (!engagementId) return;
 
@@ -1364,7 +1513,7 @@ export default function AfsPrintStudioPage() {
 
   function updateStatementOverride(
     key: keyof AfsStatementOverrides,
-    value: number | null
+    value: number | null,
   ) {
     setStatementOverrides((current) => {
       const next = {
@@ -1388,7 +1537,10 @@ export default function AfsPrintStudioPage() {
     });
   }
 
-  function toggleReportOption(key: keyof ReportOptions | string, checked: boolean) {
+  function toggleReportOption(
+    key: keyof ReportOptions | string,
+    checked: boolean,
+  ) {
     setReportOptions((current) => {
       const next = {
         ...current,
@@ -1404,7 +1556,7 @@ export default function AfsPrintStudioPage() {
   function option(
     key: keyof ReportOptions,
     label: string,
-    description?: string
+    description?: string,
   ): AfsReportOption {
     return {
       id: String(key),
@@ -1418,17 +1570,45 @@ export default function AfsPrintStudioPage() {
   const reportSectionOptions: AfsReportOption[] = [
     option("coverPage", "Cover page", "Show the AFS cover page."),
     option("index", "Index", "Show the report index."),
-    option("generalInformation", "General information", "Show entity and engagement details."),
-    option("directorsResponsibilities", "Directors’ responsibilities", "Show the approval and responsibility statement."),
-    option("directorsReport", "Directors’ report", "Show the directors’ report."),
+    option(
+      "generalInformation",
+      "General information",
+      "Show entity and engagement details.",
+    ),
+    option(
+      "directorsResponsibilities",
+      "Directors’ responsibilities",
+      "Show the approval and responsibility statement.",
+    ),
+    option(
+      "directorsReport",
+      "Directors’ report",
+      "Show the directors’ report.",
+    ),
     option("compilerReport", "Compiler report", "Show the compilation report."),
     option("sfp", "Statement of financial position", "Show SFP."),
-    option("soci", "Statement of comprehensive income", "Show comprehensive income."),
-    option("sce", "Statement of changes in equity", "Show statement of changes in equity."),
+    option(
+      "soci",
+      "Statement of comprehensive income",
+      "Show comprehensive income.",
+    ),
+    option(
+      "sce",
+      "Statement of changes in equity",
+      "Show statement of changes in equity.",
+    ),
     option("cashFlow", "Cash flow", "Show cash flow statement."),
-    option("accountingPolicies", "Accounting policies", "Show accounting policies."),
+    option(
+      "accountingPolicies",
+      "Accounting policies",
+      "Show accounting policies.",
+    ),
     option("notes", "Notes", "Show notes to the financial statements."),
-    option("detailedIncomeStatement", "Detailed income statement", "Show detailed income statement."),
+    option(
+      "detailedIncomeStatement",
+      "Detailed income statement",
+      "Show detailed income statement.",
+    ),
     option("taxComputation", "Tax computation", "Show tax computation."),
   ];
 
@@ -1441,13 +1621,13 @@ export default function AfsPrintStudioPage() {
       "entity_name",
     ]) ||
       engagement?.client_name ||
-      "Annual Financial Statements"
+      "Annual Financial Statements",
   );
 
   const entityType = String(
     getSetupValue(clientSetup, ["entity_type", "legal_entity_type"]) ||
       engagement?.entity_type ||
-      "Company"
+      "Company",
   );
 
   const yearEnd = String(
@@ -1458,7 +1638,7 @@ export default function AfsPrintStudioPage() {
       "period_end",
     ]) ||
       engagement?.financial_year_end ||
-      "Year-end not set"
+      "Year-end not set",
   );
 
   const registrationNumber =
@@ -1469,7 +1649,7 @@ export default function AfsPrintStudioPage() {
         "trust_registration_number",
         "master_reference_number",
         "registration_no",
-      ]) || ""
+      ]) || "",
     ) || null;
 
   const country = getSetupValue(clientSetup, [
@@ -1484,9 +1664,9 @@ export default function AfsPrintStudioPage() {
       getSetupValue(clientSetup, [
         "current_period_heading",
         "current_year_heading",
-      ]) || yearEnd
+      ]) || yearEnd,
     ),
-    "Current"
+    "Current",
   );
 
   const priorHeading = shortYearHeading(
@@ -1494,14 +1674,14 @@ export default function AfsPrintStudioPage() {
       getSetupValue(clientSetup, [
         "prior_period_heading",
         "prior_year_heading",
-      ])
+      ]),
     ),
-    "Prior"
+    "Prior",
   );
 
   const peopleFromSetup = [
     ...formatMultiline(
-      getSetupValue(clientSetup, ["directors", "members", "trustees"])
+      getSetupValue(clientSetup, ["directors", "members", "trustees"]),
     ),
   ].map((name) => ({ name }));
 
@@ -1510,8 +1690,8 @@ export default function AfsPrintStudioPage() {
     directors.length > 0
       ? directors
       : clientPeople.length > 0
-      ? clientPeople
-      : peopleFromSetup;
+        ? clientPeople
+        : peopleFromSetup;
 
   const bodyLabel = governingBody(entityType);
   const bodyLabelCapitalised =
@@ -1567,8 +1747,7 @@ export default function AfsPrintStudioPage() {
     ]) || "________________";
 
   const currency =
-    getSetupValue(clientSetup, ["currency", "presentation_currency"]) ||
-    "Rand";
+    getSetupValue(clientSetup, ["currency", "presentation_currency"]) || "Rand";
 
   const baseNarrativeContext = {
     clientName,
@@ -1584,13 +1763,31 @@ export default function AfsPrintStudioPage() {
     practitionerFirm: String(practitionerFirm),
     practitionerName: String(practitionerName),
     practitionerDesignation: String(practitionerDesignation),
+    practitionerLogoUrl: String(
+      getSetupValue(clientSetup, [
+        "practitioner_logo_url",
+        "compiler_logo_url",
+        "firm_logo_url",
+        "letterhead_logo_url",
+        "logo_url",
+      ]) || "",
+    ),
+    practitionerFooterLogoUrl: String(
+      getSetupValue(clientSetup, [
+        "practitioner_footer_logo_url",
+        "compiler_footer_logo_url",
+        "firm_footer_logo_url",
+        "letterhead_footer_logo_url",
+        "footer_logo_url",
+      ]) || "",
+    ),
     natureOfBusiness: String(
       getSetupValue(clientSetup, [
         "nature_of_business",
         "principal_activities",
         "business_activity",
         "business_description",
-      ]) || ""
+      ]) || "",
     ),
     country: String(country || "South Africa"),
     directors: directorsForDisplay,
@@ -1613,7 +1810,7 @@ export default function AfsPrintStudioPage() {
       practitionerDesignation,
       country,
       directorsForDisplay.length,
-    ]
+    ],
   );
 
   const activeDirectorsReportTexts =
@@ -1621,7 +1818,7 @@ export default function AfsPrintStudioPage() {
 
   const defaultAccountingPolicyTexts = useMemo(
     () => buildDefaultAccountingPolicyTexts(),
-    []
+    [],
   );
 
   const activeAccountingPolicyTexts =
@@ -1645,7 +1842,7 @@ export default function AfsPrintStudioPage() {
 
   function updateDirectorsReportTitle(
     key: DirectorsReportSectionKey,
-    value: string
+    value: string,
   ) {
     setDirectorsReportTexts((current) => {
       const base =
@@ -1666,7 +1863,7 @@ export default function AfsPrintStudioPage() {
 
   function updateDirectorsReportText(
     key: DirectorsReportSectionKey,
-    value: string
+    value: string,
   ) {
     setDirectorsReportTexts((current) => {
       const base =
@@ -1711,10 +1908,11 @@ export default function AfsPrintStudioPage() {
       const next = {
         ...base,
         [key]: {
-          ...(base[key] || defaultAccountingPolicyTexts[key] || {
-            title: key,
-            text: "",
-          }),
+          ...(base[key] ||
+            defaultAccountingPolicyTexts[key] || {
+              title: key,
+              text: "",
+            }),
           title: value,
         },
       };
@@ -1730,10 +1928,11 @@ export default function AfsPrintStudioPage() {
       const next = {
         ...base,
         [key]: {
-          ...(base[key] || defaultAccountingPolicyTexts[key] || {
-            title: key,
-            text: "",
-          }),
+          ...(base[key] ||
+            defaultAccountingPolicyTexts[key] || {
+              title: key,
+              text: "",
+            }),
           text: value,
         },
       };
@@ -1767,10 +1966,11 @@ export default function AfsPrintStudioPage() {
       const next = {
         ...base,
         [key]: {
-          ...(base[key] || defaultNoteTexts[key] || {
-            title: key,
-            text: "",
-          }),
+          ...(base[key] ||
+            defaultNoteTexts[key] || {
+              title: key,
+              text: "",
+            }),
           title: value,
         },
       };
@@ -1786,10 +1986,11 @@ export default function AfsPrintStudioPage() {
       const next = {
         ...base,
         [key]: {
-          ...(base[key] || defaultNoteTexts[key] || {
-            title: key,
-            text: "",
-          }),
+          ...(base[key] ||
+            defaultNoteTexts[key] || {
+              title: key,
+              text: "",
+            }),
           text: value,
         },
       };
@@ -1864,6 +2065,74 @@ export default function AfsPrintStudioPage() {
     directorsReportTexts: activeDirectorsReportTexts,
   };
 
+  function renderDirectorsReportAuthorisationExportPage() {
+    const authorisationTextBlock =
+      ((activeDirectorsReportTexts as any)?.directorsReportAuthorisation ||
+        (defaultDirectorsReportTexts as any)?.directorsReportAuthorisation ||
+        {}) as { title?: string; text?: string };
+
+    const title =
+      authorisationTextBlock.title ||
+      "15. Authorisation of annual financial statements";
+
+    const rawText =
+      authorisationTextBlock.text ||
+      `The annual financial statements were authorised for issue by the ${bodyLabel} on ${approvalDate}.`;
+
+    const paragraphs = renderDisclosureText(String(rawText), {
+      ...disclosureTokens,
+      bodyLabel,
+      approvalDate: String(approvalDate),
+      clientName,
+    } as any);
+
+    return (
+      <AfsA4Page {...reportHeaderProps}>
+        <section
+          className="afs-directors-report-authorisation-page"
+          style={{
+            fontSize: 11.2,
+            lineHeight: 1.45,
+            color: "#111827",
+          }}
+        >
+          <h1 style={pageHeadingStyle()}>{reportTitle(entityType)} continued</h1>
+
+          <section
+            style={{
+              breakInside: "avoid",
+              pageBreakInside: "avoid",
+              marginTop: 8,
+            }}
+          >
+            <h2
+              style={{
+                ...sectionHeadingStyle(),
+                marginTop: 0,
+                breakAfter: "avoid",
+                pageBreakAfter: "avoid",
+              }}
+            >
+              {title}
+            </h2>
+
+            {paragraphs.map((paragraph, paragraphIndex) => (
+              <p
+                key={`directors-report-authorisation-${paragraphIndex}`}
+                style={{
+                  ...paragraphStyle(),
+                  marginBottom: paragraphIndex === paragraphs.length - 1 ? 0 : 10,
+                }}
+              >
+                {paragraph}
+              </p>
+            ))}
+          </section>
+        </section>
+      </AfsA4Page>
+    );
+  }
+
   const noteNumberMap = useMemo(() => {
     const keyMap: Record<string, AfsNoteKey> = {
       notesPropertyPlantEquipment: "propertyPlantEquipment",
@@ -1912,14 +2181,14 @@ export default function AfsPrintStudioPage() {
       buildAfsPrintStatementEngine(
         trialBalanceLines,
         statementOverrides,
-        noteNumberMap
+        noteNumberMap,
       ),
-    [trialBalanceLines, statementOverrides, noteNumberMap]
+    [trialBalanceLines, statementOverrides, noteNumberMap],
   );
 
   const flightDeckIssues = useMemo(
     () => buildAfsFlightDeckIssuesFromEngine(statementEngine),
-    [statementEngine]
+    [statementEngine],
   );
 
   const sfpRows = statementEngine.sfpRows;
@@ -1931,24 +2200,190 @@ export default function AfsPrintStudioPage() {
     [statementEngine.detailedIncomeRows],
   );
   const noteData = statementEngine.noteData;
+
+  const noteDataForPrintStudio = useMemo(() => {
+    const base: Record<string, any[]> = { ...(noteData as any) };
+    base.shareholdersLoans = buildShareholderLoanSplitRows(
+      trialBalanceLines,
+      base.shareholdersLoans || [],
+    );
+    return base;
+  }, [noteData, trialBalanceLines]);
+
+  const cashNoteCurrent = Math.round(
+    (noteData.cashAndCashEquivalents || []).reduce(
+      (sum: number, line: any) => sum + Number(line.current || 0),
+      0,
+    ),
+  );
+  const cashNotePrior = Math.round(
+    (noteData.cashAndCashEquivalents || []).reduce(
+      (sum: number, line: any) => sum + Number(line.prior || 0),
+      0,
+    ),
+  );
+
+  const exportCashFlowRows = useMemo(() => {
+    const rows = (cashFlowRows || []).map((row: any) => ({ ...row }));
+    const labelIncludes = (row: any, terms: string[]) => {
+      const label = String(row?.label || "").toLowerCase();
+      return terms.every((term) => label.includes(term));
+    };
+    const findRow = (terms: string[]) =>
+      rows.find((row: any) => labelIncludes(row, terms));
+
+    const profitRow = findRow(["profit", "taxation"]);
+    const nonCashRow = findRow(["adjustments", "non-cash"]);
+    const workingCapitalRow = findRow(["changes", "working capital"]);
+    const generatedRow = findRow(["cash generated", "operations"]);
+    const netOperatingRow = findRow(["net cash", "operating activities"]);
+    const netIncreaseRow = findRow(["net increase"]);
+    const openingCashRow = findRow(["beginning", "year"]);
+    const closingCashRow = findRow(["end", "year"]);
+
+    const profitCurrent = Number(profitRow?.current || 0);
+    const profitPrior = Number(profitRow?.prior || 0);
+    const nonCashCurrent = Number(nonCashRow?.current || 0);
+    const nonCashPrior = Number(nonCashRow?.prior || 0);
+
+    const currentMovement = cashNoteCurrent - cashNotePrior;
+    const priorMovement = cashNotePrior;
+
+    if (openingCashRow) {
+      openingCashRow.current = cashNotePrior;
+      openingCashRow.prior = 0;
+    }
+    if (closingCashRow) {
+      closingCashRow.current = cashNoteCurrent;
+      closingCashRow.prior = cashNotePrior;
+    }
+    if (netIncreaseRow) {
+      netIncreaseRow.current = currentMovement;
+      netIncreaseRow.prior = priorMovement;
+    }
+    if (workingCapitalRow) {
+      workingCapitalRow.current = currentMovement - profitCurrent - nonCashCurrent;
+      workingCapitalRow.prior = priorMovement - profitPrior - nonCashPrior;
+    }
+    if (generatedRow) {
+      generatedRow.current = currentMovement;
+      generatedRow.prior = priorMovement;
+    }
+    if (netOperatingRow) {
+      netOperatingRow.current = currentMovement;
+      netOperatingRow.prior = priorMovement;
+    }
+
+    return rows;
+  }, [cashFlowRows, cashNoteCurrent, cashNotePrior]);
+
   const engineChecks = statementEngine.checks;
 
   const sections: AfsStudioSection[] = [
-    { id: "cover-page", label: "Cover Page", shortLabel: "Cover", group: "report", hidden: !reportOptions.coverPage },
-    { id: "index", label: "Index", shortLabel: "Index", group: "report", hidden: !reportOptions.index },
-    { id: "general-info", label: "General Information", shortLabel: "General Info", group: "report", hidden: !reportOptions.generalInformation },
-    { id: "directors-responsibilities", label: "Directors’ Responsibilities", shortLabel: "Responsibilities", group: "report", hidden: !reportOptions.directorsResponsibilities },
-    { id: "directors-report", label: "Directors’ Report", shortLabel: "Directors Report", group: "report", hidden: !reportOptions.directorsReport },
-    { id: "compiler-report", label: "Compiler Report", shortLabel: "Compiler", group: "report", hidden: !reportOptions.compilerReport },
-    { id: "sfp", label: "Statement of Financial Position", shortLabel: "SFP", group: "report", hidden: !reportOptions.sfp },
-    { id: "soci", label: "Statement of Comprehensive Income", shortLabel: "SOCI", group: "report", hidden: !reportOptions.soci },
-    { id: "sce", label: "Statement of Changes in Equity", shortLabel: "SCE", group: "report", hidden: !reportOptions.sce },
-    { id: "cash-flow", label: "Statement of Cash Flows", shortLabel: "Cash Flow", group: "report", hidden: !reportOptions.cashFlow },
-    { id: "accounting-policies", label: "Accounting Policies", shortLabel: "Policies", group: "report", hidden: !reportOptions.accountingPolicies },
-    { id: "notes", label: "Notes to the Financial Statements", shortLabel: "Notes", group: "report", hidden: !reportOptions.notes },
-    { id: "detailed-income", label: "Detailed Income Statement", shortLabel: "Detailed IS", group: "report", hidden: !reportOptions.detailedIncomeStatement },
-    { id: "tax-computation", label: "Tax Computation", shortLabel: "Tax", group: "report", hidden: !reportOptions.taxComputation },
-    { id: "report-options", label: "AFS Report Options", shortLabel: "Options", group: "settings" },
+    {
+      id: "cover-page",
+      label: "Cover Page",
+      shortLabel: "Cover",
+      group: "report",
+      hidden: !reportOptions.coverPage,
+    },
+    {
+      id: "index",
+      label: "Index",
+      shortLabel: "Index",
+      group: "report",
+      hidden: !reportOptions.index,
+    },
+    {
+      id: "general-info",
+      label: "General Information",
+      shortLabel: "General Info",
+      group: "report",
+      hidden: !reportOptions.generalInformation,
+    },
+    {
+      id: "directors-responsibilities",
+      label: "Directors’ Responsibilities",
+      shortLabel: "Responsibilities",
+      group: "report",
+      hidden: !reportOptions.directorsResponsibilities,
+    },
+    {
+      id: "directors-report",
+      label: "Directors’ Report",
+      shortLabel: "Directors Report",
+      group: "report",
+      hidden: !reportOptions.directorsReport,
+    },
+    {
+      id: "compiler-report",
+      label: "Compiler Report",
+      shortLabel: "Compiler",
+      group: "report",
+      hidden: !reportOptions.compilerReport,
+    },
+    {
+      id: "sfp",
+      label: "Statement of Financial Position",
+      shortLabel: "SFP",
+      group: "report",
+      hidden: !reportOptions.sfp,
+    },
+    {
+      id: "soci",
+      label: "Statement of Comprehensive Income",
+      shortLabel: "SOCI",
+      group: "report",
+      hidden: !reportOptions.soci,
+    },
+    {
+      id: "sce",
+      label: "Statement of Changes in Equity",
+      shortLabel: "SCE",
+      group: "report",
+      hidden: !reportOptions.sce,
+    },
+    {
+      id: "cash-flow",
+      label: "Statement of Cash Flows",
+      shortLabel: "Cash Flow",
+      group: "report",
+      hidden: !reportOptions.cashFlow,
+    },
+    {
+      id: "accounting-policies",
+      label: "Accounting Policies",
+      shortLabel: "Policies",
+      group: "report",
+      hidden: !reportOptions.accountingPolicies,
+    },
+    {
+      id: "notes",
+      label: "Notes to the Financial Statements",
+      shortLabel: "Notes",
+      group: "report",
+      hidden: !reportOptions.notes,
+    },
+    {
+      id: "detailed-income",
+      label: "Detailed Income Statement",
+      shortLabel: "Detailed IS",
+      group: "report",
+      hidden: !reportOptions.detailedIncomeStatement,
+    },
+    {
+      id: "tax-computation",
+      label: "Tax Computation",
+      shortLabel: "Tax",
+      group: "report",
+      hidden: !reportOptions.taxComputation,
+    },
+    {
+      id: "report-options",
+      label: "AFS Report Options",
+      shortLabel: "Options",
+      group: "settings",
+    },
   ];
 
   const reportHeaderProps = {
@@ -1959,7 +2394,7 @@ export default function AfsPrintStudioPage() {
   };
 
   const visibleReportSections = sections.filter(
-    (section) => section.group === "report" && !section.hidden
+    (section) => section.group === "report" && !section.hidden,
   );
 
   function buildAccountingPolicyPrintItems() {
@@ -1996,13 +2431,17 @@ export default function AfsPrintStudioPage() {
 
     accountingPolicySections.forEach((section: any) => {
       const isSelected = Boolean(
-        reportOptions[section.optionKey as keyof ReportOptions]
+        reportOptions[section.optionKey as keyof ReportOptions],
       );
 
       if (!isSelected) return;
 
       const groupKey = section.group || "other";
-      const groupLabel = section.groupLabel || (section.label || section.title || section.defaultTitle);
+      const groupLabel =
+        section.groupLabel ||
+        section.label ||
+        section.title ||
+        section.defaultTitle;
 
       if (!combinedGroups.has(groupKey)) {
         items.push({
@@ -2030,66 +2469,147 @@ export default function AfsPrintStudioPage() {
     return items;
   }
 
-
   function getNoteLinesForSectionKey(key: string) {
+    const sourceNoteData = (noteDataForPrintStudio || noteData || {}) as Record<string, any[]>;
+
     const map: Record<string, any[]> = {
-      notesPropertyPlantEquipment: noteData.propertyPlantEquipment,
-      notesGoodwill: noteData.goodwill,
-      notesInvestmentProperty: noteData.investmentProperty,
-      notesIntangibleAssets: noteData.intangibleAssets,
-      notesBiologicalAssets: noteData.biologicalAssets,
-      notesOtherNonCurrentAssets: noteData.otherNonCurrentAssets,
-      notesLoansReceivable: noteData.loansReceivable,
-      notesInventories: noteData.inventories,
-      notesTradeReceivables: noteData.tradeReceivables,
-      notesCurrentTaxReceivable: noteData.currentTaxReceivable,
-      notesCashAndCashEquivalents: noteData.cashAndCashEquivalents,
-      notesShareCapital: noteData.shareCapital,
-      notesRetainedIncome: noteData.retainedIncome,
-      notesShareholdersLoans: noteData.shareholdersLoans,
-      notesOtherFinancialLiabilities: noteData.otherFinancialLiabilities,
-      notesTradePayables: noteData.tradePayables,
-      notesCurrentTaxPayable: noteData.currentTaxPayable,
-      notesRevenue: noteData.revenue,
-      notesOtherIncome: noteData.otherIncome,
-      notesOperatingExpenses: noteData.operatingExpenses,
-      notesFinanceCosts: noteData.financeCosts,
-      notesTaxation: noteData.taxation,
-      notesCashUsedInOperations: noteData.cashUsedInOperations,
+      notesPropertyPlantEquipment: sourceNoteData.propertyPlantEquipment,
+      notesGoodwill: sourceNoteData.goodwill,
+      notesInvestmentProperty: sourceNoteData.investmentProperty,
+      notesIntangibleAssets: sourceNoteData.intangibleAssets,
+      notesBiologicalAssets: sourceNoteData.biologicalAssets,
+      notesOtherNonCurrentAssets: sourceNoteData.otherNonCurrentAssets,
+      notesLoansReceivable: sourceNoteData.loansReceivable,
+      notesInventories: sourceNoteData.inventories,
+      notesTradeReceivables: sourceNoteData.tradeReceivables,
+      notesCurrentTaxReceivable: sourceNoteData.currentTaxReceivable,
+      notesCashAndCashEquivalents: sourceNoteData.cashAndCashEquivalents,
+      notesShareCapital: sourceNoteData.shareCapital,
+      notesRetainedIncome: sourceNoteData.retainedIncome,
+      notesShareholdersLoans: sourceNoteData.shareholdersLoans,
+      notesOtherFinancialLiabilities: sourceNoteData.otherFinancialLiabilities,
+      notesTradePayables: sourceNoteData.tradePayables,
+      notesCurrentTaxPayable: sourceNoteData.currentTaxPayable,
+      notesRevenue: sourceNoteData.revenue,
+      notesOtherIncome: sourceNoteData.otherIncome,
+      notesOperatingExpenses: sourceNoteData.operatingExpenses,
+      notesFinanceCosts: sourceNoteData.financeCosts,
+      notesTaxation: sourceNoteData.taxation,
+      notesCashUsedInOperations: sourceNoteData.cashUsedInOperations,
     };
 
     return map[key] || [];
   }
 
-  function renderNoteTable(lines: any[]) {
+
+  function formatNoteAmount(value: unknown) {
+    return afsAmount(value);
+  }
+
+  function isLikelyGarbageNoteParagraph(value: unknown) {
+    const text = String(value || "").trim();
+    if (!text) return true;
+
+    const compact = text.replace(/\s+/g, "");
+    const hasRealWords = /[A-Za-z]{3,}\s+[A-Za-z]{2,}/.test(text);
+    const looksLikeKeyboardMash = compact.length >= 10 && !hasRealWords;
+
+    return looksLikeKeyboardMash;
+  }
+
+  function cleanExportNoteParagraphs(paragraphs: string[]) {
+    return (paragraphs || []).filter((paragraph) => !isLikelyGarbageNoteParagraph(paragraph));
+  }
+
+  function cashGeneratedNoteRows(lines: any[]) {
+    const source = (lines || []).map((line) => ({ ...line }));
+    const byLabel = (terms: string[]) =>
+      source.find((line) => {
+        const label = String(line?.label || "").toLowerCase();
+        return terms.every((term) => label.includes(term));
+      });
+
+    const profit = byLabel(["profit", "taxation"]) || source[0];
+    const nonCash = byLabel(["non-cash"]);
+    const workingCapital = byLabel(["working", "capital"]);
+    const generated =
+      byLabel(["cash generated", "operations"]) ||
+      byLabel(["cash", "used", "operations"]) ||
+      source[source.length - 1];
+
+    const rows: any[] = [];
+
+    if (profit) {
+      rows.push({ ...profit, label: "Profit / (loss) before taxation" });
+    }
+
+    if (
+      nonCash &&
+      (Math.round(Number(nonCash.current || 0)) !== 0 ||
+        Math.round(Number(nonCash.prior || 0)) !== 0)
+    ) {
+      rows.push({ ...nonCash, label: "Adjustments for non-cash and other items" });
+    }
+
+    if (
+      workingCapital &&
+      (Math.round(Number(workingCapital.current || 0)) !== 0 ||
+        Math.round(Number(workingCapital.prior || 0)) !== 0)
+    ) {
+      rows.push({ ...workingCapital, label: "Changes in working capital" });
+    }
+
+    if (generated) {
+      rows.push({
+        ...generated,
+        label: "Cash generated from operations",
+        meta: { ...(generated.meta || {}), strong: true, finalLine: true },
+      });
+    }
+
+    return rows.length ? rows : source;
+  }
+
+  function renderNoteTable(lines: any[], noteKey?: string) {
     if (!lines || lines.length === 0) return null;
 
+    const isCashGeneratedNote = noteKey === "notesCashUsedInOperations";
+    const isShareholdersLoansNote = noteKey === "notesShareholdersLoans";
+    const displaySourceLines = isCashGeneratedNote ? cashGeneratedNoteRows(lines) : lines;
+
     const displayLines =
-      lines.length === 1
+      displaySourceLines.length === 1
         ? [
             {
-              ...lines[0],
-              label:
-                String(lines[0]?.label || "").toLowerCase().includes("cash and cash")
-                  ? "Bank balances"
-                  : String(lines[0]?.label || "").toLowerCase().includes("share capital")
+              ...displaySourceLines[0],
+              label: String(displaySourceLines[0]?.label || "")
+                .toLowerCase()
+                .includes("cash and cash")
+                ? "Bank balances"
+                : String(displaySourceLines[0]?.label || "")
+                      .toLowerCase()
+                      .includes("share capital")
                   ? "Issued share capital"
-                  : String(lines[0]?.label || "").toLowerCase().includes("inventor")
-                  ? "Inventories on hand"
-                  : String(lines[0]?.label || "").toLowerCase().includes("shareholder")
-                  ? "Loans from shareholders"
-                  : lines[0]?.label,
+                  : String(displaySourceLines[0]?.label || "")
+                        .toLowerCase()
+                        .includes("inventor")
+                    ? "Inventories on hand"
+                    : String(displaySourceLines[0]?.label || "")
+                          .toLowerCase()
+                          .includes("shareholder")
+                      ? "Loans from shareholders"
+                      : displaySourceLines[0]?.label,
             },
           ]
-        : lines;
+        : displaySourceLines;
 
     const totalCurrent = displayLines.reduce(
       (total, line) => total + Number(line.current || 0),
-      0
+      0,
     );
     const totalPrior = displayLines.reduce(
       (total, line) => total + Number(line.prior || 0),
-      0
+      0,
     );
 
     return (
@@ -2097,8 +2617,8 @@ export default function AfsPrintStudioPage() {
         style={{
           width: "100%",
           borderCollapse: "collapse",
-          margin: "8px 0 14px",
-          fontSize: 10.5,
+          margin: "4px 0 8px",
+          fontSize: 10.2,
         }}
       >
         <thead>
@@ -2106,8 +2626,8 @@ export default function AfsPrintStudioPage() {
             <th
               style={{
                 textAlign: "left",
-                borderBottom: "1px solid #111827",
-                padding: "3px 0",
+                borderBottom: "1.5px solid #111827",
+                padding: "2px 0 3px",
               }}
             >
               Description
@@ -2115,8 +2635,8 @@ export default function AfsPrintStudioPage() {
             <th
               style={{
                 textAlign: "right",
-                borderBottom: "1px solid #111827",
-                padding: "3px 0",
+                borderBottom: "1.5px solid #111827",
+                padding: "2px 0 3px",
                 width: 80,
               }}
             >
@@ -2125,8 +2645,8 @@ export default function AfsPrintStudioPage() {
             <th
               style={{
                 textAlign: "right",
-                borderBottom: "1px solid #111827",
-                padding: "3px 0",
+                borderBottom: "1.5px solid #111827",
+                padding: "2px 0 3px",
                 width: 80,
               }}
             >
@@ -2135,53 +2655,104 @@ export default function AfsPrintStudioPage() {
           </tr>
         </thead>
         <tbody>
-          {displayLines.map((line) => (
-            <tr key={line.id}>
-              <td style={{ padding: "3px 0" }}>{line.label}</td>
-              <td style={{ padding: "3px 0", textAlign: "right" }}>
-                {Math.round(Number(line.current || 0)).toLocaleString("en-ZA")}
+          {displayLines.flatMap((line, lineIndex) => {
+            const rowKey = String(line.id || line.label || lineIndex);
+            const rows = [
+              <tr key={`${rowKey}-amount`}>
+                <td
+                  style={{
+                    padding: "2px 0",
+                    borderBottom: line?.meta?.finalLine ? "1px solid #111827" : "0",
+                    fontWeight: line?.meta?.strong ? 800 : 400,
+                  }}
+                >
+                  {line.label}
+                </td>
+                <td
+                  style={{
+                    padding: "2px 0",
+                    textAlign: "right",
+                    borderBottom: line?.meta?.finalLine ? "1px solid #111827" : "0",
+                    fontWeight: line?.meta?.strong ? 800 : 400,
+                  }}
+                >
+                  {formatNoteAmount(line.current)}
+                </td>
+                <td
+                  style={{
+                    padding: "2px 0",
+                    textAlign: "right",
+                    borderBottom: line?.meta?.finalLine ? "1px solid #111827" : "0",
+                    fontWeight: line?.meta?.strong ? 800 : 400,
+                  }}
+                >
+                  {formatNoteAmount(line.prior)}
+                </td>
+              </tr>,
+            ];
+
+            if (isShareholdersLoansNote) {
+              const termsText =
+                line?.meta?.terms ||
+                line?.meta?.loanTerms ||
+                "The loan is unsecured, bears no interest and has no fixed repayment terms.";
+
+              rows.push(
+                <tr key={`${rowKey}-terms`}>
+                  <td
+                    colSpan={3}
+                    style={{
+                      padding: "0 0 5px 0",
+                      fontSize: 9.9,
+                      lineHeight: 1.22,
+                      color: "#111827",
+                    }}
+                  >
+                    {termsText}
+                  </td>
+                </tr>,
+              );
+            }
+
+            return rows;
+          })}
+          {!isCashGeneratedNote ? (
+            <tr>
+              <td
+                style={{
+                  padding: "3px 0",
+                  borderTop: "1px solid #111827",
+                  fontWeight: 800,
+                }}
+              >
+                Total
               </td>
-              <td style={{ padding: "3px 0", textAlign: "right" }}>
-                {Math.round(Number(line.prior || 0)).toLocaleString("en-ZA")}
+              <td
+                style={{
+                  padding: "3px 0",
+                  borderTop: "1px solid #111827",
+                  fontWeight: 800,
+                  textAlign: "right",
+                }}
+              >
+                {formatNoteAmount(totalCurrent)}
+              </td>
+              <td
+                style={{
+                  padding: "3px 0",
+                  borderTop: "1px solid #111827",
+                  fontWeight: 800,
+                  textAlign: "right",
+                }}
+              >
+                {formatNoteAmount(totalPrior)}
               </td>
             </tr>
-          ))}
-          <tr>
-            <td
-              style={{
-                padding: "4px 0",
-                borderTop: "1px solid #111827",
-                fontWeight: 800,
-              }}
-            >
-              Total
-            </td>
-            <td
-              style={{
-                padding: "4px 0",
-                borderTop: "1px solid #111827",
-                fontWeight: 800,
-                textAlign: "right",
-              }}
-            >
-              {Math.round(totalCurrent).toLocaleString("en-ZA")}
-            </td>
-            <td
-              style={{
-                padding: "4px 0",
-                borderTop: "1px solid #111827",
-                fontWeight: 800,
-                textAlign: "right",
-              }}
-            >
-              {Math.round(totalPrior).toLocaleString("en-ZA")}
-            </td>
-          </tr>
+          ) : null}
         </tbody>
       </table>
     );
   }
-
 
   function afsAmount(value: unknown) {
     const number = Math.round(Number(value || 0));
@@ -2240,6 +2811,7 @@ export default function AfsPrintStudioPage() {
         retained: priorClosingRetained,
         total: openingShare + priorClosingRetained,
         strong: true,
+        underline: true,
       },
       {
         label: "Profit / (loss) for current year",
@@ -2286,7 +2858,7 @@ export default function AfsPrintStudioPage() {
                 style={{
                   textAlign: "left",
                   borderBottom: "1px solid #111827",
-                  padding: "4px 0",
+                  padding: "3px 0",
                 }}
               >
                 Figures in Rand
@@ -2295,7 +2867,7 @@ export default function AfsPrintStudioPage() {
                 style={{
                   textAlign: "right",
                   borderBottom: "1px solid #111827",
-                  padding: "4px 0",
+                  padding: "3px 0",
                   width: 90,
                 }}
               >
@@ -2305,7 +2877,7 @@ export default function AfsPrintStudioPage() {
                 style={{
                   textAlign: "right",
                   borderBottom: "1px solid #111827",
-                  padding: "4px 0",
+                  padding: "3px 0",
                   width: 110,
                 }}
               >
@@ -2315,7 +2887,7 @@ export default function AfsPrintStudioPage() {
                 style={{
                   textAlign: "right",
                   borderBottom: "1px solid #111827",
-                  padding: "4px 0",
+                  padding: "3px 0",
                   width: 90,
                 }}
               >
@@ -2329,7 +2901,7 @@ export default function AfsPrintStudioPage() {
               <tr key={row.label}>
                 <td
                   style={{
-                    padding: "4px 0",
+                    padding: "3px 0",
                     fontWeight: row.strong ? 800 : 400,
                   }}
                 >
@@ -2337,7 +2909,7 @@ export default function AfsPrintStudioPage() {
                 </td>
                 <td
                   style={{
-                    padding: "4px 0",
+                    padding: "3px 0",
                     textAlign: "right",
                     fontWeight: row.strong ? 800 : 400,
                     borderTop: row.underline ? "1px solid #111827" : undefined,
@@ -2350,7 +2922,7 @@ export default function AfsPrintStudioPage() {
                 </td>
                 <td
                   style={{
-                    padding: "4px 0",
+                    padding: "3px 0",
                     textAlign: "right",
                     fontWeight: row.strong ? 800 : 400,
                     borderTop: row.underline ? "1px solid #111827" : undefined,
@@ -2363,7 +2935,7 @@ export default function AfsPrintStudioPage() {
                 </td>
                 <td
                   style={{
-                    padding: "4px 0",
+                    padding: "3px 0",
                     textAlign: "right",
                     fontWeight: row.strong ? 800 : 400,
                     borderTop: row.underline ? "1px solid #111827" : undefined,
@@ -2379,6 +2951,132 @@ export default function AfsPrintStudioPage() {
           </tbody>
         </table>
       </section>
+    );
+  }
+
+
+  type PrintableNoteItem = {
+    id: string;
+    number: number;
+    title: string;
+    textParagraphs: string[];
+    lines: any[];
+    estimatedUnits: number;
+  };
+
+  function estimatePrintableNoteUnits(lines: any[], paragraphs: string[]) {
+    /*
+      Export note packing estimate.
+      This is intentionally looser than the old estimate. The previous version
+      treated small 1-line notes as too tall, which created notes pages with
+      only 1 or 2 notes and huge blank spaces. The real rendered note rows are
+      compact, so the export packer must allow several normal notes per A4 page.
+    */
+    const rowCount = Math.max(1, (lines || []).length);
+    const rowUnits = 3.2 + rowCount * 1.45;
+    const paragraphUnits = (paragraphs || []).reduce(
+      (total, paragraph) => total + Math.max(0.9, String(paragraph || "").length / 155),
+      0,
+    );
+
+    return rowUnits + paragraphUnits + 2.2;
+  }
+
+  function buildPrintableNoteItems(): PrintableNoteItem[] {
+    let noteNumber = 1;
+
+    return (noteSections || [])
+      .filter((section: any) => Boolean(reportOptions[section.optionKey as keyof ReportOptions]))
+      .map((section: any) => {
+        const defaults = defaultNoteTexts[section.key] || { title: section.label || section.title || section.key, text: "" };
+        const active = activeNoteTexts[section.key] || defaults;
+        const lines = getNoteLinesForSectionKey(section.key);
+        const textParagraphs = cleanExportNoteParagraphs(renderDisclosureText(active.text || "", disclosureTokens).filter(Boolean));
+
+        const item: PrintableNoteItem = {
+          id: section.key,
+          number: noteNumber,
+          title: section.key === "notesCashUsedInOperations" ? "Cash generated from operations" : active.title || section.label || section.title || defaults.title || section.key,
+          textParagraphs,
+          lines,
+          estimatedUnits: estimatePrintableNoteUnits(lines, textParagraphs),
+        };
+
+        noteNumber += 1;
+        return item;
+      })
+      .filter((item) => item.lines.length > 0 || item.textParagraphs.length > 0);
+  }
+
+  function chunkPrintableNotes(items: PrintableNoteItem[]) {
+    const pages: PrintableNoteItem[][] = [];
+    let page: PrintableNoteItem[] = [];
+    let used = 0;
+
+    items.forEach((item) => {
+      const maxUnits = pages.length === 0 ? 62 : 66;
+      const nextUnits = Math.min(item.estimatedUnits, 26);
+
+      if (page.length > 0 && used + nextUnits > maxUnits) {
+        pages.push(page);
+        page = [];
+        used = 0;
+      }
+
+      page.push(item);
+      used += nextUnits;
+    });
+
+    if (page.length > 0) pages.push(page);
+    return pages.length > 0 ? pages : [[]];
+  }
+
+  function renderPrintableNotesPage(items: PrintableNoteItem[], pageIndex: number) {
+    return (
+      <AfsA4Page {...reportHeaderProps}>
+        <section
+          className="afs-export-notes-page"
+          style={{ fontSize: 10.35, lineHeight: 1.28, color: "#111827" }}
+        >
+          {pageIndex === 0 ? (
+            <h1 style={pageHeadingStyle()}>Notes to the Financial Statements</h1>
+          ) : (
+            <h1 style={{ ...pageHeadingStyle(), fontSize: 13.5 }}>
+              Notes to the Financial Statements continued
+            </h1>
+          )}
+
+          {items.map((item) => (
+            <section
+              key={item.id}
+              className="afs-export-note-item"
+              style={{ marginBottom: 8, breakInside: "avoid", pageBreakInside: "avoid" }}
+            >
+              <h2
+                style={{
+                  fontSize: 11.45,
+                  lineHeight: 1.2,
+                  margin: "0 0 5px",
+                  fontWeight: 900,
+                }}
+              >
+                {item.number}. {item.title}
+              </h2>
+
+              {item.textParagraphs.map((paragraph, paragraphIndex) => (
+                <p
+                  key={`${item.id}-paragraph-${paragraphIndex}`}
+                  style={{ margin: "0 0 4px", fontSize: 10.25, lineHeight: 1.26 }}
+                >
+                  {paragraph}
+                </p>
+              ))}
+
+              {renderNoteTable(item.lines, item.id)}
+            </section>
+          ))}
+        </section>
+      </AfsA4Page>
     );
   }
 
@@ -2457,7 +3155,8 @@ export default function AfsPrintStudioPage() {
                 onClick={() => setCashFlowViewMode("afs")}
                 style={{
                   border: "1px solid #111827",
-                  background: cashFlowViewMode === "afs" ? "#111827" : "#ffffff",
+                  background:
+                    cashFlowViewMode === "afs" ? "#111827" : "#ffffff",
                   color: cashFlowViewMode === "afs" ? "#ffffff" : "#111827",
                   padding: "7px 8px",
                   fontSize: 11,
@@ -2472,7 +3171,8 @@ export default function AfsPrintStudioPage() {
                 onClick={() => setCashFlowViewMode("work")}
                 style={{
                   border: "1px solid #111827",
-                  background: cashFlowViewMode === "work" ? "#111827" : "#ffffff",
+                  background:
+                    cashFlowViewMode === "work" ? "#111827" : "#ffffff",
                   color: cashFlowViewMode === "work" ? "#ffffff" : "#111827",
                   padding: "7px 8px",
                   fontSize: 11,
@@ -2495,7 +3195,8 @@ export default function AfsPrintStudioPage() {
               }}
             >
               <strong>AFS view</strong> is the clean printable statement. <br />
-              <strong>Workbench</strong> is where current and prior cash flow fields are captured.
+              <strong>Workbench</strong> is where current and prior cash flow
+              fields are captured.
             </div>
           </div>
         ),
@@ -2556,7 +3257,7 @@ export default function AfsPrintStudioPage() {
           option("showCoverFrameworkStatement", "Show framework statement"),
           option(
             "showCoverNoAssuranceStatement",
-            "Show no-assurance statement"
+            "Show no-assurance statement",
           ),
         ],
         content: null,
@@ -2565,7 +3266,8 @@ export default function AfsPrintStudioPage() {
 
     return {
       title: "Section settings",
-      description: "This report page does not have section-specific settings yet.",
+      description:
+        "This report page does not have section-specific settings yet.",
       emptyMessage:
         "No section-specific settings yet. Use AFS Report Options to turn this report page on or off.",
       options: [],
@@ -2575,44 +3277,280 @@ export default function AfsPrintStudioPage() {
 
   const currentContextualOptions = contextualOptions();
 
-  return (
-    <AfsPrintStudioShell
-      engagementName={clientName}
-      yearEndLabel={`${entityType} · Financial year end ${yearEnd}${
-        printStudioSaveStatus === "saving"
-          ? " · Saving…"
-          : printStudioSaveStatus === "saved"
-          ? " · Saved"
-          : printStudioSaveStatus === "error"
-          ? " · Save error"
-          : ""
-      }`}
-      activeSectionId={activeSectionId}
-      sections={sections}
-      onSectionChange={goToSection}
-      exportDisabled={false}
-      reportOptions={currentContextualOptions.options}
-      reportOptionsTitle={currentContextualOptions.title}
-      reportOptionsDescription={currentContextualOptions.description}
-      emptyOptionsMessage={currentContextualOptions.emptyMessage}
-      reportOptionsContent={currentContextualOptions.content}
-      flightDeckContent={
-        !loading ? (
-          <AfsFlightDeck
-            issues={flightDeckIssues}
-            onJump={(target) => {
-              const element =
-                document.getElementById(target) ||
-                document.getElementById(`print-${target}`);
+  useEffect(() => {
+    document.body.classList.add("afs-export-route-body");
+    document.documentElement.classList.add("afs-export-route-html");
 
-              if (element) {
-                element.scrollIntoView({ behavior: "smooth", block: "center" });
-              }
-            }}
-          />
-        ) : null
-      }
-    >
+    return () => {
+      document.body.classList.remove("afs-export-route-body");
+      document.documentElement.classList.remove("afs-export-route-html");
+    };
+  }, []);
+
+  useEffect(() => {
+    const closeExportWindow = () => {
+      window.setTimeout(() => {
+        try {
+          window.close();
+        } catch {
+          // Some browsers block scripted close. In that case the user can close the export tab manually.
+        }
+      }, 450);
+    };
+
+    window.addEventListener("afterprint", closeExportWindow);
+    return () => window.removeEventListener("afterprint", closeExportWindow);
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+
+    const printTimer = window.setTimeout(() => {
+      window.print();
+    }, 650);
+
+    return () => window.clearTimeout(printTimer);
+  }, [loading]);
+
+  return (
+    <main className="afsExportOnlyRoot">
+      <style jsx global>{`
+        html.afs-export-route-html,
+        body.afs-export-route-body {
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          overflow: auto !important;
+        }
+
+        body.afs-export-route-body * {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .afsExportOnlyRoot {
+          position: fixed;
+          inset: 0;
+          z-index: 2147483647;
+          width: 100vw;
+          min-height: 100vh;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: auto;
+          background: #ffffff;
+        }
+
+        .afsExportOnlyRoot article {
+          box-shadow: none !important;
+        }
+
+          .afsExportOnlyRoot {
+            counter-reset: afs-export-page;
+          }
+
+          .afsExportOnlyRoot article {
+            position: relative !important;
+            counter-increment: afs-export-page;
+          }
+
+          .afsExportOnlyRoot article::after {
+            content: counter(afs-export-page);
+            position: absolute;
+            right: 17mm;
+            bottom: 8mm;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 9.5px;
+            line-height: 1;
+            color: #475569;
+          }
+
+          .afs-export-controlled-page,
+          .afsExportOnlyRoot [id^="print-"] {
+            break-before: page;
+            page-break-before: always;
+          }
+
+          .afsExportOnlyRoot [id="print-cover-page"] {
+            break-before: auto;
+            page-break-before: auto;
+          }
+
+          .afs-export-note-item {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .afs-directors-report-authorisation-page,
+          .afs-directors-report-authorisation-page section {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          .afsExportOnlyRoot h2,
+          .afsExportOnlyRoot h3 {
+            break-after: avoid !important;
+            page-break-after: avoid !important;
+          }
+
+          .afsExportOnlyRoot p {
+            orphans: 3;
+            widows: 3;
+          }
+
+          .afs-export-notes-page table {
+            width: 100% !important;
+            table-layout: fixed !important;
+          }
+
+          .afs-export-notes-page th:nth-child(2),
+          .afs-export-notes-page th:nth-child(3),
+          .afs-export-notes-page td:nth-child(2),
+          .afs-export-notes-page td:nth-child(3) {
+            width: 20mm !important;
+            max-width: 20mm !important;
+            white-space: nowrap !important;
+          }
+
+        @media screen {
+          body.afs-export-route-body {
+            background: #ffffff !important;
+          }
+
+          body.afs-export-route-body > *:not(script):not(style) {
+            background: #ffffff !important;
+          }
+
+          .afsExportOnlyRoot {
+            display: grid;
+            justify-content: center;
+            align-content: start;
+          }
+        }
+
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 0;
+          }
+
+          html.afs-export-route-html,
+          body.afs-export-route-body {
+            width: 210mm !important;
+            min-width: 210mm !important;
+            max-width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            overflow: visible !important;
+          }
+
+          body.afs-export-route-body * {
+            visibility: hidden !important;
+          }
+
+          body.afs-export-route-body .afsExportOnlyRoot,
+          body.afs-export-route-body .afsExportOnlyRoot * {
+            visibility: visible !important;
+          }
+
+          .afsExportOnlyRoot {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            right: auto !important;
+            bottom: auto !important;
+            z-index: 2147483647 !important;
+            width: 210mm !important;
+            min-width: 210mm !important;
+            max-width: 210mm !important;
+            min-height: auto !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            background: #ffffff !important;
+            display: block !important;
+          }
+
+          .afsExportOnlyRoot > div,
+          .afsExportOnlyRoot [id^="print-"] {
+            width: 210mm !important;
+            min-width: 210mm !important;
+            max-width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            display: block !important;
+            page-break-after: auto !important;
+            break-after: auto !important;
+            page-break-before: auto !important;
+            break-before: auto !important;
+          }
+
+          .afsExportOnlyRoot table {
+            width: 100% !important;
+            table-layout: fixed;
+          }
+
+          .afsExportOnlyRoot tr,
+          .afsExportOnlyRoot thead,
+          .afsExportOnlyRoot tbody {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .afsExportOnlyRoot button,
+          .afsExportOnlyRoot input,
+          .afsExportOnlyRoot select,
+          .afsExportOnlyRoot textarea,
+          .afsExportOnlyRoot [data-work-only="true"],
+          .afsExportOnlyRoot [data-editable="true"],
+          .afsExportOnlyRoot [data-note-off="true"] {
+            display: none !important;
+          }
+
+
+          .afsExportOnlyRoot article {
+            width: 210mm !important;
+            min-height: 297mm !important;
+            height: 297mm !important;
+            margin: 0 !important;
+            overflow: hidden !important;
+            page-break-after: always !important;
+            break-after: page !important;
+          }
+
+          .afsExportOnlyRoot article:last-of-type {
+            page-break-after: auto !important;
+            break-after: auto !important;
+          }
+
+          .afsExportOnlyRoot [id^="print-"] {
+            page-break-before: always !important;
+            break-before: page !important;
+          }
+
+          .afsExportOnlyRoot [id="print-cover-page"] {
+            page-break-before: auto !important;
+            break-before: auto !important;
+          }
+
+          .afsExportOnlyRoot #print-notes,
+          .afsExportOnlyRoot #print-notes > div {
+            page-break-before: auto !important;
+            break-before: auto !important;
+          }
+
+          .afsExportOnlyRoot #print-notes > div + div {
+            page-break-before: always !important;
+            break-before: page !important;
+          }
+
+          .afs-export-note-item {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+        }
+      `}</style>
       {loading ? (
         <AfsA4Page>
           <p style={{ fontSize: 12 }}>Loading Print Studio data...</p>
@@ -2640,8 +3578,6 @@ export default function AfsPrintStudioPage() {
                       margin: "0 0 22px",
                       textTransform: "uppercase",
                       letterSpacing: "-0.01em",
-                      borderBottom: "1.5px solid #111827",
-                      paddingBottom: 5,
                     }}
                   >
                     {clientName}
@@ -2696,32 +3632,51 @@ export default function AfsPrintStudioPage() {
           {reportOptions.index ? (
             <div id="print-index">
               <AfsA4Page {...reportHeaderProps}>
-                <section style={{ fontSize: 11, color: "#111827" }}>
+                <section className="afs-export-fixed-width" style={{ fontSize: 11, color: "#111827", width: "100%", minWidth: 0, display: "block" }}>
                   <h1 style={pageHeadingStyle()}>Index</h1>
 
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <tbody>
-                      {visibleReportSections
-                        .filter((section) => section.id !== "cover-page")
-                        .map((section, index) => (
-                          <tr key={section.id}>
-                            <td style={{ padding: "5px 0" }}>
-                              {section.label}
-                            </td>
-                            <td
-                              style={{
-                                padding: "5px 0",
-                                width: 60,
-                                textAlign: "right",
-                                fontVariantNumeric: "tabular-nums",
-                              }}
-                            >
-                              {index + 1}
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
+                  <div style={{ display: "grid", gap: 0, width: "100%" }}>
+                    {visibleReportSections
+                      .filter((section) => section.id !== "cover-page")
+                      .map((section, index) => (
+                        <div
+                          key={section.id}
+                          className="afs-export-row"
+                          style={{
+                            display: "flex",
+                            alignItems: "baseline",
+                            justifyContent: "space-between",
+                            gap: 24,
+                            width: "100%",
+                            padding: "5px 0",
+                            borderBottom: "0",
+                            fontSize: 11,
+                            lineHeight: 1.35,
+                          }}
+                        >
+                          <span
+                            className="afs-export-nowrap"
+                            style={{
+                              minWidth: 0,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {section.label}
+                          </span>
+                          <span
+                            style={{
+                              flex: "0 0 36px",
+                              textAlign: "right",
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {index + 1}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
                 </section>
               </AfsA4Page>
             </div>
@@ -2746,14 +3701,14 @@ export default function AfsPrintStudioPage() {
                       {renderInfoRow("Registered name", clientName)}
                       {renderInfoRow(
                         "Trading name",
-                        getSetupValue(clientSetup, ["trading_name"])
+                        getSetupValue(clientSetup, ["trading_name"]),
                       )}
                       {renderInfoRow("Registration number", registrationNumber)}
                       {renderInfoRow("Entity type", entityType)}
                       {renderInfoRow("Financial year end", yearEnd)}
                       {renderInfoRow(
                         "Country of incorporation and domicile",
-                        country
+                        country,
                       )}
                       {renderInfoRow(
                         "Nature of business and principal activities",
@@ -2762,11 +3717,11 @@ export default function AfsPrintStudioPage() {
                           "principal_activities",
                           "business_activity",
                           "business_description",
-                        ])
+                        ]),
                       )}
                       {renderInfoRow(
                         roleLabel(entityType),
-                        directorsForDisplay.map(getPersonName)
+                        directorsForDisplay.map(getPersonName),
                       )}
                       {renderInfoRow(
                         "Registered office",
@@ -2777,7 +3732,7 @@ export default function AfsPrintStudioPage() {
                           "registeredAddress",
                           "registeredOffice",
                           "registeredOfficeAddress",
-                        ])
+                        ]),
                       )}
                       {renderInfoRow(
                         "Business address",
@@ -2788,7 +3743,7 @@ export default function AfsPrintStudioPage() {
                           "businessAddress",
                           "physicalAddress",
                           "tradingAddress",
-                        ])
+                        ]),
                       )}
                       {renderInfoRow(
                         "Postal address",
@@ -2797,7 +3752,7 @@ export default function AfsPrintStudioPage() {
                           "mailing_address",
                           "postalAddress",
                           "mailingAddress",
-                        ])
+                        ]),
                       )}
                       {renderInfoRow(
                         "Bankers",
@@ -2806,7 +3761,7 @@ export default function AfsPrintStudioPage() {
                           "banker",
                           "bank_name",
                           "bankName",
-                        ])
+                        ]),
                       )}
                       {renderInfoRow(
                         "Income tax reference number",
@@ -2817,7 +3772,7 @@ export default function AfsPrintStudioPage() {
                           "tax_number",
                           "incomeTaxReferenceNumber",
                           "taxReferenceNumber",
-                        ])
+                        ]),
                       )}
                       {renderInfoRow(
                         "VAT number",
@@ -2826,7 +3781,7 @@ export default function AfsPrintStudioPage() {
                           "vat_reference_number",
                           "vatNumber",
                           "vatReferenceNumber",
-                        ])
+                        ]),
                       )}
                       {renderInfoRow(
                         "PAYE number",
@@ -2834,7 +3789,7 @@ export default function AfsPrintStudioPage() {
                           "paye_number",
                           "paye_reference_number",
                           "payeNumber",
-                        ])
+                        ]),
                       )}
                       {renderInfoRow(
                         "UIF number",
@@ -2842,29 +3797,32 @@ export default function AfsPrintStudioPage() {
                           "uif_number",
                           "uif_reference_number",
                           "uifNumber",
-                        ])
+                        ]),
                       )}
                       {renderInfoRow(
                         "Currency",
                         getSetupValue(clientSetup, [
                           "currency",
                           "presentation_currency",
-                        ])
+                        ]),
                       )}
                       {renderInfoRow(
                         "Legal framework",
                         getSetupValue(clientSetup, [
                           "legal_framework",
                           "companies_act_framework",
-                        ])
+                        ]),
                       )}
-                      {renderInfoRow("Financial reporting framework", framework)}
+                      {renderInfoRow(
+                        "Financial reporting framework",
+                        framework,
+                      )}
                       {renderInfoRow(
                         "Level of assurance",
                         getSetupValue(clientSetup, [
                           "level_of_assurance",
                           "engagement_type",
-                        ])
+                        ]),
                       )}
                       {renderInfoRow("Practitioners", practitionerFirm)}
                       {renderInfoRow("Preparer", practitionerName)}
@@ -2899,9 +3857,18 @@ export default function AfsPrintStudioPage() {
                 >
                   <h1 style={pageHeadingStyle()}>{reportTitle(entityType)}</h1>
 
-                  <DirectorsReportBlock context={narrativeContext} />
+                  <DirectorsReportBlock
+                    context={{
+                      ...narrativeContext,
+                      directorsReportAuthorisation: false,
+                    }}
+                  />
                 </section>
               </AfsA4Page>
+
+              {reportOptions.directorsReportAuthorisation
+                ? renderDirectorsReportAuthorisationExportPage()
+                : null}
             </div>
           ) : null}
 
@@ -2960,11 +3927,21 @@ export default function AfsPrintStudioPage() {
           {reportOptions.cashFlow ? (
             <div id="print-cash-flow">
               <AfsA4Page {...reportHeaderProps}>
-                {activeSectionId === "cash-flow" && cashFlowViewMode === "work" ? (
+                {activeSectionId === "cash-flow" &&
+                cashFlowViewMode === "work" &&
+                !isPrintExportMode ? (
                   <section style={{ fontSize: 10, color: "#111827" }}>
                     <h1 style={pageHeadingStyle()}>Cash Flow Workbench</h1>
-                    <p style={{ margin: "0 0 10px", color: "#64748b", lineHeight: 1.4 }}>
-                      Complete the current and prior year cash flow fields below. The printable cash flow statement is shown in AFS view.
+                    <p
+                      style={{
+                        margin: "0 0 10px",
+                        color: "#64748b",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      Complete the current and prior year cash flow fields
+                      below. The printable cash flow statement is shown in AFS
+                      view.
                     </p>
                     <AfsStatementOverrideSettings
                       mode="cashFlow"
@@ -2979,7 +3956,7 @@ export default function AfsPrintStudioPage() {
                     currencyLabel="Figures in Rand"
                     currentHeading={currentHeading}
                     priorHeading={priorHeading}
-                    rows={cashFlowRows}
+                    rows={exportCashFlowRows}
                   />
                 )}
               </AfsA4Page>
@@ -3003,22 +3980,23 @@ export default function AfsPrintStudioPage() {
                           </h2>
 
                           {item.sections.map((section) => {
-                            const current =
-                              activeAccountingPolicyTexts[section.key] ||
+                            const current = activeAccountingPolicyTexts[
+                              section.key
+                            ] ||
                               defaultAccountingPolicyTexts[section.key] || {
                                 title: section.title || section.defaultTitle,
                                 text: "",
                               };
 
                             const shortTitle = String(
-                              current.title || (section.label || section.title || section.defaultTitle)
+                              current.title ||
+                                section.label ||
+                                section.title ||
+                                section.defaultTitle,
                             )
                               .replace(`${item.groupLabel} - `, "")
                               .replace(`${item.groupLabel}: `, "")
-                              .replace(
-                                "Property, plant and equipment - ",
-                                ""
-                              )
+                              .replace("Property, plant and equipment - ", "")
                               .replace("Financial instruments - ", "")
                               .replace("Leases - ", "")
                               .replace("Investment property - ", "")
@@ -3032,7 +4010,7 @@ export default function AfsPrintStudioPage() {
 
                                 {renderDisclosureText(
                                   current.text,
-                                  disclosureTokens
+                                  disclosureTokens,
                                 ).map((paragraph, paragraphIndex) => (
                                   <p
                                     key={`${section.key}-${paragraphIndex}`}
@@ -3048,22 +4026,30 @@ export default function AfsPrintStudioPage() {
                       );
                     }
 
-                    const current =
-                      activeAccountingPolicyTexts[item.section.key] ||
+                    const current = activeAccountingPolicyTexts[
+                      item.section.key
+                    ] ||
                       defaultAccountingPolicyTexts[item.section.key] || {
-                        title: (item.section.label || item.section.title || item.section.defaultTitle),
+                        title:
+                          item.section.label ||
+                          item.section.title ||
+                          item.section.defaultTitle,
                         text: "",
                       };
 
                     return (
                       <div key={item.section.key}>
                         <h2 style={sectionHeadingStyle()}>
-                          {index + 1}. {current.title || (item.section.label || item.section.title || item.section.defaultTitle)}
+                          {index + 1}.{" "}
+                          {current.title ||
+                            item.section.label ||
+                            item.section.title ||
+                            item.section.defaultTitle}
                         </h2>
 
                         {renderDisclosureText(
                           current.text,
-                          disclosureTokens
+                          disclosureTokens,
                         ).map((paragraph, paragraphIndex) => (
                           <p
                             key={`${item.section.key}-${paragraphIndex}`}
@@ -3082,30 +4068,22 @@ export default function AfsPrintStudioPage() {
 
           {reportOptions.notes ? (
             <div id="print-notes">
-              <AfsA4Page {...reportHeaderProps}>
-                <AfsStructuredNotesPanel
-                  engagementId={engagementId}
-                  noteSections={noteSections}
-                  reportOptions={reportOptions as any}
-                  toggleReportOption={(key: string, checked: boolean) =>
-                    toggleReportOption(key as keyof ReportOptions, checked)
-                  }
-                  noteData={noteData as any}
-                  trialBalanceLines={trialBalanceLines}
-                  clientSetup={clientSetup}
-                  currentHeading={currentHeading}
-                  priorHeading={priorHeading}
-                  activeNoteTexts={activeNoteTexts}
-                  defaultNoteTexts={defaultNoteTexts}
-                  disclosureTokens={disclosureTokens}
-                />
-              </AfsA4Page>
+              {chunkPrintableNotes(buildPrintableNoteItems()).map((notePage, notePageIndex) => (
+                <div
+                  key={`print-notes-page-${notePageIndex}`}
+                  id={notePageIndex === 0 ? "print-notes-page-1" : `print-notes-page-${notePageIndex + 1}`}
+                  className="afs-export-controlled-page"
+                >
+                  {renderPrintableNotesPage(notePage, notePageIndex)}
+                </div>
+              ))}
             </div>
           ) : null}
 
           {reportOptions.detailedIncomeStatement ? (
             <div id="print-detailed-income">
               <AfsA4Page {...reportHeaderProps}>
+                <div className="afs-export-fixed-width" style={{ width: "100%", minWidth: 0, display: "block" }}>
                 <AfsStatementTable
                   title="Detailed Income Statement"
                   currencyLabel="Figures in Rand"
@@ -3113,6 +4091,7 @@ export default function AfsPrintStudioPage() {
                   priorHeading={priorHeading}
                   rows={detailedIncomeRows}
                 />
+                </div>
               </AfsA4Page>
             </div>
           ) : null}
@@ -3121,13 +4100,13 @@ export default function AfsPrintStudioPage() {
             <div id="print-tax-computation">
               <AfsA4Page {...reportHeaderProps}>
                 <section
-                  style={{ fontSize: 11, lineHeight: 1.45, color: "#111827" }}
+                  style={{ fontSize: 11.2, lineHeight: 1.42, color: "#111827" }}
                 >
                   <h1 style={pageHeadingStyle()}>Tax Computation</h1>
 
                   {(() => {
                     const profitBeforeTax = Number(
-                      engineChecks.profitBeforeTax || 0
+                      engineChecks.profitBeforeTax || 0,
                     );
                     const taxRateRaw = getSetupValue(clientSetup, [
                       "tax_rate",
@@ -3147,45 +4126,140 @@ export default function AfsPrintStudioPage() {
                     const taxRate = Number(taxRateRaw || 27);
                     const assessedLoss = Number(assessedLossRaw || 0);
                     const taxableIncomeBeforeLoss = profitBeforeTax;
+                    const lossUtilised = Math.min(
+                      Math.max(taxableIncomeBeforeLoss, 0),
+                      Math.max(assessedLoss, 0),
+                    );
                     const taxableIncome = Math.max(
                       0,
-                      taxableIncomeBeforeLoss - assessedLoss
+                      taxableIncomeBeforeLoss - lossUtilised,
                     );
-                    const normalTax = Math.round(taxableIncome * (taxRate / 100));
+                    const normalTax = Math.round(
+                      taxableIncome * (taxRate / 100),
+                    );
+                    const expectedTax = Math.round(
+                      Math.max(profitBeforeTax, 0) * (taxRate / 100),
+                    );
+                    const taxDifference = normalTax - expectedTax;
 
-                    const rows: Array<[string, number]> = [
-                      ["Profit / (loss) before taxation", profitBeforeTax],
-                      ["Assessed loss brought forward", -Math.abs(assessedLoss)],
-                      ["Taxable income", taxableIncome],
-                      [`Normal tax at ${taxRate}%`, normalTax],
+                    const taxRows: Array<{
+                      label: string;
+                      current: number;
+                      strong?: boolean;
+                      rule?: boolean;
+                    }> = [
+                      {
+                        label: "Profit / (loss) before taxation",
+                        current: profitBeforeTax,
+                        strong: true,
+                      },
+                      {
+                        label: `Tax calculated at ${taxRate}%`,
+                        current: expectedTax,
+                      },
+                      {
+                        label: "Permanent / non-taxable differences",
+                        current: 0,
+                      },
+                      {
+                        label: "Assessed loss utilised",
+                        current: -Math.abs(lossUtilised),
+                      },
+                      {
+                        label: "Taxable income",
+                        current: taxableIncome,
+                        strong: true,
+                        rule: true,
+                      },
+                      {
+                        label: "Current tax",
+                        current: normalTax,
+                        strong: true,
+                        rule: true,
+                      },
+                      {
+                        label: "Tax rate reconciliation difference",
+                        current: taxDifference,
+                      },
                     ];
 
                     return (
-                      <table
-                        style={{
-                          width: "100%",
-                          borderCollapse: "collapse",
-                          fontSize: 10.5,
-                          marginTop: 10,
-                        }}
-                      >
-                        <tbody>
-                          {rows.map(([label, amount]: [string, number]) => (
-                            <tr key={String(label)}>
-                              <td style={{ padding: "4px 0" }}>{label}</td>
-                              <td
+                      <>
+                        <table
+                          style={{
+                            width: "100%",
+                            borderCollapse: "collapse",
+                            fontSize: 10.2,
+                            marginTop: 8,
+                          }}
+                        >
+                          <thead>
+                            <tr>
+                              <th
                                 style={{
-                                  padding: "4px 0",
-                                  textAlign: "right",
-                                  width: 100,
+                                  textAlign: "left",
+                                  borderBottom: "1.5px solid #111827",
+                                  padding: "3px 0",
                                 }}
                               >
-                                {taxAmount(Number(amount))}
-                              </td>
+                                Description
+                              </th>
+                              <th
+                                style={{
+                                  textAlign: "right",
+                                  borderBottom: "1.5px solid #111827",
+                                  padding: "3px 0",
+                                  width: 110,
+                                }}
+                              >
+                                {currentHeading}
+                              </th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {taxRows.map((row) => (
+                              <tr key={row.label}>
+                                <td
+                                  style={{
+                                    padding: "3px 0",
+                                    fontWeight: row.strong ? 800 : 400,
+                                  }}
+                                >
+                                  {row.label}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "3px 0",
+                                    textAlign: "right",
+                                    fontWeight: row.strong ? 800 : 400,
+                                    borderTop: row.rule
+                                      ? "1px solid #111827"
+                                      : undefined,
+                                    borderBottom: row.rule
+                                      ? "2px solid #111827"
+                                      : undefined,
+                                  }}
+                                >
+                                  {taxAmount(Number(row.current))}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+
+                        <p
+                          style={{
+                            marginTop: 12,
+                            fontSize: 10.2,
+                            lineHeight: 1.35,
+                            color: "#374151",
+                          }}
+                        >
+                          Tax computation is prepared from the mapped profit
+                          before tax and the tax settings captured in Client
+                          Setup.
+                        </p>
+                      </>
                     );
                   })()}
                 </section>
@@ -3194,6 +4268,7 @@ export default function AfsPrintStudioPage() {
           ) : null}
         </>
       )}
-    </AfsPrintStudioShell>
+
+    </main>
   );
 }
