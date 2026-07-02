@@ -492,27 +492,33 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
   const practitionerFirm = value(context, "practitionerFirm", "");
   const compilationDate = value(context, "compilationDate", "________________");
 
-  const topLogoCandidates = uniqueStrings([
-  value(context, "practitionerLogoUrl", ""),
-  "/bizzacc/Top.png",
-  "/bizzacc/letterhead-top.png",
-]);
+  const topLetterheadCandidates = uniqueStrings([
+    value(context, "practitionerLogoUrl", ""),
+    "/bizzacc/Top.png",
+    "/bizzacc/top.png",
+    "/Top.png",
+    "/letterhead-top.png",
+    "/bizzacc/letterhead-top.png",
+  ]);
 
-const footerLogoCandidates = uniqueStrings([
-  value(context, "practitionerFooterLogoUrl", ""),
-  "/bizzacc/Bottom.png",
-  "/bizzacc/letterhead-bottom.png",
-]);
+  const bottomLetterheadCandidates = uniqueStrings([
+    value(context, "practitionerFooterLogoUrl", ""),
+    "/bizzacc/Bottom.png",
+    "/bizzacc/bottom.png",
+    "/Bottom.png",
+    "/letterhead-bottom.png",
+    "/bizzacc/letterhead-bottom.png",
+  ]);
 
   return (
-    <section>
-      <div style={styles.letterheadTop}>
-  <LogoWithFallback
-    sources={topLogoCandidates}
-    alt={`${practitionerFirm || "Practitioner"} letterhead`}
-    style={styles.letterheadTopImage}
-  />
-</div>
+    <section style={styles.compilationReportPage}>
+      <div style={styles.fullLetterheadTop}>
+        <LogoWithFallback
+          sources={topLetterheadCandidates}
+          alt={`${practitionerFirm || "Practitioner"} letterhead`}
+          style={styles.fullLetterheadTopImage}
+        />
+      </div>
 
       <p style={styles.paragraph}>
         We have compiled the annual financial statements of {clientName}, as set out in this report, based on information provided by management. These annual financial statements comprise the statement of financial position as at {value(context, "yearEnd", "the reporting date")}, the statement of comprehensive income, statement of changes in equity and statement of cash flows for the year then ended, and the notes to the annual financial statements, including a summary of significant accounting policies and other explanatory information.
@@ -540,19 +546,27 @@ const footerLogoCandidates = uniqueStrings([
 
       <div style={styles.compilationSignatureBlock}>
         <div style={styles.signatureLine} />
-        {practitionerFirm ? <p style={styles.paragraph}><strong>{practitionerFirm}</strong></p> : null}
-        <p style={styles.paragraph}><strong>{practitionerName}</strong></p>
-        {practitionerDesignation ? <p style={styles.paragraph}>{practitionerDesignation}</p> : null}
+        {practitionerFirm ? (
+          <p style={styles.paragraph}>
+            <strong>{practitionerFirm}</strong>
+          </p>
+        ) : null}
+        <p style={styles.paragraph}>
+          <strong>{practitionerName}</strong>
+        </p>
+        {practitionerDesignation ? (
+          <p style={styles.paragraph}>{practitionerDesignation}</p>
+        ) : null}
         <p style={styles.paragraph}>{compilationDate}</p>
       </div>
 
-      <div style={styles.letterheadBottom}>
-  <LogoWithFallback
-    sources={footerLogoCandidates}
-    alt={`${practitionerFirm || "Practitioner"} footer`}
-    style={styles.letterheadBottomImage}
-  />
-</div>
+      <div style={styles.fullLetterheadBottom}>
+        <LogoWithFallback
+          sources={bottomLetterheadCandidates}
+          alt={`${practitionerFirm || "Practitioner"} footer`}
+          style={styles.fullLetterheadBottomImage}
+        />
+      </div>
     </section>
   );
 }
@@ -647,4 +661,39 @@ letterheadBottomImage: {
   objectFit: "contain",
   display: "block",
 },
+
+  compilationReportPage: {
+    position: "relative",
+    minHeight: "245mm",
+    fontFamily: "Arial, Helvetica, sans-serif",
+  },
+  fullLetterheadTop: {
+    width: "100%",
+    margin: "0 0 22px",
+    breakInside: "avoid",
+    pageBreakInside: "avoid",
+  },
+  fullLetterheadTopImage: {
+    width: "100%",
+    height: "auto",
+    maxHeight: 92,
+    objectFit: "contain",
+    display: "block",
+  },
+  fullLetterheadBottom: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: "100%",
+    breakInside: "avoid",
+    pageBreakInside: "avoid",
+  },
+  fullLetterheadBottomImage: {
+    width: "100%",
+    height: "auto",
+    maxHeight: 58,
+    objectFit: "contain",
+    display: "block",
+  },
 };
