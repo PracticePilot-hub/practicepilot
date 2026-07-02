@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type RouteContext = {
   params: Promise<{
@@ -142,10 +143,7 @@ const exportUrl = `${baseUrl}/afs/${id}/print-studio/export?serverPdf=1${
   isDraft ? "&draft=1" : ""
 }`;
 
-console.log("AFS PDF export:", {
-  isDraft,
-  exportUrl,
-});
+
     browser = await puppeteer.default.launch(launchOptions as any);
 
     const page = await browser.newPage();
