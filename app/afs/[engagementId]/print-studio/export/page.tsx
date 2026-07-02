@@ -4084,7 +4084,13 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           Practitioner’s Compilation Report
         </h1>
 
-        <CompilationReportBlock context={narrativeContext} />
+        <CompilationReportBlock
+  context={{
+    ...narrativeContext,
+    practitionerLogoUrl: "/bizzacc/Top.png",
+    practitionerFooterLogoUrl: "/bizzacc/Bottom.png",
+  }}
+/>
       </section>
     </AfsA4Page>
   </div>
