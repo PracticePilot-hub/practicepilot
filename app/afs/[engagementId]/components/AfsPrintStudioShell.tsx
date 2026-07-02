@@ -78,34 +78,41 @@ export default function AfsPrintStudioShell({
   const [showOptions, setShowOptions] = useState(true);
   const [zoom, setZoom] = useState("fit");
   const [isExporting, setIsExporting] = useState(false);
+  const [exportAsDraft, setExportAsDraft] = useState(false);
 
   const visibleSections = useMemo(
     () => sections.filter((section) => !section.hidden),
-    [sections]
+    [sections],
   );
 
-  const reportSections = visibleSections.filter((section) => section.group !== "settings");
-  const settingSections = visibleSections.filter((section) => section.group === "settings");
+  const reportSections = visibleSections.filter(
+    (section) => section.group !== "settings",
+  );
+  const settingSections = visibleSections.filter(
+    (section) => section.group === "settings",
+  );
 
   const zoomClass =
     zoom === "85"
       ? "afsZoom85"
       : zoom === "90"
-      ? "afsZoom90"
-      : zoom === "100"
-      ? "afsZoom100"
-      : zoom === "110"
-      ? "afsZoom110"
-      : zoom === "125"
-      ? "afsZoom125"
-      : zoom === "150"
-      ? "afsZoom150"
-      : "afsZoomFit";
+        ? "afsZoom90"
+        : zoom === "100"
+          ? "afsZoom100"
+          : zoom === "110"
+            ? "afsZoom110"
+            : zoom === "125"
+              ? "afsZoom125"
+              : zoom === "150"
+                ? "afsZoom150"
+                : "afsZoomFit";
 
   useEffect(() => {
     const clearExportMode = () => {
       document.body.classList.remove("afsPdfExportMode");
-      window.dispatchEvent(new CustomEvent("afs-print-export-mode", { detail: false }));
+      window.dispatchEvent(
+        new CustomEvent("afs-print-export-mode", { detail: false }),
+      );
     };
 
     window.addEventListener("afterprint", clearExportMode);
@@ -130,12 +137,15 @@ export default function AfsPrintStudioShell({
     setIsExporting(true);
 
     try {
+      const draftQuery = exportAsDraft ? "?draft=1" : "";
       const response = await fetch(
-        `/api/afs/engagements/${encodeURIComponent(engagementId)}/export-pdf`,
+        `/api/afs/engagements/${encodeURIComponent(
+          engagementId,
+        )}/export-pdf${draftQuery}`,
         {
           method: "GET",
           cache: "no-store",
-        }
+        },
       );
 
       if (!response.ok) {
@@ -154,12 +164,15 @@ export default function AfsPrintStudioShell({
 
       const blob = await response.blob();
       const headerFilename = getFilenameFromContentDisposition(
-        response.headers.get("Content-Disposition")
+        response.headers.get("Content-Disposition"),
       );
 
       const clientName = safeDownloadName(engagementName) || "AFS";
-      const yearEnd = safeDownloadName(yearEndLabel.replace(/^.*year end\s*/i, "")) || "year-end";
-      const fallbackFilename = `${clientName}-${yearEnd}-annual-financial-statements.pdf`;
+      const yearEnd =
+        safeDownloadName(yearEndLabel.replace(/^.*year end\s*/i, "")) ||
+        "year-end";
+      const draftPart = exportAsDraft ? "-draft" : "";
+      const fallbackFilename = `${clientName}-${yearEnd}-annual-financial-statements${draftPart}.pdf`;
       const filename = headerFilename || fallbackFilename;
 
       const objectUrl = window.URL.createObjectURL(blob);
@@ -199,7 +212,9 @@ export default function AfsPrintStudioShell({
               onClick={() => onSectionChange(section.id)}
               style={{
                 ...styles.leftNavButton,
-                ...(activeSectionId === section.id ? styles.leftNavButtonActive : null),
+                ...(activeSectionId === section.id
+                  ? styles.leftNavButtonActive
+                  : null),
               }}
             >
               {section.label}
@@ -216,7 +231,9 @@ export default function AfsPrintStudioShell({
                   onClick={() => onSectionChange(section.id)}
                   style={{
                     ...styles.leftNavButton,
-                    ...(activeSectionId === section.id ? styles.leftNavButtonActive : null),
+                    ...(activeSectionId === section.id
+                      ? styles.leftNavButtonActive
+                      : null),
                   }}
                 >
                   {section.label}
@@ -233,10 +250,12 @@ export default function AfsPrintStudioShell({
             <strong style={styles.fileClient}>{engagementName}</strong>
             <span style={styles.fileMeta}>{yearEndLabel}</span>
           </div>
+
           <div style={styles.actions}>
             <button type="button" style={styles.actionButton} onClick={refreshPage}>
               Refresh
             </button>
+
             <button
               type="button"
               style={styles.actionButton}
@@ -244,6 +263,9 @@ export default function AfsPrintStudioShell({
             >
               {showOptions ? "Hide report options" : "Show report options"}
             </button>
+
+           
+
             <select
               value={zoom}
               onChange={(event) => setZoom(event.target.value)}
@@ -257,6 +279,17 @@ export default function AfsPrintStudioShell({
               <option value="125">125%</option>
               <option value="150">150%</option>
             </select>
+
+ <label style={styles.draftToggle}>
+              <input
+                type="checkbox"
+                checked={exportAsDraft}
+                onChange={(event) => setExportAsDraft(event.target.checked)}
+              />
+              <span>Draft PDF</span>
+            </label>
+
+
             <button
               type="button"
               disabled={exportDisabled || isExporting}
@@ -267,7 +300,11 @@ export default function AfsPrintStudioShell({
                 cursor: exportDisabled || isExporting ? "not-allowed" : "pointer",
               }}
             >
-              {isExporting ? "Exporting..." : "Export PDF"}
+              {isExporting
+                ? "Exporting..."
+                : exportAsDraft
+                  ? "Export Draft PDF"
+                  : "Export PDF"}
             </button>
           </div>
         </section>
@@ -280,7 +317,9 @@ export default function AfsPrintStudioShell({
               onClick={() => onSectionChange(section.id)}
               style={{
                 ...styles.quickButton,
-                ...(activeSectionId === section.id ? styles.quickButtonActive : null),
+                ...(activeSectionId === section.id
+                  ? styles.quickButtonActive
+                  : null),
               }}
             >
               {section.shortLabel || section.label}
@@ -303,7 +342,9 @@ export default function AfsPrintStudioShell({
             className="afsStudioBodyGrid"
             style={{
               ...styles.bodyGrid,
-              gridTemplateColumns: showOptions ? "260px minmax(0, 1fr)" : "minmax(0, 1fr)",
+              gridTemplateColumns: showOptions
+                ? "260px minmax(0, 1fr)"
+                : "minmax(0, 1fr)",
             }}
           >
             {showOptions ? (
@@ -320,12 +361,16 @@ export default function AfsPrintStudioShell({
                         <input
                           type="checkbox"
                           checked={option.checked}
-                          onChange={(event) => option.onChange(event.target.checked)}
+                          onChange={(event) =>
+                            option.onChange(event.target.checked)
+                          }
                         />
                         <span>
                           <strong>{option.label}</strong>
                           {option.description ? (
-                            <small style={styles.optionDescription}>{option.description}</small>
+                            <small style={styles.optionDescription}>
+                              {option.description}
+                            </small>
                           ) : null}
                         </span>
                       </label>
@@ -341,7 +386,10 @@ export default function AfsPrintStudioShell({
               <div className="afsStudioCanvasLabel" style={styles.canvasLabel}>
                 A4 print-aware canvas
               </div>
-              <div style={styles.canvasViewport} className={`${zoomClass} afsPrintableReport`}>
+              <div
+                style={styles.canvasViewport}
+                className={`${zoomClass} afsPrintableReport`}
+              >
                 {children}
               </div>
             </section>
@@ -481,7 +529,7 @@ export default function AfsPrintStudioShell({
             display: none !important;
           }
 
-          body.afsPdfExportMode .afsPrintableReport [contenteditable='true'] {
+          body.afsPdfExportMode .afsPrintableReport [contenteditable="true"] {
             outline: none !important;
             border: 0 !important;
             background: transparent !important;
@@ -501,7 +549,9 @@ export default function AfsPrintStudioShell({
             widows: 2;
           }
 
-          body.afsPdfExportMode .afsPrintableReport [data-keep-together="true"] {
+          body.afsPdfExportMode
+            .afsPrintableReport
+            [data-keep-together="true"] {
             break-inside: avoid-page;
             page-break-inside: avoid;
           }
@@ -608,6 +658,20 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     fontWeight: 700,
   },
+  draftToggle: {
+    height: 28,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    border: "1px solid #94a3b8",
+    background: "#ffffff",
+    padding: "0 8px",
+    fontSize: 11,
+    fontWeight: 800,
+    color: "#111827",
+    cursor: "pointer",
+    userSelect: "none",
+  },
   select: {
     border: "1px solid #94a3b8",
     background: "#ffffff",
@@ -696,7 +760,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     lineHeight: 1.22,
   },
-  optionDescription: { display: "block", fontSize: 9.5, color: "#64748b", marginTop: 2 },
+  optionDescription: {
+    display: "block",
+    fontSize: 9.5,
+    color: "#64748b",
+    marginTop: 2,
+  },
   emptyOptions: { fontSize: 10.5, color: "#64748b" },
   canvasColumn: {
     minWidth: 0,

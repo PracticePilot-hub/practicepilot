@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import type {
   AfsReportOption,
   AfsStudioSection,
@@ -1199,16 +1199,18 @@ function taxAmount(value: number) {
 }
 
 export default function AfsPrintStudioExportPage() {
-  const params = useParams();
-  const engagementId = String(params?.engagementId || "");
+ const params = useParams();
+const searchParams = useSearchParams();
+const engagementId = String(params?.engagementId || "");
+const isDraftPdf =
+  searchParams.get("draft") === "1" || searchParams.get("draft") === "true";
 
   const [loading, setLoading] = useState(true);
+  const [isPrintExportMode, setIsPrintExportMode] = useState(false);
   const [activeSectionId, setActiveSectionId] = useState("cover-page");
   const [cashFlowViewMode, setCashFlowViewMode] = useState<"afs" | "work">(
     "afs",
   );
-
-  const [isPrintExportMode, setIsPrintExportMode] = useState(false);
 
   useEffect(() => {
     const onExportMode = (event: Event) => {
@@ -3313,8 +3315,11 @@ export default function AfsPrintStudioExportPage() {
   }, [loading]);
 
   return (
-    <main className="afsExportOnlyRoot">
-      <style jsx global>{`
+  <main
+  className={`afsExportOnlyRoot ${isDraftPdf ? "afsDraftExport" : ""}`}
+>
+  
+  <style jsx global>{`
         html.afs-export-route-html,
         body.afs-export-route-body {
           margin: 0 !important;
@@ -3340,6 +3345,27 @@ export default function AfsPrintStudioExportPage() {
           background: #ffffff;
         }
 
+.afsExportOnlyRoot article {
+  position: relative !important;
+}
+
+.afsDraftWatermark {
+  position: absolute;
+  top: 48%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-35deg);
+  z-index: 999999;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 82pt;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: rgba(90, 90, 90, 0.16);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
         .afsExportOnlyRoot article {
           box-shadow: none !important;
         }
@@ -3363,6 +3389,24 @@ export default function AfsPrintStudioExportPage() {
             line-height: 1;
             color: #475569;
           }
+
+          .afsExportOnlyRoot.afsDraftExport article::before {
+  content: "DRAFT";
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-35deg);
+  z-index: 999998;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 84pt;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: rgba(100, 100, 100, 0.18);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
 
           .afs-export-controlled-page,
           .afsExportOnlyRoot [id^="print-"] {

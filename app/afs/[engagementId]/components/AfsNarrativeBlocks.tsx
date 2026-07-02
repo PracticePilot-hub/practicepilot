@@ -487,41 +487,26 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
   const compilationDate = value(context, "compilationDate", "________________");
 
   const topLogoCandidates = uniqueStrings([
-    value(context, "practitionerLogoUrl", ""),
-    "/bizzacc-logo.png",
-    "/BizzaccLogo.png",
-    "/bizzacc/BizzaccLogo.png",
-    "/bizzacc/bizzacc-logo.png",
-    "/bizzacc/letterhead-top.png",
-    "/letterhead-top.png",
-  ]);
+  value(context, "practitionerLogoUrl", ""),
+  "/bizzacc/Top.png",
+  "/bizzacc/letterhead-top.png",
+]);
 
-  const footerLogoCandidates = uniqueStrings([
-    value(context, "practitionerFooterLogoUrl", ""),
-    "/bizzacc-footer.png",
-    "/BizzaccFooter.png",
-    "/bizzacc/BizzaccFooter.png",
-    "/bizzacc/letterhead-bottom.png",
-    "/letterhead-bottom.png",
-  ]);
+const footerLogoCandidates = uniqueStrings([
+  value(context, "practitionerFooterLogoUrl", ""),
+  "/bizzacc/Bottom.png",
+  "/bizzacc/letterhead-bottom.png",
+]);
 
   return (
     <section>
       <div style={styles.letterheadTop}>
-        <LogoWithFallback
-          sources={topLogoCandidates}
-          alt={`${practitionerFirm || "Practitioner"} logo`}
-          style={styles.letterheadLogo}
-        />
-        <div style={styles.letterheadFirmBlock}>
-          {practitionerFirm ? (
-            <div style={styles.letterheadFirmName}>{practitionerFirm}</div>
-          ) : null}
-          <div style={styles.letterheadFirmMeta}>
-            Independent practitioner’s compilation report
-          </div>
-        </div>
-      </div>
+  <LogoWithFallback
+    sources={topLogoCandidates}
+    alt={`${practitionerFirm || "Practitioner"} letterhead`}
+    style={styles.letterheadTopImage}
+  />
+</div>
 
       <p style={styles.paragraph}>
         We have compiled the annual financial statements of {clientName}, as set out in this report, based on information provided by management. These annual financial statements comprise the statement of financial position as at {value(context, "yearEnd", "the reporting date")}, the statement of comprehensive income, statement of changes in equity and statement of cash flows for the year then ended, and the notes to the annual financial statements, including a summary of significant accounting policies and other explanatory information.
@@ -556,15 +541,12 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
       </div>
 
       <div style={styles.letterheadBottom}>
-        <LogoWithFallback
-          sources={footerLogoCandidates}
-          alt={`${practitionerFirm || "Practitioner"} footer`}
-          style={styles.letterheadFooterLogo}
-        />
-        <div style={styles.letterheadFooterText}>
-          {practitionerFirm || "Independent practitioner"}
-        </div>
-      </div>
+  <LogoWithFallback
+    sources={footerLogoCandidates}
+    alt={`${practitionerFirm || "Practitioner"} footer`}
+    style={styles.letterheadBottomImage}
+  />
+</div>
     </section>
   );
 }
@@ -632,61 +614,31 @@ const styles: Record<string, React.CSSProperties> = {
     width: "80%",
   },
   letterheadTop: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 16,
-    margin: "0 0 14px",
-    padding: "0 0 9px",
-    borderBottom: "1px solid #d1d5db",
-    breakInside: "avoid",
-    pageBreakInside: "avoid",
-  },
-  letterheadLogo: {
-    maxWidth: 170,
-    maxHeight: 58,
-    objectFit: "contain",
-    display: "block",
-  },
-  letterheadFirmBlock: {
-    textAlign: "right",
-    marginLeft: "auto",
-    fontSize: 10.6,
-    lineHeight: 1.25,
-    color: "#374151",
-  },
-  letterheadFirmName: {
-    fontWeight: 900,
-    color: "#111827",
-    fontSize: 12,
-    marginBottom: 2,
-  },
-  letterheadFirmMeta: {
-    fontSize: 10.2,
-    color: "#4b5563",
-  },
-  letterheadBottom: {
-    marginTop: 28,
-    paddingTop: 9,
-    borderTop: "1px solid #d1d5db",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    breakInside: "avoid",
-    pageBreakInside: "avoid",
-  },
-  letterheadFooterLogo: {
-    maxWidth: 150,
-    maxHeight: 36,
-    objectFit: "contain",
-    display: "block",
-  },
-  letterheadFooterText: {
-    marginLeft: "auto",
-    textAlign: "right",
-    fontSize: 9.6,
-    lineHeight: 1.25,
-    color: "#6b7280",
-  },
+  margin: "0 0 18px",
+  padding: 0,
+  width: "100%",
+  breakInside: "avoid",
+  pageBreakInside: "avoid",
+},
+letterheadTopImage: {
+  width: "100%",
+  maxWidth: "100%",
+  height: "auto",
+  objectFit: "contain",
+  display: "block",
+},
+letterheadBottom: {
+  marginTop: 200,
+  padding: 0,
+  width: "100%",
+  breakInside: "avoid",
+  pageBreakInside: "avoid",
+},
+letterheadBottomImage: {
+  width: "100%",
+  maxWidth: "100%",
+  height: "auto",
+  objectFit: "contain",
+  display: "block",
+},
 };

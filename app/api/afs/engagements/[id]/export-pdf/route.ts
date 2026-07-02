@@ -134,8 +134,18 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const puppeteer = await import("puppeteer-core");
     const launchOptions = await getBrowserLaunchOptions();
     const baseUrl = getBaseUrl(request);
-    const exportUrl = `${baseUrl}/afs/${id}/print-studio/export?serverPdf=1`;
+    const isDraft =
+  request.nextUrl.searchParams.get("draft") === "1" ||
+  request.nextUrl.searchParams.get("draft") === "true";
 
+const exportUrl = `${baseUrl}/afs/${id}/print-studio/export?serverPdf=1${
+  isDraft ? "&draft=1" : ""
+}`;
+
+console.log("AFS PDF export:", {
+  isDraft,
+  exportUrl,
+});
     browser = await puppeteer.default.launch(launchOptions as any);
 
     const page = await browser.newPage();
