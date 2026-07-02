@@ -149,18 +149,19 @@ export default function AfsPrintStudioShell({
       );
 
       if (!response.ok) {
-        let message = `PDF export failed with status ${response.status}.`;
+  let message = `PDF export failed with status ${response.status}.`;
 
-        try {
-          const payload = await response.json();
-          if (payload?.error) message = payload.error;
-        } catch {
-          const text = await response.text();
-          if (text) message = text.slice(0, 500);
-        }
+  const rawText = await response.text();
 
-        throw new Error(message);
-      }
+  try {
+    const payload = rawText ? JSON.parse(rawText) : null;
+    if (payload?.error) message = payload.error;
+  } catch {
+    if (rawText) message = rawText.slice(0, 500);
+  }
+
+  throw new Error(message);
+}
 
       const blob = await response.blob();
       const headerFilename = getFilenameFromContentDisposition(
