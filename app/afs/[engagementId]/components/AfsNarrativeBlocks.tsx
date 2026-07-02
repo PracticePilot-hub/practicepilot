@@ -573,10 +573,10 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
 
 const styles: Record<string, React.CSSProperties> = {
   paragraph: {
-    margin: "0 0 8.5px",
-    fontSize: 11.55,
-    lineHeight: 1.45,
-  },
+  margin: "0 0 7px",
+  fontSize: 10.6,
+  lineHeight: 1.35,
+},
   reportSection: {
     marginBottom: 13,
     breakInside: "avoid",
@@ -663,37 +663,41 @@ letterheadBottomImage: {
 },
 
   compilationReportPage: {
-    position: "relative",
-    minHeight: "245mm",
-    fontFamily: "Arial, Helvetica, sans-serif",
-  },
-  fullLetterheadTop: {
-    width: "100%",
-    margin: "0 0 22px",
-    breakInside: "avoid",
-    pageBreakInside: "avoid",
-  },
-  fullLetterheadTopImage: {
-    width: "100%",
-    height: "auto",
-    maxHeight: 92,
-    objectFit: "contain",
-    display: "block",
-  },
-  fullLetterheadBottom: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: "100%",
-    breakInside: "avoid",
-    pageBreakInside: "avoid",
-  },
-  fullLetterheadBottomImage: {
-    width: "100%",
-    height: "auto",
-    maxHeight: 58,
-    objectFit: "contain",
-    display: "block",
-  },
+  position: "relative",
+  minHeight: "222mm",
+  paddingBottom: 48,
+  fontFamily: "Arial, Helvetica, sans-serif",
+},
+fullLetterheadTop: {
+  width: "100%",
+  margin: "0 0 12px",
+  breakInside: "avoid",
+  pageBreakInside: "avoid",
+},
+
+fullLetterheadTopImage: {
+  width: "100%",
+  height: 72,
+  objectFit: "contain",
+  objectPosition: "center top",
+  display: "block",
+},
+
+fullLetterheadBottom: {
+  position: "absolute",
+  left: 0,
+  right: 0,
+  bottom: 4,
+  width: "100%",
+  breakInside: "avoid",
+  pageBreakInside: "avoid",
+},
+
+fullLetterheadBottomImage: {
+  width: "100%",
+  height: 38,
+  objectFit: "contain",
+  objectPosition: "center bottom",
+  display: "block",
+},
 };

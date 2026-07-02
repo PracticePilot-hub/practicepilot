@@ -4071,7 +4071,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
           {reportOptions.compilerReport ? (
   <div id="print-compiler-report">
-    <AfsA4Page>
+    <AfsA4Page {...reportHeaderProps}>
       <section
         style={{
           fontFamily: "Arial, Helvetica, sans-serif",
@@ -4080,13 +4080,11 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           color: "#111827",
         }}
       >
-        <CompilationReportBlock
-          context={{
-            ...narrativeContext,
-            practitionerLogoUrl: "/bizzacc/Top.png",
-            practitionerFooterLogoUrl: "/bizzacc/Bottom.png",
-          }}
-        />
+        <h1 style={pageHeadingStyle()}>
+          Practitioner’s Compilation Report
+        </h1>
+
+        <CompilationReportBlock context={narrativeContext} />
       </section>
     </AfsA4Page>
   </div>
