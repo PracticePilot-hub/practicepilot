@@ -4070,20 +4070,27 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           ) : null}
 
           {reportOptions.compilerReport ? (
-            <div id="print-compiler-report">
-              <AfsA4Page {...reportHeaderProps}>
-                <section
-                  style={{ fontSize: 11, lineHeight: 1.45, color: "#111827" }}
-                >
-                  <h1 style={pageHeadingStyle()}>
-                    Practitioner’s Compilation Report
-                  </h1>
-
-                  <CompilationReportBlock context={narrativeContext} />
-                </section>
-              </AfsA4Page>
-            </div>
-          ) : null}
+  <div id="print-compiler-report">
+    <AfsA4Page>
+      <section
+        style={{
+          fontFamily: "Arial, Helvetica, sans-serif",
+          fontSize: 11,
+          lineHeight: 1.45,
+          color: "#111827",
+        }}
+      >
+        <CompilationReportBlock
+          context={{
+            ...narrativeContext,
+            practitionerLogoUrl: "/bizzacc/Top.png",
+            practitionerFooterLogoUrl: "/bizzacc/Bottom.png",
+          }}
+        />
+      </section>
+    </AfsA4Page>
+  </div>
+) : null}
 
           {reportOptions.sfp ? (
             <div id="print-sfp">
