@@ -3531,6 +3531,38 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             table-layout: fixed !important;
           }
 
+.afs-export-notes-page table {
+  border-collapse: collapse !important;
+  width: 100% !important;
+}
+
+.afs-export-notes-page th,
+.afs-export-notes-page td {
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+}
+
+.afs-export-notes-page thead th {
+  border-bottom: 1px solid #9ca3af !important;
+}
+
+.afs-export-notes-page tbody tr:last-child td {
+  border-top: 1px solid #9ca3af !important;
+  border-bottom: 0 !important;
+  font-weight: 700 !important;
+}
+
+.afs-export-notes-page tbody tr:last-child td:first-child {
+  border-top: 0 !important;
+}
+
+.afs-export-notes-page tbody tr:last-child td:nth-child(2),
+.afs-export-notes-page tbody tr:last-child td:nth-child(3) {
+  border-top: 1px solid #111827 !important;
+}
+
           .afs-export-notes-page th:nth-child(2),
           .afs-export-notes-page th:nth-child(3),
           .afs-export-notes-page td:nth-child(2),
@@ -4175,7 +4207,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             <div id="print-accounting-policies">
               <AfsA4Page {...reportHeaderProps}>
                 <section
-                  style={{ fontSize: 11, lineHeight: 1.45, color: "#111827" }}
+                  style={{ fontSize: 9.2, lineHeight: 1.24, color: "#111827" }}
                 >
                   <h1 style={pageHeadingStyle()}>Accounting Policies</h1>
 
