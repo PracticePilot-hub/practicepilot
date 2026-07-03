@@ -63,6 +63,7 @@ export default function TopNav() {
   const pathname = usePathname() || "";
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -201,6 +202,60 @@ export default function TopNav() {
             : visibleNavItems.map((item) => {
                 const active = isActivePath(pathname, item.href);
 
+                if (item.href === "/afs") {
+                  const menuOpen = openMenu === "afs";
+
+                  return (
+                    <div
+                      key={item.href}
+                      style={styles.navDropdownWrap}
+                      onMouseEnter={() => setOpenMenu("afs")}
+                      onMouseLeave={() => setOpenMenu(null)}
+                    >
+                      <button
+                        type="button"
+                        style={{
+                          ...styles.navButton,
+                          ...(active ? styles.navLinkActive : {}),
+                        }}
+                        onClick={() => setOpenMenu(menuOpen ? null : "afs")}
+                      >
+                        <span>{item.label}</span>
+                        <span style={styles.dropdownArrow}>▾</span>
+                      </button>
+
+                      {menuOpen ? (
+                        <div style={styles.dropdownPanel}>
+                          <Link
+                            href="/afs"
+                            style={{
+                              ...styles.dropdownLink,
+                              ...(pathname === "/afs" ? styles.dropdownLinkActive : {}),
+                            }}
+                            onClick={() => setOpenMenu(null)}
+                          >
+                            Dashboard
+                          </Link>
+                          <Link
+                            href="/afs/settings"
+                            style={{
+                              ...styles.dropdownLink,
+                              ...(pathname.startsWith("/afs/settings")
+                                ? styles.dropdownLinkActive
+                                : {}),
+                            }}
+                            onClick={() => setOpenMenu(null)}
+                          >
+                            Settings
+                          </Link>
+                          <span style={styles.dropdownDisabled}>Templates</span>
+                          <span style={styles.dropdownDisabled}>Reports</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                }
+
                 return (
                   <Link
                     key={item.href}
@@ -270,10 +325,76 @@ const styles: Record<string, CSSProperties> = {
     boxSizing: "border-box",
     flex: "0 0 auto",
   },
+  navButton: {
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "5px",
+    height: "54px",
+    color: "#0f172a",
+    textDecoration: "none",
+    fontSize: "14px",
+    fontWeight: 700,
+    border: 0,
+    borderBottom: "3px solid transparent",
+    padding: "3px 0 0",
+    boxSizing: "border-box",
+    flex: "0 0 auto",
+    background: "transparent",
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
   navLinkActive: {
     color: "#0f172a",
     borderBottomColor: "#2563eb",
     fontWeight: 900,
+  },
+  navDropdownWrap: {
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    height: "54px",
+    flex: "0 0 auto",
+  },
+  dropdownArrow: {
+    fontSize: "10px",
+    lineHeight: 1,
+    transform: "translateY(1px)",
+  },
+  dropdownPanel: {
+    position: "absolute",
+    top: "50px",
+    left: 0,
+    minWidth: "190px",
+    padding: "7px",
+    borderRadius: "10px",
+    border: "1px solid #dbe3ef",
+    background: "#ffffff",
+    boxShadow: "0 16px 40px rgba(15, 23, 42, 0.16)",
+    zIndex: 3000,
+  },
+  dropdownLink: {
+    display: "block",
+    padding: "9px 10px",
+    borderRadius: "8px",
+    color: "#0f172a",
+    textDecoration: "none",
+    fontSize: "13px",
+    fontWeight: 750,
+  },
+  dropdownLinkActive: {
+    background: "#eff6ff",
+    color: "#1d4ed8",
+    fontWeight: 900,
+  },
+  dropdownDisabled: {
+    display: "block",
+    padding: "9px 10px",
+    borderRadius: "8px",
+    color: "#94a3b8",
+    fontSize: "13px",
+    fontWeight: 750,
+    cursor: "not-allowed",
   },
   logout: {
     border: "1px solid #cbd5e1",
