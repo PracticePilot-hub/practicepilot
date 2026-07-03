@@ -372,6 +372,47 @@ export default function AdjustingJournalsPanel({
     setLines([emptyLine(), emptyLine()]);
   }
 
+  async function deletePostedJournal(journal: PostedJournal) {
+    const confirmed = window.confirm(
+      `Delete ${journal.number ? `AJ${String(journal.number).padStart(3, "0")}` : "this journal"}? This will reverse the journal effect from the trial balance.`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`/api/afs/engagements/${engagementId}/journal-post`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          journalId: journal.id,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Failed to delete journal.");
+      }
+
+      const updatedTrialBalanceLines = Array.isArray(result?.trialBalanceLines)
+        ? result.trialBalanceLines
+        : [];
+
+      savePostedJournals(posted.filter((item) => item.id !== journal.id));
+
+      if (updatedTrialBalanceLines.length) {
+        upsertTrialBalanceLines(updatedTrialBalanceLines);
+      }
+
+      await onDataChanged?.();
+      await loadPostedJournals();
+    } catch (error: any) {
+      alert(error.message || "Failed to delete journal.");
+    }
+  }
+
   async function postJournal() {
     const cleanLines = lines.filter((line) => line.accountKey || parseAmount(line.debit) || parseAmount(line.credit) || clean(line.note));
 
@@ -606,7 +647,14 @@ export default function AdjustingJournalsPanel({
                     >
                       Copy back to draft
                     </button>
-                    <span style={styles.mutedSmall}>Saved history</span>
+
+                    <button
+                      type="button"
+                      style={styles.dangerButton}
+                      onClick={() => deletePostedJournal(journal)}
+                    >
+                      Delete
+                    </button>
                   </div>
                 </article>
               ))}

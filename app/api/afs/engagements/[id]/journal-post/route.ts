@@ -295,6 +295,97 @@ export async function GET(req: NextRequest, context: any) {
   }
 }
 
+
+export async function DELETE(req: NextRequest, context: any) {
+  try {
+    const engagementId = await getIdFromContext(context);
+    const body = await req.json();
+    const supabase = getSupabaseServer();
+
+    const journalId = clean(body?.journalId ?? body?.id);
+
+    if (!journalId) {
+      return NextResponse.json(
+        { error: "Missing journal id." },
+        { status: 400 },
+      );
+    }
+
+    const { data: journal, error: journalError } = await supabase
+      .from("afs_adjusting_journals")
+      .select("*")
+      .eq("engagement_id", engagementId)
+      .eq("id", journalId)
+      .single();
+
+    if (journalError) throw journalError;
+
+    if (!journal) {
+      return NextResponse.json(
+        { error: "Journal was not found." },
+        { status: 404 },
+      );
+    }
+
+    const { data: journalLines, error: linesError } = await supabase
+      .from("afs_adjusting_journal_lines")
+      .select("*")
+      .eq("engagement_id", engagementId)
+      .eq("journal_id", journalId)
+      .order("line_number", { ascending: true });
+
+    if (linesError) throw linesError;
+
+    const movements = new Map<string, number>();
+
+    for (const rawLine of journalLines || []) {
+      const accountCode = normaliseAccountCode(rawLine.account_code);
+      if (!accountCode) continue;
+
+      const debit = Math.max(0, toNumber(rawLine.debit));
+      const credit = Math.max(0, toNumber(rawLine.credit));
+      const movement = debit - credit;
+
+      movements.set(accountCode, (movements.get(accountCode) || 0) - movement);
+    }
+
+    const updatedLines = [];
+
+    for (const [accountCode, reverseMovement] of movements.entries()) {
+      if (Math.abs(reverseMovement) < 0.005) continue;
+
+      const updated = await updateLineByCode(
+        supabase,
+        engagementId,
+        accountCode,
+        reverseMovement,
+      );
+
+      if (updated) updatedLines.push(updated);
+    }
+
+    const { error: deleteError } = await supabase
+      .from("afs_adjusting_journals")
+      .delete()
+      .eq("engagement_id", engagementId)
+      .eq("id", journalId);
+
+    if (deleteError) throw deleteError;
+
+    return NextResponse.json({
+      success: true,
+      deletedJournalId: journalId,
+      trialBalanceLines: updatedLines,
+      lines: updatedLines,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Failed to delete journal." },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(req: NextRequest, context: any) {
   try {
     const engagementId = await getIdFromContext(context);
