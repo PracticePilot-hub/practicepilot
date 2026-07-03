@@ -5,6 +5,16 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
+type UserProfile = {
+  id: string;
+  user_id: string;
+  email: string;
+  role: string;
+  organisation_id: string | null;
+  access_enabled: boolean;
+  can_access_paia?: boolean;
+};
+
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -36,20 +46,155 @@ function clean(value: unknown) {
   return text.length ? text : null;
 }
 
-export async function GET() {
+function isGlobalAdmin(role: string) {
+  return role === "Super Admin" || role === "Admin";
+}
+
+function getBearerToken(request: Request) {
+  const authHeader = request.headers.get("authorization") || "";
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  return token || "";
+}
+
+async function getCurrentProfile(request: Request, supabase: ReturnType<typeof getSupabaseAdmin>) {
+  const token = getBearerToken(request);
+
+  if (!token) {
+    return {
+      profile: null as UserProfile | null,
+      response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
+    };
+  }
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser(token);
+
+  if (userError || !user) {
+    return {
+      profile: null as UserProfile | null,
+      response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
+    };
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("*")
+    .eq("user_id", user.id)
+    .single();
+
+  if (profileError || !profile) {
+    return {
+      profile: null as UserProfile | null,
+      response: NextResponse.json({ error: "Could not load user profile." }, { status: 403 }),
+    };
+  }
+
+  const userProfile = profile as UserProfile;
+  const globalAdmin = isGlobalAdmin(userProfile.role);
+
+  if (!userProfile.access_enabled) {
+    return {
+      profile: null as UserProfile | null,
+      response: NextResponse.json({ error: "User access is blocked." }, { status: 403 }),
+    };
+  }
+
+  if (!globalAdmin && !userProfile.can_access_paia) {
+    return {
+      profile: null as UserProfile | null,
+      response: NextResponse.json({ error: "No access to PAIA Manuals." }, { status: 403 }),
+    };
+  }
+
+  return {
+    profile: userProfile,
+    response: null as NextResponse | null,
+  };
+}
+
+async function getOrganisations(supabase: ReturnType<typeof getSupabaseAdmin>) {
+  const { data, error } = await supabase
+    .from("organisations")
+    .select("id, name, status, access_enabled")
+    .order("name", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ?? [];
+}
+
+async function getOrganisationById(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  organisationId: string | null
+) {
+  if (!organisationId) return null;
+
+  const { data, error } = await supabase
+    .from("organisations")
+    .select("id, name, status, access_enabled")
+    .eq("id", organisationId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ?? null;
+}
+
+export async function GET(request: Request) {
   try {
     const supabase = getSupabaseAdmin();
+
+    const { profile, response } = await getCurrentProfile(request, supabase);
+
+    if (response || !profile) return response;
+
+    const url = new URL(request.url);
+    const requestedClientId = String(url.searchParams.get("clientId") || "").trim();
+
+    const globalAdmin = isGlobalAdmin(profile.role);
+
+    const organisations = globalAdmin ? await getOrganisations(supabase) : [];
+    const currentOrganisation = globalAdmin
+      ? null
+      : await getOrganisationById(supabase, profile.organisation_id);
+
+    let clientIdToUse = "";
+
+    if (globalAdmin) {
+      clientIdToUse = requestedClientId;
+    } else {
+      clientIdToUse = profile.organisation_id || "";
+    }
+
+    if (!clientIdToUse) {
+      return NextResponse.json({
+        manuals: [],
+        organisations,
+        currentOrganisation,
+      });
+    }
 
     const { data, error } = await supabase
       .from("paia_manuals")
       .select("*")
+      .eq("client_id", clientIdToUse)
       .order("created_at", { ascending: false });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ manuals: data ?? [] });
+    return NextResponse.json({
+      manuals: data ?? [],
+      organisations,
+      currentOrganisation,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message ?? "Failed to load PAIA manuals." },
@@ -63,6 +208,12 @@ export async function POST(request: Request) {
     const body = await request.json();
     const supabase = getSupabaseAdmin();
 
+    const { profile, response } = await getCurrentProfile(request, supabase);
+
+    if (response || !profile) return response;
+
+    const globalAdmin = isGlobalAdmin(profile.role);
+
     const entityName = String(body.entity_name ?? "").trim();
 
     if (!entityName) {
@@ -72,9 +223,24 @@ export async function POST(request: Request) {
       );
     }
 
+    const requestedClientId = String(body.client_id || body.clientId || "").trim();
+
+    const clientIdToUse = globalAdmin
+      ? requestedClientId
+      : profile.organisation_id || "";
+
+    if (!clientIdToUse) {
+      return NextResponse.json(
+        { error: "A firm/client must be selected before creating a PAIA manual." },
+        { status: 400 }
+      );
+    }
+
     const { data, error } = await supabase
       .from("paia_manuals")
       .insert({
+        client_id: clientIdToUse,
+
         manual_name:
           String(body.manual_name ?? "").trim() || `${entityName} PAIA Manual`,
         entity_name: entityName,
