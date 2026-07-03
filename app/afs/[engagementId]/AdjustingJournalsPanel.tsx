@@ -636,14 +636,31 @@ export default function AdjustingJournalsPanel({
                       type="button"
                       style={styles.linkButton}
                       onClick={() => {
-                        setDescription(journal.description);
-                        setLines(
-                          journal.lines.map((line) => ({
-                            ...line,
-                            id: uid(),
-                          })),
-                        );
-                      }}
+  setDescription(journal.description);
+  setLines(
+    journal.lines.map((line) => {
+      const copiedAccountKey = String(line.accountKey || "");
+      const copiedAccountCode = copiedAccountKey.split("·")[0]?.trim();
+
+      const matchedAccount =
+        accountOptions.find((option) => option.key === copiedAccountKey) ||
+        accountOptions.find(
+          (option) =>
+            option.code &&
+            copiedAccountCode &&
+            option.code.toUpperCase() === copiedAccountCode.toUpperCase()
+        );
+
+      return {
+        id: uid(),
+        accountKey: matchedAccount?.key || "",
+        debit: line.debit,
+        credit: line.credit,
+        note: line.note,
+      };
+    }),
+  );
+}}
                     >
                       Copy back to draft
                     </button>
