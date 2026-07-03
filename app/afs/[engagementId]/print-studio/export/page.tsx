@@ -23,6 +23,9 @@ import {
   DirectorsReportBlock,
   CompilationReportBlock,
   buildDefaultDirectorsReportTexts,
+} from "../../components/AfsNarrativeBlocks";
+
+import type {
   DirectorsReportSectionKey,
   DirectorsReportTextOverrides,
 } from "../../components/AfsNarrativeBlocks";
@@ -1803,7 +1806,6 @@ const isDraftPdf =
 
   const practitionerFooterLogoUrl =
     firmSetting("footer_logo_url") ||
-    firmSetting("governing_body_logo_url") ||
     cleanString(
       getSetupValue(clientSetup, [
         "practitioner_footer_logo_url",
@@ -1870,6 +1872,7 @@ const isDraftPdf =
       "second_governing_body_registration_number",
     ),
     secondGoverningBodyLogoUrl: firmSetting("second_governing_body_logo_url"),
+    practitionerFooterText: firmSetting("footer_text"),
     firmFooterText: firmSetting("footer_text"),
     natureOfBusiness: String(
       getSetupValue(clientSetup, [
@@ -4378,25 +4381,21 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           ) : null}
 
           {reportOptions.compilerReport ? (
-  <div id="print-compiler-report">
-    <AfsA4Page {...reportHeaderProps}>
-      <section
-        style={{
-          fontFamily: "Arial, Helvetica, sans-serif",
-          fontSize: 11,
-          lineHeight: 1.45,
-          color: "#111827",
-        }}
-      >
-        <h1 style={pageHeadingStyle()}>
-          Practitioner’s Compilation Report
-        </h1>
-
-        <CompilationReportBlock context={narrativeContext} />
-      </section>
-    </AfsA4Page>
-  </div>
-) : null}
+            <div id="print-compiler-report">
+              <AfsA4Page>
+                <section
+                  style={{
+                    fontFamily: "Arial, Helvetica, sans-serif",
+                    fontSize: 11,
+                    lineHeight: 1.45,
+                    color: "#111827",
+                  }}
+                >
+                  <CompilationReportBlock context={narrativeContext} />
+                </section>
+              </AfsA4Page>
+            </div>
+          ) : null}
 
           {reportOptions.sfp ? (
             <div id="print-sfp">

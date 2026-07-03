@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 import AfsPrintStudioShell, {
   AfsReportOption,
   AfsStudioSection,
@@ -22,6 +23,9 @@ import {
   DirectorsReportBlock,
   CompilationReportBlock,
   buildDefaultDirectorsReportTexts,
+} from "../components/AfsNarrativeBlocks";
+
+import type {
   DirectorsReportSectionKey,
   DirectorsReportTextOverrides,
 } from "../components/AfsNarrativeBlocks";
@@ -48,6 +52,40 @@ type EngagementData = {
 };
 
 type ClientSetupData = Record<string, any>;
+
+type AfsFirmSettings = {
+  id?: string | null;
+  user_id?: string | null;
+  firm_name?: string | null;
+  trading_name?: string | null;
+  logo_url?: string | null;
+  address_lines?: string | null;
+  telephone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  practitioner_name?: string | null;
+  practitioner_designation?: string | null;
+  governing_body_name?: string | null;
+  governing_body_registration_number?: string | null;
+  governing_body_logo_url?: string | null;
+  second_governing_body_name?: string | null;
+  second_governing_body_registration_number?: string | null;
+  second_governing_body_logo_url?: string | null;
+  footer_text?: string | null;
+  footer_logo_url?: string | null;
+};
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+const supabase =
+  supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey)
+    : null;
+
+function cleanString(value: unknown) {
+  return String(value || "").trim();
+}
 
 type TrialBalanceLine = {
   id?: string;
@@ -1089,6 +1127,7 @@ export default function AfsPrintStudioPage() {
   const [cashFlowViewMode, setCashFlowViewMode] = useState<"afs" | "work">("afs");
   const [engagement, setEngagement] = useState<EngagementData | null>(null);
   const [clientSetup, setClientSetup] = useState<ClientSetupData | null>(null);
+  const [firmSettings, setFirmSettings] = useState<AfsFirmSettings | null>(null);
   const [trialBalanceLines, setTrialBalanceLines] = useState<TrialBalanceLine[]>(
     []
   );
@@ -1116,6 +1155,25 @@ export default function AfsPrintStudioPage() {
     setPrintStudioSettingsLoaded(false);
 
     try {
+      if (supabase) {
+        const { data: authData } = await supabase.auth.getUser();
+        const authUser = authData.user;
+
+        if (authUser?.id) {
+          const { data: firmData, error: firmError } = await supabase
+            .from("afs_firm_settings")
+            .select("*")
+            .eq("user_id", authUser.id)
+            .maybeSingle();
+
+          if (!firmError && firmData) {
+            setFirmSettings(firmData);
+          } else if (firmError) {
+            console.error("Failed to load AFS firm settings", firmError);
+          }
+        }
+      }
+
       const engagementRes = await fetch(`/api/afs/engagements/${engagementId}`, {
         cache: "no-store",
       });
@@ -1517,31 +1575,65 @@ export default function AfsPrintStudioPage() {
   const bodyLabelCapitalised =
     bodyLabel.charAt(0).toUpperCase() + bodyLabel.slice(1);
 
+  const firmSetting = (key: keyof AfsFirmSettings) =>
+    cleanString(firmSettings?.[key]);
+
   const practitionerFirm =
+    firmSetting("firm_name") ||
+    firmSetting("trading_name") ||
     getSetupValue(clientSetup, [
       "practitioner_firm_name",
       "firm_name",
       "accounting_firm",
       "compiler_firm",
       "preparer_firm",
-    ]) || "Bizzacc Menlyn (Pty) Ltd";
+    ]) ||
+    "Bizzacc Menlyn (Pty) Ltd";
 
   const practitionerName =
+    firmSetting("practitioner_name") ||
     getSetupValue(clientSetup, [
       "practitioner_name",
       "compiler_name",
       "preparer",
       "prepared_by",
       "accountant_name",
-    ]) || "Sarel FS van Aswegen";
+    ]) ||
+    "Sarel FS van Aswegen";
 
   const practitionerDesignation =
+    firmSetting("practitioner_designation") ||
     getSetupValue(clientSetup, [
       "practitioner_designation",
       "compiler_designation",
       "professional_designation",
       "designation",
-    ]) || "Professional Accountant (SA)";
+    ]) ||
+    "Professional Accountant (SA)";
+
+  const practitionerLogoUrl =
+    firmSetting("logo_url") ||
+    cleanString(
+      getSetupValue(clientSetup, [
+        "practitioner_logo_url",
+        "compiler_logo_url",
+        "firm_logo_url",
+        "letterhead_logo_url",
+        "logo_url",
+      ]),
+    );
+
+  const practitionerFooterLogoUrl =
+    firmSetting("footer_logo_url") ||
+    cleanString(
+      getSetupValue(clientSetup, [
+        "practitioner_footer_logo_url",
+        "compiler_footer_logo_url",
+        "firm_footer_logo_url",
+        "letterhead_footer_logo_url",
+        "footer_logo_url",
+      ]),
+    );
 
   const framework =
     getSetupValue(clientSetup, [
@@ -1584,6 +1676,24 @@ export default function AfsPrintStudioPage() {
     practitionerFirm: String(practitionerFirm),
     practitionerName: String(practitionerName),
     practitionerDesignation: String(practitionerDesignation),
+    practitionerLogoUrl,
+    practitionerFooterLogoUrl,
+    practitionerAddressLines: firmSetting("address_lines"),
+    practitionerTelephone: firmSetting("telephone"),
+    practitionerEmail: firmSetting("email"),
+    practitionerWebsite: firmSetting("website"),
+    governingBodyName: firmSetting("governing_body_name"),
+    governingBodyRegistrationNumber: firmSetting(
+      "governing_body_registration_number",
+    ),
+    governingBodyLogoUrl: firmSetting("governing_body_logo_url"),
+    secondGoverningBodyName: firmSetting("second_governing_body_name"),
+    secondGoverningBodyRegistrationNumber: firmSetting(
+      "second_governing_body_registration_number",
+    ),
+    secondGoverningBodyLogoUrl: firmSetting("second_governing_body_logo_url"),
+    practitionerFooterText: firmSetting("footer_text"),
+    firmFooterText: firmSetting("footer_text"),
     natureOfBusiness: String(
       getSetupValue(clientSetup, [
         "nature_of_business",
@@ -1611,6 +1721,9 @@ export default function AfsPrintStudioPage() {
       practitionerFirm,
       practitionerName,
       practitionerDesignation,
+      practitionerLogoUrl,
+      practitionerFooterLogoUrl,
+      firmSettings,
       country,
       directorsForDisplay.length,
     ]
@@ -2907,14 +3020,15 @@ export default function AfsPrintStudioPage() {
 
           {reportOptions.compilerReport ? (
             <div id="print-compiler-report">
-              <AfsA4Page {...reportHeaderProps}>
+              <AfsA4Page>
                 <section
-                  style={{ fontSize: 11, lineHeight: 1.45, color: "#111827" }}
+                  style={{
+                    fontFamily: "Arial, Helvetica, sans-serif",
+                    fontSize: 11,
+                    lineHeight: 1.45,
+                    color: "#111827",
+                  }}
                 >
-                  <h1 style={pageHeadingStyle()}>
-                    Practitioner’s Compilation Report
-                  </h1>
-
                   <CompilationReportBlock context={narrativeContext} />
                 </section>
               </AfsA4Page>
