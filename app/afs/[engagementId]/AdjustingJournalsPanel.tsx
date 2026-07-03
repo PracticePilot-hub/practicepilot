@@ -138,6 +138,16 @@ export default function AdjustingJournalsPanel({
     }
   }, [customAccountsStorageKey]);
 
+  function savePostedJournals(next: PostedJournal[]) {
+    setPosted(next);
+
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      // localStorage may be unavailable in private mode
+    }
+  }
+
   useEffect(() => {
     try {
       window.localStorage.setItem(storageKey, JSON.stringify(posted));
@@ -363,10 +373,12 @@ export default function AdjustingJournalsPanel({
         postedAt: new Date().toISOString(),
       };
 
-      setPosted((current) => [journal, ...current]);
+      savePostedJournals([journal, ...posted]);
+
       if (updatedTrialBalanceLines.length) upsertTrialBalanceLines(updatedTrialBalanceLines);
-      await onDataChanged?.();
+
       clearDraft();
+      await onDataChanged?.();
     } catch (error: any) {
       alert(error?.message || "Failed to post journal.");
     }
@@ -483,7 +495,33 @@ export default function AdjustingJournalsPanel({
                       })}
                     </tbody>
                   </table>
-                  <button type="button" style={styles.linkButton} onClick={() => setPosted((current) => current.filter((item) => item.id !== journal.id))}>Delete journal</button>
+                  <div style={styles.postedActions}>
+                    <button
+                      type="button"
+                      style={styles.linkButton}
+                      onClick={() => {
+                        setDescription(journal.description);
+                        setLines(
+                          journal.lines.map((line) => ({
+                            ...line,
+                            id: uid(),
+                          })),
+                        );
+                      }}
+                    >
+                      Copy back to draft
+                    </button>
+
+                    <button
+                      type="button"
+                      style={styles.linkButton}
+                      onClick={() =>
+                        savePostedJournals(posted.filter((item) => item.id !== journal.id))
+                      }
+                    >
+                      Delete journal
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>
@@ -596,6 +634,7 @@ const styles: Record<string, CSSProperties> = {
   statusOk: { color: "#166534", fontWeight: 900 },
   statusBad: { color: "#b45309", fontWeight: 900 },
   postedTable: { width: "100%", borderCollapse: "collapse", fontSize: "12px", marginBottom: "6px" },
+  postedActions: { display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" },
   postedTd: { padding: "3px 0", borderBottom: "1px solid #e2e8f0" },
   postedAmount: { padding: "3px 0", borderBottom: "1px solid #e2e8f0", textAlign: "right", width: "70px" },
   modalBackdrop: { position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.28)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
