@@ -49,15 +49,15 @@ const emptySettings: FirmSettings = {
   practitioner_name: "",
   practitioner_designation: "",
 
-  governing_body_name: "SAIPA",
-  governing_body_registration_number: "28289",
+  governing_body_name: "",
+  governing_body_registration_number: "",
   governing_body_logo_url: "",
 
   second_governing_body_name: "",
   second_governing_body_registration_number: "",
   second_governing_body_logo_url: "",
 
-  footer_text: "Registered Professional Accountant | SAIPA 28289",
+  footer_text: "",
   footer_logo_url: "",
 };
 
@@ -239,6 +239,30 @@ export default function AfsFirmSettingsPage() {
     [settings.address_lines],
   );
 
+  const previewFirmName =
+    settings.trading_name || settings.firm_name || "Firm name";
+
+  const previewPractitioner =
+    settings.practitioner_name || "Practitioner / partner name";
+
+  const previewDesignation =
+    settings.practitioner_designation || "Professional designation";
+
+  const previewGoverningBody =
+    settings.governing_body_name ||
+    (settings.governing_body_registration_number ? "Governing body" : "");
+
+  const previewGoverningBodyLine = [previewGoverningBody, settings.governing_body_registration_number]
+    .filter(Boolean)
+    .join(" ");
+
+  const previewSecondGoverningBodyLine = [
+    settings.second_governing_body_name,
+    settings.second_governing_body_registration_number,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <main style={styles.page}>
       <section style={styles.header}>
@@ -275,7 +299,7 @@ export default function AfsFirmSettingsPage() {
               <div>
                 <h3 style={styles.uploadTitle}>Firm logo</h3>
                 <p style={styles.uploadText}>
-                  Logo only. The report will create the letterhead layout around it.
+                  Logo only. PracticePilot will create the letterhead layout around it.
                 </p>
                 {settings.logo_url ? (
                   <div style={styles.currentFile}>Logo uploaded</div>
@@ -328,7 +352,7 @@ export default function AfsFirmSettingsPage() {
                 style={styles.textarea}
                 value={settings.address_lines}
                 onChange={(event) => updateField("address_lines", event.target.value)}
-                placeholder={"81 Kafue Street\nLynnwood Glen\nPretoria"}
+                placeholder={"Address line 1\nAddress line 2\nCity"}
               />
             </label>
 
@@ -367,7 +391,7 @@ export default function AfsFirmSettingsPage() {
               <div>
                 <h2 style={styles.panelTitle}>Footer and governing body details</h2>
                 <p style={styles.panelHint}>
-                  These details appear near the compiler signature and footer. Footer text is preferred; a footer strip is optional.
+                  These details appear near the compiler signature and footer. Leave fields blank if not applicable.
                 </p>
               </div>
             </div>
@@ -427,7 +451,7 @@ export default function AfsFirmSettingsPage() {
               <div>
                 <h3 style={styles.uploadTitle}>Governing body logo</h3>
                 <p style={styles.uploadText}>
-                  Example: SAIPA logo. Optional, but useful for the footer.
+                  Optional. Example: SAIPA / SAICA / SAIBA logo.
                 </p>
                 {settings.governing_body_logo_url ? (
                   <div style={styles.currentFile}>Governing body logo uploaded</div>
@@ -524,6 +548,7 @@ export default function AfsFirmSettingsPage() {
                 style={styles.textareaSmall}
                 value={settings.footer_text}
                 onChange={(event) => updateField("footer_text", event.target.value)}
+                placeholder="Optional footer text"
               />
             </label>
 
@@ -531,7 +556,7 @@ export default function AfsFirmSettingsPage() {
               <div>
                 <h3 style={styles.uploadTitle}>Optional footer logo / strip</h3>
                 <p style={styles.uploadText}>
-                  Optional. Footer text and governing body logos will usually be clearer than a large image strip.
+                  Optional. Text and governing body logos will usually be clearer than a large image strip.
                 </p>
                 {settings.footer_logo_url ? (
                   <div style={styles.currentFile}>Footer logo / strip uploaded</div>
@@ -595,7 +620,7 @@ export default function AfsFirmSettingsPage() {
                 </div>
 
                 <div style={styles.previewContact}>
-                  <strong>{settings.trading_name || settings.firm_name || "Firm name"}</strong>
+                  <strong>{previewFirmName}</strong>
                   {previewAddressLines.map((line) => (
                     <span key={line}>{line}</span>
                   ))}
@@ -613,39 +638,47 @@ export default function AfsFirmSettingsPage() {
               </div>
 
               <div style={styles.previewFooter}>
-                <div>
-                  <strong>
-                    {settings.practitioner_name || "Practitioner name"}
-                  </strong>
-                  <span>
-                    {settings.practitioner_designation || "Designation"}
-                  </span>
+                <div style={styles.previewPractitioner}>
+                  <strong>{previewPractitioner}</strong>
+                  <span>{previewDesignation}</span>
                 </div>
 
                 <div style={styles.previewBodies}>
-                  {settings.governing_body_logo_url ? (
-                    <img
-                      src={settings.governing_body_logo_url}
-                      alt="Governing body logo preview"
-                      style={styles.previewBodyLogo}
-                    />
+                  <div style={styles.previewLogoLine}>
+                    {settings.governing_body_logo_url ? (
+                      <img
+                        src={settings.governing_body_logo_url}
+                        alt="Governing body logo preview"
+                        style={styles.previewBodyLogo}
+                      />
+                    ) : null}
+
+                    {settings.second_governing_body_logo_url ? (
+                      <img
+                        src={settings.second_governing_body_logo_url}
+                        alt="Second governing body logo preview"
+                        style={styles.previewBodyLogo}
+                      />
+                    ) : null}
+                  </div>
+
+                  {previewGoverningBodyLine ? (
+                    <span>{previewGoverningBodyLine}</span>
                   ) : null}
-                  <span>
-                    {settings.governing_body_name || "Governing body"}{" "}
-                    {settings.governing_body_registration_number || ""}
-                  </span>
-                  {settings.second_governing_body_name ? (
-                    <span>
-                      {settings.second_governing_body_name}{" "}
-                      {settings.second_governing_body_registration_number || ""}
-                    </span>
+
+                  {previewSecondGoverningBodyLine ? (
+                    <span>{previewSecondGoverningBodyLine}</span>
                   ) : null}
+
+                  {settings.footer_text ? <span>{settings.footer_text}</span> : null}
                 </div>
               </div>
             </div>
 
             {saveStatus === "error" ? (
-              <p style={styles.errorText}>Could not save settings. Check Supabase table/bucket setup.</p>
+              <p style={styles.errorText}>
+                Could not save settings. Check Supabase table/bucket setup.
+              </p>
             ) : null}
           </section>
         </section>
@@ -849,19 +882,19 @@ const styles: Record<string, CSSProperties> = {
   previewPage: {
     border: "1px solid #94a3b8",
     background: "#ffffff",
-    maxWidth: 720,
+    maxWidth: 760,
     minHeight: 320,
     padding: 18,
     boxSizing: "border-box",
   },
   previewHeader: {
     display: "grid",
-    gridTemplateColumns: "180px minmax(0, 1fr)",
-    gap: 20,
-    alignItems: "start",
+    gridTemplateColumns: "210px minmax(0, 1fr)",
+    gap: 22,
+    alignItems: "center",
   },
   previewLogoBox: {
-    minHeight: 62,
+    minHeight: 72,
     border: "1px dashed #94a3b8",
     display: "flex",
     alignItems: "center",
@@ -869,11 +902,12 @@ const styles: Record<string, CSSProperties> = {
     color: "#94a3b8",
     fontSize: 12,
     fontWeight: 900,
-    padding: 8,
+    padding: "10px 10px 4px",
+    transform: "translateY(7px)",
   },
   previewLogo: {
     maxWidth: "100%",
-    maxHeight: 70,
+    maxHeight: 78,
     objectFit: "contain",
     display: "block",
   },
@@ -888,7 +922,7 @@ const styles: Record<string, CSSProperties> = {
   },
   previewRule: {
     borderTop: "1.5px solid #111827",
-    margin: "13px 0 20px",
+    margin: "18px 0 20px",
   },
   previewBody: {
     display: "grid",
@@ -899,21 +933,36 @@ const styles: Record<string, CSSProperties> = {
   previewFooter: {
     borderTop: "1px solid #111827",
     marginTop: 34,
-    paddingTop: 10,
-    display: "flex",
-    justifyContent: "space-between",
+    paddingTop: 12,
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
     gap: 20,
     fontSize: 11,
+    alignItems: "start",
+  },
+  previewPractitioner: {
+    display: "grid",
+    gap: 6,
+    lineHeight: 1.25,
   },
   previewBodies: {
     display: "grid",
     justifyItems: "end",
-    gap: 3,
+    gap: 5,
     textAlign: "right",
+    lineHeight: 1.25,
+  },
+  previewLogoLine: {
+    display: "flex",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 34,
   },
   previewBodyLogo: {
-    maxWidth: 80,
+    maxWidth: 90,
     maxHeight: 34,
     objectFit: "contain",
+    display: "block",
   },
 };
