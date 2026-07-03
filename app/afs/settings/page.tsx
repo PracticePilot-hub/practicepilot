@@ -169,11 +169,28 @@ export default function AfsFirmSettingsPage() {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase
+      const { data: existing, error: lookupError } = await supabase
         .from("afs_firm_settings")
-        .upsert(payload, { onConflict: "user_id" });
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-      if (error) throw error;
+      if (lookupError) throw lookupError;
+
+      if (existing?.id) {
+        const { error: updateError } = await supabase
+          .from("afs_firm_settings")
+          .update(payload)
+          .eq("id", existing.id);
+
+        if (updateError) throw updateError;
+      } else {
+        const { error: insertError } = await supabase
+          .from("afs_firm_settings")
+          .insert(payload);
+
+        if (insertError) throw insertError;
+      }
 
       setSaveStatus("saved");
 
@@ -644,33 +661,41 @@ export default function AfsFirmSettingsPage() {
                 </div>
 
                 <div style={styles.previewBodies}>
-                  <div style={styles.previewLogoLine}>
-                    {settings.governing_body_logo_url ? (
-                      <img
-                        src={settings.governing_body_logo_url}
-                        alt="Governing body logo preview"
-                        style={styles.previewBodyLogo}
-                      />
+                  <div style={styles.previewBodyCard}>
+                    <div style={styles.previewLogoLine}>
+                      {settings.governing_body_logo_url ? (
+                        <img
+                          src={settings.governing_body_logo_url}
+                          alt="Governing body logo preview"
+                          style={styles.previewBodyLogo}
+                        />
+                      ) : null}
+
+                      {settings.second_governing_body_logo_url ? (
+                        <img
+                          src={settings.second_governing_body_logo_url}
+                          alt="Second governing body logo preview"
+                          style={styles.previewBodyLogo}
+                        />
+                      ) : null}
+                    </div>
+
+                    {previewGoverningBodyLine ? (
+                      <div style={styles.previewBodyRegistration}>
+                        {previewGoverningBodyLine}
+                      </div>
                     ) : null}
 
-                    {settings.second_governing_body_logo_url ? (
-                      <img
-                        src={settings.second_governing_body_logo_url}
-                        alt="Second governing body logo preview"
-                        style={styles.previewBodyLogo}
-                      />
+                    {previewSecondGoverningBodyLine ? (
+                      <div style={styles.previewBodyRegistration}>
+                        {previewSecondGoverningBodyLine}
+                      </div>
                     ) : null}
                   </div>
 
-                  {previewGoverningBodyLine ? (
-                    <span>{previewGoverningBodyLine}</span>
+                  {settings.footer_text ? (
+                    <div style={styles.previewFooterText}>{settings.footer_text}</div>
                   ) : null}
-
-                  {previewSecondGoverningBodyLine ? (
-                    <span>{previewSecondGoverningBodyLine}</span>
-                  ) : null}
-
-                  {settings.footer_text ? <span>{settings.footer_text}</span> : null}
                 </div>
               </div>
             </div>
@@ -949,23 +974,39 @@ const styles: Record<string, CSSProperties> = {
     display: "grid",
     justifyItems: "end",
     alignContent: "start",
-    gap: 3,
+    gap: 4,
     textAlign: "right",
     lineHeight: 1.2,
     minHeight: 0,
+  },
+  previewBodyCard: {
+    display: "grid",
+    justifyItems: "end",
+    gap: 2,
   },
   previewLogoLine: {
     display: "flex",
     justifyContent: "flex-end",
     alignItems: "center",
     gap: 8,
-    minHeight: 24,
-    marginBottom: 2,
+    minHeight: 22,
+    marginBottom: 0,
   },
   previewBodyLogo: {
     maxWidth: 92,
-    maxHeight: 28,
+    maxHeight: 24,
     objectFit: "contain",
     display: "block",
+  },
+  previewBodyRegistration: {
+    fontSize: 10.5,
+    fontWeight: 800,
+    lineHeight: 1.15,
+    marginTop: 0,
+  },
+  previewFooterText: {
+    fontSize: 10.5,
+    lineHeight: 1.2,
+    color: "#334155",
   },
 };
