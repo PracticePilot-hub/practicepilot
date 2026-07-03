@@ -3167,6 +3167,158 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
     );
   }
 
+
+  const printableNoteItems = useMemo(
+    () => buildPrintableNoteItems(),
+    [
+      reportOptions,
+      activeNoteTexts,
+      defaultNoteTexts,
+      noteDataForPrintStudio,
+      disclosureTokens,
+    ],
+  );
+
+  const printableNotePages = useMemo(
+    () => chunkPrintableNotes(printableNoteItems),
+    [printableNoteItems],
+  );
+
+  const indexRows = useMemo(() => {
+    type IndexRow = {
+      id: string;
+      label: string;
+      page: number;
+      pageSpan: number;
+      show: boolean;
+      includeInIndex: boolean;
+    };
+
+    const reportSequence: Omit<IndexRow, "page">[] = [
+      {
+        id: "cover-page",
+        label: "Cover Page",
+        pageSpan: 1,
+        show: reportOptions.coverPage,
+        includeInIndex: false,
+      },
+      {
+        id: "index",
+        label: "Index",
+        pageSpan: 1,
+        show: reportOptions.index,
+        includeInIndex: true,
+      },
+      {
+        id: "general-info",
+        label: "General Information",
+        pageSpan: 1,
+        show: reportOptions.generalInformation,
+        includeInIndex: true,
+      },
+      {
+        id: "directors-responsibilities",
+        label: responsibilityTitle(entityType).replace(" and Approval", ""),
+        pageSpan: 1,
+        show: reportOptions.directorsResponsibilities,
+        includeInIndex: true,
+      },
+      {
+        id: "directors-report",
+        label: reportTitle(entityType),
+        pageSpan: showDirectorsReportContinuation ? 2 : 1,
+        show: reportOptions.directorsReport,
+        includeInIndex: true,
+      },
+      {
+        id: "compiler-report",
+        label: "Compiler Report",
+        pageSpan: 1,
+        show: reportOptions.compilerReport,
+        includeInIndex: true,
+      },
+      {
+        id: "sfp",
+        label: "Statement of Financial Position",
+        pageSpan: 1,
+        show: reportOptions.sfp,
+        includeInIndex: true,
+      },
+      {
+        id: "soci",
+        label: "Statement of Comprehensive Income",
+        pageSpan: 1,
+        show: reportOptions.soci,
+        includeInIndex: true,
+      },
+      {
+        id: "sce",
+        label: "Statement of Changes in Equity",
+        pageSpan: 1,
+        show: reportOptions.sce,
+        includeInIndex: true,
+      },
+      {
+        id: "cash-flow",
+        label: "Statement of Cash Flows",
+        pageSpan: 1,
+        show: reportOptions.cashFlow,
+        includeInIndex: true,
+      },
+      {
+        id: "accounting-policies",
+        label: "Accounting Policies",
+        pageSpan: 1,
+        show: reportOptions.accountingPolicies,
+        includeInIndex: true,
+      },
+      {
+        id: "notes",
+        label: "Notes to the Financial Statements",
+        pageSpan: Math.max(1, printableNotePages.length),
+        show: reportOptions.notes,
+        includeInIndex: true,
+      },
+      {
+        id: "detailed-income",
+        label: "Detailed Income Statement",
+        pageSpan: 1,
+        show: reportOptions.detailedIncomeStatement,
+        includeInIndex: true,
+      },
+      {
+        id: "tax-computation",
+        label: "Tax Computation",
+        pageSpan: 1,
+        show: reportOptions.taxComputation,
+        includeInIndex: true,
+      },
+    ];
+
+    let currentPage = 1;
+    const rows: IndexRow[] = [];
+
+    reportSequence.forEach((section) => {
+      if (!section.show) return;
+
+      if (section.includeInIndex) {
+        rows.push({
+          ...section,
+          page: currentPage,
+        });
+      }
+
+      currentPage += section.pageSpan;
+    });
+
+    return rows;
+  }, [
+    entityType,
+    printableNotePages.length,
+    reportOptions,
+    showDirectorsReportContinuation,
+  ]);
+
   function contextualOptions() {
     if (activeSectionId === "report-options") {
       return {
@@ -3710,6 +3862,11 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
           }
+.afsExportOnlyRoot,
+.afsExportOnlyRoot * {
+  font-family: Arial, Helvetica, sans-serif !important;
+}
+
         }
       `}</style>
       {loading ? (
@@ -3793,50 +3950,57 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           {reportOptions.index ? (
             <div id="print-index">
               <AfsA4Page {...reportHeaderProps}>
-                <section className="afs-export-fixed-width" style={{ fontSize: 11, color: "#111827", width: "100%", minWidth: 0, display: "block" }}>
+                <section
+                  className="afs-export-fixed-width"
+                  style={{
+                    fontSize: 11,
+                    color: "#111827",
+                    width: "100%",
+                    minWidth: 0,
+                    display: "block",
+                  }}
+                >
                   <h1 style={pageHeadingStyle()}>Index</h1>
 
                   <div style={{ display: "grid", gap: 0, width: "100%" }}>
-                    {visibleReportSections
-                      .filter((section) => section.id !== "cover-page")
-                      .map((section, index) => (
-                        <div
-                          key={section.id}
-                          className="afs-export-row"
+                    {indexRows.map((section) => (
+                      <div
+                        key={section.id}
+                        className="afs-export-row"
+                        style={{
+                          display: "flex",
+                          alignItems: "baseline",
+                          justifyContent: "space-between",
+                          gap: 24,
+                          width: "100%",
+                          padding: "5px 0",
+                          borderBottom: "0",
+                          fontSize: 11,
+                          lineHeight: 1.35,
+                        }}
+                      >
+                        <span
+                          className="afs-export-nowrap"
                           style={{
-                            display: "flex",
-                            alignItems: "baseline",
-                            justifyContent: "space-between",
-                            gap: 24,
-                            width: "100%",
-                            padding: "5px 0",
-                            borderBottom: "0",
-                            fontSize: 11,
-                            lineHeight: 1.35,
+                            minWidth: 0,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
                           }}
                         >
-                          <span
-                            className="afs-export-nowrap"
-                            style={{
-                              minWidth: 0,
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                            }}
-                          >
-                            {section.label}
-                          </span>
-                          <span
-                            style={{
-                              flex: "0 0 36px",
-                              textAlign: "right",
-                              fontVariantNumeric: "tabular-nums",
-                            }}
-                          >
-                            {index + 1}
-                          </span>
-                        </div>
-                      ))}
+                          {section.label}
+                        </span>
+                        <span
+                          style={{
+                            flex: "0 0 36px",
+                            textAlign: "right",
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {section.page}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </section>
               </AfsA4Page>
@@ -4308,7 +4472,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
           {reportOptions.notes ? (
             <div id="print-notes">
-              {chunkPrintableNotes(buildPrintableNoteItems()).map((notePage, notePageIndex) => (
+              {printableNotePages.map((notePage, notePageIndex) => (
                 <div
                   key={`print-notes-page-${notePageIndex}`}
                   id={notePageIndex === 0 ? "print-notes-page-1" : `print-notes-page-${notePageIndex + 1}`}
