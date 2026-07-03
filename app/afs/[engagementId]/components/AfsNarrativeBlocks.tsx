@@ -456,6 +456,38 @@ function uniqueStrings(values: string[]) {
     });
 }
 
+function multilineValue(context: NarrativeContext, keys: string[], fallback: string[] = []) {
+  for (const key of keys) {
+    const raw = context?.[key];
+
+    if (Array.isArray(raw)) {
+      const lines = raw.map((item) => String(item || "").trim()).filter(Boolean);
+      if (lines.length) return lines;
+    }
+
+    const text = String(raw || "").trim();
+    if (text) {
+      return text
+        .split(/\n|\r\n|,\s(?=\D)/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+    }
+  }
+
+  return fallback;
+}
+
+function firstValue(context: NarrativeContext, keys: string[], fallback = "") {
+  for (const key of keys) {
+    const raw = context?.[key];
+    if (raw !== null && raw !== undefined && String(raw).trim() !== "") {
+      return String(raw).trim();
+    }
+  }
+
+  return fallback;
+}
+
 function LogoWithFallback({
   sources,
   alt,
@@ -492,32 +524,90 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
   const practitionerFirm = value(context, "practitionerFirm", "");
   const compilationDate = value(context, "compilationDate", "________________");
 
-  const topLetterheadCandidates = uniqueStrings([
-    value(context, "practitionerLogoUrl", ""),
-    "/bizzacc/Top.png",
-    "/bizzacc/top.png",
-    "/Top.png",
-    "/letterhead-top.png",
-    "/bizzacc/letterhead-top.png",
+  const logoSources = uniqueStrings([
+    firstValue(context, [
+      "practitionerLogoUrl",
+      "firmLogoUrl",
+      "logoUrl",
+      "letterheadLogoUrl",
+    ]),
+    "/bizzacc/Logo.png",
+    "/bizzacc/logo.png",
+    "/bizzacc/BizzaccLogo.png",
+    "/bizzacc/bizzacc-logo.png",
   ]);
 
-  const bottomLetterheadCandidates = uniqueStrings([
-    value(context, "practitionerFooterLogoUrl", ""),
+  const footerLogoSources = uniqueStrings([
+    firstValue(context, [
+      "practitionerFooterLogoUrl",
+      "firmFooterLogoUrl",
+      "footerLogoUrl",
+    ]),
     "/bizzacc/Bottom.png",
     "/bizzacc/bottom.png",
-    "/Bottom.png",
-    "/letterhead-bottom.png",
-    "/bizzacc/letterhead-bottom.png",
   ]);
+
+  const governingLogoSources = uniqueStrings([
+    firstValue(context, [
+      "governingBodyLogoUrl",
+      "governingBodyLogo1Url",
+      "professionalBodyLogoUrl",
+    ]),
+    "/bizzacc/SAIPA.png",
+    "/bizzacc/saipa.png",
+  ]);
+
+  const firmAddressLines = multilineValue(
+    context,
+    ["firmAddressLines", "practitionerAddressLines", "firmAddress", "practitionerAddress"],
+    ["81 Kafue str", "Lynnwood Glen"]
+  );
+  const firmTelephone = firstValue(
+    context,
+    ["firmTelephone", "practitionerTelephone", "firmPhone", "telephone"],
+    "Tel: 012 881 6388"
+  );
+  const firmEmail = firstValue(
+    context,
+    ["firmEmail", "practitionerEmail", "email"],
+    "Email: Ferdi_v@bizzacc.co.za"
+  );
+  const firmWebsite = firstValue(context, ["firmWebsite", "practitionerWebsite", "website"], "");
+  const governingBodyName = firstValue(
+    context,
+    ["governingBodyName", "professionalBodyName", "regulatoryBodyName"],
+    "SAIPA"
+  );
+  const governingBodyRegistration = firstValue(
+    context,
+    [
+      "governingBodyRegistrationNumber",
+      "professionalBodyRegistrationNumber",
+      "practiceNumber",
+      "membershipNumber",
+    ],
+    "28289"
+  );
 
   return (
     <section style={styles.compilationReportPage}>
-      <div style={styles.fullLetterheadTop}>
-        <LogoWithFallback
-          sources={topLetterheadCandidates}
-          alt={`${practitionerFirm || "Practitioner"} letterhead`}
-          style={styles.fullLetterheadTopImage}
-        />
+      <div style={styles.letterheadHeader}>
+        <div style={styles.letterheadLogoWrap}>
+          <LogoWithFallback
+            sources={logoSources}
+            alt={`${practitionerFirm || "Firm"} logo`}
+            style={styles.letterheadLogo}
+          />
+        </div>
+
+        <div style={styles.letterheadContactBlock}>
+          {firmAddressLines.map((line, index) => (
+            <div key={`firm-address-${index}`}>{line}</div>
+          ))}
+          {firmTelephone ? <div>{firmTelephone}</div> : null}
+          {firmEmail ? <div>{firmEmail}</div> : null}
+          {firmWebsite ? <div>{firmWebsite}</div> : null}
+        </div>
       </div>
 
       <p style={styles.paragraph}>
@@ -560,12 +650,30 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
         <p style={styles.paragraph}>{compilationDate}</p>
       </div>
 
-      <div style={styles.fullLetterheadBottom}>
-        <LogoWithFallback
-          sources={bottomLetterheadCandidates}
-          alt={`${practitionerFirm || "Practitioner"} footer`}
-          style={styles.fullLetterheadBottomImage}
-        />
+      <div style={styles.letterheadFooter}>
+        <div style={styles.footerFirmLine}>
+          {practitionerFirm ? <strong>{practitionerFirm}</strong> : null}
+          {governingBodyName || governingBodyRegistration ? (
+            <span>
+              {governingBodyName}
+              {governingBodyName && governingBodyRegistration ? " · " : ""}
+              {governingBodyRegistration ? `Practice / membership no. ${governingBodyRegistration}` : ""}
+            </span>
+          ) : null}
+        </div>
+
+        <div style={styles.footerLogoRow}>
+          <LogoWithFallback
+            sources={governingLogoSources}
+            alt={`${governingBodyName || "Professional body"} logo`}
+            style={styles.governingBodyLogo}
+          />
+          <LogoWithFallback
+            sources={footerLogoSources}
+            alt={`${practitionerFirm || "Firm"} footer`}
+            style={styles.footerStripLogo}
+          />
+        </div>
       </div>
     </section>
   );
@@ -573,10 +681,11 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
 
 const styles: Record<string, React.CSSProperties> = {
   paragraph: {
-  margin: "0 0 7px",
-  fontSize: 10.6,
-  lineHeight: 1.35,
-},
+    margin: "0 0 7px",
+    fontFamily: "Arial, Helvetica, sans-serif",
+    fontSize: 10.1,
+    lineHeight: 1.34,
+  },
   reportSection: {
     marginBottom: 13,
     breakInside: "avoid",
@@ -604,6 +713,46 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: "left",
     borderBottom: "1px solid #e5e7eb",
     padding: "3px 4px",
+  },
+  compilationReportPage: {
+    position: "relative",
+    minHeight: "222mm",
+    paddingBottom: 52,
+    fontFamily: "Arial, Helvetica, sans-serif",
+    fontSize: 10.1,
+    lineHeight: 1.34,
+  },
+  letterheadHeader: {
+    display: "grid",
+    gridTemplateColumns: "1fr 58mm",
+    alignItems: "center",
+    columnGap: 18,
+    margin: "2px 0 18px",
+    paddingBottom: 8,
+    borderBottom: "1px solid #d1d5db",
+    breakInside: "avoid",
+    pageBreakInside: "avoid",
+  },
+  letterheadLogoWrap: {
+    minHeight: 52,
+    display: "flex",
+    alignItems: "center",
+  },
+  letterheadLogo: {
+    width: "62mm",
+    maxWidth: "100%",
+    height: "auto",
+    maxHeight: "22mm",
+    objectFit: "contain",
+    objectPosition: "left center",
+    display: "block",
+  },
+  letterheadContactBlock: {
+    textAlign: "right",
+    fontFamily: "Arial, Helvetica, sans-serif",
+    fontSize: 8.5,
+    lineHeight: 1.25,
+    color: "#111827",
   },
   compilationSignatureBlock: {
     marginTop: 28,
@@ -633,71 +782,49 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 6,
     width: "80%",
   },
-  letterheadTop: {
-  margin: "0 0 18px",
-  padding: 0,
-  width: "100%",
-  breakInside: "avoid",
-  pageBreakInside: "avoid",
-},
-letterheadTopImage: {
-  width: "100%",
-  maxWidth: "100%",
-  height: "auto",
-  objectFit: "contain",
-  display: "block",
-},
-letterheadBottom: {
-  marginTop: 200,
-  padding: 0,
-  width: "100%",
-  breakInside: "avoid",
-  pageBreakInside: "avoid",
-},
-letterheadBottomImage: {
-  width: "100%",
-  maxWidth: "100%",
-  height: "auto",
-  objectFit: "contain",
-  display: "block",
-},
-
-  compilationReportPage: {
-  position: "relative",
-  minHeight: "222mm",
-  paddingBottom: 48,
-  fontFamily: "Arial, Helvetica, sans-serif",
-},
-fullLetterheadTop: {
-  width: "100%",
-  margin: "0 0 12px",
-  breakInside: "avoid",
-  pageBreakInside: "avoid",
-},
-
-fullLetterheadTopImage: {
-  width: "100%",
-  height: 72,
-  objectFit: "contain",
-  objectPosition: "center top",
-  display: "block",
-},
-
-fullLetterheadBottom: {
-  position: "absolute",
-  left: 0,
-  right: 0,
-  bottom: 4,
-  width: "100%",
-  breakInside: "avoid",
-  pageBreakInside: "avoid",
-},
-
-fullLetterheadBottomImage: {
-  width: "100%",
-  height: 38,
-  objectFit: "contain",
-  objectPosition: "center bottom",
-  display: "block",
-},
+  letterheadFooter: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingTop: 6,
+    borderTop: "1px solid #d1d5db",
+    fontFamily: "Arial, Helvetica, sans-serif",
+    fontSize: 7.9,
+    lineHeight: 1.2,
+    color: "#374151",
+    breakInside: "avoid",
+    pageBreakInside: "avoid",
+  },
+  footerFirmLine: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 4,
+  },
+  footerLogoRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    minHeight: 18,
+  },
+  governingBodyLogo: {
+    maxWidth: "28mm",
+    maxHeight: "11mm",
+    width: "auto",
+    height: "auto",
+    objectFit: "contain",
+    display: "block",
+  },
+  footerStripLogo: {
+    maxWidth: "120mm",
+    maxHeight: "12mm",
+    width: "auto",
+    height: "auto",
+    objectFit: "contain",
+    objectPosition: "right center",
+    display: "block",
+  },
 };

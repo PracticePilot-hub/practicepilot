@@ -1116,14 +1116,15 @@ function renderInfoRow(label: string, value: unknown) {
       <td
         style={{
           width: "36%",
-          padding: "5px 0",
+          padding: "6px 0 7px",
           fontWeight: 800,
           verticalAlign: "top",
+          lineHeight: 1.35,
         }}
       >
         {label}
       </td>
-      <td style={{ padding: "5px 0", verticalAlign: "top" }}>
+      <td style={{ padding: "6px 0 7px", verticalAlign: "top", lineHeight: 1.35 }}>
         {lines.map((line, index) => (
           <div key={`${label}-${index}`}>{line}</div>
         ))}
@@ -3678,42 +3679,63 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             widows: 3;
           }
 
-          .afs-export-notes-page table {
-            width: 100% !important;
-            table-layout: fixed !important;
+          .afs-export-notes-page section,
+          .afs-export-notes-page .afs-export-note-item {
+            margin-bottom: 11px !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
           }
 
-.afs-export-notes-page table {
-  border-collapse: collapse !important;
-  width: 100% !important;
-}
+          .afs-export-notes-page h2,
+          .afs-export-notes-page h3 {
+            margin-top: 10px !important;
+            margin-bottom: 5px !important;
+          }
 
-.afs-export-notes-page th,
-.afs-export-notes-page td {
-  border-top: 0 !important;
-  border-bottom: 0 !important;
-  padding-top: 2px !important;
-  padding-bottom: 2px !important;
-}
+          .afs-export-notes-page table {
+            border-collapse: collapse !important;
+            width: 100% !important;
+            table-layout: fixed !important;
+            margin: 3px 0 10px !important;
+          }
 
-.afs-export-notes-page thead th {
-  border-bottom: 1px solid #9ca3af !important;
-}
+          .afs-export-notes-page th,
+          .afs-export-notes-page td {
+            border-top: 0 !important;
+            border-bottom: 0 !important;
+            padding-top: 1.5px !important;
+            padding-bottom: 1.5px !important;
+            line-height: 1.22 !important;
+          }
 
-.afs-export-notes-page tbody tr:last-child td {
-  border-top: 1px solid #9ca3af !important;
-  border-bottom: 0 !important;
-  font-weight: 700 !important;
-}
+          .afs-export-notes-page thead th {
+            border-bottom: 0 !important;
+            font-weight: 800 !important;
+          }
 
-.afs-export-notes-page tbody tr:last-child td:first-child {
-  border-top: 0 !important;
-}
+          .afs-export-notes-page tbody tr:last-child td {
+            border-top: 0 !important;
+            border-bottom: 0 !important;
+            font-weight: 800 !important;
+          }
 
-.afs-export-notes-page tbody tr:last-child td:nth-child(2),
-.afs-export-notes-page tbody tr:last-child td:nth-child(3) {
-  border-top: 1px solid #111827 !important;
-}
+          .afs-export-notes-page th:nth-child(2),
+          .afs-export-notes-page th:nth-child(3),
+          .afs-export-notes-page td:nth-child(2),
+          .afs-export-notes-page td:nth-child(3) {
+            border-bottom: 1px solid transparent !important;
+          }
+
+          .afs-export-notes-page tbody tr:not(:last-child) td:nth-child(2),
+          .afs-export-notes-page tbody tr:not(:last-child) td:nth-child(3) {
+            border-bottom: 1px solid #9ca3af !important;
+          }
+
+          .afs-export-notes-page tbody tr:last-child td:nth-child(2),
+          .afs-export-notes-page tbody tr:last-child td:nth-child(3) {
+            border-top: 1px solid #111827 !important;
+            border-bottom: 1.25px solid #111827 !important;
+          }
 
           .afs-export-notes-page th:nth-child(2),
           .afs-export-notes-page th:nth-child(3),
