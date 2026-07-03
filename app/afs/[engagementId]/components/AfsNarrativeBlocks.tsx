@@ -57,6 +57,17 @@ type NarrativeContext = Record<string, any> & {
   practitionerDesignation?: string | null;
   practitionerLogoUrl?: string | null;
   practitionerFooterLogoUrl?: string | null;
+  practitionerAddressLines?: string | null;
+  practitionerTelephone?: string | null;
+  practitionerEmail?: string | null;
+  practitionerWebsite?: string | null;
+  governingBodyName?: string | null;
+  governingBodyRegistrationNumber?: string | null;
+  governingBodyLogoUrl?: string | null;
+  secondGoverningBodyName?: string | null;
+  secondGoverningBodyRegistrationNumber?: string | null;
+  secondGoverningBodyLogoUrl?: string | null;
+  practitionerFooterText?: string | null;
   natureOfBusiness?: string | null;
   country?: string | null;
   directors?: any[];
@@ -517,7 +528,7 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
   const framework = value(
     context,
     "framework",
-    "the applicable financial reporting framework"
+    "the applicable financial reporting framework",
   );
   const practitionerName = value(context, "practitionerName", "Compiler");
   const practitionerDesignation = value(context, "practitionerDesignation", "");
@@ -531,10 +542,6 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
       "logoUrl",
       "letterheadLogoUrl",
     ]),
-    "/bizzacc/Logo.png",
-    "/bizzacc/logo.png",
-    "/bizzacc/BizzaccLogo.png",
-    "/bizzacc/bizzacc-logo.png",
   ]);
 
   const footerLogoSources = uniqueStrings([
@@ -543,8 +550,6 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
       "firmFooterLogoUrl",
       "footerLogoUrl",
     ]),
-    "/bizzacc/Bottom.png",
-    "/bizzacc/bottom.png",
   ]);
 
   const governingLogoSources = uniqueStrings([
@@ -553,31 +558,48 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
       "governingBodyLogo1Url",
       "professionalBodyLogoUrl",
     ]),
-    "/bizzacc/SAIPA.png",
-    "/bizzacc/saipa.png",
+    firstValue(context, [
+      "secondGoverningBodyLogoUrl",
+      "governingBodyLogo2Url",
+      "secondProfessionalBodyLogoUrl",
+    ]),
   ]);
 
   const firmAddressLines = multilineValue(
     context,
-    ["firmAddressLines", "practitionerAddressLines", "firmAddress", "practitionerAddress"],
-    ["81 Kafue str", "Lynnwood Glen"]
+    [
+      "practitionerAddressLines",
+      "firmAddressLines",
+      "firmAddress",
+      "practitionerAddress",
+    ],
+    [],
   );
+
   const firmTelephone = firstValue(
     context,
-    ["firmTelephone", "practitionerTelephone", "firmPhone", "telephone"],
-    "Tel: 012 881 6388"
+    ["practitionerTelephone", "firmTelephone", "firmPhone", "telephone"],
+    "",
   );
+
   const firmEmail = firstValue(
     context,
-    ["firmEmail", "practitionerEmail", "email"],
-    "Email: Ferdi_v@bizzacc.co.za"
+    ["practitionerEmail", "firmEmail", "email"],
+    "",
   );
-  const firmWebsite = firstValue(context, ["firmWebsite", "practitionerWebsite", "website"], "");
+
+  const firmWebsite = firstValue(
+    context,
+    ["practitionerWebsite", "firmWebsite", "website"],
+    "",
+  );
+
   const governingBodyName = firstValue(
     context,
     ["governingBodyName", "professionalBodyName", "regulatoryBodyName"],
-    "SAIPA"
+    "",
   );
+
   const governingBodyRegistration = firstValue(
     context,
     [
@@ -586,8 +608,37 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
       "practiceNumber",
       "membershipNumber",
     ],
-    "28289"
+    "",
   );
+
+  const secondGoverningBodyName = firstValue(
+    context,
+    ["secondGoverningBodyName", "secondProfessionalBodyName"],
+    "",
+  );
+
+  const secondGoverningBodyRegistration = firstValue(
+    context,
+    [
+      "secondGoverningBodyRegistrationNumber",
+      "secondProfessionalBodyRegistrationNumber",
+    ],
+    "",
+  );
+
+  const footerText = firstValue(
+    context,
+    ["practitionerFooterText", "footerText"],
+    "",
+  );
+
+  const governingLines = [
+    [governingBodyName, governingBodyRegistration].filter(Boolean).join(" "),
+    [secondGoverningBodyName, secondGoverningBodyRegistration]
+      .filter(Boolean)
+      .join(" "),
+    footerText,
+  ].filter(Boolean);
 
   return (
     <section style={styles.compilationReportPage}>
@@ -601,14 +652,21 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
         </div>
 
         <div style={styles.letterheadContactBlock}>
+          {practitionerFirm ? (
+            <div style={styles.letterheadFirmName}>{practitionerFirm}</div>
+          ) : null}
+
           {firmAddressLines.map((line, index) => (
             <div key={`firm-address-${index}`}>{line}</div>
           ))}
-          {firmTelephone ? <div>{firmTelephone}</div> : null}
-          {firmEmail ? <div>{firmEmail}</div> : null}
+
+          {firmTelephone ? <div>Tel: {firmTelephone.replace(/^Tel:\s*/i, "")}</div> : null}
+          {firmEmail ? <div>Email: {firmEmail.replace(/^Email:\s*/i, "")}</div> : null}
           {firmWebsite ? <div>{firmWebsite}</div> : null}
         </div>
       </div>
+
+      <h1 style={styles.compilationHeading}>Practitioner’s Compilation Report</h1>
 
       <p style={styles.paragraph}>
         We have compiled the annual financial statements of {clientName}, as set out in this report, based on information provided by management. These annual financial statements comprise the statement of financial position as at {value(context, "yearEnd", "the reporting date")}, the statement of comprehensive income, statement of changes in equity and statement of cash flows for the year then ended, and the notes to the annual financial statements, including a summary of significant accounting policies and other explanatory information.
@@ -636,38 +694,38 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
 
       <div style={styles.compilationSignatureBlock}>
         <div style={styles.signatureLine} />
+
         {practitionerFirm ? (
           <p style={styles.paragraph}>
             <strong>{practitionerFirm}</strong>
           </p>
         ) : null}
+
         <p style={styles.paragraph}>
           <strong>{practitionerName}</strong>
         </p>
+
         {practitionerDesignation ? (
           <p style={styles.paragraph}>{practitionerDesignation}</p>
         ) : null}
+
         <p style={styles.paragraph}>{compilationDate}</p>
       </div>
 
       <div style={styles.letterheadFooter}>
-        <div style={styles.footerFirmLine}>
-          {practitionerFirm ? <strong>{practitionerFirm}</strong> : null}
-          {governingBodyName || governingBodyRegistration ? (
-            <span>
-              {governingBodyName}
-              {governingBodyName && governingBodyRegistration ? " · " : ""}
-              {governingBodyRegistration ? `Practice / membership no. ${governingBodyRegistration}` : ""}
-            </span>
-          ) : null}
+        <div style={styles.footerTextBlock}>
+          {governingLines.map((line, index) => (
+            <div key={`governing-line-${index}`}>{line}</div>
+          ))}
         </div>
 
         <div style={styles.footerLogoRow}>
           <LogoWithFallback
             sources={governingLogoSources}
-            alt={`${governingBodyName || "Professional body"} logo`}
+            alt="Governing body logo"
             style={styles.governingBodyLogo}
           />
+
           <LogoWithFallback
             sources={footerLogoSources}
             alt={`${practitionerFirm || "Firm"} footer`}
@@ -678,6 +736,7 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
     </section>
   );
 }
+
 
 const styles: Record<string, React.CSSProperties> = {
   paragraph: {
@@ -717,19 +776,28 @@ const styles: Record<string, React.CSSProperties> = {
   compilationReportPage: {
     position: "relative",
     minHeight: "222mm",
-    paddingBottom: 52,
+    paddingBottom: 50,
     fontFamily: "Arial, Helvetica, sans-serif",
     fontSize: 10.1,
     lineHeight: 1.34,
+  },
+  compilationHeading: {
+    fontFamily: "Arial, Helvetica, sans-serif",
+    fontSize: 13.5,
+    lineHeight: 1.25,
+    fontWeight: 900,
+    margin: "0 0 13px",
+    paddingBottom: 7,
+    borderBottom: "1.25px solid #111827",
   },
   letterheadHeader: {
     display: "grid",
     gridTemplateColumns: "1fr 58mm",
     alignItems: "center",
     columnGap: 18,
-    margin: "2px 0 18px",
+    margin: "0 0 14px",
     paddingBottom: 8,
-    borderBottom: "1px solid #d1d5db",
+    borderBottom: "1.25px solid #111827",
     breakInside: "avoid",
     pageBreakInside: "avoid",
   },
@@ -737,12 +805,13 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: 52,
     display: "flex",
     alignItems: "center",
+    justifyContent: "flex-start",
   },
   letterheadLogo: {
     width: "62mm",
     maxWidth: "100%",
     height: "auto",
-    maxHeight: "22mm",
+    maxHeight: "23mm",
     objectFit: "contain",
     objectPosition: "left center",
     display: "block",
@@ -754,8 +823,12 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.25,
     color: "#111827",
   },
+  letterheadFirmName: {
+    fontWeight: 900,
+    marginBottom: 3,
+  },
   compilationSignatureBlock: {
-    marginTop: 28,
+    marginTop: 26,
     breakInside: "avoid",
     pageBreakInside: "avoid",
   },
@@ -787,8 +860,12 @@ const styles: Record<string, React.CSSProperties> = {
     left: 0,
     right: 0,
     bottom: 0,
-    paddingTop: 6,
-    borderTop: "1px solid #d1d5db",
+    display: "grid",
+    gridTemplateColumns: "1fr 45mm",
+    gap: 14,
+    alignItems: "end",
+    paddingTop: 7,
+    borderTop: "1px solid #111827",
     fontFamily: "Arial, Helvetica, sans-serif",
     fontSize: 7.9,
     lineHeight: 1.2,
@@ -796,31 +873,30 @@ const styles: Record<string, React.CSSProperties> = {
     breakInside: "avoid",
     pageBreakInside: "avoid",
   },
-  footerFirmLine: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    marginBottom: 4,
+  footerTextBlock: {
+    display: "grid",
+    gap: 2,
+    justifyItems: "start",
+    textAlign: "left",
   },
   footerLogoRow: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
+    justifyContent: "flex-end",
+    gap: 8,
     minHeight: 18,
   },
   governingBodyLogo: {
     maxWidth: "28mm",
-    maxHeight: "11mm",
+    maxHeight: "10mm",
     width: "auto",
     height: "auto",
     objectFit: "contain",
     display: "block",
   },
   footerStripLogo: {
-    maxWidth: "120mm",
-    maxHeight: "12mm",
+    maxWidth: "36mm",
+    maxHeight: "10mm",
     width: "auto",
     height: "auto",
     objectFit: "contain",
