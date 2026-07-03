@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { createClient } from "@supabase/supabase-js";
 
 type UserProfile = {
@@ -27,6 +33,11 @@ type NavItem = {
   show: boolean;
 };
 
+type MenuPosition = {
+  top: number;
+  left: number;
+};
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
@@ -36,9 +47,16 @@ const supabase =
     : null;
 
 function isActivePath(pathname: string, href: string) {
-  if (href === "/dashboard") return pathname === "/" || pathname.startsWith("/dashboard");
+  if (href === "/dashboard") {
+    return pathname === "/" || pathname.startsWith("/dashboard");
+  }
+
   if (href === "/afs") return pathname.startsWith("/afs");
-  if (href === "/compliance/paia") return pathname.startsWith("/compliance/paia");
+
+  if (href === "/compliance/paia") {
+    return pathname.startsWith("/compliance/paia");
+  }
+
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -63,7 +81,14 @@ export default function TopNav() {
   const pathname = usePathname() || "";
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [afsMenuOpen, setAfsMenuOpen] = useState(false);
+  const [afsMenuPosition, setAfsMenuPosition] = useState<MenuPosition>({
+    top: 54,
+    left: 0,
+  });
+
+  const afsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const afsMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +108,7 @@ export default function TopNav() {
             setProfile(null);
             setLoading(false);
           }
+
           return;
         }
 
@@ -97,6 +123,7 @@ export default function TopNav() {
             setProfile(null);
             setLoading(false);
           }
+
           return;
         }
 
@@ -120,6 +147,58 @@ export default function TopNav() {
       cancelled = true;
     };
   }, []);
+
+  function calculateAfsMenuPosition() {
+    const button = afsButtonRef.current;
+    if (!button) return;
+
+    const rect = button.getBoundingClientRect();
+
+    setAfsMenuPosition({
+      top: Math.round(rect.bottom + 2),
+      left: Math.round(rect.left),
+    });
+  }
+
+  function toggleAfsMenu() {
+    calculateAfsMenuPosition();
+    setAfsMenuOpen((current) => !current);
+  }
+
+  useEffect(() => {
+    if (!afsMenuOpen) return;
+
+    calculateAfsMenuPosition();
+
+    function onDocumentMouseDown(event: MouseEvent) {
+      const target = event.target as Node;
+
+      if (afsButtonRef.current?.contains(target)) return;
+      if (afsMenuRef.current?.contains(target)) return;
+
+      setAfsMenuOpen(false);
+    }
+
+    function onEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setAfsMenuOpen(false);
+    }
+
+    function onWindowChange() {
+      calculateAfsMenuPosition();
+    }
+
+    document.addEventListener("mousedown", onDocumentMouseDown);
+    document.addEventListener("keydown", onEscape);
+    window.addEventListener("resize", onWindowChange);
+    window.addEventListener("scroll", onWindowChange, true);
+
+    return () => {
+      document.removeEventListener("mousedown", onDocumentMouseDown);
+      document.removeEventListener("keydown", onEscape);
+      window.removeEventListener("resize", onWindowChange);
+      window.removeEventListener("scroll", onWindowChange, true);
+    };
+  }, [afsMenuOpen]);
 
   const navItems = useMemo<NavItem[]>(() => {
     const role = profile?.role || "";
@@ -189,90 +268,137 @@ export default function TopNav() {
 
   const visibleNavItems = navItems.filter((item) => item.show);
 
+  const afsDropdownItems = [
+    {
+      label: "Dashboard",
+      href: "/afs",
+      description: "AFS engagements and working files",
+      enabled: true,
+    },
+    {
+      label: "Settings",
+      href: "/afs/settings",
+      description: "Firm branding and letterhead setup",
+      enabled: true,
+    },
+    {
+      label: "Templates",
+      href: "/afs/templates",
+      description: "Coming soon",
+      enabled: false,
+    },
+    {
+      label: "Reports",
+      href: "/afs/reports",
+      description: "Coming soon",
+      enabled: false,
+    },
+  ];
+
   return (
-    <header style={styles.shell}>
-      <div style={styles.inner}>
-        <Link href="/dashboard" style={styles.brand}>
-          PracticePilot
-        </Link>
+    <>
+      <header style={styles.shell}>
+        <div style={styles.inner}>
+          <Link href="/dashboard" style={styles.brand}>
+            PracticePilot
+          </Link>
 
-        <nav style={styles.nav} aria-label="Main navigation">
-          {loading
-            ? null
-            : visibleNavItems.map((item) => {
-                const active = isActivePath(pathname, item.href);
+          <nav style={styles.nav} aria-label="Main navigation">
+            {loading
+              ? null
+              : visibleNavItems.map((item) => {
+                  const active = isActivePath(pathname, item.href);
 
-                if (item.href === "/afs") {
-                  const menuOpen = openMenu === "afs";
-
-                  return (
-                    <div
-                      key={item.href}
-                      style={styles.navDropdownWrap}
-                      onMouseEnter={() => setOpenMenu("afs")}
-                      onMouseLeave={() => setOpenMenu(null)}
-                    >
+                  if (item.href === "/afs") {
+                    return (
                       <button
+                        key={item.href}
+                        ref={afsButtonRef}
                         type="button"
+                        onClick={toggleAfsMenu}
                         style={{
-                          ...styles.navButton,
+                          ...styles.navLinkButton,
                           ...(active ? styles.navLinkActive : {}),
                         }}
-                        onClick={() => setOpenMenu(menuOpen ? null : "afs")}
+                        aria-haspopup="menu"
+                        aria-expanded={afsMenuOpen}
                       >
                         <span>{item.label}</span>
-                        <span style={styles.dropdownArrow}>▾</span>
+                        <span style={styles.chevron}>⌄</span>
                       </button>
+                    );
+                  }
 
-                      {menuOpen ? (
-                        <div style={styles.dropdownPanel}>
-                          <Link
-                            href="/afs"
-                            style={{
-                              ...styles.dropdownLink,
-                              ...(pathname === "/afs" ? styles.dropdownLinkActive : {}),
-                            }}
-                            onClick={() => setOpenMenu(null)}
-                          >
-                            Dashboard
-                          </Link>
-                          <Link
-                            href="/afs/settings"
-                            style={{
-                              ...styles.dropdownLink,
-                              ...(pathname.startsWith("/afs/settings")
-                                ? styles.dropdownLinkActive
-                                : {}),
-                            }}
-                            onClick={() => setOpenMenu(null)}
-                          >
-                            Settings
-                          </Link>
-                          <span style={styles.dropdownDisabled}>Templates</span>
-                          <span style={styles.dropdownDisabled}>Reports</span>
-                        </div>
-                      ) : null}
-                    </div>
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      style={{
+                        ...styles.navLink,
+                        ...(active ? styles.navLinkActive : {}),
+                      }}
+                    >
+                      {item.label}
+                    </Link>
                   );
-                }
+                })}
+          </nav>
 
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    style={{ ...styles.navLink, ...(active ? styles.navLinkActive : {}) }}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-        </nav>
+          <Link href="/login" style={styles.logout}>
+            Logout
+          </Link>
+        </div>
+      </header>
 
-        <Link href="/login" style={styles.logout}>
-          Logout
-        </Link>
-      </div>
-    </header>
+      {afsMenuOpen ? (
+        <div
+          ref={afsMenuRef}
+          style={{
+            ...styles.afsDropdownMenu,
+            top: afsMenuPosition.top,
+            left: afsMenuPosition.left,
+          }}
+          role="menu"
+        >
+          {afsDropdownItems.map((dropdownItem) => {
+            const dropdownActive = isActivePath(pathname, dropdownItem.href);
+
+            if (!dropdownItem.enabled) {
+              return (
+                <div key={dropdownItem.href} style={styles.afsDropdownDisabled}>
+                  <span style={styles.afsDropdownLabel}>
+                    {dropdownItem.label}
+                  </span>
+                  <span style={styles.afsDropdownDescription}>
+                    {dropdownItem.description}
+                  </span>
+                </div>
+              );
+            }
+
+            return (
+              <Link
+                key={dropdownItem.href}
+                href={dropdownItem.href}
+                onClick={() => setAfsMenuOpen(false)}
+                style={{
+                  ...styles.afsDropdownItem,
+                  ...(dropdownActive ? styles.afsDropdownItemActive : {}),
+                }}
+                role="menuitem"
+              >
+                <span style={styles.afsDropdownLabel}>
+                  {dropdownItem.label}
+                </span>
+                <span style={styles.afsDropdownDescription}>
+                  {dropdownItem.description}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -280,11 +406,12 @@ const styles: Record<string, CSSProperties> = {
   shell: {
     position: "sticky",
     top: 0,
-    zIndex: 2000,
+    zIndex: 10000,
     width: "100%",
     background: "#ffffff",
     borderBottom: "1px solid #dbe3ef",
     boxShadow: "0 1px 0 rgba(15, 23, 42, 0.04)",
+    overflow: "visible",
   },
   inner: {
     minHeight: "54px",
@@ -293,7 +420,7 @@ const styles: Record<string, CSSProperties> = {
     gap: "16px",
     padding: "0 18px",
     boxSizing: "border-box",
-    overflowX: "auto",
+    overflow: "visible",
     whiteSpace: "nowrap",
   },
   brand: {
@@ -310,6 +437,7 @@ const styles: Record<string, CSSProperties> = {
     gap: "14px",
     flex: "1 1 auto",
     minWidth: 0,
+    overflow: "visible",
   },
   navLink: {
     position: "relative",
@@ -325,11 +453,11 @@ const styles: Record<string, CSSProperties> = {
     boxSizing: "border-box",
     flex: "0 0 auto",
   },
-  navButton: {
+  navLinkButton: {
     position: "relative",
     display: "inline-flex",
     alignItems: "center",
-    gap: "5px",
+    gap: 5,
     height: "54px",
     color: "#0f172a",
     textDecoration: "none",
@@ -349,52 +477,53 @@ const styles: Record<string, CSSProperties> = {
     borderBottomColor: "#2563eb",
     fontWeight: 900,
   },
-  navDropdownWrap: {
-    position: "relative",
-    display: "inline-flex",
-    alignItems: "center",
-    height: "54px",
-    flex: "0 0 auto",
-  },
-  dropdownArrow: {
-    fontSize: "10px",
+  chevron: {
+    fontSize: 13,
     lineHeight: 1,
-    transform: "translateY(1px)",
+    transform: "translateY(-1px)",
   },
-  dropdownPanel: {
-    position: "absolute",
-    top: "50px",
-    left: 0,
-    minWidth: "190px",
-    padding: "7px",
-    borderRadius: "10px",
-    border: "1px solid #dbe3ef",
+  afsDropdownMenu: {
+    position: "fixed",
+    zIndex: 2147483647,
+    minWidth: 260,
     background: "#ffffff",
-    boxShadow: "0 16px 40px rgba(15, 23, 42, 0.16)",
-    zIndex: 3000,
+    border: "1px solid #94a3b8",
+    boxShadow: "0 22px 55px rgba(15, 23, 42, 0.24)",
+    padding: 6,
+    overflow: "visible",
   },
-  dropdownLink: {
-    display: "block",
+  afsDropdownItem: {
+    display: "grid",
+    gap: 2,
     padding: "9px 10px",
-    borderRadius: "8px",
     color: "#0f172a",
     textDecoration: "none",
-    fontSize: "13px",
-    fontWeight: 750,
+    borderLeft: "3px solid transparent",
+    background: "#ffffff",
   },
-  dropdownLinkActive: {
+  afsDropdownItemActive: {
     background: "#eff6ff",
-    color: "#1d4ed8",
-    fontWeight: 900,
+    borderLeftColor: "#2563eb",
   },
-  dropdownDisabled: {
-    display: "block",
+  afsDropdownDisabled: {
+    display: "grid",
+    gap: 2,
     padding: "9px 10px",
-    borderRadius: "8px",
     color: "#94a3b8",
-    fontSize: "13px",
-    fontWeight: 750,
+    borderLeft: "3px solid transparent",
+    background: "#f8fafc",
     cursor: "not-allowed",
+  },
+  afsDropdownLabel: {
+    fontSize: 13,
+    fontWeight: 900,
+    lineHeight: 1.2,
+  },
+  afsDropdownDescription: {
+    fontSize: 11,
+    fontWeight: 650,
+    lineHeight: 1.2,
+    color: "#64748b",
   },
   logout: {
     border: "1px solid #cbd5e1",
