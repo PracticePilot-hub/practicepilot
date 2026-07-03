@@ -12,9 +12,15 @@ type TrialBalanceLine = {
   debit: number;
   credit: number;
 
- opening_balance?: number | null;
-current_year_balance?: number | null;
-prior_year_balance?: number | null;
+  source_balance?: number | null;
+  manual_adjustment?: number | null;
+  adjustments?: number | null;
+  reclassifications?: number | null;
+  final_balance?: number | null;
+
+  opening_balance?: number | null;
+  current_year_balance?: number | null;
+  prior_year_balance?: number | null;
 
   period_1?: number;
   period_2?: number;
@@ -53,6 +59,8 @@ type ImportMode =
   | "Opening balance + monthly movements"
   | "Monthly closing balances";
 
+type AmountLayout = "Single signed amount column" | "Debit and credit columns";
+
 export default function TrialBalancePanel({
   engagementId,
   trialBalanceLines,
@@ -73,9 +81,14 @@ export default function TrialBalancePanel({
   const [nameColumn, setNameColumn] = useState(1);
 
   const [openingColumn, setOpeningColumn] = useState(2);
+  const [amountLayout, setAmountLayout] =
+    useState<AmountLayout>("Single signed amount column");
   const [sourceBalanceColumn, setSourceBalanceColumn] = useState(3);
+  const [debitColumn, setDebitColumn] = useState(3);
+  const [creditColumn, setCreditColumn] = useState(4);
   const [priorYearColumn, setPriorYearColumn] = useState(2);
   const [closingBalancePeriod, setClosingBalancePeriod] = useState(12);
+  const [savingLineId, setSavingLineId] = useState<string | null>(null);
 
   const [periodColumns, setPeriodColumns] = useState<number[]>([
     2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
@@ -84,10 +97,7 @@ export default function TrialBalancePanel({
   const activeLines = previewLines.length > 0 ? previewLines : trialBalanceLines;
 
   const totalSourceBalance = activeLines.reduce(
-    (sum, line) =>
-      sum +
-      Number(line.opening_balance || 0) +
-      Number(line.current_year_balance ?? line.debit ?? 0),
+    (sum, line) => sum + getSourceBalance(line),
     0
   );
 
@@ -96,10 +106,25 @@ export default function TrialBalancePanel({
     0
   );
 
-  const totalAdjustments = 0;
-  const totalReclassifications = 0;
-  const totalFinalBalance =
-    totalSourceBalance + totalAdjustments + totalReclassifications;
+  const totalManualAdjustments = activeLines.reduce(
+    (sum, line) => sum + getManualAdjustment(line),
+    0
+  );
+
+  const totalJournalAdjustments = activeLines.reduce(
+    (sum, line) => sum + getJournalAdjustment(line),
+    0
+  );
+
+  const totalReclassifications = activeLines.reduce(
+    (sum, line) => sum + getReclassification(line),
+    0
+  );
+
+  const totalFinalBalance = activeLines.reduce(
+    (sum, line) => sum + getFinalBalance(line),
+    0
+  );
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -139,7 +164,10 @@ export default function TrialBalancePanel({
       setCodeColumn(0);
       setNameColumn(1);
       setOpeningColumn(2);
+      setAmountLayout("Single signed amount column");
       setSourceBalanceColumn(3);
+      setDebitColumn(3);
+      setCreditColumn(4);
       setPriorYearColumn(2);
       setClosingBalancePeriod(12);
       setPreviewLines([]);
@@ -177,12 +205,22 @@ export default function TrialBalancePanel({
     const periods = Array.from({ length: 12 }).map(() => 0);
 
     if (importMode === "Current and prior year final balances") {
-      currentYearBalance = numberOrZero(getCell(row, sourceBalanceColumn));
+      currentYearBalance =
+        amountLayout === "Debit and credit columns"
+          ? numberOrZero(getCell(row, debitColumn)) -
+            numberOrZero(getCell(row, creditColumn))
+          : numberOrZero(getCell(row, sourceBalanceColumn));
+
       priorYearBalance = numberOrZero(getCell(row, priorYearColumn));
     }
 
     if (importMode === "Current year only") {
-      currentYearBalance = numberOrZero(getCell(row, sourceBalanceColumn));
+      currentYearBalance =
+        amountLayout === "Debit and credit columns"
+          ? numberOrZero(getCell(row, debitColumn)) -
+            numberOrZero(getCell(row, creditColumn))
+          : numberOrZero(getCell(row, sourceBalanceColumn));
+
       priorYearBalance = 0;
     }
 
@@ -212,6 +250,12 @@ export default function TrialBalancePanel({
       debit: currentYearBalance,
       credit: priorYearBalance,
 
+      source_balance: currentYearBalance,
+      manual_adjustment: 0,
+      adjustments: 0,
+      reclassifications: 0,
+      final_balance: currentYearBalance,
+
       opening_balance: openingBalance,
       current_year_balance: currentYearBalance,
       prior_year_balance: priorYearBalance,
@@ -234,7 +278,11 @@ export default function TrialBalancePanel({
         importMode === "Monthly closing balances"
           ? "Monthly"
           : "Yearly",
-      amount_layout: importMode,
+      amount_layout:
+        importMode === "Current and prior year final balances" ||
+        importMode === "Current year only"
+          ? amountLayout
+          : importMode,
 
       mapping_category: null,
       note_number: null,
@@ -297,16 +345,58 @@ export default function TrialBalancePanel({
     });
   }
 
+  async function saveManualAdjustment(line: TrialBalanceLine, value: string) {
+    const manualAdjustment = numberOrZero(value);
+    const lineId = line.id || null;
+
+    if (!lineId) {
+      alert("This line must be imported before you can save manual adjustments.");
+      return;
+    }
+
+    setSavingLineId(lineId);
+
+    try {
+      const res = await fetch(`/api/afs/engagements/${engagementId}/trial-balance`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: lineId,
+          manual_adjustment: manualAdjustment,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to save manual adjustment.");
+      }
+
+      const updatedLine = data.line as TrialBalanceLine;
+
+      onImported(
+        trialBalanceLines.map((existing) =>
+          existing.id === lineId ? { ...existing, ...updatedLine } : existing
+        )
+      );
+    } catch (error: any) {
+      alert(error.message || "Failed to save manual adjustment.");
+    } finally {
+      setSavingLineId(null);
+    }
+  }
+
   const columnOptions = getColumnOptions(rawRows);
 
   return (
     <section style={styles.card}>
       <div style={styles.header}>
         <div>
-          <h3 style={styles.title}>Trial Balance</h3>
+          <h3 style={styles.title}>AFS Trial Balance</h3>
           <p style={styles.text}>
-            Import the trial balance from Excel, choose the start row, map the
-            columns, preview the result, then confirm the import.
+            Import and review the balances used for the annual financial statements. Imported balances stay locked; manual adjustments and journals build the final AFS balance.
           </p>
           {fileName && <p style={styles.fileName}>Selected file: {fileName}</p>}
         </div>
@@ -341,9 +431,10 @@ export default function TrialBalancePanel({
       </div>
 
       <div style={styles.summaryGrid}>
-        <Summary label="Source Balance" value={formatMoney(totalSourceBalance)} />
-        <Summary label="Adjustments" value={formatMoney(totalAdjustments)} />
-        <Summary label="Final Balance" value={formatMoney(totalFinalBalance)} />
+        <Summary label="Imported Balance" value={formatMoney(totalSourceBalance)} />
+        <Summary label="Manual Adj." value={formatMoney(totalManualAdjustments)} />
+        <Summary label="Journal Adj." value={formatMoney(totalJournalAdjustments)} />
+        <Summary label="Final AFS Balance" value={formatMoney(totalFinalBalance)} />
         <Summary label="Prior Year" value={formatMoney(totalPriorYear)} />
         <Summary label="Lines" value={String(activeLines.length)} />
       </div>
@@ -363,10 +454,11 @@ export default function TrialBalancePanel({
               <tr>
                 <th style={styles.th}>Account</th>
                 <th style={styles.th}>Description</th>
-                <th style={styles.thRight}>Source Balance</th>
-                <th style={styles.thRight}>Adjustments</th>
-                <th style={styles.thRight}>Reclassifications</th>
-                <th style={styles.thRight}>Final Balance</th>
+                <th style={styles.thRight}>Imported Balance</th>
+                <th style={styles.thRight}>Manual Adj.</th>
+                <th style={styles.thRight}>Journal Adj.</th>
+                <th style={styles.thRight}>Reclassification</th>
+                <th style={styles.thRight}>Final AFS Balance</th>
                 <th style={styles.thRight}>Prior Year</th>
                 <th style={styles.th}>Mapping</th>
               </tr>
@@ -374,15 +466,11 @@ export default function TrialBalancePanel({
 
             <tbody>
               {activeLines.map((line, index) => {
-                const opening = Number(line.opening_balance || 0);
-                const currentYearBalance = Number(
-                  line.current_year_balance ?? line.debit ?? 0
-                );
-                const sourceBalance = opening + currentYearBalance;
-                const adjustments = 0;
-                const reclassifications = 0;
-                const finalBalance =
-                  sourceBalance + adjustments + reclassifications;
+                const sourceBalance = getSourceBalance(line);
+                const manualAdjustment = getManualAdjustment(line);
+                const journalAdjustment = getJournalAdjustment(line);
+                const reclassifications = getReclassification(line);
+                const finalBalance = getFinalBalance(line);
                 const priorYear = Number(line.prior_year_balance ?? line.credit ?? 0);
 
                 return (
@@ -390,7 +478,15 @@ export default function TrialBalancePanel({
                     <td style={styles.td}>{line.account_code || ""}</td>
                     <td style={styles.td}>{line.account_name}</td>
                     <td style={styles.tdRight}>{formatMoney(sourceBalance)}</td>
-                    <td style={styles.tdRight}>{formatMoney(adjustments)}</td>
+                    <td style={styles.tdRight}>
+                      <input
+                        style={styles.amountInput}
+                        defaultValue={formatPlainNumber(manualAdjustment)}
+                        disabled={previewLines.length > 0 || savingLineId === line.id}
+                        onBlur={(event) => saveManualAdjustment(line, event.target.value)}
+                      />
+                    </td>
+                    <td style={styles.tdRight}>{formatMoney(journalAdjustment)}</td>
                     <td style={styles.tdRight}>{formatMoney(reclassifications)}</td>
                     <td style={styles.tdRightBold}>{formatMoney(finalBalance)}</td>
                     <td style={styles.tdRight}>{formatMoney(priorYear)}</td>
@@ -408,7 +504,8 @@ export default function TrialBalancePanel({
                 <td style={styles.totalRight}>
                   {formatMoney(totalSourceBalance)}
                 </td>
-                <td style={styles.totalRight}>{formatMoney(totalAdjustments)}</td>
+                <td style={styles.totalRight}>{formatMoney(totalManualAdjustments)}</td>
+                <td style={styles.totalRight}>{formatMoney(totalJournalAdjustments)}</td>
                 <td style={styles.totalRight}>
                   {formatMoney(totalReclassifications)}
                 </td>
@@ -476,6 +573,25 @@ export default function TrialBalancePanel({
                 </select>
               </label>
 
+              {(importMode === "Current and prior year final balances" ||
+                importMode === "Current year only") && (
+                <label style={styles.label}>
+                  Amount layout
+                  <select
+                    style={styles.input}
+                    value={amountLayout}
+                    onChange={(e) => setAmountLayout(e.target.value as AmountLayout)}
+                  >
+                    <option value="Single signed amount column">
+                      Single signed amount column
+                    </option>
+                    <option value="Debit and credit columns">
+                      Debit and credit columns
+                    </option>
+                  </select>
+                </label>
+              )}
+
               <label style={styles.label}>
                 Account number column
                 <select
@@ -507,24 +623,61 @@ export default function TrialBalancePanel({
               </label>
 
               {(importMode === "Current and prior year final balances" ||
-                importMode === "Current year only") && (
-                <label style={styles.label}>
-                  Source balance column
-                  <select
-                    style={styles.input}
-                    value={sourceBalanceColumn}
-                    onChange={(e) =>
-                      setSourceBalanceColumn(Number(e.target.value))
-                    }
-                  >
-                    {columnOptions.map((column) => (
-                      <option key={column.index} value={column.index}>
-                        {column.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
+                importMode === "Current year only") &&
+                amountLayout === "Single signed amount column" && (
+                  <label style={styles.label}>
+                    Source balance column
+                    <select
+                      style={styles.input}
+                      value={sourceBalanceColumn}
+                      onChange={(e) =>
+                        setSourceBalanceColumn(Number(e.target.value))
+                      }
+                    >
+                      {columnOptions.map((column) => (
+                        <option key={column.index} value={column.index}>
+                          {column.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+              {(importMode === "Current and prior year final balances" ||
+                importMode === "Current year only") &&
+                amountLayout === "Debit and credit columns" && (
+                  <>
+                    <label style={styles.label}>
+                      Debit column
+                      <select
+                        style={styles.input}
+                        value={debitColumn}
+                        onChange={(e) => setDebitColumn(Number(e.target.value))}
+                      >
+                        {columnOptions.map((column) => (
+                          <option key={column.index} value={column.index}>
+                            {column.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label style={styles.label}>
+                      Credit column
+                      <select
+                        style={styles.input}
+                        value={creditColumn}
+                        onChange={(e) => setCreditColumn(Number(e.target.value))}
+                      >
+                        {columnOptions.map((column) => (
+                          <option key={column.index} value={column.index}>
+                            {column.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                )}
 
               {importMode === "Current and prior year final balances" && (
                 <label style={styles.label}>
@@ -709,6 +862,46 @@ function numberOrZero(value: any) {
   return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
+function getSourceBalance(line: TrialBalanceLine) {
+  if (line.source_balance !== undefined && line.source_balance !== null) {
+    return Number(line.source_balance || 0);
+  }
+
+  return (
+    Number(line.opening_balance || 0) +
+    Number(line.debit ?? line.current_year_balance ?? 0)
+  );
+}
+
+function getManualAdjustment(line: TrialBalanceLine) {
+  return Number(line.manual_adjustment || 0);
+}
+
+function getJournalAdjustment(line: TrialBalanceLine) {
+  return Number(line.adjustments || 0);
+}
+
+function getReclassification(line: TrialBalanceLine) {
+  return Number(line.reclassifications || 0);
+}
+
+function getFinalBalance(line: TrialBalanceLine) {
+  if (line.final_balance !== undefined && line.final_balance !== null) {
+    return Number(line.final_balance || 0);
+  }
+
+  return (
+    getSourceBalance(line) +
+    getManualAdjustment(line) +
+    getJournalAdjustment(line) +
+    getReclassification(line)
+  );
+}
+
+function formatPlainNumber(value: number) {
+  return String(Number(value || 0).toFixed(2));
+}
+
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-ZA", {
     style: "currency",
@@ -788,7 +981,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   summaryGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
     gap: "12px",
     marginBottom: "16px",
   },
@@ -848,6 +1041,15 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "13px",
     textAlign: "right",
     whiteSpace: "nowrap",
+  },
+  amountInput: {
+    width: "105px",
+    border: "1px solid #cbd5e1",
+    borderRadius: "7px",
+    padding: "6px 7px",
+    fontSize: "12px",
+    textAlign: "right",
+    background: "#ffffff",
   },
   tdRightBold: {
     borderBottom: "1px solid #f3f4f6",
