@@ -1,8 +1,33 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
+
+type FirmSettings = {
+  id?: string;
+  firm_name: string;
+  trading_name: string;
+  logo_url: string;
+  address_lines: string;
+  telephone: string;
+  email: string;
+  website: string;
+
+  practitioner_name: string;
+  practitioner_designation: string;
+
+  governing_body_name: string;
+  governing_body_registration_number: string;
+  governing_body_logo_url: string;
+
+  second_governing_body_name: string;
+  second_governing_body_registration_number: string;
+  second_governing_body_logo_url: string;
+
+  footer_text: string;
+  footer_logo_url: string;
+};
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -12,28 +37,6 @@ const supabase =
     ? createClient(supabaseUrl, supabaseAnonKey)
     : null;
 
-type FirmSettings = {
-  id?: string;
-  owner_user_id?: string;
-  firm_name: string;
-  trading_name: string;
-  logo_url: string;
-  address_lines: string;
-  telephone: string;
-  email: string;
-  website: string;
-  practitioner_name: string;
-  practitioner_designation: string;
-  governing_body_name: string;
-  governing_body_registration_number: string;
-  governing_body_logo_url: string;
-  secondary_governing_body_name: string;
-  secondary_governing_body_registration_number: string;
-  secondary_governing_body_logo_url: string;
-  footer_text: string;
-  footer_logo_url: string;
-};
-
 const emptySettings: FirmSettings = {
   firm_name: "",
   trading_name: "",
@@ -42,115 +45,169 @@ const emptySettings: FirmSettings = {
   telephone: "",
   email: "",
   website: "",
+
   practitioner_name: "",
   practitioner_designation: "",
-  governing_body_name: "",
-  governing_body_registration_number: "",
+
+  governing_body_name: "SAIPA",
+  governing_body_registration_number: "28289",
   governing_body_logo_url: "",
-  secondary_governing_body_name: "",
-  secondary_governing_body_registration_number: "",
-  secondary_governing_body_logo_url: "",
-  footer_text: "",
+
+  second_governing_body_name: "",
+  second_governing_body_registration_number: "",
+  second_governing_body_logo_url: "",
+
+  footer_text: "Registered Professional Accountant | SAIPA 28289",
   footer_logo_url: "",
 };
 
-function fileExt(file: File) {
-  const fromName = file.name.split(".").pop();
-  if (fromName) return fromName.toLowerCase();
-  if (file.type === "image/png") return "png";
-  if (file.type === "image/jpeg") return "jpg";
-  if (file.type === "image/webp") return "webp";
-  return "png";
+function normaliseStoragePath(name: string) {
+  return String(name || "file")
+    .toLowerCase()
+    .replace(/[^a-z0-9.]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
-export default function AfsSettingsPage() {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [uploadingField, setUploadingField] = useState<string | null>(null);
-  const [status, setStatus] = useState<string>("");
-  const [userId, setUserId] = useState<string>("");
-  const [settings, setSettings] = useState<FirmSettings>(emptySettings);
+function fieldValue(value: unknown) {
+  return String(value || "");
+}
 
-  const addressPreview = useMemo(
-    () => settings.address_lines.split(/\n+/).map((line) => line.trim()).filter(Boolean),
-    [settings.address_lines],
-  );
+export default function AfsFirmSettingsPage() {
+  const [settings, setSettings] = useState<FirmSettings>(emptySettings);
+  const [loading, setLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [uploadingField, setUploadingField] = useState<string | null>(null);
+
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const governingLogoInputRef = useRef<HTMLInputElement | null>(null);
+  const secondGoverningLogoInputRef = useRef<HTMLInputElement | null>(null);
+  const footerLogoInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-
     async function loadSettings() {
+      if (!supabase) {
+        setLoading(false);
+        return;
+      }
+
       try {
-        if (!supabase) {
-          setStatus("Supabase is not configured.");
+        const { data: authData } = await supabase.auth.getUser();
+        const user = authData.user;
+
+        if (!user?.id) {
           setLoading(false);
           return;
         }
-
-        const { data: authData, error: authError } = await supabase.auth.getUser();
-        if (authError) throw authError;
-
-        const authUser = authData.user;
-        if (!authUser?.id) {
-          setStatus("You need to be logged in to edit AFS settings.");
-          setLoading(false);
-          return;
-        }
-
-        if (!cancelled) setUserId(authUser.id);
 
         const { data, error } = await supabase
           .from("afs_firm_settings")
           .select("*")
-          .eq("owner_user_id", authUser.id)
+          .eq("user_id", user.id)
           .maybeSingle();
 
         if (error) throw error;
 
-        if (!cancelled) {
-          setSettings({ ...emptySettings, ...(data || {}) });
-          setLoading(false);
+        if (data) {
+          setSettings({
+            ...emptySettings,
+            ...data,
+          });
         }
-      } catch (error: any) {
-        console.error("AFS SETTINGS LOAD ERROR:", error);
-        if (!cancelled) {
-          setStatus(error?.message || "Could not load AFS settings.");
-          setLoading(false);
-        }
+      } catch (error) {
+        console.error("Failed to load AFS firm settings", error);
+      } finally {
+        setLoading(false);
       }
     }
 
     loadSettings();
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   function updateField(key: keyof FirmSettings, value: string) {
-    setSettings((current) => ({ ...current, [key]: value }));
+    setSettings((current) => ({
+      ...current,
+      [key]: value,
+    }));
   }
 
-  async function uploadImage(field: keyof FirmSettings, file: File | null) {
-    if (!file || !supabase || !userId) return;
+  async function saveSettings(nextSettings = settings) {
+    if (!supabase) return;
 
-    if (!file.type.startsWith("image/")) {
-      setStatus("Please upload an image file only.");
-      return;
-    }
-
-    setUploadingField(String(field));
-    setStatus("");
+    setSaveStatus("saving");
 
     try {
-      const path = `${userId}/${String(field)}.${fileExt(file)}`;
+      const { data: authData } = await supabase.auth.getUser();
+      const user = authData.user;
+
+      if (!user?.id) throw new Error("No logged-in user found.");
+
+      const payload = {
+        user_id: user.id,
+        firm_name: nextSettings.firm_name,
+        trading_name: nextSettings.trading_name,
+        logo_url: nextSettings.logo_url,
+        address_lines: nextSettings.address_lines,
+        telephone: nextSettings.telephone,
+        email: nextSettings.email,
+        website: nextSettings.website,
+
+        practitioner_name: nextSettings.practitioner_name,
+        practitioner_designation: nextSettings.practitioner_designation,
+
+        governing_body_name: nextSettings.governing_body_name,
+        governing_body_registration_number:
+          nextSettings.governing_body_registration_number,
+        governing_body_logo_url: nextSettings.governing_body_logo_url,
+
+        second_governing_body_name: nextSettings.second_governing_body_name,
+        second_governing_body_registration_number:
+          nextSettings.second_governing_body_registration_number,
+        second_governing_body_logo_url: nextSettings.second_governing_body_logo_url,
+
+        footer_text: nextSettings.footer_text,
+        footer_logo_url: nextSettings.footer_logo_url,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from("afs_firm_settings")
+        .upsert(payload, { onConflict: "user_id" });
+
+      if (error) throw error;
+
+      setSaveStatus("saved");
+
+      window.setTimeout(() => {
+        setSaveStatus((current) => (current === "saved" ? "idle" : current));
+      }, 1600);
+    } catch (error) {
+      console.error("Failed to save AFS firm settings", error);
+      setSaveStatus("error");
+    }
+  }
+
+  async function uploadBrandingFile(
+    file: File | null | undefined,
+    key: keyof FirmSettings,
+  ) {
+    if (!file || !supabase) return;
+
+    setUploadingField(String(key));
+
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      const user = authData.user;
+
+      if (!user?.id) throw new Error("No logged-in user found.");
+
+      const safeName = normaliseStoragePath(file.name);
+      const path = `${user.id}/${String(key)}-${Date.now()}-${safeName}`;
 
       const { error: uploadError } = await supabase.storage
         .from("afs-branding")
         .upload(path, file, {
           cacheControl: "3600",
           upsert: true,
-          contentType: file.type || "image/png",
         });
 
       if (uploadError) throw uploadError;
@@ -158,298 +215,442 @@ export default function AfsSettingsPage() {
       const { data } = supabase.storage.from("afs-branding").getPublicUrl(path);
       const publicUrl = data.publicUrl;
 
-      updateField(field, publicUrl);
-      setStatus("Image uploaded. Remember to save settings.");
-    } catch (error: any) {
-      console.error("AFS BRANDING UPLOAD ERROR:", error);
-      setStatus(error?.message || "Image upload failed.");
+      const nextSettings = {
+        ...settings,
+        [key]: publicUrl,
+      } as FirmSettings;
+
+      setSettings(nextSettings);
+      await saveSettings(nextSettings);
+    } catch (error) {
+      console.error("Failed to upload branding file", error);
+      setSaveStatus("error");
     } finally {
       setUploadingField(null);
     }
   }
 
-  async function saveSettings() {
-    if (!supabase || !userId) return;
-
-    setSaving(true);
-    setStatus("");
-
-    try {
-      const payload = {
-        ...settings,
-        owner_user_id: userId,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase
-        .from("afs_firm_settings")
-        .upsert(payload, { onConflict: "owner_user_id" });
-
-      if (error) throw error;
-
-      setStatus("AFS firm settings saved.");
-    } catch (error: any) {
-      console.error("AFS SETTINGS SAVE ERROR:", error);
-      setStatus(error?.message || "Could not save AFS settings.");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const previewAddressLines = useMemo(
+    () =>
+      fieldValue(settings.address_lines)
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean),
+    [settings.address_lines],
+  );
 
   return (
     <main style={styles.page}>
-      <div style={styles.headerCard}>
+      <section style={styles.header}>
         <div>
-          <div style={styles.eyebrow}>PRACTICEPILOT AFS</div>
+          <div style={styles.kicker}>PRACTICEPILOT AFS</div>
           <h1 style={styles.title}>Firm / Letterhead Settings</h1>
           <p style={styles.subtitle}>
             Capture the firm branding used on compilation reports and future AFS exports.
           </p>
         </div>
-        <Link href="/afs" style={styles.backLink}>Back to AFS dashboard</Link>
-      </div>
+
+        <Link href="/afs" style={styles.backButton}>
+          Back to AFS dashboard
+        </Link>
+      </section>
 
       {loading ? (
-        <section style={styles.card}>Loading settings...</section>
+        <section style={styles.panel}>
+          <p style={styles.mutedText}>Loading firm settings...</p>
+        </section>
       ) : (
-        <div style={styles.layout}>
-          <section style={styles.card}>
-            <div style={styles.sectionHeader}>
-              <h2 style={styles.sectionTitle}>Header details</h2>
-              <p style={styles.sectionHelp}>Use a clean logo-only PNG/SVG/WebP. Do not upload a full Word letterhead screenshot.</p>
+        <section style={styles.contentStack}>
+          <section style={styles.panel}>
+            <div style={styles.panelHeader}>
+              <div>
+                <h2 style={styles.panelTitle}>Header details</h2>
+                <p style={styles.panelHint}>
+                  Upload a clean logo-only PNG/SVG/WebP. Do not upload a full Word letterhead screenshot.
+                </p>
+              </div>
             </div>
 
-            <ImageUploadRow
-              label="Firm logo"
-              help="Logo only. The report will create the letterhead layout around it."
-              value={settings.logo_url}
-              uploading={uploadingField === "logo_url"}
-              onUpload={(file) => uploadImage("logo_url", file)}
-              onClear={() => updateField("logo_url", "")}
-            />
-
-            <div style={styles.gridTwo}>
-              <Field label="Firm name" value={settings.firm_name} onChange={(value) => updateField("firm_name", value)} />
-              <Field label="Trading name" value={settings.trading_name} onChange={(value) => updateField("trading_name", value)} />
-            </div>
-
-            <TextAreaField
-              label="Address lines"
-              value={settings.address_lines}
-              onChange={(value) => updateField("address_lines", value)}
-              placeholder="81 Kafue Street\nLynnwood Glen\nPretoria"
-            />
-
-            <div style={styles.gridThree}>
-              <Field label="Telephone" value={settings.telephone} onChange={(value) => updateField("telephone", value)} />
-              <Field label="Email" value={settings.email} onChange={(value) => updateField("email", value)} />
-              <Field label="Website" value={settings.website} onChange={(value) => updateField("website", value)} />
-            </div>
-          </section>
-
-          <section style={styles.card}>
-            <div style={styles.sectionHeader}>
-              <h2 style={styles.sectionTitle}>Practitioner and governing body</h2>
-              <p style={styles.sectionHelp}>These details appear near the compiler signature and footer.</p>
-            </div>
-
-            <div style={styles.gridTwo}>
-              <Field label="Practitioner / director / partner name" value={settings.practitioner_name} onChange={(value) => updateField("practitioner_name", value)} />
-              <Field label="Designation" value={settings.practitioner_designation} onChange={(value) => updateField("practitioner_designation", value)} />
-            </div>
-
-            <div style={styles.gridTwo}>
-              <Field label="Governing body" value={settings.governing_body_name} onChange={(value) => updateField("governing_body_name", value)} placeholder="SAIPA" />
-              <Field label="Governing body reg no." value={settings.governing_body_registration_number} onChange={(value) => updateField("governing_body_registration_number", value)} placeholder="28289" />
-            </div>
-
-            <ImageUploadRow
-              label="Governing body logo"
-              help="Example: SAIPA logo. Optional, but useful for the footer."
-              value={settings.governing_body_logo_url}
-              uploading={uploadingField === "governing_body_logo_url"}
-              onUpload={(file) => uploadImage("governing_body_logo_url", file)}
-              onClear={() => updateField("governing_body_logo_url", "")}
-            />
-
-            <div style={styles.gridTwo}>
-              <Field label="Second governing body" value={settings.secondary_governing_body_name} onChange={(value) => updateField("secondary_governing_body_name", value)} />
-              <Field label="Second governing body reg no." value={settings.secondary_governing_body_registration_number} onChange={(value) => updateField("secondary_governing_body_registration_number", value)} />
-            </div>
-
-            <ImageUploadRow
-              label="Second governing body logo"
-              help="Optional."
-              value={settings.secondary_governing_body_logo_url}
-              uploading={uploadingField === "secondary_governing_body_logo_url"}
-              onUpload={(file) => uploadImage("secondary_governing_body_logo_url", file)}
-              onClear={() => updateField("secondary_governing_body_logo_url", "")}
-            />
-          </section>
-
-          <section style={styles.card}>
-            <div style={styles.sectionHeader}>
-              <h2 style={styles.sectionTitle}>Footer</h2>
-              <p style={styles.sectionHelp}>Footer text is preferred. A footer strip remains optional.</p>
-            </div>
-
-            <TextAreaField
-              label="Footer text"
-              value={settings.footer_text}
-              onChange={(value) => updateField("footer_text", value)}
-              placeholder="Registered Professional Accountant | SAIPA 28289"
-            />
-
-            <ImageUploadRow
-              label="Optional footer logo / strip"
-              help="Optional. Footer text and governing body logos will usually be cleaner than a large image strip."
-              value={settings.footer_logo_url}
-              uploading={uploadingField === "footer_logo_url"}
-              onUpload={(file) => uploadImage("footer_logo_url", file)}
-              onClear={() => updateField("footer_logo_url", "")}
-            />
-          </section>
-
-          <aside style={styles.previewCard}>
-            <h2 style={styles.sectionTitle}>Preview</h2>
-            <div style={styles.previewBox}>
-              <div style={styles.previewTop}>
+            <div style={styles.uploadRow}>
+              <div>
+                <h3 style={styles.uploadTitle}>Firm logo</h3>
+                <p style={styles.uploadText}>
+                  Logo only. The report will create the letterhead layout around it.
+                </p>
                 {settings.logo_url ? (
-                  <img src={settings.logo_url} alt="Firm logo preview" style={styles.previewLogo} />
-                ) : (
-                  <div style={styles.logoPlaceholder}>LOGO</div>
-                )}
+                  <div style={styles.currentFile}>Logo uploaded</div>
+                ) : null}
+              </div>
+              <div style={styles.uploadActions}>
+                <button
+                  type="button"
+                  style={styles.primarySmallButton}
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={uploadingField === "logo_url"}
+                >
+                  {uploadingField === "logo_url" ? "Uploading..." : "Upload"}
+                </button>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/png,image/svg+xml,image/webp,image/jpeg"
+                  style={{ display: "none" }}
+                  onChange={(event) =>
+                    uploadBrandingFile(event.target.files?.[0], "logo_url")
+                  }
+                />
+              </div>
+            </div>
+
+            <div style={styles.twoColumnGrid}>
+              <label style={styles.field}>
+                <span style={styles.label}>Firm name</span>
+                <input
+                  style={styles.input}
+                  value={settings.firm_name}
+                  onChange={(event) => updateField("firm_name", event.target.value)}
+                />
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.label}>Trading name</span>
+                <input
+                  style={styles.input}
+                  value={settings.trading_name}
+                  onChange={(event) => updateField("trading_name", event.target.value)}
+                />
+              </label>
+            </div>
+
+            <label style={styles.field}>
+              <span style={styles.label}>Address lines</span>
+              <textarea
+                style={styles.textarea}
+                value={settings.address_lines}
+                onChange={(event) => updateField("address_lines", event.target.value)}
+                placeholder={"81 Kafue Street\nLynnwood Glen\nPretoria"}
+              />
+            </label>
+
+            <div style={styles.threeColumnGrid}>
+              <label style={styles.field}>
+                <span style={styles.label}>Telephone</span>
+                <input
+                  style={styles.input}
+                  value={settings.telephone}
+                  onChange={(event) => updateField("telephone", event.target.value)}
+                />
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.label}>Email</span>
+                <input
+                  style={styles.input}
+                  value={settings.email}
+                  onChange={(event) => updateField("email", event.target.value)}
+                />
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.label}>Website</span>
+                <input
+                  style={styles.input}
+                  value={settings.website}
+                  onChange={(event) => updateField("website", event.target.value)}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section style={styles.panel}>
+            <div style={styles.panelHeader}>
+              <div>
+                <h2 style={styles.panelTitle}>Footer and governing body details</h2>
+                <p style={styles.panelHint}>
+                  These details appear near the compiler signature and footer. Footer text is preferred; a footer strip is optional.
+                </p>
+              </div>
+            </div>
+
+            <div style={styles.twoColumnGrid}>
+              <label style={styles.field}>
+                <span style={styles.label}>Practitioner / director / partner name</span>
+                <input
+                  style={styles.input}
+                  value={settings.practitioner_name}
+                  onChange={(event) =>
+                    updateField("practitioner_name", event.target.value)
+                  }
+                />
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.label}>Designation</span>
+                <input
+                  style={styles.input}
+                  value={settings.practitioner_designation}
+                  onChange={(event) =>
+                    updateField("practitioner_designation", event.target.value)
+                  }
+                />
+              </label>
+            </div>
+
+            <div style={styles.twoColumnGrid}>
+              <label style={styles.field}>
+                <span style={styles.label}>Governing body</span>
+                <input
+                  style={styles.input}
+                  value={settings.governing_body_name}
+                  onChange={(event) =>
+                    updateField("governing_body_name", event.target.value)
+                  }
+                />
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.label}>Governing body reg no.</span>
+                <input
+                  style={styles.input}
+                  value={settings.governing_body_registration_number}
+                  onChange={(event) =>
+                    updateField(
+                      "governing_body_registration_number",
+                      event.target.value,
+                    )
+                  }
+                />
+              </label>
+            </div>
+
+            <div style={styles.uploadRow}>
+              <div>
+                <h3 style={styles.uploadTitle}>Governing body logo</h3>
+                <p style={styles.uploadText}>
+                  Example: SAIPA logo. Optional, but useful for the footer.
+                </p>
+                {settings.governing_body_logo_url ? (
+                  <div style={styles.currentFile}>Governing body logo uploaded</div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                style={styles.primarySmallButton}
+                onClick={() => governingLogoInputRef.current?.click()}
+                disabled={uploadingField === "governing_body_logo_url"}
+              >
+                {uploadingField === "governing_body_logo_url"
+                  ? "Uploading..."
+                  : "Upload"}
+              </button>
+              <input
+                ref={governingLogoInputRef}
+                type="file"
+                accept="image/png,image/svg+xml,image/webp,image/jpeg"
+                style={{ display: "none" }}
+                onChange={(event) =>
+                  uploadBrandingFile(
+                    event.target.files?.[0],
+                    "governing_body_logo_url",
+                  )
+                }
+              />
+            </div>
+
+            <div style={styles.twoColumnGrid}>
+              <label style={styles.field}>
+                <span style={styles.label}>Second governing body</span>
+                <input
+                  style={styles.input}
+                  value={settings.second_governing_body_name}
+                  onChange={(event) =>
+                    updateField("second_governing_body_name", event.target.value)
+                  }
+                />
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.label}>Second governing body reg no.</span>
+                <input
+                  style={styles.input}
+                  value={settings.second_governing_body_registration_number}
+                  onChange={(event) =>
+                    updateField(
+                      "second_governing_body_registration_number",
+                      event.target.value,
+                    )
+                  }
+                />
+              </label>
+            </div>
+
+            <div style={styles.uploadRow}>
+              <div>
+                <h3 style={styles.uploadTitle}>Second governing body logo</h3>
+                <p style={styles.uploadText}>Optional.</p>
+                {settings.second_governing_body_logo_url ? (
+                  <div style={styles.currentFile}>
+                    Second governing body logo uploaded
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                style={styles.primarySmallButton}
+                onClick={() => secondGoverningLogoInputRef.current?.click()}
+                disabled={uploadingField === "second_governing_body_logo_url"}
+              >
+                {uploadingField === "second_governing_body_logo_url"
+                  ? "Uploading..."
+                  : "Upload"}
+              </button>
+              <input
+                ref={secondGoverningLogoInputRef}
+                type="file"
+                accept="image/png,image/svg+xml,image/webp,image/jpeg"
+                style={{ display: "none" }}
+                onChange={(event) =>
+                  uploadBrandingFile(
+                    event.target.files?.[0],
+                    "second_governing_body_logo_url",
+                  )
+                }
+              />
+            </div>
+
+            <label style={styles.field}>
+              <span style={styles.label}>Footer text</span>
+              <textarea
+                style={styles.textareaSmall}
+                value={settings.footer_text}
+                onChange={(event) => updateField("footer_text", event.target.value)}
+              />
+            </label>
+
+            <div style={styles.uploadRow}>
+              <div>
+                <h3 style={styles.uploadTitle}>Optional footer logo / strip</h3>
+                <p style={styles.uploadText}>
+                  Optional. Footer text and governing body logos will usually be clearer than a large image strip.
+                </p>
+                {settings.footer_logo_url ? (
+                  <div style={styles.currentFile}>Footer logo / strip uploaded</div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                style={styles.primarySmallButton}
+                onClick={() => footerLogoInputRef.current?.click()}
+                disabled={uploadingField === "footer_logo_url"}
+              >
+                {uploadingField === "footer_logo_url" ? "Uploading..." : "Upload"}
+              </button>
+              <input
+                ref={footerLogoInputRef}
+                type="file"
+                accept="image/png,image/svg+xml,image/webp,image/jpeg"
+                style={{ display: "none" }}
+                onChange={(event) =>
+                  uploadBrandingFile(event.target.files?.[0], "footer_logo_url")
+                }
+              />
+            </div>
+          </section>
+
+          <section style={styles.panel}>
+            <div style={styles.panelHeader}>
+              <div>
+                <h2 style={styles.panelTitle}>Preview</h2>
+                <p style={styles.panelHint}>
+                  This is the layout PracticePilot will use to build the compiler letterhead.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                style={styles.saveButton}
+                onClick={() => saveSettings()}
+                disabled={saveStatus === "saving"}
+              >
+                {saveStatus === "saving"
+                  ? "Saving..."
+                  : saveStatus === "saved"
+                    ? "Saved"
+                    : "Save firm settings"}
+              </button>
+            </div>
+
+            <div style={styles.previewPage}>
+              <div style={styles.previewHeader}>
+                <div style={styles.previewLogoBox}>
+                  {settings.logo_url ? (
+                    <img
+                      src={settings.logo_url}
+                      alt="Firm logo preview"
+                      style={styles.previewLogo}
+                    />
+                  ) : (
+                    <span>LOGO</span>
+                  )}
+                </div>
+
                 <div style={styles.previewContact}>
-                  <strong>{settings.firm_name || "Firm name"}</strong>
-                  {settings.trading_name ? <span>{settings.trading_name}</span> : null}
-                  {addressPreview.map((line) => <span key={line}>{line}</span>)}
+                  <strong>{settings.trading_name || settings.firm_name || "Firm name"}</strong>
+                  {previewAddressLines.map((line) => (
+                    <span key={line}>{line}</span>
+                  ))}
                   {settings.telephone ? <span>Tel: {settings.telephone}</span> : null}
                   {settings.email ? <span>Email: {settings.email}</span> : null}
                   {settings.website ? <span>{settings.website}</span> : null}
                 </div>
               </div>
 
-              <div style={styles.previewBodyLine} />
+              <div style={styles.previewRule} />
+
+              <div style={styles.previewBody}>
+                <strong>Practitioner’s Compilation Report</strong>
+                <span>Report text will render here in the normal AFS font.</span>
+              </div>
+
               <div style={styles.previewFooter}>
                 <div>
-                  <strong>{settings.practitioner_name || "Practitioner"}</strong>
-                  <span>{settings.practitioner_designation || "Designation"}</span>
+                  <strong>
+                    {settings.practitioner_name || "Practitioner name"}
+                  </strong>
                   <span>
-                    {[settings.governing_body_name, settings.governing_body_registration_number]
-                      .filter(Boolean)
-                      .join(" - ") || "Governing body details"}
+                    {settings.practitioner_designation || "Designation"}
                   </span>
                 </div>
-                <div style={styles.previewLogoRow}>
+
+                <div style={styles.previewBodies}>
                   {settings.governing_body_logo_url ? (
-                    <img src={settings.governing_body_logo_url} alt="Governing body logo preview" style={styles.previewSmallLogo} />
+                    <img
+                      src={settings.governing_body_logo_url}
+                      alt="Governing body logo preview"
+                      style={styles.previewBodyLogo}
+                    />
                   ) : null}
-                  {settings.secondary_governing_body_logo_url ? (
-                    <img src={settings.secondary_governing_body_logo_url} alt="Second governing body logo preview" style={styles.previewSmallLogo} />
+                  <span>
+                    {settings.governing_body_name || "Governing body"}{" "}
+                    {settings.governing_body_registration_number || ""}
+                  </span>
+                  {settings.second_governing_body_name ? (
+                    <span>
+                      {settings.second_governing_body_name}{" "}
+                      {settings.second_governing_body_registration_number || ""}
+                    </span>
                   ) : null}
                 </div>
               </div>
             </div>
 
-            <button type="button" style={styles.saveButton} onClick={saveSettings} disabled={saving}>
-              {saving ? "Saving..." : "Save firm settings"}
-            </button>
-
-            {status ? <p style={styles.status}>{status}</p> : null}
-          </aside>
-        </div>
+            {saveStatus === "error" ? (
+              <p style={styles.errorText}>Could not save settings. Check Supabase table/bucket setup.</p>
+            ) : null}
+          </section>
+        </section>
       )}
     </main>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <label style={styles.fieldLabel}>
-      <span>{label}</span>
-      <input
-        value={value || ""}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder || ""}
-        style={styles.input}
-      />
-    </label>
-  );
-}
-
-function TextAreaField({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <label style={styles.fieldLabel}>
-      <span>{label}</span>
-      <textarea
-        value={value || ""}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder || ""}
-        style={styles.textarea}
-      />
-    </label>
-  );
-}
-
-function ImageUploadRow({
-  label,
-  help,
-  value,
-  uploading,
-  onUpload,
-  onClear,
-}: {
-  label: string;
-  help: string;
-  value: string;
-  uploading: boolean;
-  onUpload: (file: File | null) => void;
-  onClear: () => void;
-}) {
-  return (
-    <div style={styles.uploadRow}>
-      <div style={styles.uploadText}>
-        <strong>{label}</strong>
-        <span>{help}</span>
-        {value ? <em>{value}</em> : null}
-      </div>
-      {value ? <img src={value} alt={label} style={styles.uploadThumb} /> : null}
-      <label style={styles.uploadButton}>
-        {uploading ? "Uploading..." : "Upload"}
-        <input
-          type="file"
-          accept="image/*"
-          style={{ display: "none" }}
-          disabled={uploading}
-          onChange={(event) => onUpload(event.target.files?.[0] || null)}
-        />
-      </label>
-      {value ? (
-        <button type="button" style={styles.clearButton} onClick={onClear}>
-          Clear
-        </button>
-      ) : null}
-    </div>
   );
 }
 
@@ -457,244 +658,262 @@ const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "100vh",
     background: "#eaf0f7",
-    padding: "10px 8px 28px",
     color: "#0f172a",
+    fontFamily: "Arial, Helvetica, sans-serif",
+    padding: 0,
   },
-  headerCard: {
-    background: "#ffffff",
-    border: "1px solid #dbe3ef",
-    borderRadius: 0,
-    padding: "9px 12px",
-    boxShadow: "none",
+  header: {
     display: "flex",
     justifyContent: "space-between",
-    gap: 18,
     alignItems: "center",
-    marginBottom: 10,
+    gap: 16,
+    background: "#ffffff",
+    borderBottom: "1px solid #b8c7d9",
+    padding: "16px 16px 15px",
   },
-  eyebrow: {
-    fontSize: 10,
-    fontWeight: 900,
+  kicker: {
     color: "#2563eb",
-    letterSpacing: "0.10em",
-    marginBottom: 4,
+    fontSize: 11,
+    fontWeight: 900,
+    letterSpacing: "0.08em",
+    marginBottom: 6,
   },
   title: {
     margin: 0,
-    fontSize: 20,
-    letterSpacing: "-0.04em",
+    fontSize: 22,
+    lineHeight: 1.1,
+    fontWeight: 900,
+    letterSpacing: "-0.03em",
   },
   subtitle: {
-    margin: "4px 0 0",
-    color: "#475569",
-    fontSize: 14,
+    margin: "8px 0 0",
+    color: "#334155",
+    fontSize: 13,
   },
-  backLink: {
-    border: "1px solid #cbd5e1",
-    background: "#f8fafc",
+  backButton: {
+    border: "1px solid #94a3b8",
+    background: "#ffffff",
     color: "#0f172a",
     textDecoration: "none",
-    borderRadius: 0,
-    padding: "10px 13px",
-    fontSize: 11,
+    padding: "10px 14px",
+    fontSize: 12,
     fontWeight: 850,
   },
-  layout: {
+  contentStack: {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) 300px",
-    gap: 8,
+    gap: 10,
+    padding: "10px 0 24px",
+  },
+  panel: {
+    background: "#ffffff",
+    borderTop: "1px solid #b8c7d9",
+    borderBottom: "1px solid #b8c7d9",
+    padding: 12,
+    boxShadow: "none",
+  },
+  panelHeader: {
+    display: "flex",
+    justifyContent: "space-between",
     alignItems: "start",
+    gap: 16,
+    marginBottom: 10,
   },
-  card: {
-    background: "#ffffff",
-    border: "1px solid #b8c7d9",
-    borderRadius: 0,
-    padding: 10,
-    boxShadow: "none",
-    marginBottom: 8,
-  },
-  previewCard: {
-    position: "sticky",
-    top: 64,
-    background: "#ffffff",
-    border: "1px solid #b8c7d9",
-    borderRadius: 0,
-    padding: 10,
-    boxShadow: "none",
-  },
-  sectionHeader: {
-    marginBottom: 8,
-  },
-  sectionTitle: {
+  panelTitle: {
     margin: 0,
-    fontSize: 11,
-    letterSpacing: "-0.02em",
+    fontSize: 14,
+    lineHeight: 1.2,
+    fontWeight: 900,
   },
-  sectionHelp: {
+  panelHint: {
+    margin: "6px 0 0",
+    fontSize: 11,
+    color: "#475569",
+  },
+  uploadRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    gap: 10,
+    alignItems: "center",
+    border: "1px solid #cbd5e1",
+    background: "#f8fafc",
+    padding: 9,
+    marginBottom: 9,
+  },
+  uploadTitle: {
+    margin: 0,
+    fontSize: 13,
+    fontWeight: 900,
+  },
+  uploadText: {
     margin: "5px 0 0",
-    color: "#64748b",
-    fontSize: 11,
+    color: "#0f172a",
+    fontSize: 12,
   },
-  gridTwo: {
+  uploadActions: {
+    display: "flex",
+    alignItems: "center",
+  },
+  currentFile: {
+    marginTop: 5,
+    fontSize: 11,
+    fontWeight: 800,
+    color: "#047857",
+  },
+  twoColumnGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
-    gap: 6,
+    gap: 8,
+    marginBottom: 8,
   },
-  gridThree: {
+  threeColumnGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr 1fr",
-    gap: 6,
+    gap: 8,
   },
-  fieldLabel: {
+  field: {
     display: "grid",
-    gap: 3,
-    fontSize: 10,
-    fontWeight: 850,
+    gap: 4,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: 900,
     color: "#334155",
-    marginBottom: 6,
   },
   input: {
     width: "100%",
-    height: 28,
-    border: "1px solid #cbd5e1",
-    borderRadius: 0,
-    padding: "0 8px",
-    fontSize: 11,
-    color: "#0f172a",
+    minHeight: 28,
+    border: "1px solid #b8c7d9",
+    background: "#ffffff",
+    padding: "5px 7px",
+    fontSize: 12,
     boxSizing: "border-box",
+    outline: "none",
   },
   textarea: {
     width: "100%",
     minHeight: 54,
-    border: "1px solid #cbd5e1",
-    borderRadius: 0,
-    padding: "6px 8px",
-    fontSize: 11,
-    color: "#0f172a",
+    border: "1px solid #b8c7d9",
+    background: "#ffffff",
+    padding: "7px",
+    fontSize: 12,
+    lineHeight: 1.35,
     boxSizing: "border-box",
     resize: "vertical",
-    fontFamily: "inherit",
+    outline: "none",
+    fontFamily: "Arial, Helvetica, sans-serif",
   },
-  uploadRow: {
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) auto auto auto",
-    gap: 10,
-    alignItems: "center",
-    border: "1px solid #e2e8f0",
-    borderRadius: 0,
-    padding: 8,
+  textareaSmall: {
+    width: "100%",
+    minHeight: 44,
+    border: "1px solid #b8c7d9",
+    background: "#ffffff",
+    padding: "7px",
+    fontSize: 12,
+    lineHeight: 1.35,
+    boxSizing: "border-box",
+    resize: "vertical",
+    outline: "none",
+    fontFamily: "Arial, Helvetica, sans-serif",
     marginBottom: 8,
-    background: "#f8fafc",
   },
-  uploadText: {
-    display: "grid",
-    gap: 3,
-    minWidth: 0,
-  },
-  uploadThumb: {
-    maxWidth: 92,
-    maxHeight: 42,
-    objectFit: "contain",
-    display: "block",
-  },
-  uploadButton: {
-    border: "1px solid #2563eb",
+  primarySmallButton: {
+    border: "1px solid #1d4ed8",
     background: "#2563eb",
     color: "#ffffff",
-    borderRadius: 2,
-    padding: "9px 12px",
+    padding: "8px 14px",
     fontSize: 12,
     fontWeight: 900,
     cursor: "pointer",
   },
-  clearButton: {
-    border: "1px solid #cbd5e1",
-    background: "#ffffff",
-    color: "#0f172a",
-    borderRadius: 2,
-    padding: "9px 12px",
+  saveButton: {
+    border: "1px solid #0f172a",
+    background: "#0f172a",
+    color: "#ffffff",
+    padding: "9px 14px",
     fontSize: 12,
-    fontWeight: 850,
+    fontWeight: 900,
     cursor: "pointer",
+    whiteSpace: "nowrap",
   },
-  previewBox: {
-    border: "1px solid #cbd5e1",
-    borderRadius: 0,
-    padding: 10,
-    marginTop: 8,
+  mutedText: {
+    margin: 0,
+    color: "#64748b",
+    fontSize: 13,
+  },
+  errorText: {
+    margin: "8px 0 0",
+    color: "#b91c1c",
+    fontSize: 12,
+    fontWeight: 800,
+  },
+  previewPage: {
+    border: "1px solid #94a3b8",
     background: "#ffffff",
+    maxWidth: 720,
+    minHeight: 320,
+    padding: 18,
+    boxSizing: "border-box",
   },
-  previewTop: {
+  previewHeader: {
     display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 18,
+    gridTemplateColumns: "180px minmax(0, 1fr)",
+    gap: 20,
+    alignItems: "start",
+  },
+  previewLogoBox: {
+    minHeight: 62,
+    border: "1px dashed #94a3b8",
+    display: "flex",
     alignItems: "center",
-    borderBottom: "1px solid #0f172a",
-    paddingBottom: 12,
+    justifyContent: "center",
+    color: "#94a3b8",
+    fontSize: 12,
+    fontWeight: 900,
+    padding: 8,
   },
   previewLogo: {
-    maxWidth: 160,
+    maxWidth: "100%",
     maxHeight: 70,
     objectFit: "contain",
     display: "block",
   },
-  logoPlaceholder: {
-    border: "1px dashed #94a3b8",
-    borderRadius: 0,
-    color: "#94a3b8",
-    display: "grid",
-    placeItems: "center",
-    height: 44,
-    fontWeight: 900,
-    fontSize: 12,
-  },
   previewContact: {
     display: "grid",
+    justifyItems: "end",
     gap: 2,
-    textAlign: "right",
     fontSize: 11,
+    lineHeight: 1.25,
     color: "#334155",
+    textAlign: "right",
   },
-  previewBodyLine: {
-    height: 64,
-    borderBottom: "1px solid #e2e8f0",
+  previewRule: {
+    borderTop: "1.5px solid #111827",
+    margin: "13px 0 20px",
+  },
+  previewBody: {
+    display: "grid",
+    gap: 8,
+    fontSize: 12,
+    minHeight: 90,
   },
   previewFooter: {
+    borderTop: "1px solid #111827",
+    marginTop: 34,
+    paddingTop: 10,
     display: "flex",
     justifyContent: "space-between",
-    gap: 12,
-    alignItems: "center",
-    paddingTop: 12,
+    gap: 20,
     fontSize: 11,
-    color: "#334155",
   },
-  previewLogoRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
+  previewBodies: {
+    display: "grid",
+    justifyItems: "end",
+    gap: 3,
+    textAlign: "right",
   },
-  previewSmallLogo: {
-    maxWidth: 62,
-    maxHeight: 30,
+  previewBodyLogo: {
+    maxWidth: 80,
+    maxHeight: 34,
     objectFit: "contain",
-    display: "block",
-  },
-  saveButton: {
-    width: "100%",
-    marginTop: 16,
-    border: 0,
-    background: "#0f172a",
-    color: "#ffffff",
-    borderRadius: 2,
-    padding: "9px 12px",
-    fontSize: 11,
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  status: {
-    margin: "12px 0 0",
-    color: "#334155",
-    fontSize: 11,
-    fontWeight: 750,
   },
 };
