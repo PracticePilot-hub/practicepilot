@@ -82,6 +82,44 @@ const emptyLine = (): JournalLine => ({
   note: "",
 });
 
+
+function mapDatabaseJournal(rawJournal: any): PostedJournal {
+  const rawLines = Array.isArray(rawJournal?.lines) ? rawJournal.lines : [];
+
+  const debitTotal = Number(rawJournal?.debit_total ?? rawJournal?.debitTotal ?? 0);
+  const creditTotal = Number(rawJournal?.credit_total ?? rawJournal?.creditTotal ?? 0);
+  const difference = Number(rawJournal?.difference ?? debitTotal - creditTotal);
+
+  return {
+    id: clean(rawJournal?.id) || uid(),
+    number: Number(rawJournal?.journal_number ?? rawJournal?.number ?? 0) || 0,
+    description: clean(rawJournal?.description),
+    status:
+      clean(rawJournal?.status).toLowerCase() === "unbalanced"
+        ? "Unbalanced"
+        : Math.abs(difference) < 0.005
+          ? "Balanced"
+          : "Unbalanced",
+    lines: rawLines.map((line: any, index: number) => {
+      const code = clean(line?.account_code ?? line?.accountCode);
+      const name = clean(line?.account_name ?? line?.accountName);
+      const label = code && name ? `${code} · ${name}` : code || name || "Account";
+
+      return {
+        id: clean(line?.id) || `${rawJournal?.id || "journal"}-${index}`,
+        accountKey: label,
+        debit: clean(line?.debit),
+        credit: clean(line?.credit),
+        note: clean(line?.note),
+      };
+    }),
+    debitTotal,
+    creditTotal,
+    difference,
+    postedAt: clean(rawJournal?.posted_at ?? rawJournal?.postedAt) || new Date().toISOString(),
+  };
+}
+
 export default function AdjustingJournalsPanel({
   engagementId,
   trialBalanceLines = [],
@@ -98,6 +136,7 @@ export default function AdjustingJournalsPanel({
   const [description, setDescription] = useState("");
   const [lines, setLines] = useState<JournalLine[]>([emptyLine(), emptyLine()]);
   const [posted, setPosted] = useState<PostedJournal[]>([]);
+  const [loadingPosted, setLoadingPosted] = useState(false);
   const [customAccounts, setCustomAccounts] = useState<TrialBalanceLine[]>([]);
   const [newAccountCode, setNewAccountCode] = useState("");
   const [newAccountName, setNewAccountName] = useState("");
@@ -116,16 +155,59 @@ export default function AdjustingJournalsPanel({
     return `afs-journal-custom-accounts:${key}`;
   }, [engagementId]);
 
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(storageKey);
-      if (!saved) return;
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) setPosted(parsed);
-    } catch {
-      // ignore corrupt local draft storage
+  async function loadPostedJournals() {
+    if (!engagementId) {
+      try {
+        const saved = window.localStorage.getItem(storageKey);
+        if (!saved) return;
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) setPosted(parsed);
+      } catch {
+        // ignore corrupt local draft storage
+      }
+
+      return;
     }
-  }, [storageKey]);
+
+    try {
+      setLoadingPosted(true);
+
+      const response = await fetch(`/api/afs/engagements/${engagementId}/journal-post`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Failed to load posted journals.");
+      }
+
+      const dbJournals = Array.isArray(result?.journals)
+        ? result.journals.map(mapDatabaseJournal)
+        : [];
+
+      setPosted(dbJournals);
+    } catch (error) {
+      console.error("Failed to load posted AFS journals", error);
+
+      try {
+        const saved = window.localStorage.getItem(storageKey);
+        if (!saved) return;
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) setPosted(parsed);
+      } catch {
+        // ignore fallback storage
+      }
+    } finally {
+      setLoadingPosted(false);
+    }
+  }
+
+  useEffect(() => {
+    loadPostedJournals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engagementId, storageKey]);
 
   useEffect(() => {
     try {
@@ -333,6 +415,7 @@ export default function AdjustingJournalsPanel({
 
     try {
       let updatedTrialBalanceLines: TrialBalanceLine[] = [];
+      let postResult: any = null;
 
       if (engagementId) {
         const response = await fetch(`/api/afs/engagements/${engagementId}/journal-post`, {
@@ -350,28 +433,34 @@ export default function AdjustingJournalsPanel({
           }),
         });
 
-        const result = await response.json();
-        if (!response.ok) throw new Error(result?.error || "Failed to post journal to trial balance.");
-        updatedTrialBalanceLines = Array.isArray(result?.trialBalanceLines) ? result.trialBalanceLines : [];
+        postResult = await response.json();
+        if (!response.ok) {
+          throw new Error(postResult?.error || "Failed to post journal to trial balance.");
+        }
+        updatedTrialBalanceLines = Array.isArray(postResult?.trialBalanceLines)
+          ? postResult.trialBalanceLines
+          : [];
       }
 
-      const journal: PostedJournal = {
-        id: uid(),
-        number: posted.length + 1,
-        description: clean(description),
-        status: balancedNext ? "Balanced" : "Unbalanced",
-        lines: resolvedLines.map((line) => ({
-          id: line.id,
-          accountKey: line.accountLabel,
-          debit: line.debit,
-          credit: line.credit,
-          note: line.note,
-        })),
-        debitTotal: debitTotalNext,
-        creditTotal: creditTotalNext,
-        difference: differenceNext,
-        postedAt: new Date().toISOString(),
-      };
+      const journal: PostedJournal = postResult?.journal
+        ? mapDatabaseJournal(postResult.journal)
+        : {
+            id: uid(),
+            number: posted.length + 1,
+            description: clean(description),
+            status: balancedNext ? "Balanced" : "Unbalanced",
+            lines: resolvedLines.map((line) => ({
+              id: line.id,
+              accountKey: line.accountLabel,
+              debit: line.debit,
+              credit: line.credit,
+              note: line.note,
+            })),
+            debitTotal: debitTotalNext,
+            creditTotal: creditTotalNext,
+            difference: differenceNext,
+            postedAt: new Date().toISOString(),
+          };
 
       savePostedJournals([journal, ...posted]);
 
@@ -379,6 +468,10 @@ export default function AdjustingJournalsPanel({
 
       clearDraft();
       await onDataChanged?.();
+
+      if (engagementId) {
+        await loadPostedJournals();
+      }
     } catch (error: any) {
       alert(error?.message || "Failed to post journal.");
     }
@@ -471,8 +564,10 @@ export default function AdjustingJournalsPanel({
 
         <section style={styles.panel}>
           <h3 style={styles.panelTitle}>Posted journals</h3>
-          {posted.length === 0 ? (
-            <p style={styles.muted}>No posted journals yet.</p>
+          {loadingPosted ? (
+            <p style={styles.muted}>Loading posted journals...</p>
+          ) : posted.length === 0 ? (
+            <p style={styles.muted}>No posted journals saved in the database yet.</p>
           ) : (
             <div style={styles.postedList}>
               {posted.map((journal) => (
@@ -511,16 +606,7 @@ export default function AdjustingJournalsPanel({
                     >
                       Copy back to draft
                     </button>
-
-                    <button
-                      type="button"
-                      style={styles.linkButton}
-                      onClick={() =>
-                        savePostedJournals(posted.filter((item) => item.id !== journal.id))
-                      }
-                    >
-                      Delete journal
-                    </button>
+                    <span style={styles.mutedSmall}>Saved history</span>
                   </div>
                 </article>
               ))}
@@ -635,6 +721,7 @@ const styles: Record<string, CSSProperties> = {
   statusBad: { color: "#b45309", fontWeight: 900 },
   postedTable: { width: "100%", borderCollapse: "collapse", fontSize: "12px", marginBottom: "6px" },
   postedActions: { display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" },
+  mutedSmall: { margin: 0, color: "#64748b", fontSize: "12px", lineHeight: 1.3 },
   postedTd: { padding: "3px 0", borderBottom: "1px solid #e2e8f0" },
   postedAmount: { padding: "3px 0", borderBottom: "1px solid #e2e8f0", textAlign: "right", width: "70px" },
   modalBackdrop: { position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.28)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
