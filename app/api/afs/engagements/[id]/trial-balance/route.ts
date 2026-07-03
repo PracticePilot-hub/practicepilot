@@ -177,6 +177,16 @@ function buildInsertPayload(line: any, engagementId: string) {
     mapping_category: cleanText(
       line.mapping_category ?? line.mappingCategory,
     ),
+    mapping_leaf_id: cleanText(line.mapping_leaf_id ?? line.mappingLeafId),
+    mapping_label: cleanText(line.mapping_label ?? line.mappingLabel),
+    mapping_statement: cleanText(line.mapping_statement ?? line.mappingStatement),
+    mapping_section: cleanText(line.mapping_section ?? line.mappingSection),
+    mapping_path: cleanText(line.mapping_path ?? line.mappingPath),
+    mapping_smart_rule: cleanText(line.mapping_smart_rule ?? line.mappingSmartRule),
+    mapping_confidence: cleanText(line.mapping_confidence ?? line.mappingConfidence),
+    mapping_code: cleanText(line.mapping_code ?? line.mappingCode),
+    lead_schedule_number: cleanText(line.lead_schedule_number ?? line.leadScheduleNumber),
+    lead_schedule_key: cleanText(line.lead_schedule_key ?? line.leadScheduleKey),
     note_number: cleanText(line.note_number ?? line.noteNumber),
     updated_at: new Date().toISOString(),
   };
@@ -239,6 +249,56 @@ export async function GET(req: NextRequest, context: any) {
   }
 }
 
+function buildExistingMappingMap(existingLines: any[]) {
+  const existingByCode = new Map<string, any>();
+
+  for (const line of existingLines || []) {
+    const accountCode = cleanAccountCode(line.account_code);
+    if (!accountCode) continue;
+
+    existingByCode.set(accountCode, {
+      mapping_category: cleanText(line.mapping_category),
+      mapping_leaf_id: cleanText(line.mapping_leaf_id),
+      mapping_label: cleanText(line.mapping_label),
+      mapping_statement: cleanText(line.mapping_statement),
+      mapping_section: cleanText(line.mapping_section),
+      mapping_path: cleanText(line.mapping_path),
+      mapping_smart_rule: cleanText(line.mapping_smart_rule),
+      mapping_confidence: cleanText(line.mapping_confidence),
+      mapping_code: cleanText(line.mapping_code),
+      lead_schedule_number: cleanText(line.lead_schedule_number),
+      lead_schedule_key: cleanText(line.lead_schedule_key),
+      note_number: cleanText(line.note_number),
+    });
+  }
+
+  return existingByCode;
+}
+
+function applyExistingMapping(line: any, existingByCode: Map<string, any>) {
+  const accountCode = cleanAccountCode(line.account_code);
+  if (!accountCode) return line;
+
+  const existing = existingByCode.get(accountCode);
+  if (!existing) return line;
+
+  return {
+    ...line,
+    mapping_category: line.mapping_category || existing.mapping_category,
+    mapping_leaf_id: line.mapping_leaf_id || existing.mapping_leaf_id,
+    mapping_label: line.mapping_label || existing.mapping_label,
+    mapping_statement: line.mapping_statement || existing.mapping_statement,
+    mapping_section: line.mapping_section || existing.mapping_section,
+    mapping_path: line.mapping_path || existing.mapping_path,
+    mapping_smart_rule: line.mapping_smart_rule || existing.mapping_smart_rule,
+    mapping_confidence: line.mapping_confidence || existing.mapping_confidence,
+    mapping_code: line.mapping_code || existing.mapping_code,
+    lead_schedule_number: line.lead_schedule_number || existing.lead_schedule_number,
+    lead_schedule_key: line.lead_schedule_key || existing.lead_schedule_key,
+    note_number: line.note_number || existing.note_number,
+  };
+}
+
 export async function POST(req: NextRequest, context: any) {
   try {
     const engagementId = await getIdFromContext(context);
@@ -255,8 +315,20 @@ export async function POST(req: NextRequest, context: any) {
 
     const supabase = getSupabaseServer();
 
+    const { data: existingLines, error: existingError } = await supabase
+      .from("afs_trial_balance_lines")
+      .select(
+        "account_code,mapping_category,mapping_leaf_id,mapping_label,mapping_statement,mapping_section,mapping_path,mapping_smart_rule,mapping_confidence,mapping_code,lead_schedule_number,lead_schedule_key,note_number",
+      )
+      .eq("engagement_id", engagementId);
+
+    if (existingError) throw existingError;
+
+    const existingByCode = buildExistingMappingMap(existingLines || []);
+
     const cleanLines = lines
       .map((line: any) => buildInsertPayload(line, engagementId))
+      .map((line: any) => applyExistingMapping(line, existingByCode))
       .filter((line: any) => line.account_name);
 
     if (cleanLines.length === 0) {

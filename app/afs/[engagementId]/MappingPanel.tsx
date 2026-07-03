@@ -517,8 +517,8 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
         onTrialBalanceLinesChanged?.(next);
         return next;
       });
-      await onDataChanged?.();
       setSelectedLineKey(line.lineKey);
+      setSelectedLeaf(mappingLeaf);
       setMessage("Mapping saved.");
     } catch (error: any) {
       alert(error?.message || "Failed to save mapping.");
@@ -569,7 +569,6 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
         onTrialBalanceLinesChanged?.(next);
         return next;
       });
-      await onDataChanged?.();
       setSelectedLineKey(line.lineKey);
       setMessage("Mapping cleared.");
     } catch (error: any) {
@@ -961,6 +960,16 @@ function toNumber(value: any) {
 }
 
 function currentBalance(line: TrialBalanceLine) {
+  const anyLine = line as any;
+
+  if (anyLine.final_balance !== undefined && anyLine.final_balance !== null) {
+    return toNumber(anyLine.final_balance);
+  }
+
+  if (anyLine.current_balance !== undefined && anyLine.current_balance !== null) {
+    return toNumber(anyLine.current_balance);
+  }
+
   if (line.current_year_balance !== undefined && line.current_year_balance !== null) {
     return toNumber(line.current_year_balance);
   }
