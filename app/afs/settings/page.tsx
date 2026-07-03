@@ -171,17 +171,17 @@ export default function AfsFirmSettingsPage() {
 
       const { data: existing, error: lookupError } = await supabase
         .from("afs_firm_settings")
-        .select("id")
+        .select("user_id")
         .eq("user_id", user.id)
         .maybeSingle();
 
       if (lookupError) throw lookupError;
 
-      if (existing?.id) {
+      if (existing?.user_id) {
         const { error: updateError } = await supabase
           .from("afs_firm_settings")
           .update(payload)
-          .eq("id", existing.id);
+          .eq("user_id", user.id);
 
         if (updateError) throw updateError;
       } else {
@@ -265,20 +265,28 @@ export default function AfsFirmSettingsPage() {
   const previewDesignation =
     settings.practitioner_designation || "Professional designation";
 
-  const previewGoverningBody =
-    settings.governing_body_name ||
-    (settings.governing_body_registration_number ? "Governing body" : "");
+  const hasPrimaryGoverningBody = Boolean(
+    settings.governing_body_name || settings.governing_body_logo_url,
+  );
 
-  const previewGoverningBodyLine = [previewGoverningBody, settings.governing_body_registration_number]
-    .filter(Boolean)
-    .join(" ");
+  const hasSecondGoverningBody = Boolean(
+    settings.second_governing_body_name || settings.second_governing_body_logo_url,
+  );
 
-  const previewSecondGoverningBodyLine = [
-    settings.second_governing_body_name,
-    settings.second_governing_body_registration_number,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const previewGoverningBodyLine = hasPrimaryGoverningBody
+    ? [settings.governing_body_name, settings.governing_body_registration_number]
+        .filter(Boolean)
+        .join(" ")
+    : "";
+
+  const previewSecondGoverningBodyLine = hasSecondGoverningBody
+    ? [
+        settings.second_governing_body_name,
+        settings.second_governing_body_registration_number,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
 
   return (
     <main style={styles.page}>
@@ -658,43 +666,43 @@ export default function AfsFirmSettingsPage() {
                 <div style={styles.previewPractitioner}>
                   <strong>{previewPractitioner}</strong>
                   <span>{previewDesignation}</span>
-                </div>
 
-                <div style={styles.previewBodies}>
-                  <div style={styles.previewBodyCard}>
-                    <div style={styles.previewLogoLine}>
-                      {settings.governing_body_logo_url ? (
-                        <img
-                          src={settings.governing_body_logo_url}
-                          alt="Governing body logo preview"
-                          style={styles.previewBodyLogo}
-                        />
+                  {hasPrimaryGoverningBody || hasSecondGoverningBody ? (
+                    <div style={styles.previewGoverningLeftBlock}>
+                      <div style={styles.previewLogoLineLeft}>
+                        {settings.governing_body_logo_url ? (
+                          <img
+                            src={settings.governing_body_logo_url}
+                            alt="Governing body logo preview"
+                            style={styles.previewBodyLogo}
+                          />
+                        ) : null}
+
+                        {settings.second_governing_body_logo_url ? (
+                          <img
+                            src={settings.second_governing_body_logo_url}
+                            alt="Second governing body logo preview"
+                            style={styles.previewBodyLogo}
+                          />
+                        ) : null}
+                      </div>
+
+                      {previewGoverningBodyLine ? (
+                        <span style={styles.previewBodyRegistration}>
+                          {previewGoverningBodyLine}
+                        </span>
                       ) : null}
 
-                      {settings.second_governing_body_logo_url ? (
-                        <img
-                          src={settings.second_governing_body_logo_url}
-                          alt="Second governing body logo preview"
-                          style={styles.previewBodyLogo}
-                        />
+                      {previewSecondGoverningBodyLine ? (
+                        <span style={styles.previewBodyRegistration}>
+                          {previewSecondGoverningBodyLine}
+                        </span>
                       ) : null}
                     </div>
-
-                    {previewGoverningBodyLine ? (
-                      <div style={styles.previewBodyRegistration}>
-                        {previewGoverningBodyLine}
-                      </div>
-                    ) : null}
-
-                    {previewSecondGoverningBodyLine ? (
-                      <div style={styles.previewBodyRegistration}>
-                        {previewSecondGoverningBodyLine}
-                      </div>
-                    ) : null}
-                  </div>
+                  ) : null}
 
                   {settings.footer_text ? (
-                    <div style={styles.previewFooterText}>{settings.footer_text}</div>
+                    <span style={styles.previewFooterText}>{settings.footer_text}</span>
                   ) : null}
                 </div>
               </div>
@@ -959,25 +967,19 @@ const styles: Record<string, CSSProperties> = {
     borderTop: "1px solid #111827",
     marginTop: 34,
     paddingTop: 12,
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) 210px",
-    gap: 20,
+    display: "block",
     fontSize: 11,
-    alignItems: "start",
+    textAlign: "left",
   },
   previewPractitioner: {
     display: "grid",
-    gap: 7,
+    justifyItems: "start",
+    gap: 6,
     lineHeight: 1.25,
+    textAlign: "left",
   },
   previewBodies: {
-    display: "grid",
-    justifyItems: "end",
-    alignContent: "start",
-    gap: 4,
-    textAlign: "right",
-    lineHeight: 1.2,
-    minHeight: 0,
+    display: "none",
   },
   previewBodyCard: {
     display: "grid",
@@ -985,12 +987,22 @@ const styles: Record<string, CSSProperties> = {
     gap: 2,
   },
   previewLogoLine: {
+    display: "none",
+  },
+  previewLogoLineLeft: {
     display: "flex",
-    justifyContent: "flex-end",
+    justifyContent: "flex-start",
     alignItems: "center",
     gap: 8,
     minHeight: 22,
+    marginTop: 4,
     marginBottom: 0,
+  },
+  previewGoverningLeftBlock: {
+    display: "grid",
+    justifyItems: "start",
+    gap: 2,
+    marginTop: 4,
   },
   previewBodyLogo: {
     maxWidth: 92,
@@ -1002,7 +1014,8 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 10.5,
     fontWeight: 800,
     lineHeight: 1.15,
-    marginTop: 0,
+    marginTop: 2,
+    textAlign: "left",
   },
   previewFooterText: {
     fontSize: 10.5,
