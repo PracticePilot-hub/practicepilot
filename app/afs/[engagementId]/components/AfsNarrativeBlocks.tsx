@@ -632,13 +632,18 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
     "",
   );
 
-  const governingLines = [
-    [governingBodyName, governingBodyRegistration].filter(Boolean).join(" "),
-    [secondGoverningBodyName, secondGoverningBodyRegistration]
-      .filter(Boolean)
-      .join(" "),
-    footerText,
-  ].filter(Boolean);
+  const primaryGoverningLine =
+    footerText ||
+    [governingBodyName, governingBodyRegistration].filter(Boolean).join(" ");
+
+  const secondGoverningLine = [
+    secondGoverningBodyName,
+    secondGoverningBodyRegistration,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const governingLines = [primaryGoverningLine, secondGoverningLine].filter(Boolean);
 
   return (
     <section style={styles.compilationReportPage}>
@@ -714,8 +719,16 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
 
       <div style={styles.letterheadFooter}>
         <div style={styles.footerTextBlock}>
+          <strong>{practitionerName}</strong>
+
+          {practitionerDesignation ? (
+            <div>{practitionerDesignation}</div>
+          ) : null}
+
           {governingLines.map((line, index) => (
-            <div key={`governing-line-${index}`}>{line}</div>
+            <div key={`governing-line-${index}`} style={styles.footerGoverningLine}>
+              {line}
+            </div>
           ))}
         </div>
 
@@ -860,33 +873,37 @@ const styles: Record<string, React.CSSProperties> = {
     display: "grid",
     gridTemplateColumns: "1fr 45mm",
     gap: 14,
-    alignItems: "end",
+    alignItems: "center",
     marginTop: 28,
-    paddingTop: 7,
+    paddingTop: 10,
     borderTop: "1px solid #111827",
     fontFamily: "Arial, Helvetica, sans-serif",
-    fontSize: 7.9,
-    lineHeight: 1.2,
-    color: "#374151",
+    fontSize: 9.2,
+    lineHeight: 1.3,
+    color: "#111827",
     breakInside: "avoid",
     pageBreakInside: "avoid",
   },
   footerTextBlock: {
     display: "grid",
-    gap: 2,
+    gap: 4,
     justifyItems: "start",
     textAlign: "left",
+  },
+  footerGoverningLine: {
+    fontWeight: 900,
+    marginTop: 3,
   },
   footerLogoRow: {
     display: "flex",
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 8,
-    minHeight: 18,
+    minHeight: 24,
   },
   governingBodyLogo: {
-    maxWidth: "28mm",
-    maxHeight: "10mm",
+    maxWidth: "32mm",
+    maxHeight: "11mm",
     width: "auto",
     height: "auto",
     objectFit: "contain",
