@@ -667,9 +667,28 @@ export default function AfsFirmSettingsPage() {
                   <strong>{previewPractitioner}</strong>
                   <span>{previewDesignation}</span>
 
-                  {hasPrimaryGoverningBody || hasSecondGoverningBody ? (
-                    <div style={styles.previewGoverningLeftBlock}>
-                      <div style={styles.previewLogoLineLeft}>
+                  {previewGoverningBodyLine ? (
+                    <span style={styles.previewBodyRegistration}>
+                      {previewGoverningBodyLine}
+                    </span>
+                  ) : null}
+
+                  {previewSecondGoverningBodyLine ? (
+                    <span style={styles.previewBodyRegistration}>
+                      {previewSecondGoverningBodyLine}
+                    </span>
+                  ) : null}
+
+                  {settings.footer_text ? (
+                    <span style={styles.previewFooterText}>{settings.footer_text}</span>
+                  ) : null}
+                </div>
+
+                <div style={styles.previewBodies}>
+                  {(settings.governing_body_logo_url ||
+                    settings.second_governing_body_logo_url) ? (
+                    <div style={styles.previewBodyCard}>
+                      <div style={styles.previewLogoLine}>
                         {settings.governing_body_logo_url ? (
                           <img
                             src={settings.governing_body_logo_url}
@@ -686,23 +705,7 @@ export default function AfsFirmSettingsPage() {
                           />
                         ) : null}
                       </div>
-
-                      {previewGoverningBodyLine ? (
-                        <span style={styles.previewBodyRegistration}>
-                          {previewGoverningBodyLine}
-                        </span>
-                      ) : null}
-
-                      {previewSecondGoverningBodyLine ? (
-                        <span style={styles.previewBodyRegistration}>
-                          {previewSecondGoverningBodyLine}
-                        </span>
-                      ) : null}
                     </div>
-                  ) : null}
-
-                  {settings.footer_text ? (
-                    <span style={styles.previewFooterText}>{settings.footer_text}</span>
                   ) : null}
                 </div>
               </div>
@@ -967,9 +970,11 @@ const styles: Record<string, CSSProperties> = {
     borderTop: "1px solid #111827",
     marginTop: 34,
     paddingTop: 12,
-    display: "block",
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) 210px",
+    gap: 20,
     fontSize: 11,
-    textAlign: "left",
+    alignItems: "start",
   },
   previewPractitioner: {
     display: "grid",
@@ -979,7 +984,13 @@ const styles: Record<string, CSSProperties> = {
     textAlign: "left",
   },
   previewBodies: {
-    display: "none",
+    display: "grid",
+    justifyItems: "end",
+    alignContent: "start",
+    gap: 4,
+    textAlign: "right",
+    lineHeight: 1.2,
+    minHeight: 0,
   },
   previewBodyCard: {
     display: "grid",
@@ -987,22 +998,12 @@ const styles: Record<string, CSSProperties> = {
     gap: 2,
   },
   previewLogoLine: {
-    display: "none",
-  },
-  previewLogoLineLeft: {
     display: "flex",
-    justifyContent: "flex-start",
+    justifyContent: "flex-end",
     alignItems: "center",
     gap: 8,
     minHeight: 22,
-    marginTop: 4,
     marginBottom: 0,
-  },
-  previewGoverningLeftBlock: {
-    display: "grid",
-    justifyItems: "start",
-    gap: 2,
-    marginTop: 4,
   },
   previewBodyLogo: {
     maxWidth: 92,
@@ -1014,7 +1015,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 10.5,
     fontWeight: 800,
     lineHeight: 1.15,
-    marginTop: 2,
+    marginTop: 4,
     textAlign: "left",
   },
   previewFooterText: {
