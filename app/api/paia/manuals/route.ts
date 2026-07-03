@@ -152,7 +152,14 @@ export async function GET(request: Request) {
 
     const { profile, response } = await getCurrentProfile(request, supabase);
 
-    if (response || !profile) return response;
+   if (response) return response;
+
+if (!profile) {
+  return NextResponse.json(
+    { error: "Could not load user profile." },
+    { status: 403 }
+  );
+}
 
     const url = new URL(request.url);
     const requestedClientId = String(url.searchParams.get("clientId") || "").trim();
@@ -210,7 +217,14 @@ export async function POST(request: Request) {
 
     const { profile, response } = await getCurrentProfile(request, supabase);
 
-    if (response || !profile) return response;
+    if (response) return response;
+
+if (!profile) {
+  return NextResponse.json(
+    { error: "Could not load user profile." },
+    { status: 403 }
+  );
+}
 
     const globalAdmin = isGlobalAdmin(profile.role);
 
