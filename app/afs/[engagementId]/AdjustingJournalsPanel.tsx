@@ -21,6 +21,7 @@ type JournalLine = {
 type PostedJournal = {
   id: string;
   number: number;
+  reference: string;
   description: string;
   status: "Balanced" | "Unbalanced";
   lines: JournalLine[];
@@ -93,6 +94,9 @@ function mapDatabaseJournal(rawJournal: any): PostedJournal {
   return {
     id: clean(rawJournal?.id) || uid(),
     number: Number(rawJournal?.journal_number ?? rawJournal?.number ?? 0) || 0,
+    reference:
+      clean(rawJournal?.journal_reference ?? rawJournal?.journalReference) ||
+      `AJ${String(Number(rawJournal?.journal_number ?? rawJournal?.number ?? 0) || 0).padStart(3, "0")}`,
     description: clean(rawJournal?.description),
     status:
       clean(rawJournal?.status).toLowerCase() === "unbalanced"
@@ -133,6 +137,7 @@ export default function AdjustingJournalsPanel({
   onTrialBalanceLinesChanged?: (lines: TrialBalanceLine[]) => void;
   onDataChanged?: () => void | Promise<void>;
 }) {
+  const [journalReference, setJournalReference] = useState("");
   const [description, setDescription] = useState("");
   const [lines, setLines] = useState<JournalLine[]>([emptyLine(), emptyLine()]);
   const [posted, setPosted] = useState<PostedJournal[]>([]);
@@ -368,13 +373,14 @@ export default function AdjustingJournalsPanel({
   }
 
   function clearDraft() {
+    setJournalReference("");
     setDescription("");
     setLines([emptyLine(), emptyLine()]);
   }
 
   async function deletePostedJournal(journal: PostedJournal) {
     const confirmed = window.confirm(
-      `Delete ${journal.number ? `AJ${String(journal.number).padStart(3, "0")}` : "this journal"}? This will reverse the journal effect from the trial balance.`,
+      `Delete ${journal.reference || (journal.number ? `AJ${String(journal.number).padStart(3, "0")}` : "this journal")}? This will reverse the journal effect from the trial balance.`,
     );
 
     if (!confirmed) return;
@@ -463,6 +469,7 @@ export default function AdjustingJournalsPanel({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            journal_reference: clean(journalReference),
             description: clean(description),
             lines: resolvedLines.map((line) => ({
               account_code: line.accountCode,
@@ -488,6 +495,7 @@ export default function AdjustingJournalsPanel({
         : {
             id: uid(),
             number: posted.length + 1,
+            reference: clean(journalReference) || `AJ${String(posted.length + 1).padStart(3, "0")}`,
             description: clean(description),
             status: balancedNext ? "Balanced" : "Unbalanced",
             lines: resolvedLines.map((line) => ({
@@ -533,6 +541,15 @@ export default function AdjustingJournalsPanel({
       <div style={styles.grid}>
         <section style={styles.panel}>
           <h3 style={styles.panelTitle}>New journal</h3>
+
+          <label style={styles.label}>Journal reference</label>
+          <input
+            value={journalReference}
+            onChange={(event) => setJournalReference(event.target.value.toUpperCase())}
+            placeholder="e.g. FV1, JDT1, TAX1"
+            style={styles.input}
+          />
+
           <label style={styles.label}>Description</label>
           <input
             value={description}
@@ -614,7 +631,7 @@ export default function AdjustingJournalsPanel({
               {posted.map((journal) => (
                 <article key={journal.id} style={styles.postedCard}>
                   <div style={styles.postedHeader}>
-                    <strong>AJ{String(journal.number).padStart(3, "0")} · {journal.description}</strong>
+                    <strong>{journal.reference || `AJ${String(journal.number).padStart(3, "0")}`} · {journal.description}</strong>
                     <span style={journal.status === "Balanced" ? styles.statusOk : styles.statusBad}>{journal.status}</span>
                   </div>
                   <table style={styles.postedTable}>
@@ -636,33 +653,34 @@ export default function AdjustingJournalsPanel({
                       type="button"
                       style={styles.linkButton}
                       onClick={() => {
-  setDescription(journal.description);
-  setLines(
-    journal.lines.map((line) => {
-      const copiedAccountKey = String(line.accountKey || "");
-      const copiedAccountCode = copiedAccountKey.split("·")[0]?.trim();
+                        setJournalReference("");
+                        setDescription(journal.description);
+                        setLines(
+                          journal.lines.map((line) => {
+                            const copiedAccountKey = String(line.accountKey || "");
+                            const copiedAccountCode = copiedAccountKey.split("·")[0]?.trim();
 
-      const matchedAccount =
-        accountOptions.find((option) => option.key === copiedAccountKey) ||
-        accountOptions.find(
-          (option) =>
-            option.code &&
-            copiedAccountCode &&
-            option.code.toUpperCase() === copiedAccountCode.toUpperCase()
-        );
+                            const matchedAccount =
+                              accountOptions.find((option) => option.key === copiedAccountKey) ||
+                              accountOptions.find(
+                                (option) =>
+                                  option.code &&
+                                  copiedAccountCode &&
+                                  option.code.toUpperCase() === copiedAccountCode.toUpperCase(),
+                              );
 
-      return {
-        id: uid(),
-        accountKey: matchedAccount?.key || "",
-        debit: line.debit,
-        credit: line.credit,
-        note: line.note,
-      };
-    }),
-  );
-}}
+                            return {
+                              id: uid(),
+                              accountKey: matchedAccount?.key || "",
+                              debit: line.debit,
+                              credit: line.credit,
+                              note: line.note,
+                            };
+                          }),
+                        );
+                      }}
                     >
-                      Copy back to draft
+                      Duplicate to draft
                     </button>
 
                     <button

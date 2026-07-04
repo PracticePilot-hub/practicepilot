@@ -175,9 +175,36 @@ async function getNextJournalNumber(supabase: any, engagementId: string) {
   return Number.isFinite(lastNumber) ? lastNumber + 1 : 1;
 }
 
+function fallbackJournalReference(journalNumber: number) {
+  return `AJ${String(journalNumber).padStart(3, "0")}`;
+}
+
+async function makeUniqueJournalReference(
+  supabase: any,
+  engagementId: string,
+  requestedReference: string,
+  journalNumber: number,
+) {
+  const baseReference = clean(requestedReference) || fallbackJournalReference(journalNumber);
+
+  const { data, error } = await supabase
+    .from("afs_adjusting_journals")
+    .select("id,journal_reference")
+    .eq("engagement_id", engagementId)
+    .eq("journal_reference", baseReference)
+    .limit(1);
+
+  if (error) throw error;
+
+  if (!data?.length) return baseReference;
+
+  throw new Error(`Journal reference ${baseReference} already exists for this AFS file.`);
+}
+
 async function saveJournalHistory({
   supabase,
   engagementId,
+  journalReference,
   description,
   rawLines,
   debitTotal,
@@ -187,6 +214,7 @@ async function saveJournalHistory({
 }: {
   supabase: any;
   engagementId: string;
+  journalReference: string;
   description: string;
   rawLines: any[];
   debitTotal: number;
@@ -195,10 +223,17 @@ async function saveJournalHistory({
   balanced: boolean;
 }) {
   const journalNumber = await getNextJournalNumber(supabase, engagementId);
+  const finalJournalReference = await makeUniqueJournalReference(
+    supabase,
+    engagementId,
+    journalReference,
+    journalNumber,
+  );
 
   const journalPayload = {
     engagement_id: engagementId,
     journal_number: journalNumber,
+    journal_reference: finalJournalReference,
     description,
     status: balanced ? "Balanced" : "Unbalanced",
     debit_total: debitTotal,
@@ -393,6 +428,7 @@ export async function POST(req: NextRequest, context: any) {
     const supabase = getSupabaseServer();
 
     const description = clean(body?.description);
+    const journalReference = clean(body?.journal_reference ?? body?.journalReference);
 
     if (!description) {
       return NextResponse.json(
@@ -445,6 +481,7 @@ export async function POST(req: NextRequest, context: any) {
     const savedJournal = await saveJournalHistory({
       supabase,
       engagementId,
+      journalReference,
       description,
       rawLines,
       debitTotal,
