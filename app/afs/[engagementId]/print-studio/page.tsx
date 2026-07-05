@@ -2311,7 +2311,7 @@ export default function AfsPrintStudioPage() {
   }
 
   function renderSceCustomTable() {
-    const openingShare = sceValue("sce-share-opening");
+        const openingShare = sceValue("sce-share-opening");
     const openingRetained = sceValue("sce-retained-opening");
     const priorProfit = sceValue("sce-prior-profit");
     const priorOther = sceValue("sce-prior-other-movement");
@@ -2320,6 +2320,10 @@ export default function AfsPrintStudioPage() {
     const currentOther = sceValue("sce-current-other-movement");
     const currentClosingRetained = sceValue("sce-retained-closing");
     const closingShare = sceValue("sce-share-closing");
+
+    const priorShareMovement = 0;
+    const priorClosingShare = openingShare + priorShareMovement;
+    const currentShareMovement = closingShare - priorClosingShare;
 
     const rows = [
       {
@@ -2341,6 +2345,12 @@ export default function AfsPrintStudioPage() {
         retained: 0,
         total: 0,
       },
+       {
+        label: "Shares issued / cancelled - prior year",
+        share: priorShareMovement,
+        retained: 0,
+        total: priorShareMovement,
+      },
       {
         label: "Other movements / distributions - prior year",
         share: 0,
@@ -2349,10 +2359,11 @@ export default function AfsPrintStudioPage() {
       },
       {
         label: "Balance at end of prior year",
-        share: openingShare,
+        share: priorClosingShare,
         retained: priorClosingRetained,
-        total: openingShare + priorClosingRetained,
+        total: priorClosingShare + priorClosingRetained,
         strong: true,
+        underline: true,
       },
       {
         label: "Profit / (loss) for current year",
@@ -2365,6 +2376,12 @@ export default function AfsPrintStudioPage() {
         share: 0,
         retained: 0,
         total: 0,
+      },
+     {
+        label: "Shares issued / cancelled - current year",
+        share: currentShareMovement,
+        retained: 0,
+        total: currentShareMovement,
       },
       {
         label: "Other movements / distributions - current year",
