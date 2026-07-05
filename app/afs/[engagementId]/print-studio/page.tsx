@@ -2030,42 +2030,31 @@ export default function AfsPrintStudioPage() {
     [trialBalanceLines, statementOverrides, noteNumberMap]
   );
 
-  const flightDeckIssues = useMemo(() => {
-  const issues = buildAfsFlightDeckIssuesFromEngine(statementEngine);
-
-  return issues.filter((issue: any) => {
-    const id = String(issue?.id || "").toLowerCase();
-    const title = String(issue?.title || "").toLowerCase();
-    const target = String(issue?.target || issue?.targetId || "").toLowerCase();
-
-    return !(
-      id.includes("cash") ||
-      title.includes("cash flow") ||
-      target.includes("cash-flow")
-    );
-  });
-}, [statementEngine]);
+  const flightDeckIssues = useMemo(
+    () => buildAfsFlightDeckIssuesFromEngine(statementEngine),
+    [statementEngine],
+  );
 
   const sfpRows = statementEngine.sfpRows;
-const sociRows = statementEngine.sociRows;
-const sceRows = statementEngine.sceRows;
-const cashFlowRows = statementEngine.cashFlowRows;
+  const sociRows = statementEngine.sociRows;
+  const sceRows = statementEngine.sceRows;
+  const cashFlowRows = statementEngine.cashFlowRows;
 
-const cashNoteCurrent = Math.round(
+  const cashNoteCurrent = Math.round(
   (statementEngine.noteData.cashAndCashEquivalents || []).reduce(
     (sum: number, line: any) => sum + Number(line.current || 0),
     0,
   ),
 );
 
-const cashNotePrior = Math.round(
+  const cashNotePrior = Math.round(
   (statementEngine.noteData.cashAndCashEquivalents || []).reduce(
     (sum: number, line: any) => sum + Number(line.prior || 0),
     0,
   ),
 );
 
-const cashFlowTotals = useMemo(() => {
+  const cashFlowTotals = useMemo(() => {
   const noteData = statementEngine.noteData || {};
 
   const noteTotal = (key: string, side: "current" | "prior") =>
@@ -2100,22 +2089,11 @@ const cashFlowTotals = useMemo(() => {
   const inventoryMovementCurrent = movementAsset("inventories");
   const inventoryMovementPrior = 0 - noteTotal("inventories", "prior");
 
-  const receivablesMovementCurrent =
-    movementAsset("tradeReceivables") +
-    movementAsset("currentTaxReceivable");
+  const receivablesMovementCurrent = movementAsset("tradeReceivables");
+  const receivablesMovementPrior = 0 - noteTotal("tradeReceivables", "prior");
 
-  const receivablesMovementPrior =
-    0 -
-    noteTotal("tradeReceivables", "prior") -
-    noteTotal("currentTaxReceivable", "prior");
-
-  const payablesMovementCurrent =
-    movementLiability("tradePayables") +
-    movementLiability("currentTaxPayable");
-
-  const payablesMovementPrior =
-    noteTotal("tradePayables", "prior") +
-    noteTotal("currentTaxPayable", "prior");
+  const payablesMovementCurrent = movementLiability("tradePayables");
+  const payablesMovementPrior = noteTotal("tradePayables", "prior");
 
   const workingCapitalCurrent =
     inventoryMovementCurrent +
@@ -2144,12 +2122,24 @@ const cashFlowTotals = useMemo(() => {
 
   const investingPrior = 0;
 
-  const financingCurrent =
-    movementLiability("shareCapital") +
-    movementLiability("shareholdersLoans") +
-    movementLiability("otherFinancialLiabilities");
+  const shareCapitalMovementCurrent = movementLiability("shareCapital");
+  const shareCapitalMovementPrior = 0;
 
-  const financingPrior = 0;
+  const shareholderLoanMovementCurrent = movementLiability("shareholdersLoans");
+  const shareholderLoanMovementPrior = 0;
+
+  const otherFinancingMovementCurrent = movementLiability("otherFinancialLiabilities");
+  const otherFinancingMovementPrior = 0;
+
+  const financingCurrent =
+    shareCapitalMovementCurrent +
+    shareholderLoanMovementCurrent +
+    otherFinancingMovementCurrent;
+
+  const financingPrior =
+    shareCapitalMovementPrior +
+    shareholderLoanMovementPrior +
+    otherFinancingMovementPrior;
 
   const netMovementCurrent =
     cashGeneratedCurrent + investingCurrent + financingCurrent;
@@ -2185,6 +2175,12 @@ const cashFlowTotals = useMemo(() => {
     investingCurrent,
     investingPrior,
 
+    shareCapitalMovementCurrent,
+    shareCapitalMovementPrior,
+    shareholderLoanMovementCurrent,
+    shareholderLoanMovementPrior,
+    otherFinancingMovementCurrent,
+    otherFinancingMovementPrior,
     financingCurrent,
     financingPrior,
 
@@ -2193,7 +2189,7 @@ const cashFlowTotals = useMemo(() => {
   };
 }, [statementEngine.noteData, sociRows, cashNoteCurrent, cashNotePrior]);
 
-const exportCashFlowRows = useMemo<AfsStatementRow[]>(() => {
+  const exportCashFlowRows = useMemo<AfsStatementRow[]>(() => {
   const t = cashFlowTotals;
 
   return [
@@ -2301,10 +2297,24 @@ const exportCashFlowRows = useMemo<AfsStatementRow[]>(() => {
       type: "section",
     },
     {
-      id: "cf-financing-loans",
+      id: "cf-financing-share-capital",
+      label: "Share capital issued / (cancelled)",
+      current: t.shareCapitalMovementCurrent,
+      prior: t.shareCapitalMovementPrior,
+      type: "line",
+    },
+    {
+      id: "cf-financing-shareholder-loans",
       label: "Shareholder loans raised / (repaid)",
-      current: t.financingCurrent,
-      prior: t.financingPrior,
+      current: t.shareholderLoanMovementCurrent,
+      prior: t.shareholderLoanMovementPrior,
+      type: "line",
+    },
+    {
+      id: "cf-financing-other",
+      label: "Other financing cash flows",
+      current: t.otherFinancingMovementCurrent,
+      prior: t.otherFinancingMovementPrior,
       type: "line",
     },
     {
@@ -2340,11 +2350,91 @@ const exportCashFlowRows = useMemo<AfsStatementRow[]>(() => {
   ];
 }, [cashFlowTotals]);
 
-const detailedIncomeRows = useMemo(
-  () => cleanDetailedIncomeRowsForReport(statementEngine.detailedIncomeRows || []),
-  [statementEngine.detailedIncomeRows],
-);
+  const detailedIncomeRows = useMemo(() => {
+    const rows = cleanDetailedIncomeRowsForReport(statementEngine.detailedIncomeRows || []);
+
+    const profitBeforeTaxRow = (sociRows || []).find((row: any) =>
+      String(row?.label || "").toLowerCase().includes("before taxation"),
+    );
+
+    const profitBeforeTaxCurrent = Math.round(Number((profitBeforeTaxRow as any)?.current || 0));
+    const profitBeforeTaxPrior = Math.round(Number((profitBeforeTaxRow as any)?.prior || 0));
+
+    const alreadyHasProfitBeforeTax = rows.some((row: any) =>
+      String(row?.label || "").toLowerCase().includes("before taxation"),
+    );
+
+    if (alreadyHasProfitBeforeTax) return rows;
+
+    const insertAt = rows.findIndex((row: any) =>
+      String(row?.label || "").toLowerCase().includes("taxation"),
+    );
+
+    const profitBeforeTaxDetailedRow: AfsStatementRow = {
+      id: "detailed-profit-before-tax",
+      label: "Profit / (loss) before taxation",
+      current: profitBeforeTaxCurrent,
+      prior: profitBeforeTaxPrior,
+      type: "subtotal",
+    };
+
+    if (insertAt < 0) return [...rows, profitBeforeTaxDetailedRow];
+
+    return [
+      ...rows.slice(0, insertAt),
+      profitBeforeTaxDetailedRow,
+      ...rows.slice(insertAt),
+    ];
+  }, [statementEngine.detailedIncomeRows, sociRows]);
+
   const noteData = statementEngine.noteData;
+
+  const structuredNoteData = useMemo(() => {
+    return {
+      ...noteData,
+      currentTaxReceivable: (noteData.currentTaxReceivable || []).map((line: any) => ({
+        ...line,
+        label: line?.label || "Current tax receivable",
+      })),
+      taxation: (noteData.taxation || []).map((line: any) => ({
+        ...line,
+        label: line?.label || "Income tax expense / (credit)",
+      })),
+      cashUsedInOperations: [
+        {
+          id: "cash-note-profit-before-tax",
+          label: "Profit / (loss) before taxation",
+          current: cashFlowTotals.profitBeforeTax,
+          prior: cashFlowTotals.priorProfitBeforeTax,
+        },
+        {
+          id: "cash-note-non-cash",
+          label: "Adjustments for non-cash and other items",
+          current: cashFlowTotals.nonCashCurrent,
+          prior: cashFlowTotals.nonCashPrior,
+        },
+        {
+          id: "cash-note-inventories",
+          label: "Decrease / (increase) in inventories",
+          current: cashFlowTotals.inventoryMovementCurrent,
+          prior: cashFlowTotals.inventoryMovementPrior,
+        },
+        {
+          id: "cash-note-receivables",
+          label: "Decrease / (increase) in trade and other receivables",
+          current: cashFlowTotals.receivablesMovementCurrent,
+          prior: cashFlowTotals.receivablesMovementPrior,
+        },
+        {
+          id: "cash-note-payables",
+          label: "Increase / (decrease) in trade and other payables",
+          current: cashFlowTotals.payablesMovementCurrent,
+          prior: cashFlowTotals.payablesMovementPrior,
+        },
+      ],
+    };
+  }, [noteData, cashFlowTotals]);
+
   const engineChecks = statementEngine.checks;
 
   const sections: AfsStudioSection[] = [
@@ -3559,7 +3649,7 @@ const detailedIncomeRows = useMemo(
                   toggleReportOption={(key: string, checked: boolean) =>
                     toggleReportOption(key as keyof ReportOptions, checked)
                   }
-                  noteData={noteData as any}
+                  noteData={structuredNoteData as any}
                   trialBalanceLines={trialBalanceLines}
                   clientSetup={clientSetup}
                   currentHeading={currentHeading}
@@ -3615,15 +3705,22 @@ const detailedIncomeRows = useMemo(
 
                     const taxRate = Number(taxRateRaw || 27);
                     const assessedLoss = Number(assessedLossRaw || 0);
-                    const taxableIncomeBeforeLoss = profitBeforeTax;
-                    const taxableIncome = Math.max(
-                      0,
-                      taxableIncomeBeforeLoss - assessedLoss
+                    const taxExpenseCurrent = Math.round(
+                      (structuredNoteData.taxation || []).reduce(
+                        (sum: number, line: any) => sum + Number(line.current || 0),
+                        0,
+                      ),
                     );
+
+                    const taxableIncomeBeforeLoss = profitBeforeTax;
+                    const taxableIncomeAfterLoss = taxableIncomeBeforeLoss - Math.abs(assessedLoss);
+                    const taxableIncome = Math.max(0, taxableIncomeAfterLoss);
                     const normalTax = Math.round(taxableIncome * (taxRate / 100));
 
                     const rows: Array<[string, number]> = [
                       ["Profit / (loss) before taxation", profitBeforeTax],
+                      ["Add back accounting tax expense / (credit)", -taxExpenseCurrent],
+                      ["Taxable income / (assessed loss) before assessed loss", taxableIncomeBeforeLoss],
                       ["Assessed loss brought forward", -Math.abs(assessedLoss)],
                       ["Taxable income", taxableIncome],
                       [`Normal tax at ${taxRate}%`, normalTax],
