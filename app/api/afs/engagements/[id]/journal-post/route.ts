@@ -331,6 +331,237 @@ export async function GET(req: NextRequest, context: any) {
 }
 
 
+
+async function reverseJournalMovements(
+  supabase: any,
+  engagementId: string,
+  journalId: string,
+) {
+  const { data: journalLines, error: linesError } = await supabase
+    .from("afs_adjusting_journal_lines")
+    .select("*")
+    .eq("engagement_id", engagementId)
+    .eq("journal_id", journalId)
+    .order("line_number", { ascending: true });
+
+  if (linesError) throw linesError;
+
+  const movements = new Map<string, number>();
+
+  for (const rawLine of journalLines || []) {
+    const accountCode = normaliseAccountCode(rawLine.account_code);
+    if (!accountCode) continue;
+
+    const debit = Math.max(0, toNumber(rawLine.debit));
+    const credit = Math.max(0, toNumber(rawLine.credit));
+    const movement = debit - credit;
+
+    movements.set(accountCode, (movements.get(accountCode) || 0) - movement);
+  }
+
+  const updatedLines = [];
+
+  for (const [accountCode, reverseMovement] of movements.entries()) {
+    if (Math.abs(reverseMovement) < 0.005) continue;
+
+    const updated = await updateLineByCode(
+      supabase,
+      engagementId,
+      accountCode,
+      reverseMovement,
+    );
+
+    if (updated) updatedLines.push(updated);
+  }
+
+  return updatedLines;
+}
+
+async function applyRawJournalMovements(
+  supabase: any,
+  engagementId: string,
+  rawLines: any[],
+) {
+  const movements = new Map<string, number>();
+
+  for (const rawLine of rawLines) {
+    const accountCode = normaliseAccountCode(rawLine.account_code ?? rawLine.accountCode);
+    if (!accountCode) continue;
+
+    const debit = Math.max(0, toNumber(rawLine.debit));
+    const credit = Math.max(0, toNumber(rawLine.credit));
+    const movement = debit - credit;
+
+    movements.set(accountCode, (movements.get(accountCode) || 0) + movement);
+  }
+
+  const updatedLines = [];
+
+  for (const [accountCode, movement] of movements.entries()) {
+    if (Math.abs(movement) < 0.005) continue;
+
+    const updated = await updateLineByCode(
+      supabase,
+      engagementId,
+      accountCode,
+      movement,
+    );
+
+    if (updated) updatedLines.push(updated);
+  }
+
+  return updatedLines;
+}
+
+function buildLinePayloads(rawLines: any[], engagementId: string, journalId: string) {
+  return rawLines.map((line, index) => {
+    const accountCode = normaliseAccountCode(line.account_code ?? line.accountCode);
+    const debit = Math.max(0, toNumber(line.debit));
+    const credit = Math.max(0, toNumber(line.credit));
+
+    return {
+      journal_id: journalId,
+      engagement_id: engagementId,
+      line_number: index + 1,
+      account_code: accountCode,
+      account_name: clean(line.account_name ?? line.accountName),
+      debit,
+      credit,
+      note: clean(line.note),
+    };
+  });
+}
+
+export async function PUT(req: NextRequest, context: any) {
+  try {
+    const engagementId = await getIdFromContext(context);
+    const body = await req.json();
+    const supabase = getSupabaseServer();
+
+    const journalId = clean(body?.journalId ?? body?.id);
+    const description = clean(body?.description);
+    const journalReference = clean(body?.journal_reference ?? body?.journalReference);
+    const rawLines = Array.isArray(body?.lines) ? body.lines : [];
+
+    if (!journalId) {
+      return NextResponse.json({ error: "Missing journal id." }, { status: 400 });
+    }
+
+    if (!description) {
+      return NextResponse.json(
+        { error: "Add a journal description first." },
+        { status: 400 },
+      );
+    }
+
+    if (rawLines.length < 2) {
+      return NextResponse.json(
+        { error: "A journal needs at least two lines." },
+        { status: 400 },
+      );
+    }
+
+    const debitTotal = rawLines.reduce(
+      (sum: number, line: any) => sum + Math.max(0, toNumber(line.debit)),
+      0,
+    );
+    const creditTotal = rawLines.reduce(
+      (sum: number, line: any) => sum + Math.max(0, toNumber(line.credit)),
+      0,
+    );
+    const difference = debitTotal - creditTotal;
+    const balanced = Math.abs(difference) < 0.005;
+
+    const { data: existingJournal, error: existingError } = await supabase
+      .from("afs_adjusting_journals")
+      .select("*")
+      .eq("engagement_id", engagementId)
+      .eq("id", journalId)
+      .single();
+
+    if (existingError) throw existingError;
+    if (!existingJournal) {
+      return NextResponse.json({ error: "Journal was not found." }, { status: 404 });
+    }
+
+    const finalJournalReference =
+      journalReference || clean(existingJournal.journal_reference) || fallbackJournalReference(Number(existingJournal.journal_number || 0));
+
+    const { data: duplicateReference, error: duplicateError } = await supabase
+      .from("afs_adjusting_journals")
+      .select("id")
+      .eq("engagement_id", engagementId)
+      .eq("journal_reference", finalJournalReference)
+      .neq("id", journalId)
+      .limit(1);
+
+    if (duplicateError) throw duplicateError;
+
+    if (duplicateReference?.length) {
+      throw new Error(`Journal reference ${finalJournalReference} already exists for this AFS file.`);
+    }
+
+    const reversedLines = await reverseJournalMovements(
+      supabase,
+      engagementId,
+      journalId,
+    );
+
+    const appliedLines = await applyRawJournalMovements(
+      supabase,
+      engagementId,
+      rawLines,
+    );
+
+    const { data: journal, error: updateError } = await supabase
+      .from("afs_adjusting_journals")
+      .update({
+        journal_reference: finalJournalReference,
+        description,
+        status: balanced ? "Balanced" : "Unbalanced",
+        debit_total: debitTotal,
+        credit_total: creditTotal,
+        difference,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("engagement_id", engagementId)
+      .eq("id", journalId)
+      .select("*")
+      .single();
+
+    if (updateError) throw updateError;
+
+    const { error: deleteLinesError } = await supabase
+      .from("afs_adjusting_journal_lines")
+      .delete()
+      .eq("engagement_id", engagementId)
+      .eq("journal_id", journalId);
+
+    if (deleteLinesError) throw deleteLinesError;
+
+    const { data: journalLines, error: insertLinesError } = await supabase
+      .from("afs_adjusting_journal_lines")
+      .insert(buildLinePayloads(rawLines, engagementId, journalId))
+      .select("*");
+
+    if (insertLinesError) throw insertLinesError;
+
+    return NextResponse.json({
+      journal: {
+        ...journal,
+        lines: journalLines || [],
+      },
+      trialBalanceLines: [...reversedLines, ...appliedLines],
+      lines: [...reversedLines, ...appliedLines],
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Failed to update journal." },
+      { status: 500 },
+    );
+  }
+}
+
 export async function DELETE(req: NextRequest, context: any) {
   try {
     const engagementId = await getIdFromContext(context);

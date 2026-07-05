@@ -138,6 +138,7 @@ export default function AdjustingJournalsPanel({
   onDataChanged?: () => void | Promise<void>;
 }) {
   const [journalReference, setJournalReference] = useState("");
+  const [editingJournalId, setEditingJournalId] = useState<string | null>(null);
   const [description, setDescription] = useState("");
   const [lines, setLines] = useState<JournalLine[]>([emptyLine(), emptyLine()]);
   const [posted, setPosted] = useState<PostedJournal[]>([]);
@@ -373,9 +374,40 @@ export default function AdjustingJournalsPanel({
   }
 
   function clearDraft() {
+    setEditingJournalId(null);
     setJournalReference("");
     setDescription("");
     setLines([emptyLine(), emptyLine()]);
+  }
+
+  function startEditJournal(journal: PostedJournal) {
+    setEditingJournalId(journal.id);
+    setJournalReference(journal.reference || "");
+    setDescription(journal.description);
+
+    setLines(
+      journal.lines.map((line) => {
+        const copiedAccountKey = String(line.accountKey || "");
+        const copiedAccountCode = copiedAccountKey.split("·")[0]?.trim();
+
+        const matchedAccount =
+          accountOptions.find((option) => option.key === copiedAccountKey) ||
+          accountOptions.find(
+            (option) =>
+              option.code &&
+              copiedAccountCode &&
+              option.code.toUpperCase() === copiedAccountCode.toUpperCase(),
+          );
+
+        return {
+          id: uid(),
+          accountKey: matchedAccount?.key || copiedAccountKey,
+          debit: line.debit,
+          credit: line.credit,
+          note: line.note,
+        };
+      }),
+    );
   }
 
   async function deletePostedJournal(journal: PostedJournal) {
@@ -511,7 +543,11 @@ export default function AdjustingJournalsPanel({
             postedAt: new Date().toISOString(),
           };
 
-      savePostedJournals([journal, ...posted]);
+      savePostedJournals(
+        editingJournalId
+          ? posted.map((item) => (item.id === editingJournalId ? journal : item))
+          : [journal, ...posted],
+      );
 
       if (updatedTrialBalanceLines.length) upsertTrialBalanceLines(updatedTrialBalanceLines);
 
@@ -540,13 +576,13 @@ export default function AdjustingJournalsPanel({
 
       <div style={styles.grid}>
         <section style={styles.panel}>
-          <h3 style={styles.panelTitle}>New journal</h3>
+          <h3 style={styles.panelTitle}>{editingJournalId ? "Edit journal" : "New journal"}</h3>
 
           <label style={styles.label}>Journal reference</label>
           <input
             value={journalReference}
             onChange={(event) => setJournalReference(event.target.value.toUpperCase())}
-            placeholder="e.g. FV1, JDT1, TAX1"
+            placeholder="Journal reference"
             style={styles.input}
           />
 
@@ -610,7 +646,7 @@ export default function AdjustingJournalsPanel({
           <div style={styles.actionsRow}>
             <button type="button" style={styles.secondaryButton} onClick={addLine}>Add line</button>
             <button type="button" style={styles.secondaryButton} onClick={clearDraft}>Clear</button>
-            <button type="button" style={styles.primaryButton} onClick={postJournal}>Post journal</button>
+            <button type="button" style={styles.primaryButton} onClick={postJournal}>{editingJournalId ? "Save journal" : "Post journal"}</button>
           </div>
 
           <div style={isBalanced ? styles.totalBarOk : styles.totalBarBad}>
@@ -652,35 +688,9 @@ export default function AdjustingJournalsPanel({
                     <button
                       type="button"
                       style={styles.linkButton}
-                      onClick={() => {
-                        setJournalReference("");
-                        setDescription(journal.description);
-                        setLines(
-                          journal.lines.map((line) => {
-                            const copiedAccountKey = String(line.accountKey || "");
-                            const copiedAccountCode = copiedAccountKey.split("·")[0]?.trim();
-
-                            const matchedAccount =
-                              accountOptions.find((option) => option.key === copiedAccountKey) ||
-                              accountOptions.find(
-                                (option) =>
-                                  option.code &&
-                                  copiedAccountCode &&
-                                  option.code.toUpperCase() === copiedAccountCode.toUpperCase(),
-                              );
-
-                            return {
-                              id: uid(),
-                              accountKey: matchedAccount?.key || "",
-                              debit: line.debit,
-                              credit: line.credit,
-                              note: line.note,
-                            };
-                          }),
-                        );
-                      }}
+                      onClick={() => startEditJournal(journal)}
                     >
-                      Duplicate to draft
+                      Edit
                     </button>
 
                     <button
