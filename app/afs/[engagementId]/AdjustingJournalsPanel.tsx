@@ -346,6 +346,14 @@ export default function AdjustingJournalsPanel({
       });
 
       onAccountCreated?.(created);
+
+      if (showAccountPickerForLineId) {
+        updateLine(showAccountPickerForLineId, {
+          accountKey: accountKey(created, trialBalanceLines.length + customAccounts.length),
+        });
+        setShowAccountPickerForLineId(null);
+      }
+
       setNewAccountCode("");
       setNewAccountName("");
       setShowCreateAccountPopup(false);
@@ -498,9 +506,10 @@ export default function AdjustingJournalsPanel({
 
       if (engagementId) {
         const response = await fetch(`/api/afs/engagements/${engagementId}/journal-post`, {
-          method: "POST",
+          method: editingJournalId ? "PUT" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            journalId: editingJournalId,
             journal_reference: clean(journalReference),
             description: clean(description),
             lines: resolvedLines.map((line) => ({
@@ -729,14 +738,22 @@ export default function AdjustingJournalsPanel({
                 </thead>
                 <tbody>
                   {accountOptions.map((option) => (
-                    <tr key={option.key}>
+                    <tr
+                      key={option.key}
+                      style={styles.accountPickerRow}
+                      onClick={() => {
+                        updateLine(showAccountPickerForLineId, { accountKey: option.key });
+                        setShowAccountPickerForLineId(null);
+                      }}
+                    >
                       <td style={styles.accountCodeTd}>{option.code}</td>
                       <td style={styles.accountNameTd}>{option.name}</td>
                       <td style={styles.accountActionTd}>
                         <button
                           type="button"
                           style={styles.secondaryButtonSmall}
-                          onClick={() => {
+                          onClick={(event) => {
+                            event.stopPropagation();
                             updateLine(showAccountPickerForLineId, { accountKey: option.key });
                             setShowAccountPickerForLineId(null);
                           }}
@@ -823,6 +840,7 @@ const styles: Record<string, CSSProperties> = {
   modalHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" },
   accountPickerActions: { display: "flex", justifyContent: "flex-end", marginBottom: "10px" },
   accountPickerTableWrap: { border: "1px solid #e2e8f0" },
+  accountPickerRow: { cursor: "pointer" },
   accountPickerTable: { width: "100%", borderCollapse: "collapse", fontSize: "13px" },
   accountCodeTh: { textAlign: "left", width: "150px", padding: "8px", borderBottom: "1px solid #cbd5e1", background: "#f8fafc" },
   accountNameTh: { textAlign: "left", padding: "8px", borderBottom: "1px solid #cbd5e1", background: "#f8fafc" },
