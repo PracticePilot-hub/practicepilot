@@ -2047,90 +2047,346 @@ export default function AfsPrintStudioPage() {
 }, [statementEngine]);
 
   const sfpRows = statementEngine.sfpRows;
-const sociRows = statementEngine.sociRows;
-const sceRows = statementEngine.sceRows;
-const cashFlowRows = statementEngine.cashFlowRows;
+  const sociRows = statementEngine.sociRows;
+  const sceRows = statementEngine.sceRows;
+  const cashFlowRows = statementEngine.cashFlowRows;
 
-const cashNoteCurrent = Math.round(
+  const cashNoteCurrent = Math.round(
   (statementEngine.noteData.cashAndCashEquivalents || []).reduce(
     (sum: number, line: any) => sum + Number(line.current || 0),
     0,
   ),
 );
 
-const cashNotePrior = Math.round(
+  const cashNotePrior = Math.round(
   (statementEngine.noteData.cashAndCashEquivalents || []).reduce(
     (sum: number, line: any) => sum + Number(line.prior || 0),
     0,
   ),
 );
 
-const exportCashFlowRows = useMemo(() => {
-  const rows = (cashFlowRows || []).map((row: any) => ({ ...row }));
+  const cashFlowTotals = useMemo(() => {
+  const noteData = statementEngine.noteData || {};
 
-  const labelIncludes = (row: any, terms: string[]) => {
-    const label = String(row?.label || "").toLowerCase();
-    return terms.every((term) => label.includes(term));
+  const noteTotal = (key: string, side: "current" | "prior") =>
+    Math.round(
+      ((noteData as any)[key] || []).reduce(
+        (sum: number, line: any) => sum + Number(line?.[side] || 0),
+        0,
+      ),
+    );
+
+  const movementAsset = (key: string) =>
+    noteTotal(key, "prior") - noteTotal(key, "current");
+
+  const movementLiability = (key: string) =>
+    noteTotal(key, "current") - noteTotal(key, "prior");
+
+  const profitBeforeTax = Math.round(
+    (sociRows || []).find((row: any) =>
+      String(row?.label || "").toLowerCase().includes("before taxation"),
+    )?.current || 0,
+  );
+
+  const priorProfitBeforeTax = Math.round(
+    (sociRows || []).find((row: any) =>
+      String(row?.label || "").toLowerCase().includes("before taxation"),
+    )?.prior || 0,
+  );
+
+  const nonCashCurrent = 0;
+  const nonCashPrior = 0;
+
+  const inventoryMovementCurrent = movementAsset("inventories");
+  const inventoryMovementPrior = 0 - noteTotal("inventories", "prior");
+
+  const receivablesMovementCurrent =
+    movementAsset("tradeReceivables") +
+    movementAsset("currentTaxReceivable");
+
+  const receivablesMovementPrior =
+    0 -
+    noteTotal("tradeReceivables", "prior") -
+    noteTotal("currentTaxReceivable", "prior");
+
+  const payablesMovementCurrent =
+    movementLiability("tradePayables") +
+    movementLiability("currentTaxPayable");
+
+  const payablesMovementPrior =
+    noteTotal("tradePayables", "prior") +
+    noteTotal("currentTaxPayable", "prior");
+
+  const workingCapitalCurrent =
+    inventoryMovementCurrent +
+    receivablesMovementCurrent +
+    payablesMovementCurrent;
+
+  const workingCapitalPrior =
+    inventoryMovementPrior +
+    receivablesMovementPrior +
+    payablesMovementPrior;
+
+  const cashGeneratedCurrent =
+    profitBeforeTax + nonCashCurrent + workingCapitalCurrent;
+
+  const cashGeneratedPrior =
+    priorProfitBeforeTax + nonCashPrior + workingCapitalPrior;
+
+  const investingCurrent =
+    movementAsset("propertyPlantEquipment") +
+    movementAsset("goodwill") +
+    movementAsset("investmentProperty") +
+    movementAsset("intangibleAssets") +
+    movementAsset("biologicalAssets") +
+    movementAsset("otherNonCurrentAssets") +
+    movementAsset("loansReceivable");
+
+  const investingPrior = 0;
+
+  const financingCurrent =
+    movementLiability("shareCapital") +
+    movementLiability("shareholdersLoans") +
+    movementLiability("otherFinancialLiabilities");
+
+  const financingPrior = 0;
+
+  const netMovementCurrent =
+    cashGeneratedCurrent + investingCurrent + financingCurrent;
+
+  const netMovementPrior =
+    cashGeneratedPrior + investingPrior + financingPrior;
+
+  return {
+    cashCurrent: cashNoteCurrent,
+    cashPrior: cashNotePrior,
+
+    profitBeforeTax,
+    priorProfitBeforeTax,
+
+    nonCashCurrent,
+    nonCashPrior,
+
+    inventoryMovementCurrent,
+    inventoryMovementPrior,
+
+    receivablesMovementCurrent,
+    receivablesMovementPrior,
+
+    payablesMovementCurrent,
+    payablesMovementPrior,
+
+    workingCapitalCurrent,
+    workingCapitalPrior,
+
+    cashGeneratedCurrent,
+    cashGeneratedPrior,
+
+    investingCurrent,
+    investingPrior,
+
+    financingCurrent,
+    financingPrior,
+
+    netMovementCurrent,
+    netMovementPrior,
   };
+}, [statementEngine.noteData, sociRows, cashNoteCurrent, cashNotePrior]);
 
-  const findRow = (terms: string[]) =>
-    rows.find((row: any) => labelIncludes(row, terms));
+  const exportCashFlowRows = useMemo<AfsStatementRow[]>(() => {
+  const t = cashFlowTotals;
 
-  const profitRow = findRow(["profit", "taxation"]);
-  const nonCashRow = findRow(["adjustments", "non-cash"]);
-  const workingCapitalRow = findRow(["changes", "working capital"]);
-  const generatedRow = findRow(["cash generated", "operations"]);
-  const netOperatingRow = findRow(["net cash", "operating activities"]);
-  const netIncreaseRow = findRow(["net increase"]);
-  const openingCashRow = findRow(["beginning", "year"]);
-  const closingCashRow = findRow(["end", "year"]);
+  return [
+    {
+      id: "cf-operating",
+      label: "Cash flows from operating activities",
+      type: "section",
+    },
+    {
+      id: "cf-profit-before-tax",
+      label: "Profit / (loss) before taxation",
+      current: t.profitBeforeTax,
+      prior: t.priorProfitBeforeTax,
+      type: "line",
+    },
+    {
+      id: "cf-non-cash",
+      label: "Adjustments for non-cash and other items",
+      current: t.nonCashCurrent,
+      prior: t.nonCashPrior,
+      type: "line",
+    },
+    {
+      id: "cf-inventories",
+      label: "Decrease / (increase) in inventories",
+      current: t.inventoryMovementCurrent,
+      prior: t.inventoryMovementPrior,
+      type: "line",
+    },
+    {
+      id: "cf-receivables",
+      label: "Decrease / (increase) in trade and other receivables",
+      current: t.receivablesMovementCurrent,
+      prior: t.receivablesMovementPrior,
+      type: "line",
+    },
+    {
+      id: "cf-payables",
+      label: "Increase / (decrease) in trade and other payables",
+      current: t.payablesMovementCurrent,
+      prior: t.payablesMovementPrior,
+      type: "line",
+    },
+    {
+      id: "cf-generated",
+      label: "Cash generated from / (used in) operations",
+      current: t.cashGeneratedCurrent,
+      prior: t.cashGeneratedPrior,
+      type: "subtotal",
+    },
+    {
+      id: "cf-interest-received",
+      label: "Interest received",
+      current: 0,
+      prior: 0,
+      type: "line",
+    },
+    {
+      id: "cf-finance-paid",
+      label: "Finance costs paid",
+      current: 0,
+      prior: 0,
+      type: "line",
+    },
+    {
+      id: "cf-tax-paid",
+      label: "Taxation paid",
+      current: 0,
+      prior: 0,
+      type: "line",
+    },
+    {
+      id: "cf-net-operating",
+      label: "Net cash from / (used in) operating activities",
+      current: t.cashGeneratedCurrent,
+      prior: t.cashGeneratedPrior,
+      type: "subtotal",
+    },
+    { id: "cf-space-1", type: "spacer" },
 
-  const profitCurrent = Number(profitRow?.current || 0);
-  const profitPrior = Number(profitRow?.prior || 0);
-  const nonCashCurrent = Number(nonCashRow?.current || 0);
-  const nonCashPrior = Number(nonCashRow?.prior || 0);
+    {
+      id: "cf-investing",
+      label: "Cash flows from investing activities",
+      type: "section",
+    },
+    {
+      id: "cf-investing-assets",
+      label: "Purchase of non-current assets",
+      current: t.investingCurrent,
+      prior: t.investingPrior,
+      type: "line",
+    },
+    {
+      id: "cf-net-investing",
+      label: "Net cash from / (used in) investing activities",
+      current: t.investingCurrent,
+      prior: t.investingPrior,
+      type: "subtotal",
+    },
+    { id: "cf-space-2", type: "spacer" },
 
-  const currentMovement = cashNoteCurrent - cashNotePrior;
-  const priorMovement = cashNotePrior;
+    {
+      id: "cf-financing",
+      label: "Cash flows from financing activities",
+      type: "section",
+    },
+    {
+      id: "cf-financing-loans",
+      label: "Loans raised / (repaid)",
+      current: t.financingCurrent,
+      prior: t.financingPrior,
+      type: "line",
+    },
+    {
+      id: "cf-net-financing",
+      label: "Net cash from / (used in) financing activities",
+      current: t.financingCurrent,
+      prior: t.financingPrior,
+      type: "subtotal",
+    },
+    { id: "cf-space-3", type: "spacer" },
 
-  if (openingCashRow) {
-    openingCashRow.current = cashNotePrior;
-    openingCashRow.prior = 0;
-  }
+    {
+      id: "cf-net-movement",
+      label: "Net increase / (decrease) in cash and cash equivalents",
+      current: t.netMovementCurrent,
+      prior: t.netMovementPrior,
+      type: "grand-total",
+    },
+    {
+      id: "cf-opening-cash",
+      label: "Cash and cash equivalents at beginning of year",
+      current: t.cashPrior,
+      prior: 0,
+      type: "line",
+    },
+    {
+      id: "cf-closing-cash",
+      label: "Cash and cash equivalents at end of year",
+      current: t.cashPrior + t.netMovementCurrent,
+      prior: t.netMovementPrior,
+      type: "grand-total",
+    },
+  ];
+}, [cashFlowTotals]);
 
-  if (closingCashRow) {
-    closingCashRow.current = cashNoteCurrent;
-    closingCashRow.prior = cashNotePrior;
-  }
-
-  if (netIncreaseRow) {
-    netIncreaseRow.current = currentMovement;
-    netIncreaseRow.prior = priorMovement;
-  }
-
-  if (workingCapitalRow) {
-    workingCapitalRow.current = currentMovement - profitCurrent - nonCashCurrent;
-    workingCapitalRow.prior = priorMovement - profitPrior - nonCashPrior;
-  }
-
-  if (generatedRow) {
-    generatedRow.current = currentMovement;
-    generatedRow.prior = priorMovement;
-  }
-
-  if (netOperatingRow) {
-    netOperatingRow.current = currentMovement;
-    netOperatingRow.prior = priorMovement;
-  }
-
-  return rows;
-}, [cashFlowRows, cashNoteCurrent, cashNotePrior]);
-
-const detailedIncomeRows = useMemo(
+  const detailedIncomeRows = useMemo(
   () => cleanDetailedIncomeRowsForReport(statementEngine.detailedIncomeRows || []),
   [statementEngine.detailedIncomeRows],
 );
+
   const noteData = statementEngine.noteData;
+
+  const structuredNoteData = useMemo(() => {
+    const cashOperationsLines = [
+      {
+        id: "cash-note-profit-before-tax",
+        label: "Profit / (loss) before taxation",
+        current: cashFlowTotals.profitBeforeTax,
+        prior: cashFlowTotals.priorProfitBeforeTax,
+      },
+      {
+        id: "cash-note-non-cash",
+        label: "Adjustments for non-cash and other items",
+        current: cashFlowTotals.nonCashCurrent,
+        prior: cashFlowTotals.nonCashPrior,
+      },
+      {
+        id: "cash-note-inventories",
+        label: "Decrease / (increase) in inventories",
+        current: cashFlowTotals.inventoryMovementCurrent,
+        prior: cashFlowTotals.inventoryMovementPrior,
+      },
+      {
+        id: "cash-note-receivables",
+        label: "Decrease / (increase) in trade and other receivables",
+        current: cashFlowTotals.receivablesMovementCurrent,
+        prior: cashFlowTotals.receivablesMovementPrior,
+      },
+      {
+        id: "cash-note-payables",
+        label: "Increase / (decrease) in trade and other payables",
+        current: cashFlowTotals.payablesMovementCurrent,
+        prior: cashFlowTotals.payablesMovementPrior,
+      },
+    ];
+
+    return {
+      ...noteData,
+      cashUsedInOperations: cashOperationsLines,
+    };
+  }, [noteData, cashFlowTotals]);
+
   const engineChecks = statementEngine.checks;
 
   const sections: AfsStudioSection[] = [
@@ -3308,7 +3564,7 @@ const detailedIncomeRows = useMemo(
                   toggleReportOption={(key: string, checked: boolean) =>
                     toggleReportOption(key as keyof ReportOptions, checked)
                   }
-                  noteData={noteData as any}
+                  noteData={structuredNoteData as any}
                   trialBalanceLines={trialBalanceLines}
                   clientSetup={clientSetup}
                   currentHeading={currentHeading}
