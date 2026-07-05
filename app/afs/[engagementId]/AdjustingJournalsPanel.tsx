@@ -448,11 +448,10 @@ export default function AdjustingJournalsPanel({
 
       savePostedJournals(posted.filter((item) => item.id !== journal.id));
 
-      if (updatedTrialBalanceLines.length) {
+            if (updatedTrialBalanceLines.length) {
         upsertTrialBalanceLines(updatedTrialBalanceLines);
       }
 
-      await onDataChanged?.();
       await loadPostedJournals();
     } catch (error: any) {
       alert(error.message || "Failed to delete journal.");
