@@ -150,6 +150,7 @@ export default function AdjustingJournalsPanel({
   const [showCreateAccountPopup, setShowCreateAccountPopup] = useState(false);
   const [creatingAccount, setCreatingAccount] = useState(false);
   const [accountError, setAccountError] = useState("");
+  const [accountSearch, setAccountSearch] = useState("");
 
   const storageKey = useMemo(() => {
     const key = engagementId || (typeof window === "undefined" ? "unknown" : window.location.pathname);
@@ -272,6 +273,20 @@ export default function AdjustingJournalsPanel({
       .sort((a, b) => a.code.localeCompare(b.code));
   }, [trialBalanceLines, customAccounts]);
 
+  const filteredAccountOptions = useMemo(() => {
+    const query = clean(accountSearch).toLowerCase();
+
+    if (!query) return accountOptions;
+
+    return accountOptions.filter((option) => {
+      return (
+        option.code.toLowerCase().includes(query) ||
+        option.name.toLowerCase().includes(query) ||
+        option.label.toLowerCase().includes(query)
+      );
+    });
+  }, [accountOptions, accountSearch]);
+
   function upsertTrialBalanceLines(updatedLines: TrialBalanceLine[]) {
     if (!updatedLines.length) return;
 
@@ -299,6 +314,12 @@ export default function AdjustingJournalsPanel({
   function selectedAccountLabel(key: string) {
     if (!key) return "Select account...";
     return accountOptions.find((option) => option.key === key)?.label || key;
+  }
+
+  function selectAccountForLine(lineId: string, accountKeyValue: string) {
+    updateLine(lineId, { accountKey: accountKeyValue });
+    setShowAccountPickerForLineId(null);
+    setAccountSearch("");
   }
 
   async function createAccount() {
@@ -345,21 +366,17 @@ export default function AdjustingJournalsPanel({
         return next;
       });
 
-      onAccountCreated?.(created);
+      upsertTrialBalanceLines([created]);
 
       if (showAccountPickerForLineId) {
         const createdKey = accountKey(created, trialBalanceLines.length + customAccounts.length);
-
-        updateLine(showAccountPickerForLineId, {
-          accountKey: createdKey,
-        });
-
-        setShowAccountPickerForLineId(null);
+        selectAccountForLine(showAccountPickerForLineId, createdKey);
       }
 
       setNewAccountCode("");
       setNewAccountName("");
       setShowCreateAccountPopup(false);
+      setAccountSearch("");
     } catch (error: any) {
       setAccountError(error?.message || "Failed to create account.");
     } finally {
@@ -619,7 +636,14 @@ export default function AdjustingJournalsPanel({
                 {lines.map((line) => (
                   <tr key={line.id}>
                     <td style={styles.td}>
-                      <button type="button" style={styles.accountPickButton} onClick={() => setShowAccountPickerForLineId(line.id)}>
+                      <button
+                        type="button"
+                        style={styles.accountPickButton}
+                        onClick={() => {
+                          setAccountSearch("");
+                          setShowAccountPickerForLineId(line.id);
+                        }}
+                      >
                         {selectedAccountLabel(line.accountKey)}
                       </button>
                     </td>
@@ -723,9 +747,25 @@ export default function AdjustingJournalsPanel({
           <div style={styles.accountPickerCard}>
             <div style={styles.modalHeader}>
               <h3 style={styles.panelTitle}>Select account</h3>
-              <button type="button" style={styles.linkButton} onClick={() => setShowAccountPickerForLineId(null)}>Close</button>
+              <button
+                type="button"
+                style={styles.linkButton}
+                onClick={() => {
+                  setShowAccountPickerForLineId(null);
+                  setAccountSearch("");
+                }}
+              >
+                Close
+              </button>
             </div>
             <div style={styles.accountPickerActions}>
+              <input
+                value={accountSearch}
+                onChange={(event) => setAccountSearch(event.target.value)}
+                placeholder="Search account number or name..."
+                style={styles.accountSearchInput}
+                autoFocus
+              />
               <button type="button" style={styles.primaryButton} onClick={() => setShowCreateAccountPopup(true)}>Add new account</button>
             </div>
             <div style={styles.accountPickerTableWrap}>
@@ -734,36 +774,27 @@ export default function AdjustingJournalsPanel({
                   <tr>
                     <th style={styles.accountCodeTh}>Account no.</th>
                     <th style={styles.accountNameTh}>Account name</th>
-                    <th style={styles.accountActionTh}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {accountOptions.map((option) => (
+                  {filteredAccountOptions.map((option) => (
                     <tr
                       key={option.key}
                       style={styles.accountPickerRow}
-                      onClick={() => {
-                        updateLine(showAccountPickerForLineId, { accountKey: option.key });
-                        setShowAccountPickerForLineId(null);
-                      }}
+                      onClick={() => selectAccountForLine(showAccountPickerForLineId, option.key)}
                     >
                       <td style={styles.accountCodeTd}>{option.code}</td>
                       <td style={styles.accountNameTd}>{option.name}</td>
-                      <td style={styles.accountActionTd}>
-                        <button
-                          type="button"
-                          style={styles.secondaryButtonSmall}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            updateLine(showAccountPickerForLineId, { accountKey: option.key });
-                            setShowAccountPickerForLineId(null);
-                          }}
-                        >
-                          Use
-                        </button>
-                      </td>
                     </tr>
                   ))}
+
+                  {filteredAccountOptions.length === 0 ? (
+                    <tr>
+                      <td style={styles.accountNameTd} colSpan={2}>
+                        No matching accounts. Use “Add new account” to create it.
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
