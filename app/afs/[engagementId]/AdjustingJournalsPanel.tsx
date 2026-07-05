@@ -348,9 +348,12 @@ export default function AdjustingJournalsPanel({
       onAccountCreated?.(created);
 
       if (showAccountPickerForLineId) {
+        const createdKey = accountKey(created, trialBalanceLines.length + customAccounts.length);
+
         updateLine(showAccountPickerForLineId, {
-          accountKey: accountKey(created, trialBalanceLines.length + customAccounts.length),
+          accountKey: createdKey,
         });
+
         setShowAccountPickerForLineId(null);
       }
 
@@ -448,7 +451,7 @@ export default function AdjustingJournalsPanel({
 
       savePostedJournals(posted.filter((item) => item.id !== journal.id));
 
-            if (updatedTrialBalanceLines.length) {
+      if (updatedTrialBalanceLines.length) {
         upsertTrialBalanceLines(updatedTrialBalanceLines);
       }
 
@@ -560,7 +563,6 @@ export default function AdjustingJournalsPanel({
       if (updatedTrialBalanceLines.length) upsertTrialBalanceLines(updatedTrialBalanceLines);
 
       clearDraft();
-      await onDataChanged?.();
 
       if (engagementId) {
         await loadPostedJournals();
