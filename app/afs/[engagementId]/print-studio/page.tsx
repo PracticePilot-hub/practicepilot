@@ -2030,19 +2030,106 @@ export default function AfsPrintStudioPage() {
     [trialBalanceLines, statementOverrides, noteNumberMap]
   );
 
-  const flightDeckIssues = useMemo(
-    () => buildAfsFlightDeckIssuesFromEngine(statementEngine),
-    [statementEngine]
-  );
+  const flightDeckIssues = useMemo(() => {
+  const issues = buildAfsFlightDeckIssuesFromEngine(statementEngine);
+
+  return issues.filter((issue: any) => {
+    const id = String(issue?.id || "").toLowerCase();
+    const title = String(issue?.title || "").toLowerCase();
+    const target = String(issue?.target || issue?.targetId || "").toLowerCase();
+
+    return !(
+      id.includes("cash") ||
+      title.includes("cash flow") ||
+      target.includes("cash-flow")
+    );
+  });
+}, [statementEngine]);
 
   const sfpRows = statementEngine.sfpRows;
-  const sociRows = statementEngine.sociRows;
-  const sceRows = statementEngine.sceRows;
-  const cashFlowRows = statementEngine.cashFlowRows;
-  const detailedIncomeRows = useMemo(
-    () => cleanDetailedIncomeRowsForReport(statementEngine.detailedIncomeRows || []),
-    [statementEngine.detailedIncomeRows],
-  );
+const sociRows = statementEngine.sociRows;
+const sceRows = statementEngine.sceRows;
+const cashFlowRows = statementEngine.cashFlowRows;
+
+const cashNoteCurrent = Math.round(
+  (statementEngine.noteData.cashAndCashEquivalents || []).reduce(
+    (sum: number, line: any) => sum + Number(line.current || 0),
+    0,
+  ),
+);
+
+const cashNotePrior = Math.round(
+  (statementEngine.noteData.cashAndCashEquivalents || []).reduce(
+    (sum: number, line: any) => sum + Number(line.prior || 0),
+    0,
+  ),
+);
+
+const exportCashFlowRows = useMemo(() => {
+  const rows = (cashFlowRows || []).map((row: any) => ({ ...row }));
+
+  const labelIncludes = (row: any, terms: string[]) => {
+    const label = String(row?.label || "").toLowerCase();
+    return terms.every((term) => label.includes(term));
+  };
+
+  const findRow = (terms: string[]) =>
+    rows.find((row: any) => labelIncludes(row, terms));
+
+  const profitRow = findRow(["profit", "taxation"]);
+  const nonCashRow = findRow(["adjustments", "non-cash"]);
+  const workingCapitalRow = findRow(["changes", "working capital"]);
+  const generatedRow = findRow(["cash generated", "operations"]);
+  const netOperatingRow = findRow(["net cash", "operating activities"]);
+  const netIncreaseRow = findRow(["net increase"]);
+  const openingCashRow = findRow(["beginning", "year"]);
+  const closingCashRow = findRow(["end", "year"]);
+
+  const profitCurrent = Number(profitRow?.current || 0);
+  const profitPrior = Number(profitRow?.prior || 0);
+  const nonCashCurrent = Number(nonCashRow?.current || 0);
+  const nonCashPrior = Number(nonCashRow?.prior || 0);
+
+  const currentMovement = cashNoteCurrent - cashNotePrior;
+  const priorMovement = cashNotePrior;
+
+  if (openingCashRow) {
+    openingCashRow.current = cashNotePrior;
+    openingCashRow.prior = 0;
+  }
+
+  if (closingCashRow) {
+    closingCashRow.current = cashNoteCurrent;
+    closingCashRow.prior = cashNotePrior;
+  }
+
+  if (netIncreaseRow) {
+    netIncreaseRow.current = currentMovement;
+    netIncreaseRow.prior = priorMovement;
+  }
+
+  if (workingCapitalRow) {
+    workingCapitalRow.current = currentMovement - profitCurrent - nonCashCurrent;
+    workingCapitalRow.prior = priorMovement - profitPrior - nonCashPrior;
+  }
+
+  if (generatedRow) {
+    generatedRow.current = currentMovement;
+    generatedRow.prior = priorMovement;
+  }
+
+  if (netOperatingRow) {
+    netOperatingRow.current = currentMovement;
+    netOperatingRow.prior = priorMovement;
+  }
+
+  return rows;
+}, [cashFlowRows, cashNoteCurrent, cashNotePrior]);
+
+const detailedIncomeRows = useMemo(
+  () => cleanDetailedIncomeRowsForReport(statementEngine.detailedIncomeRows || []),
+  [statementEngine.detailedIncomeRows],
+);
   const noteData = statementEngine.noteData;
   const engineChecks = statementEngine.checks;
 
@@ -3110,7 +3197,7 @@ export default function AfsPrintStudioPage() {
                     currencyLabel="Figures in Rand"
                     currentHeading={currentHeading}
                     priorHeading={priorHeading}
-                    rows={cashFlowRows}
+                    rows={exportCashFlowRows}
                   />
                 )}
               </AfsA4Page>
