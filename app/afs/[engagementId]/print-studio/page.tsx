@@ -2047,25 +2047,25 @@ export default function AfsPrintStudioPage() {
 }, [statementEngine]);
 
   const sfpRows = statementEngine.sfpRows;
-  const sociRows = statementEngine.sociRows;
-  const sceRows = statementEngine.sceRows;
-  const cashFlowRows = statementEngine.cashFlowRows;
+const sociRows = statementEngine.sociRows;
+const sceRows = statementEngine.sceRows;
+const cashFlowRows = statementEngine.cashFlowRows;
 
-  const cashNoteCurrent = Math.round(
+const cashNoteCurrent = Math.round(
   (statementEngine.noteData.cashAndCashEquivalents || []).reduce(
     (sum: number, line: any) => sum + Number(line.current || 0),
     0,
   ),
 );
 
-  const cashNotePrior = Math.round(
+const cashNotePrior = Math.round(
   (statementEngine.noteData.cashAndCashEquivalents || []).reduce(
     (sum: number, line: any) => sum + Number(line.prior || 0),
     0,
   ),
 );
 
-  const cashFlowTotals = useMemo(() => {
+const cashFlowTotals = useMemo(() => {
   const noteData = statementEngine.noteData || {};
 
   const noteTotal = (key: string, side: "current" | "prior") =>
@@ -2193,7 +2193,7 @@ export default function AfsPrintStudioPage() {
   };
 }, [statementEngine.noteData, sociRows, cashNoteCurrent, cashNotePrior]);
 
-  const exportCashFlowRows = useMemo<AfsStatementRow[]>(() => {
+const exportCashFlowRows = useMemo<AfsStatementRow[]>(() => {
   const t = cashFlowTotals;
 
   return [
@@ -2302,7 +2302,7 @@ export default function AfsPrintStudioPage() {
     },
     {
       id: "cf-financing-loans",
-      label: "Loans raised / (repaid)",
+      label: "Shareholder loans raised / (repaid)",
       current: t.financingCurrent,
       prior: t.financingPrior,
       type: "line",
@@ -2340,53 +2340,11 @@ export default function AfsPrintStudioPage() {
   ];
 }, [cashFlowTotals]);
 
-  const detailedIncomeRows = useMemo(
+const detailedIncomeRows = useMemo(
   () => cleanDetailedIncomeRowsForReport(statementEngine.detailedIncomeRows || []),
   [statementEngine.detailedIncomeRows],
 );
-
   const noteData = statementEngine.noteData;
-
-  const structuredNoteData = useMemo(() => {
-    const cashOperationsLines = [
-      {
-        id: "cash-note-profit-before-tax",
-        label: "Profit / (loss) before taxation",
-        current: cashFlowTotals.profitBeforeTax,
-        prior: cashFlowTotals.priorProfitBeforeTax,
-      },
-      {
-        id: "cash-note-non-cash",
-        label: "Adjustments for non-cash and other items",
-        current: cashFlowTotals.nonCashCurrent,
-        prior: cashFlowTotals.nonCashPrior,
-      },
-      {
-        id: "cash-note-inventories",
-        label: "Decrease / (increase) in inventories",
-        current: cashFlowTotals.inventoryMovementCurrent,
-        prior: cashFlowTotals.inventoryMovementPrior,
-      },
-      {
-        id: "cash-note-receivables",
-        label: "Decrease / (increase) in trade and other receivables",
-        current: cashFlowTotals.receivablesMovementCurrent,
-        prior: cashFlowTotals.receivablesMovementPrior,
-      },
-      {
-        id: "cash-note-payables",
-        label: "Increase / (decrease) in trade and other payables",
-        current: cashFlowTotals.payablesMovementCurrent,
-        prior: cashFlowTotals.payablesMovementPrior,
-      },
-    ];
-
-    return {
-      ...noteData,
-      cashUsedInOperations: cashOperationsLines,
-    };
-  }, [noteData, cashFlowTotals]);
-
   const engineChecks = statementEngine.checks;
 
   const sections: AfsStudioSection[] = [
@@ -3440,12 +3398,49 @@ export default function AfsPrintStudioPage() {
                     <p style={{ margin: "0 0 10px", color: "#64748b", lineHeight: 1.4 }}>
                       Complete the current and prior year cash flow fields below. The printable cash flow statement is shown in AFS view.
                     </p>
-                    <AfsStatementOverrideSettings
-                      mode="cashFlow"
-                      overrides={statementOverrides}
-                      onChange={updateStatementOverride}
-                      engineChecks={engineChecks}
-                    />
+                    <div style={{ marginBottom: 14 }}>
+                      <AfsStatementTable
+                        title="Calculated cash flow pulled to AFS view"
+                        currencyLabel="Figures in Rand"
+                        currentHeading={currentHeading}
+                        priorHeading={priorHeading}
+                        rows={exportCashFlowRows}
+                      />
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop: 12,
+                        paddingTop: 10,
+                        borderTop: "1px solid #cbd5e1",
+                      }}
+                    >
+                      <h2
+                        style={{
+                          margin: "0 0 6px",
+                          fontSize: 11,
+                          fontWeight: 900,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Manual override fields
+                      </h2>
+                      <p
+                        style={{
+                          margin: "0 0 8px",
+                          color: "#64748b",
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        These yellow fields are only for manual override/capture where the calculated cash flow needs adjustment.
+                      </p>
+                      <AfsStatementOverrideSettings
+                        mode="cashFlow"
+                        overrides={statementOverrides}
+                        onChange={updateStatementOverride}
+                        engineChecks={engineChecks}
+                      />
+                    </div>
                   </section>
                 ) : (
                   <AfsStatementTable
@@ -3564,7 +3559,7 @@ export default function AfsPrintStudioPage() {
                   toggleReportOption={(key: string, checked: boolean) =>
                     toggleReportOption(key as keyof ReportOptions, checked)
                   }
-                  noteData={structuredNoteData as any}
+                  noteData={noteData as any}
                   trialBalanceLines={trialBalanceLines}
                   clientSetup={clientSetup}
                   currentHeading={currentHeading}
