@@ -308,7 +308,15 @@ function canonicalFromMapping(line: AfsEngineTrialBalanceLine): CanonicalBucket 
     return { statement: "profitLoss", noteKey: "financeCosts", plGroup: "financeCosts" };
   }
 
-  if (includesAny(text, ["tax expense", "income tax expense", "taxation"])) {
+  if (includesAny(text, ["current tax receivable", "income tax receivable", "tax receivable", "deferred tax asset"])) {
+    return { statement: "currentAsset", noteKey: "currentTaxReceivable" };
+  }
+
+  if (includesAny(text, ["current tax payable", "income tax payable", "tax payable", "deferred tax liability"])) {
+    return { statement: "currentLiability", noteKey: "currentTaxPayable" };
+  }
+
+  if (includesAny(text, ["tax expense", "income tax expense", "taxation", "normal tax"])) {
     return { statement: "profitLoss", noteKey: "taxation", plGroup: "taxation" };
   }
 
@@ -444,10 +452,13 @@ function normaliseAmount(line: AfsEngineTrialBalanceLine, amount: number, canoni
   if (
     canonical.plGroup === "costOfSales" ||
     canonical.plGroup === "operatingExpenses" ||
-    canonical.plGroup === "financeCosts" ||
-    canonical.plGroup === "taxation"
+    canonical.plGroup === "financeCosts"
   ) {
     return -Math.abs(amount);
+  }
+
+  if (canonical.plGroup === "taxation") {
+    return -amount;
   }
 
   return amount;
@@ -650,11 +661,16 @@ function detailedRowsFromLines(lines: AfsEngineTrialBalanceLine[]) {
 
   const revenueTotal = sum(buckets.revenue);
   const costOfSalesTotal = sum(buckets.costOfSales);
+  const gross = {
+    current: revenueTotal.current + costOfSalesTotal.current,
+    prior: revenueTotal.prior + costOfSalesTotal.prior,
+  };
+
   rows.push({
     id: "gross-profit",
     label: "Gross profit / (loss)",
-    current: Math.round(revenueTotal.current + costOfSalesTotal.current),
-    prior: Math.round(revenueTotal.prior + costOfSalesTotal.prior),
+    current: Math.round(gross.current),
+    prior: Math.round(gross.prior),
     type: "grand-total",
   });
 
@@ -668,26 +684,42 @@ function detailedRowsFromLines(lines: AfsEngineTrialBalanceLine[]) {
   pushGroup("finance-costs", "Finance costs", buckets.financeCosts, {
     subtotalLabel: "Total finance costs",
   });
+
+  const otherIncomeTotal = sum(buckets.otherIncome);
+  const operatingExpensesTotal = sum(buckets.operatingExpenses);
+  const financeCostsTotal = sum(buckets.financeCosts);
+  const beforeTax = {
+    current:
+      gross.current +
+      otherIncomeTotal.current +
+      operatingExpensesTotal.current +
+      financeCostsTotal.current,
+    prior:
+      gross.prior +
+      otherIncomeTotal.prior +
+      operatingExpensesTotal.prior +
+      financeCostsTotal.prior,
+  };
+
+  rows.push({
+    id: "profit-before-tax",
+    label: "Profit / (loss) before taxation",
+    current: Math.round(beforeTax.current),
+    prior: Math.round(beforeTax.prior),
+    type: "grand-total",
+  });
+
   pushGroup("taxation", "Taxation", buckets.taxation, {
     subtotalLabel: "Total taxation",
   });
 
-  const total = rows.reduce(
-    (sum, row) =>
-      row.type === "line"
-        ? {
-            current: sum.current + Number(row.current || 0),
-            prior: sum.prior + Number(row.prior || 0),
-          }
-        : sum,
-    { current: 0, prior: 0 }
-  );
+  const taxationTotal = sum(buckets.taxation);
 
   rows.push({
     id: "detailed-total",
     label: "Profit / (loss) for the year",
-    current: Math.round(total.current),
-    prior: Math.round(total.prior),
+    current: Math.round(beforeTax.current + taxationTotal.current),
+    prior: Math.round(beforeTax.prior + taxationTotal.prior),
     type: "grand-total",
   });
 
@@ -1043,26 +1075,90 @@ export function buildAfsPrintStatementEngine(
     { id: "sce-total-equity", label: "Total equity at end of year", current: Math.round(sceCurrentTotal), prior: null, type: "grand-total" },
   ];
 
-  const cashBucketTotal = sumBuckets(
-    currentAssets.filter((item) => item.note === noteNumbers.cashAndCashEquivalents)
+  function roundedBucketTotal(items: StatementBucket[]) {
+    return Math.round(sumBuckets(items).current);
+  }
+
+  function roundedBucketPrior(items: StatementBucket[]) {
+    return Math.round(sumBuckets(items).prior);
+  }
+
+  const cashBuckets = currentAssets.filter(
+    (item) => item.note === noteNumbers.cashAndCashEquivalents
+  );
+  const inventoryBuckets = currentAssets.filter(
+    (item) => item.note === noteNumbers.inventories
+  );
+  const tradeReceivableBuckets = currentAssets.filter(
+    (item) => item.note === noteNumbers.tradeReceivables
+  );
+  const currentTaxReceivableBuckets = currentAssets.filter(
+    (item) => item.note === noteNumbers.currentTaxReceivable
+  );
+  const ppeBuckets = nonCurrentAssets.filter(
+    (item) => item.note === noteNumbers.propertyPlantEquipment
+  );
+  const goodwillBuckets = nonCurrentAssets.filter(
+    (item) => item.note === noteNumbers.goodwill
+  );
+  const loansReceivableBuckets = nonCurrentAssets.filter(
+    (item) => item.note === noteNumbers.loansReceivable
   );
 
-  const calculatedCashOpening = cashBucketTotal.prior;
+  const shareCapitalBuckets = equity.filter(
+    (item) => item.note === noteNumbers.shareCapital
+  );
+  const shareholdersLoanBuckets = nonCurrentLiabilities.filter(
+    (item) => item.note === noteNumbers.shareholdersLoans
+  );
+  const otherFinancialLiabilityBuckets = nonCurrentLiabilities.filter(
+    (item) => item.note === noteNumbers.otherFinancialLiabilities
+  );
+  const tradePayableBuckets = currentLiabilities.filter(
+    (item) => item.note === noteNumbers.tradePayables
+  );
+  const currentTaxPayableBuckets = currentLiabilities.filter(
+    (item) => item.note === noteNumbers.currentTaxPayable
+  );
+
+  const cashClosingFromSfp = roundedBucketTotal(cashBuckets);
+  const calculatedCashOpening = roundedBucketPrior(cashBuckets);
   const cashOpening = overrideAmount(
     overrides,
     "cashOpeningBalance",
     calculatedCashOpening
   );
-  const cashClosingFromSfp = cashBucketTotal.current;
   const cashMovementFromSfp = cashClosingFromSfp - cashOpening;
 
   const priorCashOpening = overrideAmount(overrides, "cashPriorOpeningBalance", 0);
-  const priorCashClosingFromSfp = cashBucketTotal.prior;
+  const priorCashClosingFromSfp = roundedBucketPrior(cashBuckets);
 
   const adjustmentsCurrent = overrideAmount(overrides, "cashAdjustmentsToProfitCurrent", 0);
   const adjustmentsPrior = overrideAmount(overrides, "cashAdjustmentsToProfitPrior", 0);
-  const workingCapitalCurrent = overrideAmount(overrides, "cashWorkingCapitalCurrent", 0);
-  const workingCapitalPrior = overrideAmount(overrides, "cashWorkingCapitalPrior", 0);
+
+  const inventoryMovementCurrent =
+    roundedBucketPrior(inventoryBuckets) - roundedBucketTotal(inventoryBuckets);
+  const inventoryMovementPrior = 0 - roundedBucketPrior(inventoryBuckets);
+
+  const tradeReceivableMovementCurrent =
+    roundedBucketPrior(tradeReceivableBuckets) - roundedBucketTotal(tradeReceivableBuckets);
+  const tradeReceivableMovementPrior = 0 - roundedBucketPrior(tradeReceivableBuckets);
+
+  const tradePayableMovementCurrent =
+    roundedBucketTotal(tradePayableBuckets) - roundedBucketPrior(tradePayableBuckets);
+  const tradePayableMovementPrior = roundedBucketPrior(tradePayableBuckets);
+
+  const workingCapitalCurrent = overrideAmount(
+    overrides,
+    "cashWorkingCapitalCurrent",
+    inventoryMovementCurrent + tradeReceivableMovementCurrent + tradePayableMovementCurrent
+  );
+  const workingCapitalPrior = overrideAmount(
+    overrides,
+    "cashWorkingCapitalPrior",
+    inventoryMovementPrior + tradeReceivableMovementPrior + tradePayableMovementPrior
+  );
+
   const interestReceivedCurrent = overrideAmount(overrides, "cashInterestReceivedCurrent", 0);
   const interestReceivedPrior = overrideAmount(overrides, "cashInterestReceivedPrior", 0);
   const financeCostsPaidCurrent = overrideAmount(overrides, "cashFinanceCostsPaidCurrent", 0);
@@ -1078,11 +1174,22 @@ export function buildAfsPrintStatementEngine(
   const otherOperatingTotalCurrent = otherOperatingCurrent + otherOperating2Current + otherOperating3Current;
   const otherOperatingTotalPrior = otherOperatingPrior + otherOperating2Prior + otherOperating3Prior;
 
-  const purchaseOfPpeCurrent = overrideAmount(overrides, "cashPurchaseOfPpeCurrent", 0);
+  const purchaseOfPpeCurrent = overrideAmount(
+    overrides,
+    "cashPurchaseOfPpeCurrent",
+    roundedBucketPrior(ppeBuckets) - roundedBucketTotal(ppeBuckets)
+  );
   const purchaseOfPpePrior = overrideAmount(overrides, "cashPurchaseOfPpePrior", 0);
   const proceedsOnDisposalPpeCurrent = overrideAmount(overrides, "cashProceedsOnDisposalPpeCurrent", 0);
   const proceedsOnDisposalPpePrior = overrideAmount(overrides, "cashProceedsOnDisposalPpePrior", 0);
-  const otherInvestingCurrent = overrideAmount(overrides, "cashOtherInvestingCurrent", 0);
+  const otherInvestingCurrent = overrideAmount(
+    overrides,
+    "cashOtherInvestingCurrent",
+    roundedBucketPrior(goodwillBuckets) -
+      roundedBucketTotal(goodwillBuckets) +
+      roundedBucketPrior(loansReceivableBuckets) -
+      roundedBucketTotal(loansReceivableBuckets)
+  );
   const otherInvestingPrior = overrideAmount(overrides, "cashOtherInvestingPrior", 0);
   const otherInvesting2Current = overrideAmount(overrides, "cashOtherInvesting2Current", 0);
   const otherInvesting2Prior = overrideAmount(overrides, "cashOtherInvesting2Prior", 0);
@@ -1091,14 +1198,43 @@ export function buildAfsPrintStatementEngine(
   const otherInvestingTotalCurrent = otherInvestingCurrent + otherInvesting2Current + otherInvesting3Current;
   const otherInvestingTotalPrior = otherInvestingPrior + otherInvesting2Prior + otherInvesting3Prior;
 
-  const loansRaisedCurrent = overrideAmount(overrides, "cashLoansRaisedCurrent", 0);
-  const loansRaisedPrior = overrideAmount(overrides, "cashLoansRaisedPrior", 0);
+  const shareCapitalMovementCurrent =
+    roundedBucketTotal(shareCapitalBuckets) - roundedBucketPrior(shareCapitalBuckets);
+  const shareCapitalMovementPrior = roundedBucketPrior(shareCapitalBuckets);
+
+  const shareholdersLoanMovementCurrent =
+    roundedBucketTotal(shareholdersLoanBuckets) - roundedBucketPrior(shareholdersLoanBuckets);
+  const shareholdersLoanMovementPrior = roundedBucketPrior(shareholdersLoanBuckets);
+
+  const otherFinancialLiabilityMovementCurrent =
+    roundedBucketTotal(otherFinancialLiabilityBuckets) -
+    roundedBucketPrior(otherFinancialLiabilityBuckets);
+  const otherFinancialLiabilityMovementPrior = roundedBucketPrior(otherFinancialLiabilityBuckets);
+
+  const loansRaisedCurrent = overrideAmount(
+    overrides,
+    "cashLoansRaisedCurrent",
+    shareholdersLoanMovementCurrent
+  );
+  const loansRaisedPrior = overrideAmount(
+    overrides,
+    "cashLoansRaisedPrior",
+    shareholdersLoanMovementPrior
+  );
   const loansRepaidCurrent = overrideAmount(overrides, "cashLoansRepaidCurrent", 0);
   const loansRepaidPrior = overrideAmount(overrides, "cashLoansRepaidPrior", 0);
   const dividendsPaidCurrent = overrideAmount(overrides, "cashDividendsPaidCurrent", 0);
   const dividendsPaidPrior = overrideAmount(overrides, "cashDividendsPaidPrior", 0);
-  const otherFinancingCurrent = overrideAmount(overrides, "cashOtherFinancingCurrent", 0);
-  const otherFinancingPrior = overrideAmount(overrides, "cashOtherFinancingPrior", 0);
+  const otherFinancingCurrent = overrideAmount(
+    overrides,
+    "cashOtherFinancingCurrent",
+    shareCapitalMovementCurrent + otherFinancialLiabilityMovementCurrent
+  );
+  const otherFinancingPrior = overrideAmount(
+    overrides,
+    "cashOtherFinancingPrior",
+    shareCapitalMovementPrior + otherFinancialLiabilityMovementPrior
+  );
   const otherFinancing2Current = overrideAmount(overrides, "cashOtherFinancing2Current", 0);
   const otherFinancing2Prior = overrideAmount(overrides, "cashOtherFinancing2Prior", 0);
   const otherFinancing3Current = overrideAmount(overrides, "cashOtherFinancing3Current", 0);
@@ -1165,10 +1301,24 @@ export function buildAfsPrintStatementEngine(
       type: "line",
     },
     {
-      id: "cfs-working-capital",
-      label: "Changes in working capital",
-      current: Math.round(workingCapitalCurrent),
-      prior: Math.round(workingCapitalPrior),
+      id: "cfs-inventories",
+      label: "Decrease / (increase) in inventories",
+      current: Math.round(inventoryMovementCurrent),
+      prior: Math.round(inventoryMovementPrior),
+      type: "line",
+    },
+    {
+      id: "cfs-trade-receivables",
+      label: "Decrease / (increase) in trade and other receivables",
+      current: Math.round(tradeReceivableMovementCurrent),
+      prior: Math.round(tradeReceivableMovementPrior),
+      type: "line",
+    },
+    {
+      id: "cfs-trade-payables",
+      label: "Increase / (decrease) in trade and other payables",
+      current: Math.round(tradePayableMovementCurrent),
+      prior: Math.round(tradePayableMovementPrior),
       type: "line",
     },
     {
@@ -1245,16 +1395,9 @@ export function buildAfsPrintStatementEngine(
     { id: "cfs-financing", label: "Cash flows from financing activities", type: "section" },
     {
       id: "cfs-loans-raised",
-      label: "Loans raised / advances received",
-      current: Math.round(loansRaisedCurrent),
-      prior: Math.round(loansRaisedPrior),
-      type: "line",
-    },
-    {
-      id: "cfs-loans-repaid",
-      label: "Loans repaid / advances settled",
-      current: Math.round(loansRepaidCurrent),
-      prior: Math.round(loansRepaidPrior),
+      label: "Shareholder loans raised / (repaid)",
+      current: Math.round(loansRaisedCurrent + loansRepaidCurrent),
+      prior: Math.round(loansRaisedPrior + loansRepaidPrior),
       type: "line",
     },
     {
@@ -1340,28 +1483,28 @@ export function buildAfsPrintStatementEngine(
       prior: Math.round(adjustmentsPrior),
     },
     {
-      id: "working-capital",
-      label: "Changes in working capital",
-      current: Math.round(workingCapitalCurrent),
-      prior: Math.round(workingCapitalPrior),
+      id: "inventories",
+      label: "Decrease / (increase) in inventories",
+      current: Math.round(inventoryMovementCurrent),
+      prior: Math.round(inventoryMovementPrior),
+    },
+    {
+      id: "trade-receivables",
+      label: "Decrease / (increase) in trade and other receivables",
+      current: Math.round(tradeReceivableMovementCurrent),
+      prior: Math.round(tradeReceivableMovementPrior),
+    },
+    {
+      id: "trade-payables",
+      label: "Increase / (decrease) in trade and other payables",
+      current: Math.round(tradePayableMovementCurrent),
+      prior: Math.round(tradePayableMovementPrior),
     },
     {
       id: "cash-generated-operations",
       label: "Cash generated from / (used in) operations",
       current: Math.round(cashGeneratedFromOperationsCurrent),
       prior: Math.round(cashGeneratedFromOperationsPrior),
-    },
-    {
-      id: "net-operating-cash",
-      label: "Net cash from / (used in) operating activities",
-      current: Math.round(netOperatingCashCurrent),
-      prior: Math.round(netOperatingCashPrior),
-    },
-    {
-      id: "cash-movement",
-      label: "Net increase / (decrease) in cash and cash equivalents",
-      current: Math.round(cashMovementFromCashFlow),
-      prior: Math.round(cashMovementPriorFromCashFlow),
     },
   ];
 
