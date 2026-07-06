@@ -5185,7 +5185,7 @@ return (
       </div>
     ))}
 
-    {item.quoteFilePath && (item.quoteFiles || []).length === 0 && (
+    {item.quoteFilePath && (
       <button
         type="button"
         style={{
