@@ -2040,316 +2040,6 @@ export default function AfsPrintStudioPage() {
   const sceRows = statementEngine.sceRows;
   const cashFlowRows = statementEngine.cashFlowRows;
 
-  const cashNoteCurrent = Math.round(
-  (statementEngine.noteData.cashAndCashEquivalents || []).reduce(
-    (sum: number, line: any) => sum + Number(line.current || 0),
-    0,
-  ),
-);
-
-  const cashNotePrior = Math.round(
-  (statementEngine.noteData.cashAndCashEquivalents || []).reduce(
-    (sum: number, line: any) => sum + Number(line.prior || 0),
-    0,
-  ),
-);
-
-  const cashFlowTotals = useMemo(() => {
-  const noteData = statementEngine.noteData || {};
-
-  const noteTotal = (key: string, side: "current" | "prior") =>
-    Math.round(
-      ((noteData as any)[key] || []).reduce(
-        (sum: number, line: any) => sum + Number(line?.[side] || 0),
-        0,
-      ),
-    );
-
-  const movementAsset = (key: string) =>
-    noteTotal(key, "prior") - noteTotal(key, "current");
-
-  const movementLiability = (key: string) =>
-    noteTotal(key, "current") - noteTotal(key, "prior");
-
-  const profitBeforeTax = Math.round(
-    (sociRows || []).find((row: any) =>
-      String(row?.label || "").toLowerCase().includes("before taxation"),
-    )?.current || 0,
-  );
-
-  const priorProfitBeforeTax = Math.round(
-    (sociRows || []).find((row: any) =>
-      String(row?.label || "").toLowerCase().includes("before taxation"),
-    )?.prior || 0,
-  );
-
-  const nonCashCurrent = 0;
-  const nonCashPrior = 0;
-
-  const inventoryMovementCurrent = movementAsset("inventories");
-  const inventoryMovementPrior = 0 - noteTotal("inventories", "prior");
-
-  const receivablesMovementCurrent = movementAsset("tradeReceivables");
-  const receivablesMovementPrior = 0 - noteTotal("tradeReceivables", "prior");
-
-  const payablesMovementCurrent = movementLiability("tradePayables");
-  const payablesMovementPrior = noteTotal("tradePayables", "prior");
-
-  const workingCapitalCurrent =
-    inventoryMovementCurrent +
-    receivablesMovementCurrent +
-    payablesMovementCurrent;
-
-  const workingCapitalPrior =
-    inventoryMovementPrior +
-    receivablesMovementPrior +
-    payablesMovementPrior;
-
-  const cashGeneratedCurrent =
-    profitBeforeTax + nonCashCurrent + workingCapitalCurrent;
-
-  const cashGeneratedPrior =
-    priorProfitBeforeTax + nonCashPrior + workingCapitalPrior;
-
-  const investingCurrent =
-    movementAsset("propertyPlantEquipment") +
-    movementAsset("goodwill") +
-    movementAsset("investmentProperty") +
-    movementAsset("intangibleAssets") +
-    movementAsset("biologicalAssets") +
-    movementAsset("otherNonCurrentAssets") +
-    movementAsset("loansReceivable");
-
-  const investingPrior = 0;
-
-  const shareCapitalMovementCurrent = movementLiability("shareCapital");
-  const shareCapitalMovementPrior = 0;
-
-  const shareholderLoanMovementCurrent = movementLiability("shareholdersLoans");
-  const shareholderLoanMovementPrior = 0;
-
-  const otherFinancingMovementCurrent = movementLiability("otherFinancialLiabilities");
-  const otherFinancingMovementPrior = 0;
-
-  const financingCurrent =
-    shareCapitalMovementCurrent +
-    shareholderLoanMovementCurrent +
-    otherFinancingMovementCurrent;
-
-  const financingPrior =
-    shareCapitalMovementPrior +
-    shareholderLoanMovementPrior +
-    otherFinancingMovementPrior;
-
-  const netMovementCurrent =
-    cashGeneratedCurrent + investingCurrent + financingCurrent;
-
-  const netMovementPrior =
-    cashGeneratedPrior + investingPrior + financingPrior;
-
-  return {
-    cashCurrent: cashNoteCurrent,
-    cashPrior: cashNotePrior,
-
-    profitBeforeTax,
-    priorProfitBeforeTax,
-
-    nonCashCurrent,
-    nonCashPrior,
-
-    inventoryMovementCurrent,
-    inventoryMovementPrior,
-
-    receivablesMovementCurrent,
-    receivablesMovementPrior,
-
-    payablesMovementCurrent,
-    payablesMovementPrior,
-
-    workingCapitalCurrent,
-    workingCapitalPrior,
-
-    cashGeneratedCurrent,
-    cashGeneratedPrior,
-
-    investingCurrent,
-    investingPrior,
-
-    shareCapitalMovementCurrent,
-    shareCapitalMovementPrior,
-    shareholderLoanMovementCurrent,
-    shareholderLoanMovementPrior,
-    otherFinancingMovementCurrent,
-    otherFinancingMovementPrior,
-    financingCurrent,
-    financingPrior,
-
-    netMovementCurrent,
-    netMovementPrior,
-  };
-}, [statementEngine.noteData, sociRows, cashNoteCurrent, cashNotePrior]);
-
-  const exportCashFlowRows = useMemo<AfsStatementRow[]>(() => {
-  const t = cashFlowTotals;
-
-  return [
-    {
-      id: "cf-operating",
-      label: "Cash flows from operating activities",
-      type: "section",
-    },
-    {
-      id: "cf-profit-before-tax",
-      label: "Profit / (loss) before taxation",
-      current: t.profitBeforeTax,
-      prior: t.priorProfitBeforeTax,
-      type: "line",
-    },
-    {
-      id: "cf-non-cash",
-      label: "Adjustments for non-cash and other items",
-      current: t.nonCashCurrent,
-      prior: t.nonCashPrior,
-      type: "line",
-    },
-    {
-      id: "cf-inventories",
-      label: "Decrease / (increase) in inventories",
-      current: t.inventoryMovementCurrent,
-      prior: t.inventoryMovementPrior,
-      type: "line",
-    },
-    {
-      id: "cf-receivables",
-      label: "Decrease / (increase) in trade and other receivables",
-      current: t.receivablesMovementCurrent,
-      prior: t.receivablesMovementPrior,
-      type: "line",
-    },
-    {
-      id: "cf-payables",
-      label: "Increase / (decrease) in trade and other payables",
-      current: t.payablesMovementCurrent,
-      prior: t.payablesMovementPrior,
-      type: "line",
-    },
-    {
-      id: "cf-generated",
-      label: "Cash generated from / (used in) operations",
-      current: t.cashGeneratedCurrent,
-      prior: t.cashGeneratedPrior,
-      type: "subtotal",
-    },
-    {
-      id: "cf-interest-received",
-      label: "Interest received",
-      current: 0,
-      prior: 0,
-      type: "line",
-    },
-    {
-      id: "cf-finance-paid",
-      label: "Finance costs paid",
-      current: 0,
-      prior: 0,
-      type: "line",
-    },
-    {
-      id: "cf-tax-paid",
-      label: "Taxation paid",
-      current: 0,
-      prior: 0,
-      type: "line",
-    },
-    {
-      id: "cf-net-operating",
-      label: "Net cash from / (used in) operating activities",
-      current: t.cashGeneratedCurrent,
-      prior: t.cashGeneratedPrior,
-      type: "subtotal",
-    },
-    { id: "cf-space-1", type: "spacer" },
-
-    {
-      id: "cf-investing",
-      label: "Cash flows from investing activities",
-      type: "section",
-    },
-    {
-      id: "cf-investing-assets",
-      label: "Purchase of non-current assets",
-      current: t.investingCurrent,
-      prior: t.investingPrior,
-      type: "line",
-    },
-    {
-      id: "cf-net-investing",
-      label: "Net cash from / (used in) investing activities",
-      current: t.investingCurrent,
-      prior: t.investingPrior,
-      type: "subtotal",
-    },
-    { id: "cf-space-2", type: "spacer" },
-
-    {
-      id: "cf-financing",
-      label: "Cash flows from financing activities",
-      type: "section",
-    },
-    {
-      id: "cf-financing-share-capital",
-      label: "Share capital issued / (cancelled)",
-      current: t.shareCapitalMovementCurrent,
-      prior: t.shareCapitalMovementPrior,
-      type: "line",
-    },
-    {
-      id: "cf-financing-shareholder-loans",
-      label: "Shareholder loans raised / (repaid)",
-      current: t.shareholderLoanMovementCurrent,
-      prior: t.shareholderLoanMovementPrior,
-      type: "line",
-    },
-    {
-      id: "cf-financing-other",
-      label: "Other financing cash flows",
-      current: t.otherFinancingMovementCurrent,
-      prior: t.otherFinancingMovementPrior,
-      type: "line",
-    },
-    {
-      id: "cf-net-financing",
-      label: "Net cash from / (used in) financing activities",
-      current: t.financingCurrent,
-      prior: t.financingPrior,
-      type: "subtotal",
-    },
-    { id: "cf-space-3", type: "spacer" },
-
-    {
-      id: "cf-net-movement",
-      label: "Net increase / (decrease) in cash and cash equivalents",
-      current: t.netMovementCurrent,
-      prior: t.netMovementPrior,
-      type: "grand-total",
-    },
-    {
-      id: "cf-opening-cash",
-      label: "Cash and cash equivalents at beginning of year",
-      current: t.cashPrior,
-      prior: 0,
-      type: "line",
-    },
-    {
-      id: "cf-closing-cash",
-      label: "Cash and cash equivalents at end of year",
-      current: t.cashPrior + t.netMovementCurrent,
-      prior: t.netMovementPrior,
-      type: "grand-total",
-    },
-  ];
-}, [cashFlowTotals]);
-
   const detailedIncomeRows = useMemo(() => {
     const rows = cleanDetailedIncomeRowsForReport(statementEngine.detailedIncomeRows || []);
 
@@ -2388,52 +2078,6 @@ export default function AfsPrintStudioPage() {
   }, [statementEngine.detailedIncomeRows, sociRows]);
 
   const noteData = statementEngine.noteData;
-
-  const structuredNoteData = useMemo(() => {
-    return {
-      ...noteData,
-      currentTaxReceivable: (noteData.currentTaxReceivable || []).map((line: any) => ({
-        ...line,
-        label: line?.label || "Current tax receivable",
-      })),
-      taxation: (noteData.taxation || []).map((line: any) => ({
-        ...line,
-        label: line?.label || "Income tax expense / (credit)",
-      })),
-      cashUsedInOperations: [
-        {
-          id: "cash-note-profit-before-tax",
-          label: "Profit / (loss) before taxation",
-          current: cashFlowTotals.profitBeforeTax,
-          prior: cashFlowTotals.priorProfitBeforeTax,
-        },
-        {
-          id: "cash-note-non-cash",
-          label: "Adjustments for non-cash and other items",
-          current: cashFlowTotals.nonCashCurrent,
-          prior: cashFlowTotals.nonCashPrior,
-        },
-        {
-          id: "cash-note-inventories",
-          label: "Decrease / (increase) in inventories",
-          current: cashFlowTotals.inventoryMovementCurrent,
-          prior: cashFlowTotals.inventoryMovementPrior,
-        },
-        {
-          id: "cash-note-receivables",
-          label: "Decrease / (increase) in trade and other receivables",
-          current: cashFlowTotals.receivablesMovementCurrent,
-          prior: cashFlowTotals.receivablesMovementPrior,
-        },
-        {
-          id: "cash-note-payables",
-          label: "Increase / (decrease) in trade and other payables",
-          current: cashFlowTotals.payablesMovementCurrent,
-          prior: cashFlowTotals.payablesMovementPrior,
-        },
-      ],
-    };
-  }, [noteData, cashFlowTotals]);
 
   const engineChecks = statementEngine.checks;
 
@@ -3494,7 +3138,7 @@ export default function AfsPrintStudioPage() {
                         currencyLabel="Figures in Rand"
                         currentHeading={currentHeading}
                         priorHeading={priorHeading}
-                        rows={exportCashFlowRows}
+                        rows={cashFlowRows}
                       />
                     </div>
 
@@ -3538,7 +3182,7 @@ export default function AfsPrintStudioPage() {
                     currencyLabel="Figures in Rand"
                     currentHeading={currentHeading}
                     priorHeading={priorHeading}
-                    rows={exportCashFlowRows}
+                    rows={cashFlowRows}
                   />
                 )}
               </AfsA4Page>
@@ -3649,7 +3293,7 @@ export default function AfsPrintStudioPage() {
                   toggleReportOption={(key: string, checked: boolean) =>
                     toggleReportOption(key as keyof ReportOptions, checked)
                   }
-                  noteData={structuredNoteData as any}
+                  noteData={noteData as any}
                   trialBalanceLines={trialBalanceLines}
                   clientSetup={clientSetup}
                   currentHeading={currentHeading}
@@ -3685,9 +3329,10 @@ export default function AfsPrintStudioPage() {
                   <h1 style={pageHeadingStyle()}>Tax Computation</h1>
 
                   {(() => {
-                    const profitBeforeTax = Number(
-                      engineChecks.profitBeforeTax || 0
+                    const profitBeforeTax = Math.round(
+                      Number(engineChecks.profitBeforeTax || 0)
                     );
+
                     const taxRateRaw = getSetupValue(clientSetup, [
                       "tax_rate",
                       "income_tax_rate",
@@ -3696,6 +3341,7 @@ export default function AfsPrintStudioPage() {
                       "incomeTaxRate",
                       "companyTaxRate",
                     ]);
+
                     const assessedLossRaw = getSetupValue(clientSetup, [
                       "assessed_loss",
                       "assessed_loss_brought_forward",
@@ -3704,27 +3350,163 @@ export default function AfsPrintStudioPage() {
                     ]);
 
                     const taxRate = Number(taxRateRaw || 27);
-                    const assessedLoss = Number(assessedLossRaw || 0);
-                    const taxExpenseCurrent = Math.round(
-                      (structuredNoteData.taxation || []).reduce(
-                        (sum: number, line: any) => sum + Number(line.current || 0),
-                        0,
-                      ),
+                    const assessedLossBroughtForward = Math.abs(
+                      Number(assessedLossRaw || 0)
                     );
 
-                    const taxableIncomeBeforeLoss = profitBeforeTax;
-                    const taxableIncomeAfterLoss = taxableIncomeBeforeLoss - Math.abs(assessedLoss);
-                    const taxableIncome = Math.max(0, taxableIncomeAfterLoss);
-                    const normalTax = Math.round(taxableIncome * (taxRate / 100));
+                    const taxableIncomeBeforeAssessedLoss = profitBeforeTax;
+                    const taxableIncomeAfterAssessedLoss =
+                      taxableIncomeBeforeAssessedLoss -
+                      assessedLossBroughtForward;
 
-                    const rows: Array<[string, number]> = [
-                      ["Profit / (loss) before taxation", profitBeforeTax],
-                      ["Add back accounting tax expense / (credit)", -taxExpenseCurrent],
-                      ["Taxable income / (assessed loss) before assessed loss", taxableIncomeBeforeLoss],
-                      ["Assessed loss brought forward", -Math.abs(assessedLoss)],
-                      ["Taxable income", taxableIncome],
-                      [`Normal tax at ${taxRate}%`, normalTax],
+                    const taxableIncome = Math.max(
+                      0,
+                      taxableIncomeAfterAssessedLoss
+                    );
+
+                    const assessedLossCarriedForward = Math.max(
+                      0,
+                      -taxableIncomeAfterAssessedLoss
+                    );
+
+                    const normalTax = Math.round(
+                      taxableIncome * (taxRate / 100)
+                    );
+
+                    const currentTaxReceivable = Math.round(
+                      (noteData.currentTaxReceivable || []).reduce(
+                        (sum: number, line: any) =>
+                          sum + Number(line.current || 0),
+                        0,
+                      )
+                    );
+
+                    const currentTaxPayable = Math.round(
+                      (noteData.currentTaxPayable || []).reduce(
+                        (sum: number, line: any) =>
+                          sum + Number(line.current || 0),
+                        0,
+                      )
+                    );
+
+                    const priorTaxReceivable = Math.round(
+                      (noteData.currentTaxReceivable || []).reduce(
+                        (sum: number, line: any) =>
+                          sum + Number(line.prior || 0),
+                        0,
+                      )
+                    );
+
+                    const priorTaxPayable = Math.round(
+                      (noteData.currentTaxPayable || []).reduce(
+                        (sum: number, line: any) =>
+                          sum + Number(line.prior || 0),
+                        0,
+                      )
+                    );
+
+                    const openingTaxBalance =
+                      priorTaxPayable - priorTaxReceivable;
+                    const closingTaxBalance =
+                      currentTaxPayable - currentTaxReceivable;
+                    const taxPaidOrCredits =
+                      openingTaxBalance + normalTax - closingTaxBalance;
+
+                    const topRows: Array<[string, number, "normal" | "bold"]> =
+                      [
+                        [
+                          "Profit / (loss) before taxation",
+                          profitBeforeTax,
+                          "normal",
+                        ],
+                        [
+                          "Assessed loss brought forward",
+                          -assessedLossBroughtForward,
+                          "normal",
+                        ],
+                        [
+                          "Taxable income / (assessed loss)",
+                          taxableIncomeAfterAssessedLoss,
+                          "bold",
+                        ],
+                        [
+                          "Taxable income subject to normal tax",
+                          taxableIncome,
+                          "normal",
+                        ],
+                        [`Normal tax at ${taxRate}%`, normalTax, "bold"],
+                      ];
+
+                    const assessedLossRows: Array<
+                      [string, number, "normal" | "bold"]
+                    > = [
+                      [
+                        "Calculated tax profit / (loss) for the year",
+                        taxableIncomeBeforeAssessedLoss,
+                        "normal",
+                      ],
+                      [
+                        "Assessed loss brought forward",
+                        assessedLossBroughtForward,
+                        "normal",
+                      ],
+                      [
+                        "Total assessed loss carried forward",
+                        assessedLossCarriedForward,
+                        "bold",
+                      ],
                     ];
+
+                    const balanceRows: Array<
+                      [string, number, "normal" | "bold"]
+                    > = [
+                      [
+                        "Amount owing / (prepaid) at beginning of year",
+                        openingTaxBalance,
+                        "normal",
+                      ],
+                      ["Normal tax per calculation", normalTax, "normal"],
+                      [
+                        "Tax paid / tax credits recognised",
+                        -taxPaidOrCredits,
+                        "normal",
+                      ],
+                      [
+                        "Amount owing / (prepaid) at end of year",
+                        closingTaxBalance,
+                        "bold",
+                      ],
+                    ];
+
+                    const renderRows = (
+                      rows: Array<[string, number, "normal" | "bold"]>
+                    ) =>
+                      rows.map(([label, amount, rowType]) => (
+                        <tr key={String(label)}>
+                          <td
+                            style={{
+                              padding: "4px 0",
+                              fontWeight: rowType === "bold" ? 800 : 400,
+                            }}
+                          >
+                            {label}
+                          </td>
+                          <td
+                            style={{
+                              padding: "4px 0",
+                              textAlign: "right",
+                              width: 120,
+                              fontWeight: rowType === "bold" ? 800 : 400,
+                              borderTop:
+                                rowType === "bold"
+                                  ? "1px solid #111827"
+                                  : "0",
+                            }}
+                          >
+                            {taxAmount(Number(amount))}
+                          </td>
+                        </tr>
+                      ));
 
                     return (
                       <table
@@ -3736,20 +3518,33 @@ export default function AfsPrintStudioPage() {
                         }}
                       >
                         <tbody>
-                          {rows.map(([label, amount]: [string, number]) => (
-                            <tr key={String(label)}>
-                              <td style={{ padding: "4px 0" }}>{label}</td>
-                              <td
-                                style={{
-                                  padding: "4px 0",
-                                  textAlign: "right",
-                                  width: 100,
-                                }}
-                              >
-                                {taxAmount(Number(amount))}
-                              </td>
-                            </tr>
-                          ))}
+                          {renderRows(topRows)}
+
+                          <tr>
+                            <td
+                              colSpan={2}
+                              style={{
+                                padding: "14px 0 4px",
+                                fontWeight: 800,
+                              }}
+                            >
+                              Summary of assessed loss
+                            </td>
+                          </tr>
+                          {renderRows(assessedLossRows)}
+
+                          <tr>
+                            <td
+                              colSpan={2}
+                              style={{
+                                padding: "14px 0 4px",
+                                fontWeight: 800,
+                              }}
+                            >
+                              Reconciliation of tax balance
+                            </td>
+                          </tr>
+                          {renderRows(balanceRows)}
                         </tbody>
                       </table>
                     );

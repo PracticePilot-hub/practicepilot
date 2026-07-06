@@ -469,6 +469,33 @@ function rowsTotal(rows: AmountLine[], side: "current" | "prior") {
   return splitRows(rows).reduce((sum, row) => sum + toNumber(row[side]), 0);
 }
 
+function rowByIdOrLabel(rows: AmountLine[], terms: string[]) {
+  return rows.find((row) => {
+    const text = `${row.id || ""} ${row.label || ""}`.toLowerCase();
+    return terms.every((term) => text.includes(term.toLowerCase()));
+  });
+}
+
+function getSetupNumber(clientSetup: Record<string, any> | null, keys: string[], fallback = 0) {
+  for (const key of keys) {
+    const value = clientSetup?.[key];
+    if (value !== null && value !== undefined && value !== "") {
+      const parsed = toNumber(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return fallback;
+}
+
+function currentTaxBalanceAmount(rows: AmountLine[]) {
+  return rowsTotal(rows, "current");
+}
+
+function priorTaxBalanceAmount(rows: AmountLine[]) {
+  return rowsTotal(rows, "prior");
+}
+
 function roundAmount(value: unknown) {
   return Math.round(toNumber(value));
 }
@@ -1337,142 +1364,157 @@ function CashUsedInOperationsNote({
   const profitCurrent = toNumber(profitRow?.current);
   const profitPrior = toNumber(profitRow?.prior);
 
+  const fallbackAmount = (terms: string[], year: YearKey) =>
+    toNumber(rowByIdOrLabel(rows, terms)?.[year]);
+
   const nonCashLines: CashGeneratedLine[] = [
+    {
+      key: "adjustments",
+      label: "Adjustments for non-cash and other items",
+      group: "Adjustments for non-cash items:",
+      current: cashGeneratedStoredAmount(
+        state,
+        "adjustments",
+        "current",
+        fallbackAmount(["adjustments"], "current"),
+      ),
+      prior: cashGeneratedStoredAmount(
+        state,
+        "adjustments",
+        "prior",
+        fallbackAmount(["adjustments"], "prior"),
+      ),
+    },
     {
       key: "depreciationAmortisationImpairment",
       label:
         "Depreciation, amortisation, impairments and reversals of impairments",
       group: "Adjustments for non-cash items:",
+      current: cashGeneratedStoredAmount(
+        state,
+        "depreciationAmortisationImpairment",
+        "current",
+      ),
+      prior: cashGeneratedStoredAmount(
+        state,
+        "depreciationAmortisationImpairment",
+        "prior",
+      ),
     },
     {
       key: "lossOnSaleAssetsLiabilities",
       label: "Loss on sale of assets and liabilities",
       group: "Adjustments for non-cash items:",
-    },
-    {
-      key: "lossForeignExchange",
-      label: "Loss on foreign exchange differences",
-      group: "Adjustments for non-cash items:",
+      current: cashGeneratedStoredAmount(state, "lossOnSaleAssetsLiabilities", "current"),
+      prior: cashGeneratedStoredAmount(state, "lossOnSaleAssetsLiabilities", "prior"),
     },
     {
       key: "fairValueGainsLosses",
       label: "Fair value (gains) losses",
       group: "Adjustments for non-cash items:",
+      current: cashGeneratedStoredAmount(state, "fairValueGainsLosses", "current"),
+      prior: cashGeneratedStoredAmount(state, "fairValueGainsLosses", "prior"),
     },
     {
       key: "movementProvisions",
       label: "Movement in provisions",
       group: "Adjustments for non-cash items:",
-    },
-    {
-      key: "definedBenefitPlanExpense",
-      label: "Defined benefit plan expense",
-      group: "Adjustments for non-cash items:",
-    },
-    {
-      key: "shareBasedPaymentExpense",
-      label: "Share based payment expense",
-      group: "Adjustments for non-cash items:",
-    },
-    {
-      key: "operatingLeaseAssets",
-      label: "(Increase) decrease in operating lease assets",
-      group: "Adjustments for non-cash items:",
-    },
-    {
-      key: "operatingLeaseLiabilities",
-      label: "(Increase) decrease in operating lease liabilities",
-      group: "Adjustments for non-cash items:",
-    },
-    {
-      key: "shareEquityAccountedInvestments",
-      label: "Share of profit or loss of equity accounted investments",
-      group: "Adjustments for non-cash items:",
+      current: cashGeneratedStoredAmount(state, "movementProvisions", "current"),
+      prior: cashGeneratedStoredAmount(state, "movementProvisions", "prior"),
     },
     {
       key: "otherNonCash1",
-      label: "Other non-cash item included in profit or loss 1",
+      label: "Other non-cash item included in profit or loss",
       group: "Adjustments for non-cash items:",
+      current: cashGeneratedStoredAmount(state, "otherNonCash1", "current"),
+      prior: cashGeneratedStoredAmount(state, "otherNonCash1", "prior"),
     },
-    {
-      key: "otherNonCash2",
-      label: "Other non-cash item included in profit or loss 2",
-      group: "Adjustments for non-cash items:",
-    },
-    {
-      key: "otherNonCash3",
-      label: "Other non-cash item included in profit or loss 3",
-      group: "Adjustments for non-cash items:",
-    },
-    {
-      key: "otherNonCash4",
-      label: "Other non-cash item included in profit or loss 4",
-      group: "Adjustments for non-cash items:",
-    },
-    {
-      key: "otherNonCash5",
-      label: "Other non-cash item included in profit or loss 5",
-      group: "Adjustments for non-cash items:",
-    },
-  ].map((line) => ({
-    ...line,
-    current: cashGeneratedStoredAmount(state, line.key, "current"),
-    prior: cashGeneratedStoredAmount(state, line.key, "prior"),
-  }));
+  ];
 
   const separateItems: CashGeneratedLine[] = [
     {
       key: "investmentIncome",
       label: "Investment income",
       group: "Adjust for items which are presented separately:",
+      current: cashGeneratedStoredAmount(state, "investmentIncome", "current"),
+      prior: cashGeneratedStoredAmount(state, "investmentIncome", "prior"),
     },
     {
       key: "financeCosts",
       label: "Finance costs",
       group: "Adjust for items which are presented separately:",
+      current: cashGeneratedStoredAmount(state, "financeCosts", "current"),
+      prior: cashGeneratedStoredAmount(state, "financeCosts", "prior"),
     },
-  ].map((line) => ({
-    ...line,
-    current: cashGeneratedStoredAmount(state, line.key, "current"),
-    prior: cashGeneratedStoredAmount(state, line.key, "prior"),
-  }));
+  ];
 
   const workingCapitalLines: CashGeneratedLine[] = [
     {
       key: "inventories",
       label: "(Increase) decrease in inventories",
       group: "Changes in working capital:",
+      current: cashGeneratedStoredAmount(
+        state,
+        "inventories",
+        "current",
+        fallbackAmount(["inventories"], "current"),
+      ),
+      prior: cashGeneratedStoredAmount(
+        state,
+        "inventories",
+        "prior",
+        fallbackAmount(["inventories"], "prior"),
+      ),
     },
     {
       key: "tradeReceivables",
       label: "(Increase) decrease in trade and other receivables",
       group: "Changes in working capital:",
+      current: cashGeneratedStoredAmount(
+        state,
+        "tradeReceivables",
+        "current",
+        fallbackAmount(["trade", "receivables"], "current"),
+      ),
+      prior: cashGeneratedStoredAmount(
+        state,
+        "tradeReceivables",
+        "prior",
+        fallbackAmount(["trade", "receivables"], "prior"),
+      ),
     },
     {
       key: "prepayments",
       label: "(Increase) decrease in prepayments",
       group: "Changes in working capital:",
-    },
-    {
-      key: "constructionContractsReceivables",
-      label: "(Increase) decrease in construction contracts and receivables",
-      group: "Changes in working capital:",
+      current: cashGeneratedStoredAmount(state, "prepayments", "current"),
+      prior: cashGeneratedStoredAmount(state, "prepayments", "prior"),
     },
     {
       key: "tradePayables",
       label: "Increase (decrease) in trade and other payables",
       group: "Changes in working capital:",
+      current: cashGeneratedStoredAmount(
+        state,
+        "tradePayables",
+        "current",
+        fallbackAmount(["trade", "payables"], "current"),
+      ),
+      prior: cashGeneratedStoredAmount(
+        state,
+        "tradePayables",
+        "prior",
+        fallbackAmount(["trade", "payables"], "prior"),
+      ),
     },
     {
       key: "deferredIncome",
       label: "Increase (decrease) in deferred income",
       group: "Changes in working capital:",
+      current: cashGeneratedStoredAmount(state, "deferredIncome", "current"),
+      prior: cashGeneratedStoredAmount(state, "deferredIncome", "prior"),
     },
-  ].map((line) => ({
-    ...line,
-    current: cashGeneratedStoredAmount(state, line.key, "current"),
-    prior: cashGeneratedStoredAmount(state, line.key, "prior"),
-  }));
+  ];
 
   const detailLines: CashGeneratedLine[] = [
     {
@@ -1898,6 +1940,192 @@ function ShareCapitalNote({
   );
 }
 
+function TaxationNote({
+  rows,
+  edit,
+  state,
+  update,
+  clientSetup,
+  cashUsedInOperationsRows,
+}: {
+  rows: AmountLine[];
+  edit: boolean;
+  state: StructuredState;
+  update: (path: string[], value: any) => void;
+  clientSetup: Record<string, any> | null;
+  cashUsedInOperationsRows: AmountLine[];
+}) {
+  const visibleRows = splitRows(rows).map((row) => ({
+    ...row,
+    label:
+      String(row.label || "").toLowerCase().includes("tax")
+        ? "Current taxation"
+        : row.label,
+  }));
+
+  const taxExpenseCurrent = rowsTotal(visibleRows, "current");
+  const taxExpensePrior = rowsTotal(visibleRows, "prior");
+  const profitRow = findProfitBeforeTaxRow(cashUsedInOperationsRows);
+  const profitCurrent = toNumber(profitRow?.current);
+  const profitPrior = toNumber(profitRow?.prior);
+  const taxRate = getSetupNumber(
+    clientSetup,
+    [
+      "tax_rate",
+      "income_tax_rate",
+      "company_tax_rate",
+      "taxRate",
+      "incomeTaxRate",
+      "companyTaxRate",
+    ],
+    27,
+  );
+
+  const theoreticalCurrent = Math.round(profitCurrent * (taxRate / 100));
+  const theoreticalPrior = Math.round(profitPrior * (taxRate / 100));
+
+  return (
+    <>
+      <p style={styles.subheading}>Major components of the tax expense</p>
+      <NoteTable
+        rows={
+          visibleRows.length
+            ? visibleRows
+            : [
+                {
+                  id: "current-taxation-zero",
+                  label: "Current taxation",
+                  current: 0,
+                  prior: 0,
+                },
+              ]
+        }
+        edit={edit}
+        state={state}
+        stateKey="taxationExpense"
+        update={update}
+      />
+
+      <p style={styles.subheading}>Reconciliation of the tax expense</p>
+      <table style={styles.table}>
+        <colgroup>
+          <col style={{ width: "auto" }} />
+          <col style={{ width: 76 }} />
+          <col style={{ width: 76 }} />
+        </colgroup>
+        <tbody>
+          <tr>
+            <td style={styles.tdLeft}>Accounting profit / (loss) before taxation</td>
+            <td style={styles.tdRight}>{amount(profitCurrent)}</td>
+            <td style={styles.tdRight}>{amount(profitPrior)}</td>
+          </tr>
+          <tr>
+            <td style={styles.tdLeft}>Tax at the applicable tax rate of {taxRate}%</td>
+            <td style={styles.tdRight}>{amount(theoreticalCurrent)}</td>
+            <td style={styles.tdRight}>{amount(theoreticalPrior)}</td>
+          </tr>
+          <tr>
+            <td style={styles.totalLabel}>Tax expense / (credit) per income statement</td>
+            <td data-total-amount="true" style={styles.totalAmount}>
+              {amount(taxExpenseCurrent)}
+            </td>
+            <td data-total-amount="true" style={styles.totalAmount}>
+              {amount(taxExpensePrior)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {edit ? (
+        <EditableTextBlock
+          label="Additional tax reconciliation wording"
+          value={state.taxationExpense?.extraText || ""}
+          edit
+          onChange={(value) =>
+            update(["taxationExpense", "extraText"], value)
+          }
+        />
+      ) : state.taxationExpense?.extraText ? (
+        <p style={styles.paragraph}>{state.taxationExpense.extraText}</p>
+      ) : null}
+    </>
+  );
+}
+
+function CurrentTaxBalanceNote({
+  rows,
+  edit,
+  state,
+  update,
+  stateKey,
+}: {
+  rows: AmountLine[];
+  edit: boolean;
+  state: StructuredState;
+  update: (path: string[], value: any) => void;
+  stateKey: string;
+}) {
+  const current = currentTaxBalanceAmount(rows);
+  const prior = priorTaxBalanceAmount(rows);
+
+  const displayRows =
+    splitRows(rows).length > 0
+      ? splitRows(rows).map((row) => ({
+          ...row,
+          label: "Normal tax",
+        }))
+      : [
+          {
+            id: `${stateKey}-normal-tax`,
+            label: "Normal tax",
+            current,
+            prior,
+          },
+        ];
+
+  return (
+    <>
+      <NoteTable
+        rows={displayRows}
+        edit={edit}
+        state={state}
+        stateKey={stateKey}
+        update={update}
+      />
+
+      <table style={styles.table}>
+        <colgroup>
+          <col style={{ width: "auto" }} />
+          <col style={{ width: 76 }} />
+          <col style={{ width: 76 }} />
+        </colgroup>
+        <tbody>
+          <tr>
+            <td style={styles.totalLabel}>Net current tax receivable / (payable)</td>
+            <td data-total-amount="true" style={styles.totalAmount}>
+              {amount(current)}
+            </td>
+            <td data-total-amount="true" style={styles.totalAmount}>
+              {amount(prior)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {edit ? (
+        <EditableTextBlock
+          label="Additional current tax balance wording"
+          value={state[stateKey]?.extraText || ""}
+          edit
+          onChange={(value) => update([stateKey, "extraText"], value)}
+        />
+      ) : state[stateKey]?.extraText ? (
+        <p style={styles.paragraph}>{state[stateKey].extraText}</p>
+      ) : null}
+    </>
+  );
+}
+
 function GenericStructuredNote({
   rows,
   edit,
@@ -2268,16 +2496,30 @@ export default function AfsStructuredNotesPanel({
                       state={state}
                       update={update}
                     />
-                  ) : section.key === "notesTaxation" ||
-                    section.key === "notesCurrentTaxPayable" ||
-                    section.key === "notesCurrentTaxReceivable" ? (
-                    <GenericStructuredNote
+                  ) : section.key === "notesTaxation" ? (
+                    <TaxationNote
                       rows={rows}
                       edit={mode === "edit"}
-                      stateKey="tax"
-                      defaultText="Current tax balances and tax expense are reconciled to the tax computation where applicable."
                       state={state}
                       update={update}
+                      clientSetup={clientSetup}
+                      cashUsedInOperationsRows={noteData.cashUsedInOperations || []}
+                    />
+                  ) : section.key === "notesCurrentTaxReceivable" ? (
+                    <CurrentTaxBalanceNote
+                      rows={rows}
+                      edit={mode === "edit"}
+                      state={state}
+                      update={update}
+                      stateKey="currentTaxReceivable"
+                    />
+                  ) : section.key === "notesCurrentTaxPayable" ? (
+                    <CurrentTaxBalanceNote
+                      rows={rows}
+                      edit={mode === "edit"}
+                      state={state}
+                      update={update}
+                      stateKey="currentTaxPayable"
                     />
                   ) : (
                     <GenericStructuredNote
@@ -2356,16 +2598,30 @@ export default function AfsStructuredNotesPanel({
                       state={state}
                       update={update}
                     />
-                  ) : section.key === "notesTaxation" ||
-                    section.key === "notesCurrentTaxPayable" ||
-                    section.key === "notesCurrentTaxReceivable" ? (
-                    <GenericStructuredNote
+                  ) : section.key === "notesTaxation" ? (
+                    <TaxationNote
                       rows={rows}
                       edit={false}
-                      stateKey="tax"
-                      defaultText="Current tax balances and tax expense are reconciled to the tax computation where applicable."
                       state={state}
                       update={update}
+                      clientSetup={clientSetup}
+                      cashUsedInOperationsRows={noteData.cashUsedInOperations || []}
+                    />
+                  ) : section.key === "notesCurrentTaxReceivable" ? (
+                    <CurrentTaxBalanceNote
+                      rows={rows}
+                      edit={false}
+                      state={state}
+                      update={update}
+                      stateKey="currentTaxReceivable"
+                    />
+                  ) : section.key === "notesCurrentTaxPayable" ? (
+                    <CurrentTaxBalanceNote
+                      rows={rows}
+                      edit={false}
+                      state={state}
+                      update={update}
+                      stateKey="currentTaxPayable"
                     />
                   ) : (
                     <GenericStructuredNote

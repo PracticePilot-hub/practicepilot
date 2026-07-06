@@ -534,6 +534,11 @@ function rowAmount(rows: AfsStatementRow[], id: string, side: "current" | "prior
   return Number(row?.[side] || 0);
 }
 
+function checkDifference(value: number, tolerance = 1) {
+  const rounded = Math.round(value);
+  return Math.abs(rounded) <= tolerance ? 0 : rounded;
+}
+
 function overrideAmount(
   overrides: AfsStatementOverrides,
   key: keyof AfsStatementOverrides,
@@ -1511,7 +1516,7 @@ export function buildAfsPrintStatementEngine(
   const checks: AfsEngineChecks = {
     sfpAssetsTotal: Math.round(rowAmount(sfpRows, "assets-total", "current")),
     sfpEquityAndLiabilitiesTotal: Math.round(rowAmount(sfpRows, "eql-total", "current")),
-    sfpDifference: Math.round(
+    sfpDifference: checkDifference(
       rowAmount(sfpRows, "assets-total", "current") -
         rowAmount(sfpRows, "eql-total", "current")
     ),
@@ -1519,19 +1524,19 @@ export function buildAfsPrintStatementEngine(
     profitBeforeTax: Math.round(beforeTax.current),
     sfpEquityTotal: Math.round(equityTotal.current),
     sceTotalEquity: Math.round(sceCurrentTotal),
-    sceEquityDifferenceToSfp: Math.round(sceCurrentTotal - equityTotal.current),
+    sceEquityDifferenceToSfp: checkDifference(sceCurrentTotal - equityTotal.current),
     cashClosingFromSfp: Math.round(cashClosingFromSfp),
     cashOpeningFromSfp: Math.round(cashOpening),
     cashMovementFromSfp: Math.round(cashMovementFromSfp),
     cashMovementFromCashFlow: Math.round(cashMovementFromCashFlow),
     cashClosingFromCashFlow: Math.round(cashClosingFromCashFlow),
-    cashFlowMovementDifference: Math.round(cashFlowMovementDifference),
-    cashFlowClosingDifference: Math.round(cashFlowClosingDifference),
+    cashFlowMovementDifference: checkDifference(cashFlowMovementDifference),
+    cashFlowClosingDifference: checkDifference(cashFlowClosingDifference),
     cashOpeningPrior: Math.round(priorCashOpening),
     cashMovementPriorFromCashFlow: Math.round(cashMovementPriorFromCashFlow),
     cashClosingPriorFromCashFlow: Math.round(cashClosingPriorFromCashFlow),
     cashClosingPriorFromSfp: Math.round(priorCashClosingFromSfp),
-    cashFlowPriorClosingDifference: Math.round(cashFlowPriorClosingDifference),
+    cashFlowPriorClosingDifference: checkDifference(cashFlowPriorClosingDifference),
   };
 
   return {
