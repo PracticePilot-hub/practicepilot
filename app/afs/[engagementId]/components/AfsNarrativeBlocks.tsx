@@ -788,11 +788,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
   compilationReportPage: {
     position: "relative",
-    minHeight: "auto",
+    minHeight: "265mm",
     paddingBottom: 0,
     fontFamily: "Arial, Helvetica, sans-serif",
     fontSize: 10.1,
     lineHeight: 1.34,
+    display: "flex",
+    flexDirection: "column",
   },
   compilationHeading: {
     fontFamily: "Arial, Helvetica, sans-serif",
@@ -874,7 +876,7 @@ const styles: Record<string, React.CSSProperties> = {
     gridTemplateColumns: "1fr 45mm",
     gap: 14,
     alignItems: "center",
-    marginTop: 28,
+    marginTop: "auto",
     paddingTop: 10,
     borderTop: "1px solid #111827",
     fontFamily: "Arial, Helvetica, sans-serif",
