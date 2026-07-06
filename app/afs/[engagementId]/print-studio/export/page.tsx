@@ -2641,6 +2641,73 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   }
 
   function cashGeneratedNoteRows(lines: any[]) {
+    const sourceRows = (cashFlowRows || []).map((row: any) => ({ ...row }));
+    const outputRows: any[] = [];
+
+    let insideOperatingSection = false;
+
+    for (const row of sourceRows) {
+      const label = String(row?.label || "").trim();
+      const lower = label.toLowerCase();
+      const rowType = String(row?.type || "").toLowerCase();
+
+      if (!label) continue;
+
+      if (
+        lower.includes("cash flows from operating activities") ||
+        lower.includes("operating activities")
+      ) {
+        insideOperatingSection = true;
+        continue;
+      }
+
+      if (
+        insideOperatingSection &&
+        (lower.includes("interest received") ||
+          lower.includes("finance costs") ||
+          lower.includes("taxation paid") ||
+          lower.includes("other operating cash flows") ||
+          lower.includes("net cash from") ||
+          lower.includes("net cash /") ||
+          lower.includes("cash flows from investing") ||
+          lower.includes("cash flows from financing"))
+      ) {
+        break;
+      }
+
+      if (!insideOperatingSection && !lower.includes("profit")) continue;
+
+      if (rowType === "section" || rowType === "subsection" || rowType === "spacer") {
+        continue;
+      }
+
+      const current = Math.round(Number(row?.current || 0));
+      const prior = Math.round(Number(row?.prior || 0));
+      const isProfitLine =
+        lower.includes("profit") && lower.includes("taxation");
+      const isFinalLine =
+        lower.includes("cash generated") && lower.includes("operations");
+      const isZeroLine = current === 0 && prior === 0;
+
+      if (isZeroLine && !isProfitLine && !isFinalLine) continue;
+
+      outputRows.push({
+        ...row,
+        label,
+        current,
+        prior,
+        meta: {
+          ...(row?.meta || {}),
+          strong: isFinalLine ? true : row?.meta?.strong,
+          finalLine: isFinalLine ? true : row?.meta?.finalLine,
+        },
+      });
+
+      if (isFinalLine) break;
+    }
+
+    if (outputRows.length > 0) return outputRows;
+
     const source = (lines || []).map((line) => ({ ...line }));
     const byLabel = (terms: string[]) =>
       source.find((line) => {
@@ -2649,44 +2716,26 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
       });
 
     const profit = byLabel(["profit", "taxation"]) || source[0];
-    const nonCash = byLabel(["non-cash"]);
-    const workingCapital = byLabel(["working", "capital"]);
     const generated =
       byLabel(["cash generated", "operations"]) ||
       byLabel(["cash", "used", "operations"]) ||
       source[source.length - 1];
 
-    const rows: any[] = [];
+    const fallbackRows: any[] = [];
 
     if (profit) {
-      rows.push({ ...profit, label: "Profit / (loss) before taxation" });
+      fallbackRows.push({ ...profit, label: "Profit / (loss) before taxation" });
     }
 
-    if (
-      nonCash &&
-      (Math.round(Number(nonCash.current || 0)) !== 0 ||
-        Math.round(Number(nonCash.prior || 0)) !== 0)
-    ) {
-      rows.push({ ...nonCash, label: "Adjustments for non-cash and other items" });
-    }
-
-    if (
-      workingCapital &&
-      (Math.round(Number(workingCapital.current || 0)) !== 0 ||
-        Math.round(Number(workingCapital.prior || 0)) !== 0)
-    ) {
-      rows.push({ ...workingCapital, label: "Changes in working capital" });
-    }
-
-    if (generated) {
-      rows.push({
+    if (generated && generated !== profit) {
+      fallbackRows.push({
         ...generated,
         label: "Cash generated from operations",
         meta: { ...(generated.meta || {}), strong: true, finalLine: true },
       });
     }
 
-    return rows.length ? rows : source;
+    return fallbackRows.length ? fallbackRows : source;
   }
 
   function renderNoteTable(lines: any[], noteKey?: string) {
@@ -2736,7 +2785,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         style={{
           width: "100%",
           borderCollapse: "collapse",
-          margin: "4px 0 12px",
+          margin: "6px 0 18px",
           fontSize: 10.2,
         }}
       >
@@ -3175,13 +3224,13 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             <section
               key={item.id}
               className="afs-export-note-item"
-              style={{ marginBottom: 16, breakInside: "avoid", pageBreakInside: "avoid" }}
+              style={{ marginBottom: 24, breakInside: "avoid", pageBreakInside: "avoid" }}
             >
               <h2
                 style={{
                   fontSize: 11.45,
                   lineHeight: 1.2,
-                  margin: "0 0 5px",
+                  margin: "0 0 8px",
                   fontWeight: 900,
                 }}
               >
@@ -3191,7 +3240,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               {item.textParagraphs.map((paragraph, paragraphIndex) => (
                 <p
                   key={`${item.id}-paragraph-${paragraphIndex}`}
-                  style={{ margin: "0 0 4px", fontSize: 10.25, lineHeight: 1.26 }}
+                  style={{ margin: "0 0 7px", fontSize: 10.25, lineHeight: 1.32 }}
                 >
                   {paragraph}
                 </p>
@@ -4591,7 +4640,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                     );
 
                     const taxationLines = (noteData.taxation || []) as any[];
-                    const taxExpensePerSoci = Math.round(
+                    const incomeTaxPerSoci = Math.round(
                       taxationLines.reduce(
                         (sum: number, line: any) =>
                           sum + Number(line.current || 0),
@@ -4599,69 +4648,79 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                       ),
                     );
 
-                    const normalTaxExpense = Math.max(
-                      0,
-                      Math.round(
-                        Math.max(profitBeforeTax, 0) * (taxRate / 100),
-                      ),
-                    );
-
-                    const deferredTaxExpense =
-                      taxExpensePerSoci - normalTaxExpense;
-
-                    const taxableIncomeBeforeLoss = profitBeforeTax;
-                    const taxableIncomeAfterLoss =
-                      taxableIncomeBeforeLoss - assessedLossBroughtForward;
+                    const calculatedTaxProfitOrLoss = profitBeforeTax;
+                    const taxableIncomeBeforeLoss = calculatedTaxProfitOrLoss;
+                    const assessedLossUtilised =
+                      taxableIncomeBeforeLoss > 0
+                        ? Math.min(
+                            taxableIncomeBeforeLoss,
+                            assessedLossBroughtForward,
+                          )
+                        : 0;
+                    const taxableIncome =
+                      taxableIncomeBeforeLoss - assessedLossUtilised;
                     const taxableIncomeSubjectToNormalTax = Math.max(
                       0,
-                      taxableIncomeAfterLoss,
+                      taxableIncome,
+                    );
+                    const normalTax = Math.round(
+                      taxableIncomeSubjectToNormalTax * (taxRate / 100),
                     );
                     const assessedLossCarriedForward = Math.max(
                       0,
-                      -taxableIncomeAfterLoss,
+                      -taxableIncome,
                     );
 
-                    const taxRows: Array<{
+                    const deferredTaxMovement = incomeTaxPerSoci - normalTax;
+                    const deferredTaxLabel =
+                      deferredTaxMovement > 0
+                        ? "Deferred tax credit recognised"
+                        : deferredTaxMovement < 0
+                          ? "Deferred tax expense recognised"
+                          : "Deferred tax movement recognised";
+
+                    const rows: Array<{
                       label: string;
-                      current: number;
+                      current: number | null;
                       strong?: boolean;
                       rule?: boolean;
                       spacerBefore?: boolean;
                     }> = [
                       {
-                        label: "Profit / (loss) before taxation",
+                        label: "Net profit / (loss) before taxation",
                         current: profitBeforeTax,
                         strong: true,
                       },
                       {
-                        label: "Assessed loss brought forward",
-                        current: -assessedLossBroughtForward,
+                        label:
+                          calculatedTaxProfitOrLoss < 0
+                            ? "Calculated tax loss for the year"
+                            : "Calculated tax profit for the year",
+                        current: calculatedTaxProfitOrLoss,
+                        strong: true,
+                      },
+                      {
+                        label: "Assessed loss utilised",
+                        current: -assessedLossUtilised,
                       },
                       {
                         label: "Taxable income / (assessed loss)",
-                        current: taxableIncomeAfterLoss,
-                        strong: true,
-                        rule: true,
-                      },
-                      {
-                        label: "Taxable income subject to normal tax",
-                        current: taxableIncomeSubjectToNormalTax,
-                      },
-                      {
-                        label: `Normal tax at ${taxRate}%`,
-                        current: normalTaxExpense,
+                        current: taxableIncome,
                         strong: true,
                         rule: true,
                       },
                       {
                         label: "Summary of assessed loss",
-                        current: 0,
+                        current: null,
                         strong: true,
                         spacerBefore: true,
                       },
                       {
-                        label: "Calculated tax profit / (loss) for the year",
-                        current: profitBeforeTax,
+                        label:
+                          calculatedTaxProfitOrLoss < 0
+                            ? "Calculated tax loss for the year"
+                            : "Calculated tax profit for the year",
+                        current: calculatedTaxProfitOrLoss,
                       },
                       {
                         label: "Assessed loss brought forward",
@@ -4674,25 +4733,29 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                         rule: true,
                       },
                       {
+                        label: `Tax thereon @ ${taxRate}%`,
+                        current: normalTax,
+                        strong: true,
+                        spacerBefore: true,
+                        rule: true,
+                      },
+                      {
                         label: "Reconciliation of income tax expense / (credit)",
-                        current: 0,
+                        current: null,
                         strong: true,
                         spacerBefore: true,
                       },
                       {
                         label: "Normal tax expense",
-                        current: normalTaxExpense,
+                        current: normalTax,
                       },
                       {
-                        label:
-                          deferredTaxExpense < 0
-                            ? "Deferred tax credit recognised"
-                            : "Deferred tax expense recognised",
-                        current: deferredTaxExpense,
+                        label: deferredTaxLabel,
+                        current: deferredTaxMovement,
                       },
                       {
                         label: "Income tax expense / (credit) per SOCI",
-                        current: taxExpensePerSoci,
+                        current: incomeTaxPerSoci,
                         strong: true,
                         rule: true,
                       },
@@ -4723,7 +4786,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                                 textAlign: "right",
                                 borderBottom: "1.5px solid #111827",
                                 padding: "3px 0",
-                                width: 110,
+                                width: 120,
                               }}
                             >
                               {currentHeading}
@@ -4731,11 +4794,13 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           </tr>
                         </thead>
                         <tbody>
-                          {taxRows.map((row) => (
+                          {rows.map((row) => (
                             <tr key={row.label}>
                               <td
                                 style={{
-                                  padding: row.spacerBefore ? "9px 0 3px" : "3px 0",
+                                  padding: row.spacerBefore
+                                    ? "10px 0 3px"
+                                    : "3px 0",
                                   fontWeight: row.strong ? 800 : 400,
                                 }}
                               >
@@ -4743,7 +4808,9 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                               </td>
                               <td
                                 style={{
-                                  padding: row.spacerBefore ? "9px 0 3px" : "3px 0",
+                                  padding: row.spacerBefore
+                                    ? "10px 0 3px"
+                                    : "3px 0",
                                   textAlign: "right",
                                   fontWeight: row.strong ? 800 : 400,
                                   borderTop: row.rule
@@ -4754,8 +4821,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                                     : undefined,
                                 }}
                               >
-                                {row.label.includes("Summary of") ||
-                                row.label.includes("Reconciliation of")
+                                {row.current === null
                                   ? ""
                                   : taxAmount(Number(row.current))}
                               </td>
