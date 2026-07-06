@@ -496,6 +496,18 @@ function priorTaxBalanceAmount(rows: AmountLine[]) {
   return rowsTotal(rows, "prior");
 }
 
+function hasDeferredTaxRows(rows: AmountLine[]) {
+  return splitRows(rows).some((row) =>
+    String(row.label || "").toLowerCase().includes("deferred tax"),
+  );
+}
+
+function deferredTaxAmount(rows: AmountLine[], side: "current" | "prior") {
+  return splitRows(rows)
+    .filter((row) => String(row.label || "").toLowerCase().includes("deferred tax"))
+    .reduce((sum, row) => sum + toNumber(row[side]), 0);
+}
+
 function roundAmount(value: unknown) {
   return Math.round(toNumber(value));
 }
@@ -1947,6 +1959,8 @@ function TaxationNote({
   update,
   clientSetup,
   cashUsedInOperationsRows,
+  currentTaxReceivableRows = [],
+  currentTaxPayableRows = [],
 }: {
   rows: AmountLine[];
   edit: boolean;
@@ -1954,17 +1968,56 @@ function TaxationNote({
   update: (path: string[], value: any) => void;
   clientSetup: Record<string, any> | null;
   cashUsedInOperationsRows: AmountLine[];
+  currentTaxReceivableRows?: AmountLine[];
+  currentTaxPayableRows?: AmountLine[];
 }) {
   const visibleRows = splitRows(rows).map((row) => ({
     ...row,
     label:
-      String(row.label || "").toLowerCase().includes("tax")
-        ? "Current taxation"
-        : row.label,
+      String(row.label || "").toLowerCase().includes("deferred")
+        ? row.label
+        : String(row.label || "").toLowerCase().includes("tax")
+          ? "Current taxation"
+          : row.label,
   }));
 
-  const taxExpenseCurrent = rowsTotal(visibleRows, "current");
-  const taxExpensePrior = rowsTotal(visibleRows, "prior");
+  const deferredTaxAssetCurrent = deferredTaxAmount(
+    currentTaxReceivableRows,
+    "current",
+  );
+  const deferredTaxAssetPrior = deferredTaxAmount(
+    currentTaxReceivableRows,
+    "prior",
+  );
+  const deferredTaxLiabilityCurrent = deferredTaxAmount(
+    currentTaxPayableRows,
+    "current",
+  );
+  const deferredTaxLiabilityPrior = deferredTaxAmount(
+    currentTaxPayableRows,
+    "prior",
+  );
+
+  const inferredDeferredCreditCurrent =
+    deferredTaxAssetCurrent - deferredTaxLiabilityCurrent;
+  const inferredDeferredCreditPrior =
+    deferredTaxAssetPrior - deferredTaxLiabilityPrior;
+
+  const currentTaxExpenseCurrent = rowsTotal(visibleRows, "current");
+  const currentTaxExpensePrior = rowsTotal(visibleRows, "prior");
+
+  const deferredTaxCreditCurrent =
+    currentTaxExpenseCurrent === 0 && inferredDeferredCreditCurrent !== 0
+      ? -inferredDeferredCreditCurrent
+      : 0;
+  const deferredTaxCreditPrior =
+    currentTaxExpensePrior === 0 && inferredDeferredCreditPrior !== 0
+      ? -inferredDeferredCreditPrior
+      : 0;
+
+  const taxExpenseCurrent = currentTaxExpenseCurrent + deferredTaxCreditCurrent;
+  const taxExpensePrior = currentTaxExpensePrior + deferredTaxCreditPrior;
+
   const profitRow = findProfitBeforeTaxRow(cashUsedInOperationsRows);
   const profitCurrent = toNumber(profitRow?.current);
   const profitPrior = toNumber(profitRow?.prior);
@@ -1984,29 +2037,42 @@ function TaxationNote({
   const theoreticalCurrent = Math.round(profitCurrent * (taxRate / 100));
   const theoreticalPrior = Math.round(profitPrior * (taxRate / 100));
 
+  const componentRows: AmountLine[] = [];
+
+  if (visibleRows.length) {
+    componentRows.push(...visibleRows);
+  }
+
+  if (deferredTaxCreditCurrent !== 0 || deferredTaxCreditPrior !== 0) {
+    componentRows.push({
+      id: "deferred-tax-credit",
+      label: "Deferred tax credit recognised",
+      current: deferredTaxCreditCurrent,
+      prior: deferredTaxCreditPrior,
+    });
+  }
+
+  if (componentRows.length === 0) {
+    componentRows.push({
+      id: "current-taxation-zero",
+      label: "Current taxation",
+      current: 0,
+      prior: 0,
+    });
+  }
+
   return (
     <>
-      <p style={styles.subheading}>Major components of the tax expense</p>
+      <p style={styles.subheading}>Major components of the tax expense / (credit)</p>
       <NoteTable
-        rows={
-          visibleRows.length
-            ? visibleRows
-            : [
-                {
-                  id: "current-taxation-zero",
-                  label: "Current taxation",
-                  current: 0,
-                  prior: 0,
-                },
-              ]
-        }
+        rows={componentRows}
         edit={edit}
         state={state}
         stateKey="taxationExpense"
         update={update}
       />
 
-      <p style={styles.subheading}>Reconciliation of the tax expense</p>
+      <p style={styles.subheading}>Reconciliation of the tax expense / (credit)</p>
       <table style={styles.table}>
         <colgroup>
           <col style={{ width: "auto" }} />
@@ -2065,6 +2131,7 @@ function CurrentTaxBalanceNote({
   update: (path: string[], value: any) => void;
   stateKey: string;
 }) {
+  const deferred = hasDeferredTaxRows(rows);
   const current = currentTaxBalanceAmount(rows);
   const prior = priorTaxBalanceAmount(rows);
 
@@ -2072,16 +2139,26 @@ function CurrentTaxBalanceNote({
     splitRows(rows).length > 0
       ? splitRows(rows).map((row) => ({
           ...row,
-          label: "Normal tax",
+          label: deferred
+            ? String(row.label || "").toLowerCase().includes("liability")
+              ? "Deferred tax liability"
+              : "Deferred tax asset"
+            : "Normal tax",
         }))
       : [
           {
             id: `${stateKey}-normal-tax`,
-            label: "Normal tax",
+            label: deferred ? "Deferred tax" : "Normal tax",
             current,
             prior,
           },
         ];
+
+  const totalLabel = deferred
+    ? displayRows.some((row) => String(row.label || "").toLowerCase().includes("liability"))
+      ? "Deferred tax liability"
+      : "Deferred tax asset"
+    : "Net current tax receivable / (payable)";
 
   return (
     <>
@@ -2101,7 +2178,7 @@ function CurrentTaxBalanceNote({
         </colgroup>
         <tbody>
           <tr>
-            <td style={styles.totalLabel}>Net current tax receivable / (payable)</td>
+            <td style={styles.totalLabel}>{totalLabel}</td>
             <td data-total-amount="true" style={styles.totalAmount}>
               {amount(current)}
             </td>
@@ -2114,7 +2191,7 @@ function CurrentTaxBalanceNote({
 
       {edit ? (
         <EditableTextBlock
-          label="Additional current tax balance wording"
+          label={deferred ? "Additional deferred tax wording" : "Additional current tax balance wording"}
           value={state[stateKey]?.extraText || ""}
           edit
           onChange={(value) => update([stateKey, "extraText"], value)}
@@ -2338,7 +2415,11 @@ export default function AfsStructuredNotesPanel({
         const displayTitle =
           section.key === "notesCashUsedInOperations"
             ? "Cash generated from operations"
-            : title;
+            : section.key === "notesCurrentTaxReceivable" && hasDeferredTaxRows(rows)
+              ? "Deferred tax asset"
+              : section.key === "notesCurrentTaxPayable" && hasDeferredTaxRows(rows)
+                ? "Deferred tax liability"
+                : title;
 
         if (section.key === "notesPropertyPlantEquipment") {
           return (
@@ -2504,6 +2585,8 @@ export default function AfsStructuredNotesPanel({
                       update={update}
                       clientSetup={clientSetup}
                       cashUsedInOperationsRows={noteData.cashUsedInOperations || []}
+                      currentTaxReceivableRows={noteData.currentTaxReceivable || []}
+                      currentTaxPayableRows={noteData.currentTaxPayable || []}
                     />
                   ) : section.key === "notesCurrentTaxReceivable" ? (
                     <CurrentTaxBalanceNote
@@ -2606,6 +2689,8 @@ export default function AfsStructuredNotesPanel({
                       update={update}
                       clientSetup={clientSetup}
                       cashUsedInOperationsRows={noteData.cashUsedInOperations || []}
+                      currentTaxReceivableRows={noteData.currentTaxReceivable || []}
+                      currentTaxPayableRows={noteData.currentTaxPayable || []}
                     />
                   ) : section.key === "notesCurrentTaxReceivable" ? (
                     <CurrentTaxBalanceNote

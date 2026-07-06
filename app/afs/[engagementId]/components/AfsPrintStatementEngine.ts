@@ -236,6 +236,14 @@ function includesAny(text: string, terms: string[]) {
   return terms.some((term) => text.includes(term));
 }
 
+function isDeferredTaxAssetLine(line: AfsEngineTrialBalanceLine) {
+  return includesAny(mappingText(line), ["deferred tax asset", "deferred tax receivable"]);
+}
+
+function isDeferredTaxLiabilityLine(line: AfsEngineTrialBalanceLine) {
+  return includesAny(mappingText(line), ["deferred tax liability", "deferred tax payable"]);
+}
+
 function rawCurrent(line: AfsEngineTrialBalanceLine) {
   if (
     line.current_year_balance !== null &&
@@ -271,6 +279,14 @@ function bucketKey(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket) 
 }
 
 function bucketLabel(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket) {
+  if (canonical.noteKey === "currentTaxReceivable" && isDeferredTaxAssetLine(line)) {
+    return "Deferred tax asset";
+  }
+
+  if (canonical.noteKey === "currentTaxPayable" && isDeferredTaxLiabilityLine(line)) {
+    return "Deferred tax liability";
+  }
+
   if (canonical.noteKey) return NOTE_LABELS[canonical.noteKey];
 
   return cleanLabel(

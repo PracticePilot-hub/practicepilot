@@ -3354,10 +3354,48 @@ export default function AfsPrintStudioPage() {
                       Number(assessedLossRaw || 0)
                     );
 
+                    const deferredTaxAssetCurrent = Math.round(
+                      (noteData.currentTaxReceivable || [])
+                        .filter((line: any) =>
+                          String(line.label || "").toLowerCase().includes("deferred tax")
+                        )
+                        .reduce(
+                          (sum: number, line: any) => sum + Number(line.current || 0),
+                          0,
+                        )
+                    );
+
+                    const deferredTaxLiabilityCurrent = Math.round(
+                      (noteData.currentTaxPayable || [])
+                        .filter((line: any) =>
+                          String(line.label || "").toLowerCase().includes("deferred tax")
+                        )
+                        .reduce(
+                          (sum: number, line: any) => sum + Number(line.current || 0),
+                          0,
+                        )
+                    );
+
+                    const taxExpenseMapped = Math.round(
+                      (noteData.taxation || []).reduce(
+                        (sum: number, line: any) => sum + Number(line.current || 0),
+                        0,
+                      )
+                    );
+
+                    const inferredDeferredTaxCredit =
+                      deferredTaxAssetCurrent - deferredTaxLiabilityCurrent;
+
+                    const taxExpenseCreditPerSoci =
+                      taxExpenseMapped !== 0
+                        ? taxExpenseMapped
+                        : inferredDeferredTaxCredit !== 0
+                          ? -inferredDeferredTaxCredit
+                          : 0;
+
                     const taxableIncomeBeforeAssessedLoss = profitBeforeTax;
                     const taxableIncomeAfterAssessedLoss =
-                      taxableIncomeBeforeAssessedLoss -
-                      assessedLossBroughtForward;
+                      taxableIncomeBeforeAssessedLoss - assessedLossBroughtForward;
 
                     const taxableIncome = Math.max(
                       0,
@@ -3373,44 +3411,90 @@ export default function AfsPrintStudioPage() {
                       taxableIncome * (taxRate / 100)
                     );
 
+                    const normalTaxExpense = normalTax;
+                    const deferredTaxCredit =
+                      taxExpenseCreditPerSoci - normalTaxExpense;
+
+                    const taxBalanceRows: Array<
+                      [string, number, "normal" | "bold"]
+                    > = [];
+
                     const currentTaxReceivable = Math.round(
-                      (noteData.currentTaxReceivable || []).reduce(
-                        (sum: number, line: any) =>
-                          sum + Number(line.current || 0),
-                        0,
-                      )
+                      (noteData.currentTaxReceivable || [])
+                        .filter((line: any) =>
+                          !String(line.label || "").toLowerCase().includes("deferred tax")
+                        )
+                        .reduce(
+                          (sum: number, line: any) => sum + Number(line.current || 0),
+                          0,
+                        )
                     );
 
                     const currentTaxPayable = Math.round(
-                      (noteData.currentTaxPayable || []).reduce(
-                        (sum: number, line: any) =>
-                          sum + Number(line.current || 0),
-                        0,
-                      )
+                      (noteData.currentTaxPayable || [])
+                        .filter((line: any) =>
+                          !String(line.label || "").toLowerCase().includes("deferred tax")
+                        )
+                        .reduce(
+                          (sum: number, line: any) => sum + Number(line.current || 0),
+                          0,
+                        )
                     );
 
-                    const priorTaxReceivable = Math.round(
-                      (noteData.currentTaxReceivable || []).reduce(
-                        (sum: number, line: any) =>
-                          sum + Number(line.prior || 0),
-                        0,
-                      )
+                    const priorCurrentTaxReceivable = Math.round(
+                      (noteData.currentTaxReceivable || [])
+                        .filter((line: any) =>
+                          !String(line.label || "").toLowerCase().includes("deferred tax")
+                        )
+                        .reduce(
+                          (sum: number, line: any) => sum + Number(line.prior || 0),
+                          0,
+                        )
                     );
 
-                    const priorTaxPayable = Math.round(
-                      (noteData.currentTaxPayable || []).reduce(
-                        (sum: number, line: any) =>
-                          sum + Number(line.prior || 0),
-                        0,
-                      )
+                    const priorCurrentTaxPayable = Math.round(
+                      (noteData.currentTaxPayable || [])
+                        .filter((line: any) =>
+                          !String(line.label || "").toLowerCase().includes("deferred tax")
+                        )
+                        .reduce(
+                          (sum: number, line: any) => sum + Number(line.prior || 0),
+                          0,
+                        )
                     );
 
-                    const openingTaxBalance =
-                      priorTaxPayable - priorTaxReceivable;
-                    const closingTaxBalance =
+                    const openingCurrentTaxBalance =
+                      priorCurrentTaxPayable - priorCurrentTaxReceivable;
+                    const closingCurrentTaxBalance =
                       currentTaxPayable - currentTaxReceivable;
-                    const taxPaidOrCredits =
-                      openingTaxBalance + normalTax - closingTaxBalance;
+                    const hasCurrentTaxBalance =
+                      openingCurrentTaxBalance !== 0 ||
+                      closingCurrentTaxBalance !== 0 ||
+                      normalTax !== 0;
+
+                    if (hasCurrentTaxBalance) {
+                      const taxPaidOrCredits =
+                        openingCurrentTaxBalance + normalTax - closingCurrentTaxBalance;
+
+                      taxBalanceRows.push(
+                        [
+                          "Amount owing / (prepaid) at beginning of year",
+                          openingCurrentTaxBalance,
+                          "normal",
+                        ],
+                        ["Normal tax per calculation", normalTax, "normal"],
+                        [
+                          "Tax paid / tax credits recognised",
+                          -taxPaidOrCredits,
+                          "normal",
+                        ],
+                        [
+                          "Amount owing / (prepaid) at end of year",
+                          closingCurrentTaxBalance,
+                          "bold",
+                        ],
+                      );
+                    }
 
                     const topRows: Array<[string, number, "normal" | "bold"]> =
                       [
@@ -3457,26 +3541,27 @@ export default function AfsPrintStudioPage() {
                       ],
                     ];
 
-                    const balanceRows: Array<
+                    const expenseRows: Array<
                       [string, number, "normal" | "bold"]
                     > = [
-                      [
-                        "Amount owing / (prepaid) at beginning of year",
-                        openingTaxBalance,
-                        "normal",
-                      ],
-                      ["Normal tax per calculation", normalTax, "normal"],
-                      [
-                        "Tax paid / tax credits recognised",
-                        -taxPaidOrCredits,
-                        "normal",
-                      ],
-                      [
-                        "Amount owing / (prepaid) at end of year",
-                        closingTaxBalance,
-                        "bold",
-                      ],
+                      ["Normal tax expense", normalTaxExpense, "normal"],
                     ];
+
+                    if (deferredTaxCredit !== 0) {
+                      expenseRows.push([
+                        deferredTaxCredit < 0
+                          ? "Deferred tax credit recognised"
+                          : "Deferred tax expense recognised",
+                        deferredTaxCredit,
+                        "normal",
+                      ]);
+                    }
+
+                    expenseRows.push([
+                      "Income tax expense / (credit) per SOCI",
+                      taxExpenseCreditPerSoci,
+                      "bold",
+                    ]);
 
                     const renderRows = (
                       rows: Array<[string, number, "normal" | "bold"]>
@@ -3541,10 +3626,27 @@ export default function AfsPrintStudioPage() {
                                 fontWeight: 800,
                               }}
                             >
-                              Reconciliation of tax balance
+                              Reconciliation of income tax expense / (credit)
                             </td>
                           </tr>
-                          {renderRows(balanceRows)}
+                          {renderRows(expenseRows)}
+
+                          {taxBalanceRows.length ? (
+                            <>
+                              <tr>
+                                <td
+                                  colSpan={2}
+                                  style={{
+                                    padding: "14px 0 4px",
+                                    fontWeight: 800,
+                                  }}
+                                >
+                                  Reconciliation of current tax balance
+                                </td>
+                              </tr>
+                              {renderRows(taxBalanceRows)}
+                            </>
+                          ) : null}
                         </tbody>
                       </table>
                     );
