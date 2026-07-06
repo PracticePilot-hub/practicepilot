@@ -2785,7 +2785,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         style={{
           width: "100%",
           borderCollapse: "collapse",
-          margin: "6px 0 18px",
+          margin: "7px 0 20px",
           fontSize: 10.2,
         }}
       >
@@ -3224,13 +3224,13 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             <section
               key={item.id}
               className="afs-export-note-item"
-              style={{ marginBottom: 24, breakInside: "avoid", pageBreakInside: "avoid" }}
+              style={{ marginBottom: 28, breakInside: "avoid", pageBreakInside: "avoid" }}
             >
               <h2
                 style={{
                   fontSize: 11.45,
                   lineHeight: 1.2,
-                  margin: "0 0 8px",
+                  margin: "0 0 10px",
                   fontWeight: 900,
                 }}
               >
@@ -3240,7 +3240,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               {item.textParagraphs.map((paragraph, paragraphIndex) => (
                 <p
                   key={`${item.id}-paragraph-${paragraphIndex}`}
-                  style={{ margin: "0 0 7px", fontSize: 10.25, lineHeight: 1.32 }}
+                  style={{ margin: "0 0 9px", fontSize: 10.25, lineHeight: 1.36 }}
                 >
                   {paragraph}
                 </p>
@@ -3646,6 +3646,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   <style jsx global>{`
         html.afs-export-route-html,
         body.afs-export-route-body {
+          font-family: Arial, Helvetica, sans-serif !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
@@ -3658,6 +3659,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         }
 
         .afsExportOnlyRoot {
+          font-family: Arial, Helvetica, sans-serif !important;
           position: fixed;
           inset: 0;
           z-index: 2147483647;
@@ -3767,31 +3769,31 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
           .afs-export-notes-page section,
           .afs-export-notes-page .afs-export-note-item {
-            margin-bottom: 11px !important;
+            margin-bottom: 24px !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
           }
 
           .afs-export-notes-page h2,
           .afs-export-notes-page h3 {
-            margin-top: 10px !important;
-            margin-bottom: 5px !important;
+            margin-top: 14px !important;
+            margin-bottom: 8px !important;
           }
 
           .afs-export-notes-page table {
             border-collapse: collapse !important;
             width: 100% !important;
             table-layout: fixed !important;
-            margin: 3px 0 10px !important;
+            margin: 5px 0 16px !important;
           }
 
           .afs-export-notes-page th,
           .afs-export-notes-page td {
             border-top: 0 !important;
             border-bottom: 0 !important;
-            padding-top: 1.5px !important;
-            padding-bottom: 1.5px !important;
-            line-height: 1.22 !important;
+            padding-top: 2.2px !important;
+            padding-bottom: 2.2px !important;
+            line-height: 1.28 !important;
           }
 
           .afs-export-notes-page thead th {
@@ -4648,36 +4650,38 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                       ),
                     );
 
-                    const calculatedTaxProfitOrLoss = profitBeforeTax;
-                    const taxableIncomeBeforeLoss = calculatedTaxProfitOrLoss;
+                    const permanentDifferences = 0;
+                    const temporaryDifferences = 0;
+                    const calculatedTaxProfitOrLoss =
+                      profitBeforeTax + permanentDifferences + temporaryDifferences;
+
                     const assessedLossUtilised =
-                      taxableIncomeBeforeLoss > 0
+                      calculatedTaxProfitOrLoss > 0
                         ? Math.min(
-                            taxableIncomeBeforeLoss,
+                            calculatedTaxProfitOrLoss,
                             assessedLossBroughtForward,
                           )
                         : 0;
+
                     const taxableIncome =
-                      taxableIncomeBeforeLoss - assessedLossUtilised;
+                      calculatedTaxProfitOrLoss - assessedLossUtilised;
+
                     const taxableIncomeSubjectToNormalTax = Math.max(
                       0,
                       taxableIncome,
                     );
+
                     const normalTax = Math.round(
                       taxableIncomeSubjectToNormalTax * (taxRate / 100),
                     );
+
                     const assessedLossCarriedForward = Math.max(
                       0,
                       -taxableIncome,
                     );
 
                     const deferredTaxMovement = incomeTaxPerSoci - normalTax;
-                    const deferredTaxLabel =
-                      deferredTaxMovement > 0
-                        ? "Deferred tax credit recognised"
-                        : deferredTaxMovement < 0
-                          ? "Deferred tax expense recognised"
-                          : "Deferred tax movement recognised";
+                    const showDeferredTaxLine = Math.round(deferredTaxMovement) !== 0;
 
                     const rows: Array<{
                       label: string;
@@ -4685,11 +4689,22 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                       strong?: boolean;
                       rule?: boolean;
                       spacerBefore?: boolean;
+                      hideIfZero?: boolean;
                     }> = [
                       {
-                        label: "Net profit / (loss) before taxation",
+                        label: "Profit / (loss) before taxation",
                         current: profitBeforeTax,
                         strong: true,
+                      },
+                      {
+                        label: "Permanent non-taxable / non-deductible differences",
+                        current: permanentDifferences,
+                        hideIfZero: true,
+                      },
+                      {
+                        label: "Temporary differences",
+                        current: temporaryDifferences,
+                        hideIfZero: true,
                       },
                       {
                         label:
@@ -4698,10 +4713,19 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                             : "Calculated tax profit for the year",
                         current: calculatedTaxProfitOrLoss,
                         strong: true,
+                        rule: true,
+                      },
+                      {
+                        label: "Assessed loss brought forward",
+                        current: assessedLossBroughtForward
+                          ? -assessedLossBroughtForward
+                          : 0,
+                        hideIfZero: true,
                       },
                       {
                         label: "Assessed loss utilised",
                         current: -assessedLossUtilised,
+                        hideIfZero: true,
                       },
                       {
                         label: "Taxable income / (assessed loss)",
@@ -4724,7 +4748,15 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                       },
                       {
                         label: "Assessed loss brought forward",
-                        current: -assessedLossBroughtForward,
+                        current: assessedLossBroughtForward
+                          ? -assessedLossBroughtForward
+                          : 0,
+                        hideIfZero: true,
+                      },
+                      {
+                        label: "Assessed loss utilised",
+                        current: -assessedLossUtilised,
+                        hideIfZero: true,
                       },
                       {
                         label: "Total assessed loss carried forward",
@@ -4748,10 +4780,15 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                       {
                         label: "Normal tax expense",
                         current: normalTax,
+                        hideIfZero: true,
                       },
                       {
-                        label: deferredTaxLabel,
+                        label:
+                          deferredTaxMovement > 0
+                            ? "Deferred tax credit recognised in profit or loss"
+                            : "Deferred tax expense recognised in profit or loss",
                         current: deferredTaxMovement,
+                        hideIfZero: !showDeferredTaxLine,
                       },
                       {
                         label: "Income tax expense / (credit) per SOCI",
@@ -4761,6 +4798,12 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                       },
                     ];
 
+                    const visibleRows = rows.filter(
+                      (row) =>
+                        !row.hideIfZero ||
+                        Math.round(Number(row.current || 0)) !== 0,
+                    );
+
                     return (
                       <table
                         style={{
@@ -4768,6 +4811,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           borderCollapse: "collapse",
                           fontSize: 10.2,
                           marginTop: 8,
+                          fontFamily: "Arial, Helvetica, sans-serif",
                         }}
                       >
                         <thead>
@@ -4794,12 +4838,12 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           </tr>
                         </thead>
                         <tbody>
-                          {rows.map((row) => (
+                          {visibleRows.map((row) => (
                             <tr key={row.label}>
                               <td
                                 style={{
                                   padding: row.spacerBefore
-                                    ? "10px 0 3px"
+                                    ? "11px 0 3px"
                                     : "3px 0",
                                   fontWeight: row.strong ? 800 : 400,
                                 }}
@@ -4809,7 +4853,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                               <td
                                 style={{
                                   padding: row.spacerBefore
-                                    ? "10px 0 3px"
+                                    ? "11px 0 3px"
                                     : "3px 0",
                                   textAlign: "right",
                                   fontWeight: row.strong ? 800 : 400,
