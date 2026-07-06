@@ -1847,7 +1847,7 @@ function ShareCapitalNote({
   update: (path: string[], value: any) => void;
   clientSetup: Record<string, any> | null;
 }) {
-  const { hideComparatives } = useNotesDisplay();
+  const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
   const authorisedShares =
     state.shareCapital?.authorisedShares ||
     clean(clientSetup?.authorised_ordinary_shares) ||
@@ -1927,15 +1927,29 @@ function ShareCapitalNote({
           <col style={{ width: 76 }} />
           {!hideComparatives ? <col style={{ width: 76 }} /> : null}
         </colgroup>
+        <thead>
+          <tr>
+            <th style={styles.thLeft}>Description</th>
+            <th style={styles.thRight}>{currentHeading}</th>
+            {!hideComparatives ? (
+              <th style={styles.thRight}>{priorHeading}</th>
+            ) : null}
+          </tr>
+        </thead>
         <tbody>
           <tr>
-            <td style={styles.subheading} colSpan={3}>
+            <td style={styles.subheading} colSpan={hideComparatives ? 2 : 3}>
               Authorised
             </td>
           </tr>
           <tr>
             <td style={styles.tdLeft}>
               {authorisedShares} ordinary shares of R{authorisedPar} each
+            </td>
+            <td style={styles.tdRight}>
+              {amount(
+                Number(authorisedShares || 0) * Number(authorisedPar || 0),
+              )}
             </td>
             {!hideComparatives ? (
               <td style={styles.tdRight}>
@@ -1944,14 +1958,9 @@ function ShareCapitalNote({
                 )}
               </td>
             ) : null}
-            <td style={styles.tdRight}>
-              {amount(
-                Number(authorisedShares || 0) * Number(authorisedPar || 0),
-              )}
-            </td>
           </tr>
           <tr>
-            <td style={styles.subheading} colSpan={3}>
+            <td style={styles.subheading} colSpan={hideComparatives ? 2 : 3}>
               Issued
             </td>
           </tr>
