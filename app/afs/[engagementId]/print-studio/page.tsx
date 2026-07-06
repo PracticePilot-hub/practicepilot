@@ -3482,10 +3482,20 @@ export default function AfsPrintStudioPage() {
                       priorCurrentTaxPayable - priorCurrentTaxReceivable;
                     const closingCurrentTaxBalance =
                       currentTaxPayable - currentTaxReceivable;
+
+                    const hasDeferredTaxOnly =
+                      normalTax === 0 &&
+                      deferredTaxCredit !== 0 &&
+                      currentTaxPayable === 0 &&
+                      currentTaxReceivable === 0 &&
+                      priorCurrentTaxPayable === 0 &&
+                      priorCurrentTaxReceivable === 0;
+
                     const hasCurrentTaxBalance =
-                      openingCurrentTaxBalance !== 0 ||
-                      closingCurrentTaxBalance !== 0 ||
-                      normalTax !== 0;
+                      !hasDeferredTaxOnly &&
+                      (openingCurrentTaxBalance !== 0 ||
+                        closingCurrentTaxBalance !== 0 ||
+                        normalTax !== 0);
 
                     if (hasCurrentTaxBalance) {
                       const taxPaidOrCredits =
