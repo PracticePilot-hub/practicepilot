@@ -1154,7 +1154,7 @@ function renderInfoRow(label: string, value: unknown) {
         style={{
           width: "36%",
           padding: "6px 0 7px",
-          fontWeight: 800,
+          fontWeight: 700,
           verticalAlign: "top",
           lineHeight: 1.35,
         }}
@@ -1182,7 +1182,7 @@ function sectionHeadingStyle() {
   return {
     fontSize: 12,
     lineHeight: 1.3,
-    fontWeight: 800,
+    fontWeight: 700,
     margin: "16px 0 6px",
   };
 }
@@ -1191,7 +1191,7 @@ function subsectionHeadingStyle() {
   return {
     fontSize: 11,
     lineHeight: 1.3,
-    fontWeight: 800,
+    fontWeight: 700,
     margin: "10px 0 4px",
   };
 }
@@ -1199,7 +1199,7 @@ function subsectionHeadingStyle() {
 function pageHeadingStyle() {
   return {
     fontSize: 15.4,
-    fontWeight: 800,
+    fontWeight: 700,
     margin: "0 0 16px",
     paddingBottom: 7,
     borderBottom: "1.25px solid #111827",
@@ -2894,7 +2894,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 style={{
                   padding: "3px 0",
                   borderTop: "1px solid #111827",
-                  fontWeight: 800,
+                  fontWeight: 700,
                 }}
               >
                 Total
@@ -2903,7 +2903,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 style={{
                   padding: "3px 0",
                   borderTop: "1px solid #111827",
-                  fontWeight: 800,
+                  fontWeight: 700,
                   textAlign: "right",
                 }}
               >
@@ -2914,7 +2914,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   style={{
                     padding: "3px 0",
                     borderTop: "1px solid #111827",
-                    fontWeight: 800,
+                    fontWeight: 700,
                     textAlign: "right",
                   }}
                 >
@@ -3231,7 +3231,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   fontSize: 11.45,
                   lineHeight: 1.2,
                   margin: "0 0 10px",
-                  fontWeight: 900,
+                  fontWeight: 700,
                 }}
               >
                 {item.number}. {item.title}
@@ -3486,7 +3486,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   color: cashFlowViewMode === "afs" ? "#ffffff" : "#111827",
                   padding: "7px 8px",
                   fontSize: 11,
-                  fontWeight: 900,
+                  fontWeight: 700,
                   cursor: "pointer",
                 }}
               >
@@ -3502,7 +3502,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   color: cashFlowViewMode === "work" ? "#ffffff" : "#111827",
                   padding: "7px 8px",
                   fontSize: 11,
-                  fontWeight: 900,
+                  fontWeight: 700,
                   cursor: "pointer",
                 }}
               >
@@ -3695,6 +3695,35 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         .afsExportOnlyRoot article {
           box-shadow: none !important;
         }
+        .afsExportOnlyRoot {
+          font-weight: 400;
+          color: #111827;
+        }
+
+        .afsExportOnlyRoot h1 {
+          font-weight: 700 !important;
+          letter-spacing: -0.015em;
+        }
+
+        .afsExportOnlyRoot h2,
+        .afsExportOnlyRoot h3 {
+          font-weight: 700 !important;
+          letter-spacing: -0.01em;
+        }
+
+        .afsExportOnlyRoot table th {
+          font-weight: 700 !important;
+        }
+
+        .afsExportOnlyRoot table td {
+          font-weight: 400;
+        }
+
+        .afsExportOnlyRoot [data-total-amount="true"],
+        .afsExportOnlyRoot [data-total-label="true"] {
+          font-weight: 700 !important;
+        }
+
 
           .afsExportOnlyRoot {
             counter-reset: afs-export-page;
@@ -3974,7 +4003,29 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           }
 .afsExportOnlyRoot,
 .afsExportOnlyRoot * {
-  font-family: Arial, Helvetica, sans-serif !important;
+  font-family: Arial, "Helvetica Neue", Helvetica, sans-serif !important;
+  -webkit-font-smoothing: antialiased !important;
+  text-rendering: geometricPrecision !important;
+}
+
+.afsExportOnlyRoot h1,
+.afsExportOnlyRoot h2,
+.afsExportOnlyRoot h3,
+.afsExportOnlyRoot strong,
+.afsExportOnlyRoot th,
+.afsExportOnlyRoot b {
+  font-weight: 700 !important;
+}
+
+.afsExportOnlyRoot table {
+  font-weight: 400 !important;
+}
+
+.afsExportOnlyRoot p,
+.afsExportOnlyRoot td,
+.afsExportOnlyRoot li,
+.afsExportOnlyRoot div {
+  font-weight: 400;
 }
 
         }
@@ -4002,7 +4053,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                     style={{
                       fontSize: 22,
                       lineHeight: 1.25,
-                      fontWeight: 800,
+                      fontWeight: 700,
                       margin: "0 0 22px",
                       textTransform: "uppercase",
                       letterSpacing: "-0.01em",
@@ -4023,7 +4074,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                     <div
                       style={{
                         fontSize: 17,
-                        fontWeight: 900,
+                        fontWeight: 700,
                         textTransform: "uppercase",
                       }}
                     >
@@ -4376,25 +4427,12 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           ) : null}
 
           {reportOptions.compilerReport ? (
-  <div id="print-compiler-report">
-    <AfsA4Page {...reportHeaderProps}>
-      <section
-        style={{
-          fontFamily: "Arial, Helvetica, sans-serif",
-          fontSize: 11,
-          lineHeight: 1.45,
-          color: "#111827",
-        }}
-      >
-        <h1 style={pageHeadingStyle()}>
-          Practitioner’s Compilation Report
-        </h1>
-
-        <CompilationReportBlock context={narrativeContext} />
-      </section>
-    </AfsA4Page>
-  </div>
-) : null}
+            <div id="print-compiler-report">
+              <AfsA4Page>
+                <CompilationReportBlock context={narrativeContext} />
+              </AfsA4Page>
+            </div>
+          ) : null}
 
           {reportOptions.sfp ? (
             <div id="print-sfp">
