@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 type AmountLine = {
   id?: string;
@@ -25,6 +25,17 @@ type Props = {
   disclosureTokens?: Record<string, any>;
   hideComparatives?: boolean;
 };
+
+
+const NotesDisplayContext = createContext({
+  currentHeading: "Current",
+  priorHeading: "Prior",
+  hideComparatives: false,
+});
+
+function useNotesDisplay() {
+  return useContext(NotesDisplayContext);
+}
 
 type StructuredState = Record<string, any>;
 type YearKey = "current" | "prior";
@@ -662,6 +673,7 @@ function NoteTable({
   stateKey?: string;
   update?: (path: string[], value: any) => void;
 }) {
+  const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
   const visibleRows = splitRows(rows);
   const totalCurrent = visibleRows.reduce(
     (sum, row) => sum + toNumber(row.current),
@@ -686,13 +698,15 @@ function NoteTable({
       <colgroup>
         <col style={{ width: "auto" }} />
         <col style={{ width: 76 }} />
-        <col style={{ width: 76 }} />
+        {!hideComparatives ? <col style={{ width: 76 }} /> : null}
       </colgroup>
       <thead>
         <tr>
           <th style={styles.thLeft}>Description</th>
-          <th style={styles.thRight}>2024</th>
-          <th style={styles.thRight}>2023</th>
+          <th style={styles.thRight}>{currentHeading}</th>
+          {!hideComparatives ? (
+            <th style={styles.thRight}>{priorHeading}</th>
+          ) : null}
         </tr>
       </thead>
       <tbody>
@@ -726,7 +740,9 @@ function NoteTable({
                 )}
               </td>
               <td style={styles.tdRight}>{amount(row.current)}</td>
-              <td style={styles.tdRight}>{amount(row.prior)}</td>
+              {!hideComparatives ? (
+                <td style={styles.tdRight}>{amount(row.prior)}</td>
+              ) : null}
             </tr>
           );
         })}
@@ -738,9 +754,11 @@ function NoteTable({
             <td data-total-amount="true" style={styles.totalAmount}>
               {amount(totalCurrent)}
             </td>
-            <td data-total-amount="true" style={styles.totalAmount}>
-              {amount(totalPrior)}
-            </td>
+            {!hideComparatives ? (
+              <td data-total-amount="true" style={styles.totalAmount}>
+                {amount(totalPrior)}
+              </td>
+            ) : null}
           </tr>
         ) : null}
       </tbody>
@@ -1056,7 +1074,7 @@ function TabButton({
 
 function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
   return (
-    <table data-ppe-wide-table="true" style={styles.table}>
+    <table style={styles.table}>
       <colgroup>
         <col style={{ width: "auto" }} />
         <col style={{ width: 76 }} />
@@ -1189,7 +1207,7 @@ function PpeFinancialMovementTable({
   const movementRows = year === "current" ? COST_MOVEMENTS : COST_MOVEMENTS;
 
   return (
-    <table data-ppe-wide-table="true" style={styles.table}>
+    <table style={styles.table}>
       <colgroup>
         <col style={{ width: "auto" }} />
         <col style={{ width: 76 }} />
@@ -1373,6 +1391,7 @@ function CashUsedInOperationsNote({
   state: StructuredState;
   update: (path: string[], value: any) => void;
 }) {
+  const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
   const profitRow = findProfitBeforeTaxRow(rows);
   const profitCurrent = toNumber(profitRow?.current);
   const profitPrior = toNumber(profitRow?.prior);
@@ -1578,13 +1597,15 @@ function CashUsedInOperationsNote({
       <colgroup>
         <col style={{ width: "auto" }} />
         <col style={{ width: 76 }} />
-        <col style={{ width: 76 }} />
+        {!hideComparatives ? <col style={{ width: 76 }} /> : null}
       </colgroup>
       <thead>
         <tr>
           <th style={styles.thLeft}>Description</th>
-          <th style={styles.thRight}>2024</th>
-          <th style={styles.thRight}>2023</th>
+          <th style={styles.thRight}>{currentHeading}</th>
+          {!hideComparatives ? (
+            <th style={styles.thRight}>{priorHeading}</th>
+          ) : null}
         </tr>
       </thead>
       <tbody>
@@ -1596,7 +1617,7 @@ function CashUsedInOperationsNote({
             <FragmentWithKey key={line.key}>
               {showGroup ? (
                 <tr>
-                  <td style={styles.cashGroupHeading} colSpan={3}>
+                  <td style={styles.cashGroupHeading} colSpan={hideComparatives ? 2 : 3}>
                     {line.group}
                   </td>
                 </tr>
@@ -1617,13 +1638,15 @@ function CashUsedInOperationsNote({
                   state={state}
                   update={update}
                 />
-                <CashGeneratedAmountCell
-                  line={line}
-                  year="prior"
-                  edit={edit}
-                  state={state}
-                  update={update}
-                />
+                {!hideComparatives ? (
+                  <CashGeneratedAmountCell
+                    line={line}
+                    year="prior"
+                    edit={edit}
+                    state={state}
+                    update={update}
+                  />
+                ) : null}
               </tr>
             </FragmentWithKey>
           );
@@ -1646,6 +1669,7 @@ function ShareholderLoansNote({
   state: StructuredState;
   update: (path: string[], value: any) => void;
 }) {
+  const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
   const visibleRows = splitRows(
     buildShareholderLoanDetailRows(trialBalanceLines, rows),
   );
@@ -1665,13 +1689,15 @@ function ShareholderLoansNote({
       <colgroup>
         <col style={{ width: "auto" }} />
         <col style={{ width: 76 }} />
-        <col style={{ width: 76 }} />
+        {!hideComparatives ? <col style={{ width: 76 }} /> : null}
       </colgroup>
       <thead>
         <tr>
           <th style={styles.thLeft}>Description</th>
-          <th style={styles.thRight}>2024</th>
-          <th style={styles.thRight}>2023</th>
+          <th style={styles.thRight}>{currentHeading}</th>
+          {!hideComparatives ? (
+            <th style={styles.thRight}>{priorHeading}</th>
+          ) : null}
         </tr>
       </thead>
       <tbody>
@@ -1706,10 +1732,12 @@ function ShareholderLoansNote({
                   )}
                 </td>
                 <td style={styles.tdRight}>{amount(row.current)}</td>
-                <td style={styles.tdRight}>{amount(row.prior)}</td>
+                {!hideComparatives ? (
+                  <td style={styles.tdRight}>{amount(row.prior)}</td>
+                ) : null}
               </tr>
               <tr>
-                <td colSpan={3} style={styles.loanTermsCell}>
+                <td colSpan={hideComparatives ? 2 : 3} style={styles.loanTermsCell}>
                   {edit ? (
                     <div style={styles.loanTermsGrid}>
                       <label>
@@ -1795,9 +1823,11 @@ function ShareholderLoansNote({
           <td data-total-amount="true" style={styles.totalAmount}>
             {amount(totalCurrent)}
           </td>
-          <td data-total-amount="true" style={styles.totalAmount}>
-            {amount(totalPrior)}
-          </td>
+          {!hideComparatives ? (
+            <td data-total-amount="true" style={styles.totalAmount}>
+              {amount(totalPrior)}
+            </td>
+          ) : null}
         </tr>
       </tbody>
     </table>
@@ -1817,6 +1847,7 @@ function ShareCapitalNote({
   update: (path: string[], value: any) => void;
   clientSetup: Record<string, any> | null;
 }) {
+  const { hideComparatives } = useNotesDisplay();
   const authorisedShares =
     state.shareCapital?.authorisedShares ||
     clean(clientSetup?.authorised_ordinary_shares) ||
@@ -1894,7 +1925,7 @@ function ShareCapitalNote({
         <colgroup>
           <col style={{ width: "auto" }} />
           <col style={{ width: 76 }} />
-          <col style={{ width: 76 }} />
+          {!hideComparatives ? <col style={{ width: 76 }} /> : null}
         </colgroup>
         <tbody>
           <tr>
@@ -1906,11 +1937,13 @@ function ShareCapitalNote({
             <td style={styles.tdLeft}>
               {authorisedShares} ordinary shares of R{authorisedPar} each
             </td>
-            <td style={styles.tdRight}>
-              {amount(
-                Number(authorisedShares || 0) * Number(authorisedPar || 0),
-              )}
-            </td>
+            {!hideComparatives ? (
+              <td style={styles.tdRight}>
+                {amount(
+                  Number(authorisedShares || 0) * Number(authorisedPar || 0),
+                )}
+              </td>
+            ) : null}
             <td style={styles.tdRight}>
               {amount(
                 Number(authorisedShares || 0) * Number(authorisedPar || 0),
@@ -1927,18 +1960,22 @@ function ShareCapitalNote({
             <td style={styles.tdRight}>
               {amount(mappedCurrent || issuedAmount)}
             </td>
-            <td style={styles.tdRight}>
-              {amount(mappedPrior || issuedAmount)}
-            </td>
+            {!hideComparatives ? (
+              <td style={styles.tdRight}>
+                {amount(mappedPrior || issuedAmount)}
+              </td>
+            ) : null}
           </tr>
           <tr>
             <td style={styles.totalLabel}>Share capital</td>
             <td data-total-amount="true" style={styles.totalAmount}>
               {amount(mappedCurrent || issuedAmount)}
             </td>
-            <td data-total-amount="true" style={styles.totalAmount}>
-              {amount(mappedPrior || issuedAmount)}
-            </td>
+            {!hideComparatives ? (
+              <td data-total-amount="true" style={styles.totalAmount}>
+                {amount(mappedPrior || issuedAmount)}
+              </td>
+            ) : null}
           </tr>
         </tbody>
       </table>
@@ -1972,6 +2009,7 @@ function TaxationNote({
   currentTaxReceivableRows?: AmountLine[];
   currentTaxPayableRows?: AmountLine[];
 }) {
+  const { hideComparatives } = useNotesDisplay();
   const visibleRows = splitRows(rows).map((row) => ({
     ...row,
     label:
@@ -2078,27 +2116,33 @@ function TaxationNote({
         <colgroup>
           <col style={{ width: "auto" }} />
           <col style={{ width: 76 }} />
-          <col style={{ width: 76 }} />
+          {!hideComparatives ? <col style={{ width: 76 }} /> : null}
         </colgroup>
         <tbody>
           <tr>
             <td style={styles.tdLeft}>Accounting profit / (loss) before taxation</td>
             <td style={styles.tdRight}>{amount(profitCurrent)}</td>
-            <td style={styles.tdRight}>{amount(profitPrior)}</td>
+            {!hideComparatives ? (
+              <td style={styles.tdRight}>{amount(profitPrior)}</td>
+            ) : null}
           </tr>
           <tr>
             <td style={styles.tdLeft}>Tax at the applicable tax rate of {taxRate}%</td>
             <td style={styles.tdRight}>{amount(theoreticalCurrent)}</td>
-            <td style={styles.tdRight}>{amount(theoreticalPrior)}</td>
+            {!hideComparatives ? (
+              <td style={styles.tdRight}>{amount(theoreticalPrior)}</td>
+            ) : null}
           </tr>
           <tr>
             <td style={styles.totalLabel}>Tax expense / (credit) per income statement</td>
             <td data-total-amount="true" style={styles.totalAmount}>
               {amount(taxExpenseCurrent)}
             </td>
-            <td data-total-amount="true" style={styles.totalAmount}>
-              {amount(taxExpensePrior)}
-            </td>
+            {!hideComparatives ? (
+              <td data-total-amount="true" style={styles.totalAmount}>
+                {amount(taxExpensePrior)}
+              </td>
+            ) : null}
           </tr>
         </tbody>
       </table>
@@ -2132,6 +2176,7 @@ function CurrentTaxBalanceNote({
   update: (path: string[], value: any) => void;
   stateKey: string;
 }) {
+  const { hideComparatives } = useNotesDisplay();
   const deferred = hasDeferredTaxRows(rows);
   const current = currentTaxBalanceAmount(rows);
   const prior = priorTaxBalanceAmount(rows);
@@ -2175,7 +2220,7 @@ function CurrentTaxBalanceNote({
         <colgroup>
           <col style={{ width: "auto" }} />
           <col style={{ width: 76 }} />
-          <col style={{ width: 76 }} />
+          {!hideComparatives ? <col style={{ width: 76 }} /> : null}
         </colgroup>
         <tbody>
           <tr>
@@ -2183,9 +2228,11 @@ function CurrentTaxBalanceNote({
             <td data-total-amount="true" style={styles.totalAmount}>
               {amount(current)}
             </td>
-            <td data-total-amount="true" style={styles.totalAmount}>
-              {amount(prior)}
-            </td>
+            {!hideComparatives ? (
+              <td data-total-amount="true" style={styles.totalAmount}>
+                {amount(prior)}
+              </td>
+            ) : null}
           </tr>
         </tbody>
       </table>
@@ -2274,6 +2321,8 @@ export default function AfsStructuredNotesPanel({
   noteData,
   trialBalanceLines,
   clientSetup,
+  currentHeading,
+  priorHeading,
   activeNoteTexts,
   defaultNoteTexts,
   hideComparatives = false,
@@ -2339,7 +2388,14 @@ export default function AfsStructuredNotesPanel({
   }, [mode, noteSections, reportOptions, noteData]);
 
   return (
-    <section
+    <NotesDisplayContext.Provider
+      value={{
+        currentHeading,
+        priorHeading,
+        hideComparatives,
+      }}
+    >
+      <section
       id="print-notes"
       data-hide-comparatives={hideComparatives ? "true" : "false"}
       ref={notesRootRef}
@@ -2373,15 +2429,6 @@ export default function AfsStructuredNotesPanel({
         #print-notes .afs-notes-print-content {
           display: none;
         }
-
-        #print-notes[data-hide-comparatives="true"] table:not([data-ppe-wide-table="true"]) th:nth-child(3),
-        #print-notes[data-hide-comparatives="true"] table:not([data-ppe-wide-table="true"]) td:nth-child(3) {
-          display: none !important;
-        }
-        #print-notes[data-hide-comparatives="true"] table:not([data-ppe-wide-table="true"]) col:nth-child(3) {
-          display: none !important;
-        }
-
         @media print {
           #print-notes {
             font-size: 10.45px !important;
@@ -2735,7 +2782,8 @@ export default function AfsStructuredNotesPanel({
           </section>
         );
       })}
-    </section>
+      </section>
+    </NotesDisplayContext.Provider>
   );
 }
 
