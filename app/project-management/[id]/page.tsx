@@ -60,6 +60,15 @@ type PhaseSplit = {
   overrideType?: string | null;
 };
 
+type QuoteFile = {
+  id: string;
+  project_id: string;
+  line_item_id: string;
+  file_path: string;
+  file_name: string;
+  uploaded_at: string | null;
+};
+
 type LineItem = {
   id: string;
   description: string;
@@ -68,6 +77,8 @@ type LineItem = {
   contractorId: string | null;
   quoteFilePath: string | null;
   quoteFileName: string | null;
+  project_line_item_quote_files?: QuoteFile[];
+  quoteFiles: QuoteFile[];
   phases: PhaseSplit[];
 };
 
@@ -78,6 +89,7 @@ type ApiLineItem = {
   vat_mode: VatMode;
   quote_file_path: string | null;
   quote_file_name: string | null;
+  project_line_item_quote_files?: QuoteFile[];
   project_phase_splits: {
     id: string;
     phase_number: number;
@@ -245,6 +257,7 @@ overrideType: phase.override_type || null,
   contractorId: item.contractor_id || null,
   quoteFilePath: item.quote_file_path || null,
   quoteFileName: item.quote_file_name || null,
+  quoteFiles: item.project_line_item_quote_files || [],
   phases,
 };
 }
@@ -964,6 +977,32 @@ async function handleOpenQuoteFile(filePath: string | null) {
   }
 
   window.open(data.signedUrl, "_blank");
+}
+
+async function handleDeleteQuoteFile(quoteFileId: string, filePath: string) {
+  const confirmed = window.confirm("Delete this quote file?");
+  if (!confirmed) return;
+
+  const response = await fetch(`/api/projects/${projectId}/line-items`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "delete-quote-file",
+      quoteFileId,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    alert(data.error || "Could not delete quote file.");
+    return;
+  }
+
+  await supabase.storage.from("quote-files").remove([filePath]);
+  await loadLineItems();
 }
   async function loadTimelineItems() {
   if (!projectId) return;
@@ -5068,29 +5107,85 @@ return (
                     <tr key={item.id}>
                       <td style={styles.td}>{item.description}</td>
                       <td style={styles.td}>
-  <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-    <label
-      style={{
-        background: "#eef3f8",
-        color: "#12304a",
-        border: "1px solid #d5dde6",
-        borderRadius: "8px",
-        padding: "6px 10px",
-        fontSize: "12px",
-        fontWeight: 700,
-        cursor: "pointer",
-      }}
-    >
-      {uploadingQuoteLineItemId === item.id ? "Uploading..." : "Upload"}
-      <input
-        type="file"
-        style={{ display: "none" }}
-        onChange={(e) => handleUploadQuoteFile(item.id, e.target.files?.[0] || null)}
-        disabled={uploadingQuoteLineItemId === item.id}
-      />
-    </label>
+  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+    {canEditProjectDetails && (
+      <label
+        style={{
+          background: "#eef3f8",
+          color: "#12304a",
+          border: "1px solid #d5dde6",
+          borderRadius: "8px",
+          padding: "6px 10px",
+          fontSize: "12px",
+          fontWeight: 700,
+          cursor: "pointer",
+          width: "fit-content",
+        }}
+      >
+        {uploadingQuoteLineItemId === item.id ? "Uploading..." : "Upload Quote"}
+        <input
+          type="file"
+          style={{ display: "none" }}
+          onChange={(e) => handleUploadQuoteFile(item.id, e.target.files?.[0] || null)}
+          disabled={uploadingQuoteLineItemId === item.id}
+        />
+      </label>
+    )}
 
-    {item.quoteFilePath && (
+    {(item.quoteFiles || []).length === 0 && !item.quoteFilePath && (
+      <span style={{ fontSize: "12px", color: "#7a8794" }}>No quotes uploaded</span>
+    )}
+
+    {(item.quoteFiles || []).map((quoteFile, index) => (
+      <div
+        key={quoteFile.id}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          flexWrap: "wrap",
+          fontSize: "12px",
+        }}
+      >
+        <button
+          type="button"
+          style={{
+            background: "transparent",
+            color: "#0b5cab",
+            border: "none",
+            padding: 0,
+            fontSize: "12px",
+            fontWeight: 700,
+            cursor: "pointer",
+            textDecoration: "underline",
+          }}
+          onClick={() => handleOpenQuoteFile(quoteFile.file_path)}
+        >
+          {quoteFile.file_name || `Quote ${index + 1}`}
+        </button>
+
+        {canEditProjectDetails && (
+          <button
+            type="button"
+            style={{
+              background: "transparent",
+              color: "#9b1c1c",
+              border: "none",
+              padding: 0,
+              fontSize: "11px",
+              fontWeight: 700,
+              cursor: "pointer",
+              textDecoration: "underline",
+            }}
+            onClick={() => handleDeleteQuoteFile(quoteFile.id, quoteFile.file_path)}
+          >
+            Delete
+          </button>
+        )}
+      </div>
+    ))}
+
+    {item.quoteFilePath && (item.quoteFiles || []).length === 0 && (
       <button
         type="button"
         style={{
@@ -5102,6 +5197,7 @@ return (
           fontWeight: 700,
           cursor: "pointer",
           textDecoration: "underline",
+          width: "fit-content",
         }}
         onClick={() => handleOpenQuoteFile(item.quoteFilePath)}
       >
