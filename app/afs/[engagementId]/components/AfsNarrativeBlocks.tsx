@@ -868,7 +868,8 @@ const styles: Record<string, React.CSSProperties> = {
     borderTop: "1px solid #111827",
     height: 1,
     marginBottom: 6,
-    width: "80%",
+    width: "58mm",
+    maxWidth: "58mm",
   },
   letterheadFooter: {
     position: "relative",
