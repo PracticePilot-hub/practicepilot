@@ -147,6 +147,7 @@ type ReportOptions = {
   notes: boolean;
   detailedIncomeStatement: boolean;
   taxComputation: boolean;
+  hideComparativeFigures: boolean;
 
   policyBasisPreparation: boolean;
   policyJudgementsEstimates: boolean;
@@ -283,6 +284,7 @@ const defaultReportOptions: ReportOptions = {
   notes: true,
   detailedIncomeStatement: true,
   taxComputation: true,
+  hideComparativeFigures: false,
 
   policyBasisPreparation: true,
   policyJudgementsEstimates: true,
@@ -1488,6 +1490,11 @@ export default function AfsPrintStudioPage() {
     option("notes", "Notes", "Show notes to the financial statements."),
     option("detailedIncomeStatement", "Detailed income statement", "Show detailed income statement."),
     option("taxComputation", "Tax computation", "Show tax computation."),
+    option(
+      "hideComparativeFigures",
+      "First year of trading / hide comparative figures",
+      "Hide the prior-year column on the AFS statements and notes."
+    ),
   ];
 
   const clientName = String(
@@ -2098,6 +2105,8 @@ export default function AfsPrintStudioPage() {
     { id: "tax-computation", label: "Tax Computation", shortLabel: "Tax", group: "report", hidden: !reportOptions.taxComputation },
     { id: "report-options", label: "AFS Report Options", shortLabel: "Options", group: "settings" },
   ];
+
+  const hideComparatives = Boolean(reportOptions.hideComparativeFigures);
 
   const reportHeaderProps = {
     showReportHeader: true,
@@ -3096,6 +3105,7 @@ export default function AfsPrintStudioPage() {
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
                   rows={sfpRows}
+                hidePriorYear={hideComparatives}
                 />
               </AfsA4Page>
             </div>
@@ -3110,6 +3120,7 @@ export default function AfsPrintStudioPage() {
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
                   rows={sociRows}
+                hidePriorYear={hideComparatives}
                 />
               </AfsA4Page>
             </div>
@@ -3139,7 +3150,8 @@ export default function AfsPrintStudioPage() {
                         currentHeading={currentHeading}
                         priorHeading={priorHeading}
                         rows={cashFlowRows}
-                      />
+                      hidePriorYear={hideComparatives}
+                />
                     </div>
 
                     <div
@@ -3183,7 +3195,8 @@ export default function AfsPrintStudioPage() {
                     currentHeading={currentHeading}
                     priorHeading={priorHeading}
                     rows={cashFlowRows}
-                  />
+                  hidePriorYear={hideComparatives}
+                />
                 )}
               </AfsA4Page>
             </div>
@@ -3301,6 +3314,7 @@ export default function AfsPrintStudioPage() {
                   activeNoteTexts={activeNoteTexts}
                   defaultNoteTexts={defaultNoteTexts}
                   disclosureTokens={disclosureTokens}
+                  hideComparatives={hideComparatives}
                 />
               </AfsA4Page>
             </div>
@@ -3315,6 +3329,7 @@ export default function AfsPrintStudioPage() {
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
                   rows={detailedIncomeRows}
+                hidePriorYear={hideComparatives}
                 />
               </AfsA4Page>
             </div>

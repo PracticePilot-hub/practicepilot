@@ -28,6 +28,7 @@ type AfsStatementTableProps = {
   currentHeading: string;
   priorHeading: string;
   rows: AfsStatementRow[];
+  hidePriorYear?: boolean;
 };
 
 function formatAmount(value?: number | null) {
@@ -49,7 +50,10 @@ export default function AfsStatementTable({
   currentHeading,
   priorHeading,
   rows,
+  hidePriorYear = false,
 }: AfsStatementTableProps) {
+  const amountColSpan = hidePriorYear ? 3 : 4;
+
   return (
     <section className={styles.statement}>
       <header className={styles.statementHeader}>
@@ -63,7 +67,9 @@ export default function AfsStatementTable({
             <th className={styles.currencyHeading}>{currencyLabel}</th>
             <th className={styles.noteHeading}>Note</th>
             <th className={styles.amountHeading}>{currentHeading}</th>
-            <th className={styles.amountHeading}>{priorHeading}</th>
+            {!hidePriorYear ? (
+              <th className={styles.amountHeading}>{priorHeading}</th>
+            ) : null}
           </tr>
         </thead>
 
@@ -74,7 +80,7 @@ export default function AfsStatementTable({
             if (rowType === "spacer") {
               return (
                 <tr key={row.id} className={styles.spacerRow}>
-                  <td colSpan={4} />
+                  <td colSpan={amountColSpan} />
                 </tr>
               );
             }
@@ -101,11 +107,13 @@ export default function AfsStatementTable({
                     : formatAmount(row.current)}
                 </td>
 
-                <td className={styles.amountCell}>
-                  {rowType === "section" || rowType === "subsection"
-                    ? ""
-                    : formatAmount(row.prior)}
-                </td>
+                {!hidePriorYear ? (
+                  <td className={styles.amountCell}>
+                    {rowType === "section" || rowType === "subsection"
+                      ? ""
+                      : formatAmount(row.prior)}
+                  </td>
+                ) : null}
               </tr>
             );
           })}

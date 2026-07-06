@@ -23,6 +23,7 @@ type Props = {
   activeNoteTexts?: Record<string, { title?: string; text?: string }>;
   defaultNoteTexts?: Record<string, { title?: string; text?: string }>;
   disclosureTokens?: Record<string, any>;
+  hideComparatives?: boolean;
 };
 
 type StructuredState = Record<string, any>;
@@ -1055,7 +1056,7 @@ function TabButton({
 
 function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
   return (
-    <table style={styles.table}>
+    <table data-ppe-wide-table="true" style={styles.table}>
       <colgroup>
         <col style={{ width: "auto" }} />
         <col style={{ width: 76 }} />
@@ -1188,7 +1189,7 @@ function PpeFinancialMovementTable({
   const movementRows = year === "current" ? COST_MOVEMENTS : COST_MOVEMENTS;
 
   return (
-    <table style={styles.table}>
+    <table data-ppe-wide-table="true" style={styles.table}>
       <colgroup>
         <col style={{ width: "auto" }} />
         <col style={{ width: 76 }} />
@@ -2275,6 +2276,7 @@ export default function AfsStructuredNotesPanel({
   clientSetup,
   activeNoteTexts,
   defaultNoteTexts,
+  hideComparatives = false,
 }: Props) {
   const [mode, setMode] = useState<"review" | "edit">("review");
   const notesRootRef = useRef<HTMLElement | null>(null);
@@ -2339,6 +2341,7 @@ export default function AfsStructuredNotesPanel({
   return (
     <section
       id="print-notes"
+      data-hide-comparatives={hideComparatives ? "true" : "false"}
       ref={notesRootRef}
       style={{ fontSize: 11.7, lineHeight: 1.45, color: "#111827" }}
     >
@@ -2370,6 +2373,15 @@ export default function AfsStructuredNotesPanel({
         #print-notes .afs-notes-print-content {
           display: none;
         }
+
+        #print-notes[data-hide-comparatives="true"] table:not([data-ppe-wide-table="true"]) th:nth-child(3),
+        #print-notes[data-hide-comparatives="true"] table:not([data-ppe-wide-table="true"]) td:nth-child(3) {
+          display: none !important;
+        }
+        #print-notes[data-hide-comparatives="true"] table:not([data-ppe-wide-table="true"]) col:nth-child(3) {
+          display: none !important;
+        }
+
         @media print {
           #print-notes {
             font-size: 10.45px !important;
