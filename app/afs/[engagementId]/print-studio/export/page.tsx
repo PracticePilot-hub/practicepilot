@@ -152,7 +152,6 @@ type ReportOptions = {
   notes: boolean;
   detailedIncomeStatement: boolean;
   taxComputation: boolean;
-  hideComparativeFigures: boolean;
 
   policyBasisPreparation: boolean;
   policyJudgementsEstimates: boolean;
@@ -289,7 +288,6 @@ const defaultReportOptions: ReportOptions = {
   notes: true,
   detailedIncomeStatement: true,
   taxComputation: true,
-  hideComparativeFigures: false,
 
   policyBasisPreparation: true,
   policyJudgementsEstimates: true,
@@ -1154,7 +1152,7 @@ function renderInfoRow(label: string, value: unknown) {
         style={{
           width: "36%",
           padding: "6px 0 7px",
-          fontWeight: 700,
+          fontWeight: 800,
           verticalAlign: "top",
           lineHeight: 1.35,
         }}
@@ -1182,7 +1180,7 @@ function sectionHeadingStyle() {
   return {
     fontSize: 12,
     lineHeight: 1.3,
-    fontWeight: 700,
+    fontWeight: 800,
     margin: "16px 0 6px",
   };
 }
@@ -1191,7 +1189,7 @@ function subsectionHeadingStyle() {
   return {
     fontSize: 11,
     lineHeight: 1.3,
-    fontWeight: 700,
+    fontWeight: 800,
     margin: "10px 0 4px",
   };
 }
@@ -1199,7 +1197,7 @@ function subsectionHeadingStyle() {
 function pageHeadingStyle() {
   return {
     fontSize: 15.4,
-    fontWeight: 700,
+    fontWeight: 800,
     margin: "0 0 16px",
     paddingBottom: 7,
     borderBottom: "1.25px solid #111827",
@@ -1668,11 +1666,6 @@ const isDraftPdf =
       "Show detailed income statement.",
     ),
     option("taxComputation", "Tax computation", "Show tax computation."),
-    option(
-      "hideComparativeFigures",
-      "First year of trading / hide comparative figures",
-      "Hide prior-year comparative columns in the report and export."
-    ),
   ];
 
   const clientName = String(
@@ -1878,6 +1871,13 @@ const isDraftPdf =
     ),
     secondGoverningBodyLogoUrl: firmSetting("second_governing_body_logo_url"),
     firmFooterText: firmSetting("footer_text"),
+    practitionerFooterText: firmSetting("footer_text"),
+    footerText: firmSetting("footer_text"),
+    firmLogoUrl: practitionerLogoUrl,
+    logoUrl: practitionerLogoUrl,
+    letterheadLogoUrl: practitionerLogoUrl,
+    firmFooterLogoUrl: practitionerFooterLogoUrl,
+    footerLogoUrl: practitionerFooterLogoUrl,
     natureOfBusiness: String(
       getSetupValue(clientSetup, [
         "nature_of_business",
@@ -2385,7 +2385,6 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
     [statementEngine.detailedIncomeRows],
   );
   const noteData = statementEngine.noteData;
-  const hideComparatives = Boolean(reportOptions.hideComparativeFigures);
 
   const noteDataForPrintStudio = useMemo(() => {
     const base: Record<string, any[]> = { ...(noteData as any) };
@@ -2395,6 +2394,73 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
     );
     return base;
   }, [noteData, trialBalanceLines]);
+
+  const cashNoteCurrent = Math.round(
+    (noteData.cashAndCashEquivalents || []).reduce(
+      (sum: number, line: any) => sum + Number(line.current || 0),
+      0,
+    ),
+  );
+  const cashNotePrior = Math.round(
+    (noteData.cashAndCashEquivalents || []).reduce(
+      (sum: number, line: any) => sum + Number(line.prior || 0),
+      0,
+    ),
+  );
+
+  const exportCashFlowRows = useMemo(() => {
+    const rows = (cashFlowRows || []).map((row: any) => ({ ...row }));
+    const labelIncludes = (row: any, terms: string[]) => {
+      const label = String(row?.label || "").toLowerCase();
+      return terms.every((term) => label.includes(term));
+    };
+    const findRow = (terms: string[]) =>
+      rows.find((row: any) => labelIncludes(row, terms));
+
+    const profitRow = findRow(["profit", "taxation"]);
+    const nonCashRow = findRow(["adjustments", "non-cash"]);
+    const workingCapitalRow = findRow(["changes", "working capital"]);
+    const generatedRow = findRow(["cash generated", "operations"]);
+    const netOperatingRow = findRow(["net cash", "operating activities"]);
+    const netIncreaseRow = findRow(["net increase"]);
+    const openingCashRow = findRow(["beginning", "year"]);
+    const closingCashRow = findRow(["end", "year"]);
+
+    const profitCurrent = Number(profitRow?.current || 0);
+    const profitPrior = Number(profitRow?.prior || 0);
+    const nonCashCurrent = Number(nonCashRow?.current || 0);
+    const nonCashPrior = Number(nonCashRow?.prior || 0);
+
+    const currentMovement = cashNoteCurrent - cashNotePrior;
+    const priorMovement = cashNotePrior;
+
+    if (openingCashRow) {
+      openingCashRow.current = cashNotePrior;
+      openingCashRow.prior = 0;
+    }
+    if (closingCashRow) {
+      closingCashRow.current = cashNoteCurrent;
+      closingCashRow.prior = cashNotePrior;
+    }
+    if (netIncreaseRow) {
+      netIncreaseRow.current = currentMovement;
+      netIncreaseRow.prior = priorMovement;
+    }
+    if (workingCapitalRow) {
+      workingCapitalRow.current = currentMovement - profitCurrent - nonCashCurrent;
+      workingCapitalRow.prior = priorMovement - profitPrior - nonCashPrior;
+    }
+    if (generatedRow) {
+      generatedRow.current = currentMovement;
+      generatedRow.prior = priorMovement;
+    }
+    if (netOperatingRow) {
+      netOperatingRow.current = currentMovement;
+      netOperatingRow.prior = priorMovement;
+    }
+
+    return rows;
+  }, [cashFlowRows, cashNoteCurrent, cashNotePrior]);
 
   const engineChecks = statementEngine.checks;
 
@@ -2641,73 +2707,6 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   }
 
   function cashGeneratedNoteRows(lines: any[]) {
-    const sourceRows = (cashFlowRows || []).map((row: any) => ({ ...row }));
-    const outputRows: any[] = [];
-
-    let insideOperatingSection = false;
-
-    for (const row of sourceRows) {
-      const label = String(row?.label || "").trim();
-      const lower = label.toLowerCase();
-      const rowType = String(row?.type || "").toLowerCase();
-
-      if (!label) continue;
-
-      if (
-        lower.includes("cash flows from operating activities") ||
-        lower.includes("operating activities")
-      ) {
-        insideOperatingSection = true;
-        continue;
-      }
-
-      if (
-        insideOperatingSection &&
-        (lower.includes("interest received") ||
-          lower.includes("finance costs") ||
-          lower.includes("taxation paid") ||
-          lower.includes("other operating cash flows") ||
-          lower.includes("net cash from") ||
-          lower.includes("net cash /") ||
-          lower.includes("cash flows from investing") ||
-          lower.includes("cash flows from financing"))
-      ) {
-        break;
-      }
-
-      if (!insideOperatingSection && !lower.includes("profit")) continue;
-
-      if (rowType === "section" || rowType === "subsection" || rowType === "spacer") {
-        continue;
-      }
-
-      const current = Math.round(Number(row?.current || 0));
-      const prior = Math.round(Number(row?.prior || 0));
-      const isProfitLine =
-        lower.includes("profit") && lower.includes("taxation");
-      const isFinalLine =
-        lower.includes("cash generated") && lower.includes("operations");
-      const isZeroLine = current === 0 && prior === 0;
-
-      if (isZeroLine && !isProfitLine && !isFinalLine) continue;
-
-      outputRows.push({
-        ...row,
-        label,
-        current,
-        prior,
-        meta: {
-          ...(row?.meta || {}),
-          strong: isFinalLine ? true : row?.meta?.strong,
-          finalLine: isFinalLine ? true : row?.meta?.finalLine,
-        },
-      });
-
-      if (isFinalLine) break;
-    }
-
-    if (outputRows.length > 0) return outputRows;
-
     const source = (lines || []).map((line) => ({ ...line }));
     const byLabel = (terms: string[]) =>
       source.find((line) => {
@@ -2716,26 +2715,44 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
       });
 
     const profit = byLabel(["profit", "taxation"]) || source[0];
+    const nonCash = byLabel(["non-cash"]);
+    const workingCapital = byLabel(["working", "capital"]);
     const generated =
       byLabel(["cash generated", "operations"]) ||
       byLabel(["cash", "used", "operations"]) ||
       source[source.length - 1];
 
-    const fallbackRows: any[] = [];
+    const rows: any[] = [];
 
     if (profit) {
-      fallbackRows.push({ ...profit, label: "Profit / (loss) before taxation" });
+      rows.push({ ...profit, label: "Profit / (loss) before taxation" });
     }
 
-    if (generated && generated !== profit) {
-      fallbackRows.push({
+    if (
+      nonCash &&
+      (Math.round(Number(nonCash.current || 0)) !== 0 ||
+        Math.round(Number(nonCash.prior || 0)) !== 0)
+    ) {
+      rows.push({ ...nonCash, label: "Adjustments for non-cash and other items" });
+    }
+
+    if (
+      workingCapital &&
+      (Math.round(Number(workingCapital.current || 0)) !== 0 ||
+        Math.round(Number(workingCapital.prior || 0)) !== 0)
+    ) {
+      rows.push({ ...workingCapital, label: "Changes in working capital" });
+    }
+
+    if (generated) {
+      rows.push({
         ...generated,
         label: "Cash generated from operations",
         meta: { ...(generated.meta || {}), strong: true, finalLine: true },
       });
     }
 
-    return fallbackRows.length ? fallbackRows : source;
+    return rows.length ? rows : source;
   }
 
   function renderNoteTable(lines: any[], noteKey?: string) {
@@ -2785,7 +2802,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         style={{
           width: "100%",
           borderCollapse: "collapse",
-          margin: "7px 0 20px",
+          margin: "4px 0 8px",
           fontSize: 10.2,
         }}
       >
@@ -2810,18 +2827,16 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             >
               {currentHeading}
             </th>
-            {!hideComparatives ? (
-              <th
-                style={{
-                  textAlign: "right",
-                  borderBottom: "1.5px solid #111827",
-                  padding: "2px 0 3px",
-                  width: 80,
-                }}
-              >
-                {priorHeading}
-              </th>
-            ) : null}
+            <th
+              style={{
+                textAlign: "right",
+                borderBottom: "1.5px solid #111827",
+                padding: "2px 0 3px",
+                width: 80,
+              }}
+            >
+              {priorHeading}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -2848,18 +2863,16 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 >
                   {formatNoteAmount(line.current)}
                 </td>
-                {!hideComparatives ? (
-                  <td
-                    style={{
-                      padding: "2px 0",
-                      textAlign: "right",
-                      borderBottom: line?.meta?.finalLine ? "1px solid #111827" : "0",
-                      fontWeight: line?.meta?.strong ? 800 : 400,
-                    }}
-                  >
-                    {formatNoteAmount(line.prior)}
-                  </td>
-                ) : null}
+                <td
+                  style={{
+                    padding: "2px 0",
+                    textAlign: "right",
+                    borderBottom: line?.meta?.finalLine ? "1px solid #111827" : "0",
+                    fontWeight: line?.meta?.strong ? 800 : 400,
+                  }}
+                >
+                  {formatNoteAmount(line.prior)}
+                </td>
               </tr>,
             ];
 
@@ -2872,7 +2885,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               rows.push(
                 <tr key={`${rowKey}-terms`}>
                   <td
-                    colSpan={hideComparatives ? 2 : 3}
+                    colSpan={3}
                     style={{
                       padding: "0 0 5px 0",
                       fontSize: 9.9,
@@ -2894,7 +2907,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 style={{
                   padding: "3px 0",
                   borderTop: "1px solid #111827",
-                  fontWeight: 700,
+                  fontWeight: 800,
                 }}
               >
                 Total
@@ -2903,24 +2916,22 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 style={{
                   padding: "3px 0",
                   borderTop: "1px solid #111827",
-                  fontWeight: 700,
+                  fontWeight: 800,
                   textAlign: "right",
                 }}
               >
                 {formatNoteAmount(totalCurrent)}
               </td>
-              {!hideComparatives ? (
-                <td
-                  style={{
-                    padding: "3px 0",
-                    borderTop: "1px solid #111827",
-                    fontWeight: 700,
-                    textAlign: "right",
-                  }}
-                >
-                  {formatNoteAmount(totalPrior)}
-                </td>
-              ) : null}
+              <td
+                style={{
+                  padding: "3px 0",
+                  borderTop: "1px solid #111827",
+                  fontWeight: 800,
+                  textAlign: "right",
+                }}
+              >
+                {formatNoteAmount(totalPrior)}
+              </td>
             </tr>
           ) : null}
         </tbody>
@@ -3224,14 +3235,14 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             <section
               key={item.id}
               className="afs-export-note-item"
-              style={{ marginBottom: 28, breakInside: "avoid", pageBreakInside: "avoid" }}
+              style={{ marginBottom: 8, breakInside: "avoid", pageBreakInside: "avoid" }}
             >
               <h2
                 style={{
                   fontSize: 11.45,
                   lineHeight: 1.2,
-                  margin: "0 0 10px",
-                  fontWeight: 700,
+                  margin: "0 0 5px",
+                  fontWeight: 900,
                 }}
               >
                 {item.number}. {item.title}
@@ -3240,7 +3251,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               {item.textParagraphs.map((paragraph, paragraphIndex) => (
                 <p
                   key={`${item.id}-paragraph-${paragraphIndex}`}
-                  style={{ margin: "0 0 9px", fontSize: 10.25, lineHeight: 1.36 }}
+                  style={{ margin: "0 0 4px", fontSize: 10.25, lineHeight: 1.26 }}
                 >
                   {paragraph}
                 </p>
@@ -3486,7 +3497,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   color: cashFlowViewMode === "afs" ? "#ffffff" : "#111827",
                   padding: "7px 8px",
                   fontSize: 11,
-                  fontWeight: 700,
+                  fontWeight: 900,
                   cursor: "pointer",
                 }}
               >
@@ -3502,7 +3513,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   color: cashFlowViewMode === "work" ? "#ffffff" : "#111827",
                   padding: "7px 8px",
                   fontSize: 11,
-                  fontWeight: 700,
+                  fontWeight: 900,
                   cursor: "pointer",
                 }}
               >
@@ -3646,7 +3657,6 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   <style jsx global>{`
         html.afs-export-route-html,
         body.afs-export-route-body {
-          font-family: Arial, Helvetica, sans-serif !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
@@ -3659,7 +3669,6 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         }
 
         .afsExportOnlyRoot {
-          font-family: Arial, Helvetica, sans-serif !important;
           position: fixed;
           inset: 0;
           z-index: 2147483647;
@@ -3681,7 +3690,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   left: 50%;
   transform: translate(-50%, -50%) rotate(-35deg);
   z-index: 999999;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 82pt;
   line-height: 1;
   font-weight: 900;
@@ -3695,35 +3704,6 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         .afsExportOnlyRoot article {
           box-shadow: none !important;
         }
-        .afsExportOnlyRoot {
-          font-weight: 400;
-          color: #111827;
-        }
-
-        .afsExportOnlyRoot h1 {
-          font-weight: 700 !important;
-          letter-spacing: -0.015em;
-        }
-
-        .afsExportOnlyRoot h2,
-        .afsExportOnlyRoot h3 {
-          font-weight: 700 !important;
-          letter-spacing: -0.01em;
-        }
-
-        .afsExportOnlyRoot table th {
-          font-weight: 700 !important;
-        }
-
-        .afsExportOnlyRoot table td {
-          font-weight: 400;
-        }
-
-        .afsExportOnlyRoot [data-total-amount="true"],
-        .afsExportOnlyRoot [data-total-label="true"] {
-          font-weight: 700 !important;
-        }
-
 
           .afsExportOnlyRoot {
             counter-reset: afs-export-page;
@@ -3739,7 +3719,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             position: absolute;
             right: 17mm;
             bottom: 8mm;
-            font-family: Arial, Helvetica, sans-serif;
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             font-size: 9.5px;
             line-height: 1;
             color: #475569;
@@ -3752,7 +3732,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   left: 50%;
   transform: translate(-50%, -50%) rotate(-35deg);
   z-index: 999998;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 84pt;
   line-height: 1;
   font-weight: 900;
@@ -3798,31 +3778,31 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
           .afs-export-notes-page section,
           .afs-export-notes-page .afs-export-note-item {
-            margin-bottom: 24px !important;
+            margin-bottom: 11px !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
           }
 
           .afs-export-notes-page h2,
           .afs-export-notes-page h3 {
-            margin-top: 14px !important;
-            margin-bottom: 8px !important;
+            margin-top: 10px !important;
+            margin-bottom: 5px !important;
           }
 
           .afs-export-notes-page table {
             border-collapse: collapse !important;
             width: 100% !important;
             table-layout: fixed !important;
-            margin: 5px 0 16px !important;
+            margin: 3px 0 10px !important;
           }
 
           .afs-export-notes-page th,
           .afs-export-notes-page td {
             border-top: 0 !important;
             border-bottom: 0 !important;
-            padding-top: 2.2px !important;
-            padding-bottom: 2.2px !important;
-            line-height: 1.28 !important;
+            padding-top: 1.5px !important;
+            padding-bottom: 1.5px !important;
+            line-height: 1.22 !important;
           }
 
           .afs-export-notes-page thead th {
@@ -4001,31 +3981,28 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
           }
+
+          .afs-export-compiler-page {
+            page-break-before: always !important;
+            break-before: page !important;
+          }
+
+          .afs-export-compiler-page article {
+            width: 210mm !important;
+            min-height: 297mm !important;
+            height: 297mm !important;
+            overflow: hidden !important;
+            page-break-after: always !important;
+            break-after: page !important;
+          }
+
+          .afs-export-compiler-page article::after {
+            content: counter(afs-export-page);
+          }
+
 .afsExportOnlyRoot,
 .afsExportOnlyRoot * {
-  font-family: Arial, "Helvetica Neue", Helvetica, sans-serif !important;
-  -webkit-font-smoothing: antialiased !important;
-  text-rendering: geometricPrecision !important;
-}
-
-.afsExportOnlyRoot h1,
-.afsExportOnlyRoot h2,
-.afsExportOnlyRoot h3,
-.afsExportOnlyRoot strong,
-.afsExportOnlyRoot th,
-.afsExportOnlyRoot b {
-  font-weight: 700 !important;
-}
-
-.afsExportOnlyRoot table {
-  font-weight: 400 !important;
-}
-
-.afsExportOnlyRoot p,
-.afsExportOnlyRoot td,
-.afsExportOnlyRoot li,
-.afsExportOnlyRoot div {
-  font-weight: 400;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }
 
         }
@@ -4053,7 +4030,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                     style={{
                       fontSize: 22,
                       lineHeight: 1.25,
-                      fontWeight: 700,
+                      fontWeight: 800,
                       margin: "0 0 22px",
                       textTransform: "uppercase",
                       letterSpacing: "-0.01em",
@@ -4074,7 +4051,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                     <div
                       style={{
                         fontSize: 17,
-                        fontWeight: 700,
+                        fontWeight: 900,
                         textTransform: "uppercase",
                       }}
                     >
@@ -4427,10 +4404,33 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           ) : null}
 
           {reportOptions.compilerReport ? (
-            <div id="print-compiler-report">
-              <AfsA4Page>
-                <CompilationReportBlock context={narrativeContext} />
-              </AfsA4Page>
+            <div id="print-compiler-report" className="afs-export-compiler-page">
+              <article
+                style={{
+                  position: "relative",
+                  width: "210mm",
+                  minHeight: "297mm",
+                  margin: "0 auto",
+                  background: "#ffffff",
+                  boxSizing: "border-box",
+                  pageBreakAfter: "always",
+                  breakAfter: "page",
+                }}
+              >
+                <div
+                  style={{
+                    width: "100%",
+                    minHeight: "297mm",
+                    padding: "16mm 17mm 16mm",
+                    boxSizing: "border-box",
+                    fontFamily:
+                      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                    color: "#111827",
+                  }}
+                >
+                  <CompilationReportBlock context={narrativeContext} />
+                </div>
+              </article>
             </div>
           ) : null}
 
@@ -4443,7 +4443,6 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
                   rows={sfpRows}
-                hidePriorYear={hideComparatives}
                 />
               </AfsA4Page>
             </div>
@@ -4458,7 +4457,6 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
                   rows={sociRows}
-                hidePriorYear={hideComparatives}
                 />
               </AfsA4Page>
             </div>
@@ -4504,9 +4502,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                     currencyLabel="Figures in Rand"
                     currentHeading={currentHeading}
                     priorHeading={priorHeading}
-                    rows={cashFlowRows}
-                  hidePriorYear={hideComparatives}
-                />
+                    rows={exportCashFlowRows}
+                  />
                 )}
               </AfsA4Page>
             </div>
@@ -4639,7 +4636,6 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
                   rows={detailedIncomeRows}
-                hidePriorYear={hideComparatives}
                 />
                 </div>
               </AfsA4Page>
@@ -4655,10 +4651,9 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   <h1 style={pageHeadingStyle()}>Tax Computation</h1>
 
                   {(() => {
-                    const profitBeforeTax = Math.round(
-                      Number(engineChecks.profitBeforeTax || 0),
+                    const profitBeforeTax = Number(
+                      engineChecks.profitBeforeTax || 0,
                     );
-
                     const taxRateRaw = getSetupValue(clientSetup, [
                       "tax_rate",
                       "income_tax_rate",
@@ -4675,59 +4670,29 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                     ]);
 
                     const taxRate = Number(taxRateRaw || 27);
-                    const assessedLossBroughtForward = Math.abs(
-                      Number(assessedLossRaw || 0),
+                    const assessedLoss = Number(assessedLossRaw || 0);
+                    const taxableIncomeBeforeLoss = profitBeforeTax;
+                    const lossUtilised = Math.min(
+                      Math.max(taxableIncomeBeforeLoss, 0),
+                      Math.max(assessedLoss, 0),
                     );
-
-                    const taxationLines = (noteData.taxation || []) as any[];
-                    const incomeTaxPerSoci = Math.round(
-                      taxationLines.reduce(
-                        (sum: number, line: any) =>
-                          sum + Number(line.current || 0),
-                        0,
-                      ),
-                    );
-
-                    const permanentDifferences = 0;
-                    const temporaryDifferences = 0;
-                    const calculatedTaxProfitOrLoss =
-                      profitBeforeTax + permanentDifferences + temporaryDifferences;
-
-                    const assessedLossUtilised =
-                      calculatedTaxProfitOrLoss > 0
-                        ? Math.min(
-                            calculatedTaxProfitOrLoss,
-                            assessedLossBroughtForward,
-                          )
-                        : 0;
-
-                    const taxableIncome =
-                      calculatedTaxProfitOrLoss - assessedLossUtilised;
-
-                    const taxableIncomeSubjectToNormalTax = Math.max(
+                    const taxableIncome = Math.max(
                       0,
-                      taxableIncome,
+                      taxableIncomeBeforeLoss - lossUtilised,
                     );
-
                     const normalTax = Math.round(
-                      taxableIncomeSubjectToNormalTax * (taxRate / 100),
+                      taxableIncome * (taxRate / 100),
                     );
-
-                    const assessedLossCarriedForward = Math.max(
-                      0,
-                      -taxableIncome,
+                    const expectedTax = Math.round(
+                      Math.max(profitBeforeTax, 0) * (taxRate / 100),
                     );
+                    const taxDifference = normalTax - expectedTax;
 
-                    const deferredTaxMovement = incomeTaxPerSoci - normalTax;
-                    const showDeferredTaxLine = Math.round(deferredTaxMovement) !== 0;
-
-                    const rows: Array<{
+                    const taxRows: Array<{
                       label: string;
-                      current: number | null;
+                      current: number;
                       strong?: boolean;
                       rule?: boolean;
-                      spacerBefore?: boolean;
-                      hideIfZero?: boolean;
                     }> = [
                       {
                         label: "Profit / (loss) before taxation",
@@ -4735,182 +4700,112 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                         strong: true,
                       },
                       {
-                        label: "Permanent non-taxable / non-deductible differences",
-                        current: permanentDifferences,
-                        hideIfZero: true,
+                        label: `Tax calculated at ${taxRate}%`,
+                        current: expectedTax,
                       },
                       {
-                        label: "Temporary differences",
-                        current: temporaryDifferences,
-                        hideIfZero: true,
-                      },
-                      {
-                        label:
-                          calculatedTaxProfitOrLoss < 0
-                            ? "Calculated tax loss for the year"
-                            : "Calculated tax profit for the year",
-                        current: calculatedTaxProfitOrLoss,
-                        strong: true,
-                        rule: true,
-                      },
-                      {
-                        label: "Assessed loss brought forward",
-                        current: assessedLossBroughtForward
-                          ? -assessedLossBroughtForward
-                          : 0,
-                        hideIfZero: true,
+                        label: "Permanent / non-taxable differences",
+                        current: 0,
                       },
                       {
                         label: "Assessed loss utilised",
-                        current: -assessedLossUtilised,
-                        hideIfZero: true,
+                        current: -Math.abs(lossUtilised),
                       },
                       {
-                        label: "Taxable income / (assessed loss)",
+                        label: "Taxable income",
                         current: taxableIncome,
                         strong: true,
                         rule: true,
                       },
                       {
-                        label: "Summary of assessed loss",
-                        current: null,
-                        strong: true,
-                        spacerBefore: true,
-                      },
-                      {
-                        label:
-                          calculatedTaxProfitOrLoss < 0
-                            ? "Calculated tax loss for the year"
-                            : "Calculated tax profit for the year",
-                        current: calculatedTaxProfitOrLoss,
-                      },
-                      {
-                        label: "Assessed loss brought forward",
-                        current: assessedLossBroughtForward
-                          ? -assessedLossBroughtForward
-                          : 0,
-                        hideIfZero: true,
-                      },
-                      {
-                        label: "Assessed loss utilised",
-                        current: -assessedLossUtilised,
-                        hideIfZero: true,
-                      },
-                      {
-                        label: "Total assessed loss carried forward",
-                        current: assessedLossCarriedForward,
-                        strong: true,
-                        rule: true,
-                      },
-                      {
-                        label: `Tax thereon @ ${taxRate}%`,
+                        label: "Current tax",
                         current: normalTax,
                         strong: true,
-                        spacerBefore: true,
                         rule: true,
                       },
                       {
-                        label: "Reconciliation of income tax expense / (credit)",
-                        current: null,
-                        strong: true,
-                        spacerBefore: true,
-                      },
-                      {
-                        label: "Normal tax expense",
-                        current: normalTax,
-                        hideIfZero: true,
-                      },
-                      {
-                        label:
-                          deferredTaxMovement > 0
-                            ? "Deferred tax credit recognised in profit or loss"
-                            : "Deferred tax expense recognised in profit or loss",
-                        current: deferredTaxMovement,
-                        hideIfZero: !showDeferredTaxLine,
-                      },
-                      {
-                        label: "Income tax expense / (credit) per SOCI",
-                        current: incomeTaxPerSoci,
-                        strong: true,
-                        rule: true,
+                        label: "Tax rate reconciliation difference",
+                        current: taxDifference,
                       },
                     ];
 
-                    const visibleRows = rows.filter(
-                      (row) =>
-                        !row.hideIfZero ||
-                        Math.round(Number(row.current || 0)) !== 0,
-                    );
-
                     return (
-                      <table
-                        style={{
-                          width: "100%",
-                          borderCollapse: "collapse",
-                          fontSize: 10.2,
-                          marginTop: 8,
-                          fontFamily: "Arial, Helvetica, sans-serif",
-                        }}
-                      >
-                        <thead>
-                          <tr>
-                            <th
-                              style={{
-                                textAlign: "left",
-                                borderBottom: "1.5px solid #111827",
-                                padding: "3px 0",
-                              }}
-                            >
-                              Description
-                            </th>
-                            <th
-                              style={{
-                                textAlign: "right",
-                                borderBottom: "1.5px solid #111827",
-                                padding: "3px 0",
-                                width: 120,
-                              }}
-                            >
-                              {currentHeading}
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {visibleRows.map((row) => (
-                            <tr key={row.label}>
-                              <td
+                      <>
+                        <table
+                          style={{
+                            width: "100%",
+                            borderCollapse: "collapse",
+                            fontSize: 10.2,
+                            marginTop: 8,
+                          }}
+                        >
+                          <thead>
+                            <tr>
+                              <th
                                 style={{
-                                  padding: row.spacerBefore
-                                    ? "11px 0 3px"
-                                    : "3px 0",
-                                  fontWeight: row.strong ? 800 : 400,
+                                  textAlign: "left",
+                                  borderBottom: "1.5px solid #111827",
+                                  padding: "3px 0",
                                 }}
                               >
-                                {row.label}
-                              </td>
-                              <td
+                                Description
+                              </th>
+                              <th
                                 style={{
-                                  padding: row.spacerBefore
-                                    ? "11px 0 3px"
-                                    : "3px 0",
                                   textAlign: "right",
-                                  fontWeight: row.strong ? 800 : 400,
-                                  borderTop: row.rule
-                                    ? "1px solid #111827"
-                                    : undefined,
-                                  borderBottom: row.rule
-                                    ? "2px solid #111827"
-                                    : undefined,
+                                  borderBottom: "1.5px solid #111827",
+                                  padding: "3px 0",
+                                  width: 110,
                                 }}
                               >
-                                {row.current === null
-                                  ? ""
-                                  : taxAmount(Number(row.current))}
-                              </td>
+                                {currentHeading}
+                              </th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {taxRows.map((row) => (
+                              <tr key={row.label}>
+                                <td
+                                  style={{
+                                    padding: "3px 0",
+                                    fontWeight: row.strong ? 800 : 400,
+                                  }}
+                                >
+                                  {row.label}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "3px 0",
+                                    textAlign: "right",
+                                    fontWeight: row.strong ? 800 : 400,
+                                    borderTop: row.rule
+                                      ? "1px solid #111827"
+                                      : undefined,
+                                    borderBottom: row.rule
+                                      ? "2px solid #111827"
+                                      : undefined,
+                                  }}
+                                >
+                                  {taxAmount(Number(row.current))}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+
+                        <p
+                          style={{
+                            marginTop: 12,
+                            fontSize: 10.2,
+                            lineHeight: 1.35,
+                            color: "#374151",
+                          }}
+                        >
+                          Tax computation is prepared from the mapped profit
+                          before tax and the tax settings captured in Client
+                          Setup.
+                        </p>
+                      </>
                     );
                   })()}
                 </section>
