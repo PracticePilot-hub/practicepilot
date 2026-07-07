@@ -1092,8 +1092,10 @@ function formatMoney(value: number) {
   return rounded < 0 ? `(${absolute})` : absolute;
 }
 
-function formatSignedMoney(value: number) {
-  const rounded = Math.round(value);
+function formatSignedMoney(value: unknown) {
+  if (Math.abs(Math.round(safeNumber(value))) <= 1) return "–";
+
+  const rounded = Math.round(safeNumber(value));
 
   if (rounded === 0) return "–";
 

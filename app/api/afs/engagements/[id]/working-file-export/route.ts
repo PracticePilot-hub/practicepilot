@@ -56,6 +56,8 @@ function formatMoney(value: unknown) {
 }
 
 function formatSignedMoney(value: unknown) {
+  if (Math.abs(Math.round(safeNumber(value))) <= 1) return "–";
+
   const rounded = Math.round(safeNumber(value));
 
   if (rounded === 0) return "–";
