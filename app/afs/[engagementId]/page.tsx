@@ -1297,16 +1297,14 @@ function ExportPrintPanel({
           <button type="button" style={styles.exportSecondaryButton} onClick={printSelectedDocument}>
             Print selected
           </button>
-          <button
-            type="button"
-            style={styles.exportPrimaryButton}
-            onClick={() => {
-              const url = `/api/afs/engagements/${engagement.id}/working-file-export?document=${selectedDocument}`;
-              window.open(url, "_blank");
-            }}
+          <a
+            href={`/api/afs/engagements/${engagement.id}/working-file-export?document=${selectedDocument}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ ...styles.exportPrimaryButton, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
           >
             Export PDF
-          </button>
+          </a>
         </div>
       </div>
 
