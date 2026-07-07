@@ -3720,8 +3720,11 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 >
   
   <style jsx global>{`
+        @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
+
         html.afs-export-route-html,
         body.afs-export-route-body {
+          font-family: "Inter", Arial, sans-serif !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
@@ -3734,7 +3737,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         }
 
         .afsExportOnlyRoot {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Inter", Arial, sans-serif !important;
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
           position: fixed;
@@ -3748,6 +3751,12 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           background: #ffffff;
         }
 
+        .afsExportOnlyRoot,
+        .afsExportOnlyRoot * {
+          font-family: "Inter", Arial, sans-serif !important;
+          font-variant-ligatures: none;
+        }
+
 .afsExportOnlyRoot article {
   position: relative !important;
 }
@@ -3758,7 +3767,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   left: 50%;
   transform: translate(-50%, -50%) rotate(-35deg);
   z-index: 999999;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Inter", Arial, sans-serif !important;
   font-size: 82pt;
   line-height: 1;
   font-weight: 900;
@@ -3787,7 +3796,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             position: absolute;
             right: 17mm;
             bottom: 8mm;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: "Inter", Arial, sans-serif !important;
             font-size: 9.5px;
             line-height: 1;
             color: #475569;
@@ -3800,7 +3809,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   left: 50%;
   transform: translate(-50%, -50%) rotate(-35deg);
   z-index: 999998;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Inter", Arial, sans-serif !important;
   font-size: 84pt;
   line-height: 1;
   font-weight: 900;
