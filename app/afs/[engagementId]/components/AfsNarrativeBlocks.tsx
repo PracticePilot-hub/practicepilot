@@ -754,7 +754,7 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
 const styles: Record<string, React.CSSProperties> = {
   paragraph: {
     margin: "0 0 7px",
-    fontFamily: "Arial, Helvetica, sans-serif",
+    fontFamily: "inherit",
     fontSize: 10.1,
     lineHeight: 1.34,
   },
