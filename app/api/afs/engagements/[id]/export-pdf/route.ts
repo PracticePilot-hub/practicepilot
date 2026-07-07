@@ -184,12 +184,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
       () => {
         const text = document.body?.innerText || "";
         const stillLoading = /loading print studio data/i.test(text);
-        const hasCoverOrIndex = Boolean(
-          document.querySelector("#print-cover-page, #print-index"),
-        );
-        const hasSfp = Boolean(document.querySelector("#print-sfp"));
 
-        return !stillLoading && hasCoverOrIndex && hasSfp;
+        return (
+          !stillLoading &&
+          Boolean(document.getElementById("print-index")) &&
+          Boolean(document.getElementById("print-general-info")) &&
+          Boolean(document.getElementById("print-sfp"))
+        );
       },
       { timeout: 60_000 },
     );
@@ -213,10 +214,19 @@ export async function GET(request: NextRequest, context: RouteContext) {
     await sleep(300);
 
     const exportInfo = await page.evaluate(() => {
+      /*
+        These ids must match the actual Print Studio renderer.
+        Do not rename these here unless the Print Studio JSX ids are also renamed.
+
+        Important:
+        - General info is print-general-info, not print-general-information.
+        - Detailed income is print-detailed-income, not print-detailed-income-statement.
+        - Tax is print-tax-computation.
+      */
       const printableIds = [
         "print-cover-page",
         "print-index",
-        "print-general-information",
+        "print-general-info",
         "print-directors-responsibilities",
         "print-directors-report",
         "print-compiler-report",
@@ -226,7 +236,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         "print-cash-flow",
         "print-accounting-policies",
         "print-notes",
-        "print-detailed-income-statement",
+        "print-detailed-income",
         "print-tax-computation",
       ];
 
@@ -257,7 +267,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
         if (!text.trim()) return;
 
         const clone = source.cloneNode(true) as HTMLElement;
-        clone.removeAttribute("style");
         clone.classList.add("afs-pdf-section");
         printRoot.appendChild(clone);
       });
@@ -299,6 +308,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
         #afs-pdf-print-root {
           width: 210mm !important;
+          min-width: 210mm !important;
+          max-width: 210mm !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
@@ -311,11 +322,14 @@ export async function GET(request: NextRequest, context: RouteContext) {
         #afs-pdf-print-root * {
           box-sizing: border-box !important;
           transform-origin: top left !important;
+          max-width: 100% !important;
         }
 
         .afs-pdf-section {
           display: block !important;
           width: 210mm !important;
+          min-width: 210mm !important;
+          max-width: 210mm !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
@@ -323,16 +337,101 @@ export async function GET(request: NextRequest, context: RouteContext) {
           zoom: 1 !important;
           break-inside: auto !important;
           page-break-inside: auto !important;
-        }
-
-        .afs-pdf-section > * {
-          transform: none !important;
-          zoom: 1 !important;
+          overflow: visible !important;
         }
 
         .afs-pdf-section:not(:last-child) {
           break-after: page !important;
           page-break-after: always !important;
+        }
+
+        .afs-pdf-section > article,
+        .afs-pdf-section [class*="page"],
+        .afs-pdf-section [class*="sheet"],
+        .afs-pdf-section [class*="content"],
+        .afs-pdf-section [class*="a4"],
+        .afs-pdf-section [style*="210mm"] {
+          width: 210mm !important;
+          min-width: 210mm !important;
+          max-width: 210mm !important;
+          transform: none !important;
+          zoom: 1 !important;
+          overflow: visible !important;
+        }
+
+        .afs-pdf-section table {
+          width: 100% !important;
+          max-width: 100% !important;
+          border-collapse: collapse !important;
+          table-layout: auto !important;
+        }
+
+        .afs-pdf-section th,
+        .afs-pdf-section td {
+          white-space: normal !important;
+          word-break: normal !important;
+          overflow-wrap: normal !important;
+        }
+
+        #print-sfp th,
+        #print-sfp td,
+        #print-soci th,
+        #print-soci td,
+        #print-sce th,
+        #print-sce td,
+        #print-cash-flow th,
+        #print-cash-flow td,
+        #print-detailed-income th,
+        #print-detailed-income td,
+        #print-tax-computation th,
+        #print-tax-computation td {
+          font-size: 11.15px !important;
+          line-height: 1.28 !important;
+        }
+
+        #print-notes table {
+          width: 100% !important;
+          max-width: 100% !important;
+          margin-left: 0 !important;
+          margin-right: 0 !important;
+          table-layout: fixed !important;
+        }
+
+        #print-notes th:nth-child(2),
+        #print-notes th:nth-child(3),
+        #print-notes td:nth-child(2),
+        #print-notes td:nth-child(3) {
+          width: 25mm !important;
+          min-width: 25mm !important;
+          max-width: 25mm !important;
+          text-align: right !important;
+          white-space: nowrap !important;
+        }
+
+        #print-general-info table {
+          width: 76% !important;
+          max-width: 138mm !important;
+          margin-left: 0 !important;
+          margin-right: auto !important;
+          table-layout: fixed !important;
+        }
+
+        #print-general-info td {
+          padding-top: 3px !important;
+          padding-bottom: 3px !important;
+          border: 0 !important;
+          white-space: normal !important;
+          text-align: left !important;
+        }
+
+        #print-general-info td:first-child {
+          width: 34% !important;
+          font-weight: 700 !important;
+        }
+
+        #print-general-info td:nth-child(2) {
+          width: 66% !important;
+          text-align: left !important;
         }
 
         #afs-pdf-print-root [class*="toolbar"],
