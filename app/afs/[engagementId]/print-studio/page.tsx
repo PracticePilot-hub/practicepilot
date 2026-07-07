@@ -1120,6 +1120,44 @@ function cleanDetailedIncomeRowsForReport(rows: AfsStatementRow[]) {
 }
 
 
+
+function alignDetailedIncomeRowsToSoci(
+  detailedRows: AfsStatementRow[],
+  sociRows: AfsStatementRow[],
+) {
+  const sociProfitBeforeTaxRow = (sociRows || []).find((row: any) =>
+    String(row?.label || "").toLowerCase().trim() ===
+    "profit / (loss) before taxation",
+  ) as any;
+
+  const sociProfitForYearRow = (sociRows || []).find((row: any) =>
+    String(row?.label || "").toLowerCase().trim() ===
+    "profit / (loss) for the year",
+  ) as any;
+
+  return (detailedRows || []).map((row: any) => {
+    const label = String(row?.label || "").toLowerCase().trim();
+
+    if (label === "profit / (loss) before taxation" && sociProfitBeforeTaxRow) {
+      return {
+        ...row,
+        current: Math.round(Number(sociProfitBeforeTaxRow.current || 0)),
+        prior: Math.round(Number(sociProfitBeforeTaxRow.prior || 0)),
+      };
+    }
+
+    if (label === "profit / (loss) for the year" && sociProfitForYearRow) {
+      return {
+        ...row,
+        current: Math.round(Number(sociProfitForYearRow.current || 0)),
+        prior: Math.round(Number(sociProfitForYearRow.prior || 0)),
+      };
+    }
+
+    return row;
+  });
+}
+
 export default function AfsPrintStudioPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -3357,7 +3395,7 @@ export default function AfsPrintStudioPage() {
                   currencyLabel="Figures in Rand"
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
-                  rows={detailedIncomeRows}
+                  rows={alignDetailedIncomeRowsToSoci(detailedIncomeRows, sociRows)}
                 hidePriorYear={hideComparatives}
                 />
               </AfsA4Page>
