@@ -299,8 +299,20 @@ function bucketLabel(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket
 }
 
 function detailedLabel(line: AfsEngineTrialBalanceLine) {
-  const name = String(line.account_name || "").trim();
-  return name || bucketLabel(line, canonicalFromMapping(line));
+  /*
+    Detailed IS must use the selected mapping wording first.
+    Account names are internal working-file descriptions only.
+  */
+  return (
+    cleanLabel(
+      line.mapping_label ||
+        line.mapping_category ||
+        line.lead_schedule_key ||
+        line.mapping_code ||
+        line.account_name ||
+        "Mapped item",
+    ) || bucketLabel(line, canonicalFromMapping(line))
+  );
 }
 
 function canonicalFromMapping(line: AfsEngineTrialBalanceLine): CanonicalBucket {
@@ -938,28 +950,6 @@ export function buildAfsPrintStatementEngine(
     current: equityTotal.current + liabilitiesTotal.current,
     prior: equityTotal.prior + liabilitiesTotal.prior,
   };
-
-  const sfpRoundingCurrent = Math.round(
-    assetsTotal.current - equityLiabilitiesTotal.current
-  );
-  const sfpRoundingPrior = Math.round(
-    assetsTotal.prior - equityLiabilitiesTotal.prior
-  );
-
-  if (sfpRoundingCurrent !== 0 || sfpRoundingPrior !== 0) {
-    equity.push({
-      key: "sfp-rounding",
-      label: "Rounding",
-      note: null,
-      current: sfpRoundingCurrent,
-      prior: sfpRoundingPrior,
-    });
-
-    equityTotal.current += sfpRoundingCurrent;
-    equityTotal.prior += sfpRoundingPrior;
-    equityLiabilitiesTotal.current += sfpRoundingCurrent;
-    equityLiabilitiesTotal.prior += sfpRoundingPrior;
-  }
 
   const sfpRows: AfsStatementRow[] = [
     { id: "assets", label: "Assets", type: "section" },
