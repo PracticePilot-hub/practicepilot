@@ -1033,6 +1033,52 @@ function finalTrialBalanceAmount(line: TrialBalanceLine) {
   );
 }
 
+
+function preliminaryTrialBalanceAmount(line: TrialBalanceLine) {
+  const anyLine = line as any;
+
+  if (anyLine.current_year_balance !== undefined && anyLine.current_year_balance !== null) {
+    return safeNumber(anyLine.current_year_balance);
+  }
+
+  return safeNumber(line.debit) - safeNumber(line.credit);
+}
+
+function manualAdjustmentAmount(line: TrialBalanceLine) {
+  const anyLine = line as any;
+  return safeNumber(anyLine.manual_adjustment ?? anyLine.manual_adjustments ?? anyLine.manualAdj);
+}
+
+function journalAdjustmentAmount(line: TrialBalanceLine) {
+  const anyLine = line as any;
+  return safeNumber(anyLine.journal_adjustment ?? anyLine.journal_adjustments ?? anyLine.journalAdj);
+}
+
+function reclassificationAmount(line: TrialBalanceLine) {
+  const anyLine = line as any;
+  return safeNumber(anyLine.reclassification ?? anyLine.reclassification_adjustment ?? anyLine.reclass);
+}
+
+function reportAnnotationAmount(line: TrialBalanceLine) {
+  return finalTrialBalanceAmount(line);
+}
+
+function percentageChangeAmount(current: number, prior: number) {
+  const roundedPrior = Math.round(prior);
+  const roundedCurrent = Math.round(current);
+
+  if (roundedPrior === 0 && roundedCurrent === 0) return "";
+  if (roundedPrior === 0) return "(100)";
+
+  const percent = Math.round(((roundedCurrent - roundedPrior) / Math.abs(roundedPrior)) * 100);
+  return `(${percent})`;
+}
+
+function leadScheduleReference(line: TrialBalanceLine) {
+  const reference = String(line.lead_schedule_number || line.mapping_code || "").trim();
+  return reference || "–";
+}
+
 function formatMoney(value: number) {
   const rounded = Math.round(value);
 
@@ -1315,44 +1361,72 @@ function PrintableFinalTrialBalance({
 }: {
   rows: { line: TrialBalanceLine; finalAmount: number }[];
 }) {
-  const total = rows.reduce((sum, row) => sum + row.finalAmount, 0);
+  const totals = rows.reduce(
+    (sum, row) => ({
+      prelim: sum.prelim + preliminaryTrialBalanceAmount(row.line),
+      adjustments: sum.adjustments + manualAdjustmentAmount(row.line),
+      journals: sum.journals + journalAdjustmentAmount(row.line),
+      reclass: sum.reclass + reclassificationAmount(row.line),
+      report: sum.report + reportAnnotationAmount(row.line),
+      prior: sum.prior + safeNumber(row.line.prior_year_balance),
+    }),
+    { prelim: 0, adjustments: 0, journals: 0, reclass: 0, report: 0, prior: 0 },
+  );
 
   return (
     <>
       <h3 style={styles.exportPrintTitle}>Final Trial Balance</h3>
 
-      <table style={styles.exportTable}>
+      <table style={styles.casewareTbTable}>
         <thead>
           <tr>
-            <th style={styles.exportTh}>Account</th>
-            <th style={styles.exportTh}>Description</th>
-            <th style={styles.exportTh}>Mapping</th>
-            <th style={styles.exportThRight}>Prior year</th>
-            <th style={styles.exportThRight}>Final AFS balance</th>
+            <th style={styles.casewareTbAccountTh}>Account</th>
+            <th style={styles.casewareTbAmountTh}>Prelim</th>
+            <th style={styles.casewareTbAmountTh}>Adj&apos;s</th>
+            <th style={styles.casewareTbAmountTh}>Reclass</th>
+            <th style={styles.casewareTbAmountTh}>Rep/Annotation</th>
+            <th style={styles.casewareTbAmountTh}>Rep</th>
+            <th style={styles.casewareTbAmountTh}>PY</th>
+            <th style={styles.casewareTbSmallTh}>%Chg</th>
+            <th style={styles.casewareTbSmallTh}>L/S</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.line.id || row.line.account_code || row.line.account_name}>
-              <td style={styles.exportTd}>{row.line.account_code || ""}</td>
-              <td style={styles.exportTd}>{row.line.account_name}</td>
-              <td style={styles.exportTd}>
-                {row.line.mapping_code || row.line.mapping_label || "Unmapped"}
-              </td>
-              <td style={styles.exportTdRight}>{formatSignedMoney(safeNumber(row.line.prior_year_balance))}</td>
-              <td style={styles.exportTdRight}>{formatSignedMoney(row.finalAmount)}</td>
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const prelim = preliminaryTrialBalanceAmount(row.line);
+            const adjustments = manualAdjustmentAmount(row.line);
+            const journals = journalAdjustmentAmount(row.line);
+            const reclass = reclassificationAmount(row.line);
+            const report = reportAnnotationAmount(row.line);
+            const prior = safeNumber(row.line.prior_year_balance);
+            const account = [row.line.account_code, row.line.account_name]
+              .filter(Boolean)
+              .join(" · ");
+
+            return (
+              <tr key={row.line.id || row.line.account_code || row.line.account_name}>
+                <td style={styles.casewareTbAccountTd}>{account}</td>
+                <td style={styles.casewareTbAmountTd}>{formatSignedMoney(prelim)}</td>
+                <td style={styles.casewareTbAmountTd}>{formatSignedMoney(adjustments + journals)}</td>
+                <td style={styles.casewareTbAmountTd}>{formatSignedMoney(reclass)}</td>
+                <td style={styles.casewareTbAmountTd}>{formatSignedMoney(report)}</td>
+                <td style={styles.casewareTbAmountTd}>{formatSignedMoney(report)}</td>
+                <td style={styles.casewareTbAmountTd}>{formatSignedMoney(prior)}</td>
+                <td style={styles.casewareTbSmallTd}>{percentageChangeAmount(report, prior)}</td>
+                <td style={styles.casewareTbSmallTd}>{leadScheduleReference(row.line)}</td>
+              </tr>
+            );
+          })}
           <tr>
-            <td style={styles.exportTotalTd} colSpan={3}>
-              Total
-            </td>
-            <td style={styles.exportTotalTdRight}>
-              {formatSignedMoney(
-                rows.reduce((sum, row) => sum + safeNumber(row.line.prior_year_balance), 0),
-              )}
-            </td>
-            <td style={styles.exportTotalTdRight}>{formatSignedMoney(total)}</td>
+            <td style={styles.casewareTbTotalTd}>Total</td>
+            <td style={styles.casewareTbTotalAmountTd}>{formatSignedMoney(totals.prelim)}</td>
+            <td style={styles.casewareTbTotalAmountTd}>{formatSignedMoney(totals.adjustments + totals.journals)}</td>
+            <td style={styles.casewareTbTotalAmountTd}>{formatSignedMoney(totals.reclass)}</td>
+            <td style={styles.casewareTbTotalAmountTd}>{formatSignedMoney(totals.report)}</td>
+            <td style={styles.casewareTbTotalAmountTd}>{formatSignedMoney(totals.report)}</td>
+            <td style={styles.casewareTbTotalAmountTd}>{formatSignedMoney(totals.prior)}</td>
+            <td style={styles.casewareTbSmallTotalTd}></td>
+            <td style={styles.casewareTbSmallTotalTd}></td>
           </tr>
         </tbody>
       </table>

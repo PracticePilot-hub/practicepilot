@@ -127,6 +127,46 @@ async function getVercelChromiumPath() {
   return chromiumDownloadPromise;
 }
 
+
+function preliminaryTrialBalanceAmount(line: Record<string, any>) {
+  if (line.current_year_balance !== undefined && line.current_year_balance !== null) {
+    return safeNumber(line.current_year_balance);
+  }
+
+  return safeNumber(line.debit) - safeNumber(line.credit);
+}
+
+function manualAdjustmentAmount(line: Record<string, any>) {
+  return safeNumber(line.manual_adjustment ?? line.manual_adjustments ?? line.manualAdj);
+}
+
+function journalAdjustmentAmount(line: Record<string, any>) {
+  return safeNumber(line.journal_adjustment ?? line.journal_adjustments ?? line.journalAdj);
+}
+
+function reclassificationAmount(line: Record<string, any>) {
+  return safeNumber(line.reclassification ?? line.reclassification_adjustment ?? line.reclass);
+}
+
+function reportAnnotationAmount(line: Record<string, any>) {
+  return finalTrialBalanceAmount(line);
+}
+
+function percentageChangeAmount(current: number, prior: number) {
+  const roundedPrior = Math.round(prior);
+  const roundedCurrent = Math.round(current);
+
+  if (roundedPrior === 0 && roundedCurrent === 0) return "";
+  if (roundedPrior === 0) return "(100)";
+
+  const percent = Math.round(((roundedCurrent - roundedPrior) / Math.abs(roundedPrior)) * 100);
+  return `(${percent})`;
+}
+
+function leadScheduleReference(line: Record<string, any>) {
+  return cleanText(line.lead_schedule_number || line.mapping_code) || "–";
+}
+
 function documentTitle(document: ExportDocumentKey) {
   if (document === "journals-passed") return "Journals Passed";
   if (document === "lead-sheets-used") return "Lead Sheets Used";
@@ -142,41 +182,71 @@ function renderFinalTrialBalance(lines: Record<string, any>[]) {
       String(a.line.account_code || "").localeCompare(String(b.line.account_code || "")),
     );
 
-  const priorTotal = rows.reduce(
-    (sum, row) => sum + safeNumber(row.line.prior_year_balance),
-    0,
+  const totals = rows.reduce(
+    (sum, row) => ({
+      prelim: sum.prelim + preliminaryTrialBalanceAmount(row.line),
+      adjustments: sum.adjustments + manualAdjustmentAmount(row.line),
+      journals: sum.journals + journalAdjustmentAmount(row.line),
+      reclass: sum.reclass + reclassificationAmount(row.line),
+      report: sum.report + reportAnnotationAmount(row.line),
+      prior: sum.prior + safeNumber(row.line.prior_year_balance),
+    }),
+    { prelim: 0, adjustments: 0, journals: 0, reclass: 0, report: 0, prior: 0 },
   );
-  const currentTotal = rows.reduce((sum, row) => sum + row.finalAmount, 0);
 
   return `
-    <table>
+    <table class="caseware-tb">
       <thead>
         <tr>
-          <th>Account</th>
-          <th>Description</th>
-          <th>Mapping</th>
-          <th class="amount">Prior year</th>
-          <th class="amount">Final AFS balance</th>
+          <th class="account">Account</th>
+          <th class="amount">Prelim</th>
+          <th class="amount">Adj's</th>
+          <th class="amount">Reclass</th>
+          <th class="amount">Rep/Annotation</th>
+          <th class="amount">Rep</th>
+          <th class="amount">PY</th>
+          <th class="small">%Chg</th>
+          <th class="small">L/S</th>
         </tr>
       </thead>
       <tbody>
         ${rows
-          .map(
-            (row) => `
+          .map((row) => {
+            const prelim = preliminaryTrialBalanceAmount(row.line);
+            const adjustments = manualAdjustmentAmount(row.line);
+            const journals = journalAdjustmentAmount(row.line);
+            const reclass = reclassificationAmount(row.line);
+            const report = reportAnnotationAmount(row.line);
+            const prior = safeNumber(row.line.prior_year_balance);
+            const account = [row.line.account_code, row.line.account_name]
+              .filter(Boolean)
+              .join(" · ");
+
+            return `
               <tr>
-                <td>${escapeHtml(row.line.account_code)}</td>
-                <td>${escapeHtml(row.line.account_name)}</td>
-                <td>${escapeHtml(row.line.mapping_code || row.line.mapping_label || "Unmapped")}</td>
-                <td class="amount">${formatSignedMoney(row.line.prior_year_balance)}</td>
-                <td class="amount">${formatSignedMoney(row.finalAmount)}</td>
+                <td class="account">${escapeHtml(account)}</td>
+                <td class="amount">${formatSignedMoney(prelim)}</td>
+                <td class="amount">${formatSignedMoney(adjustments + journals)}</td>
+                <td class="amount">${formatSignedMoney(reclass)}</td>
+                <td class="amount">${formatSignedMoney(report)}</td>
+                <td class="amount">${formatSignedMoney(report)}</td>
+                <td class="amount">${formatSignedMoney(prior)}</td>
+                <td class="small">${escapeHtml(percentageChangeAmount(report, prior))}</td>
+                <td class="small">${escapeHtml(leadScheduleReference(row.line))}</td>
               </tr>
-            `,
-          )
+            `;
+          })
           .join("")}
         <tr class="total">
-          <td colspan="3">Total</td>
-          <td class="amount">${formatSignedMoney(priorTotal)}</td>
-          <td class="amount">${formatSignedMoney(currentTotal)}</td>
+          <td>Total</td>
+          <td class="amount">${formatSignedMoney(totals.prelim)}</td>
+          <td class="amount">${formatSignedMoney(totals.adjustments + totals.journals)}</td>
+          <td class="amount">${formatSignedMoney(totals.reclass)}</td>
+          <td class="amount">${formatSignedMoney(totals.report)}</td>
+          <td class="amount">${formatSignedMoney(totals.report)}</td>
+          <td class="amount">${formatSignedMoney(totals.prior)}</td>
+          <td class="small"></td>
+          <td class="small"></td>
         </tr>
       </tbody>
     </table>
@@ -371,6 +441,41 @@ function renderHtml(args: {
     header strong { display: block; font-size: 13px; font-weight: 800; }
     header span { display: block; font-size: 11px; color: #334155; }
     h1 { margin: 0 0 14px; font-size: 18px; line-height: 1.2; }
+
+    table.caseware-tb {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 8px;
+      line-height: 1.12;
+    }
+    table.caseware-tb th {
+      border-bottom: 1.5px solid #111827;
+      padding: 2px 3px;
+      text-align: left;
+      font-weight: 800;
+    }
+    table.caseware-tb th.amount,
+    table.caseware-tb td.amount,
+    table.caseware-tb th.small,
+    table.caseware-tb td.small {
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    table.caseware-tb th.account,
+    table.caseware-tb td.account {
+      width: 31%;
+    }
+    table.caseware-tb td {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 1.8px 3px;
+      vertical-align: top;
+    }
+    table.caseware-tb tr.total td {
+      border-top: 1.5px solid #111827;
+      font-weight: 800;
+      padding-top: 3px;
+    }
     table { width: 100%; border-collapse: collapse; font-size: 10.5px; margin-bottom: 10px; }
     th { text-align: left; border-bottom: 1px solid #94a3b8; padding: 5px 4px; font-weight: 800; }
     td { border-bottom: 1px solid #e2e8f0; padding: 4px; vertical-align: top; }
