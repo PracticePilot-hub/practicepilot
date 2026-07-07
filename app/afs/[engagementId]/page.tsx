@@ -930,6 +930,84 @@ type ExportPrintPanelProps = {
   leadScheduleStatements: LeadScheduleStatement[];
 };
 
+type PostedJournalLine = {
+  id: string;
+  account_code: string;
+  account_name: string;
+  debit: number;
+  credit: number;
+  note: string;
+};
+
+type PostedJournal = {
+  id: string;
+  reference: string;
+  description: string;
+  journal_date: string;
+  posted_at: string;
+  is_balanced: boolean;
+  debit_total: number;
+  credit_total: number;
+  lines: PostedJournalLine[];
+};
+
+function cleanExportText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function postedJournalReference(rawJournal: Record<string, any>) {
+  const explicit = cleanExportText(
+    rawJournal.journal_reference ?? rawJournal.journalReference ?? rawJournal.reference,
+  );
+
+  if (explicit) return explicit;
+
+  const numberValue = cleanExportText(rawJournal.journal_number ?? rawJournal.number);
+  if (!numberValue) return "AJ";
+
+  if (/^AJ/i.test(numberValue)) return numberValue.toUpperCase();
+
+  return `AJ${String(Number(numberValue) || numberValue).padStart(3, "0")}`;
+}
+
+function mapPostedJournalForExport(rawJournal: Record<string, any>): PostedJournal {
+  const lines = Array.isArray(rawJournal?.lines) ? rawJournal.lines : [];
+
+  const mappedLines: PostedJournalLine[] = lines.map((line: Record<string, any>, index: number) => ({
+    id: cleanExportText(line.id) || `${cleanExportText(rawJournal.id) || "journal"}-${index}`,
+    account_code: cleanExportText(line.account_code ?? line.accountCode),
+    account_name: cleanExportText(line.account_name ?? line.accountName),
+    debit: safeNumber(line.debit),
+    credit: safeNumber(line.credit),
+    note: cleanExportText(line.note),
+  }));
+
+  const debitTotal =
+    rawJournal.debit_total !== undefined && rawJournal.debit_total !== null
+      ? safeNumber(rawJournal.debit_total)
+      : mappedLines.reduce((sum, line) => sum + safeNumber(line.debit), 0);
+
+  const creditTotal =
+    rawJournal.credit_total !== undefined && rawJournal.credit_total !== null
+      ? safeNumber(rawJournal.credit_total)
+      : mappedLines.reduce((sum, line) => sum + safeNumber(line.credit), 0);
+
+  return {
+    id: cleanExportText(rawJournal.id) || `${postedJournalReference(rawJournal)}-${rawJournal.created_at || ""}`,
+    reference: postedJournalReference(rawJournal),
+    description: cleanExportText(rawJournal.description) || "Adjusting journal",
+    journal_date: cleanExportText(rawJournal.journal_date ?? rawJournal.journalDate),
+    posted_at: cleanExportText(rawJournal.posted_at ?? rawJournal.postedAt),
+    is_balanced:
+      rawJournal.is_balanced === false
+        ? false
+        : Math.abs(debitTotal - creditTotal) < 0.01,
+    debit_total: debitTotal,
+    credit_total: creditTotal,
+    lines: mappedLines,
+  };
+}
+
 function safeNumber(value: unknown) {
   const numberValue = Number(value || 0);
   return Number.isFinite(numberValue) ? numberValue : 0;
@@ -952,49 +1030,6 @@ function finalTrialBalanceAmount(line: TrialBalanceLine) {
     safeNumber(anyLine.manual_adjustment) +
     safeNumber(anyLine.journal_adjustment) +
     safeNumber(anyLine.reclassification)
-  );
-}
-
-function journalAmountForLine(line: TrialBalanceLine) {
-  const anyLine = line as any;
-
-  const explicitJournal =
-    anyLine.journal_adjustment ??
-    anyLine.journal_adjustments ??
-    anyLine.journal_adj ??
-    anyLine.journalAdj ??
-    anyLine.journalAmount ??
-    anyLine.journal_amount;
-
-  if (explicitJournal !== undefined && explicitJournal !== null) {
-    return safeNumber(explicitJournal);
-  }
-
-  const base =
-    anyLine.current_year_balance !== undefined &&
-    anyLine.current_year_balance !== null
-      ? safeNumber(anyLine.current_year_balance)
-      : safeNumber(line.debit) - safeNumber(line.credit);
-
-  const manual =
-    anyLine.manual_adjustment ??
-    anyLine.manual_adjustments ??
-    anyLine.manualAdj ??
-    anyLine.manual_amount ??
-    0;
-
-  const reclassification =
-    anyLine.reclassification ??
-    anyLine.reclassification_adjustment ??
-    anyLine.reclass ??
-    anyLine.reclass_amount ??
-    0;
-
-  return (
-    finalTrialBalanceAmount(line) -
-    base -
-    safeNumber(manual) -
-    safeNumber(reclassification)
   );
 }
 
@@ -1044,6 +1079,55 @@ function ExportPrintPanel({
 }: ExportPrintPanelProps) {
   const [selectedDocument, setSelectedDocument] =
     useState<ExportDocumentKey>("final-trial-balance");
+  const [postedJournals, setPostedJournals] = useState<PostedJournal[]>([]);
+  const [loadingPostedJournals, setLoadingPostedJournals] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPostedJournalsForExport() {
+      if (!engagement?.id) return;
+
+      try {
+        setLoadingPostedJournals(true);
+
+        const response = await fetch(
+          `/api/afs/engagements/${engagement.id}/journal-post`,
+          { cache: "no-store" },
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result?.error || "Failed to load posted journals.");
+        }
+
+        if (!cancelled) {
+          const mapped = Array.isArray(result?.journals)
+            ? result.journals.map(mapPostedJournalForExport)
+            : [];
+
+          setPostedJournals(mapped);
+        }
+      } catch (error) {
+        console.error("Failed to load AFS posted journals for export", error);
+
+        if (!cancelled) {
+          setPostedJournals([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingPostedJournals(false);
+        }
+      }
+    }
+
+    loadPostedJournalsForExport();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [engagement?.id]);
 
   const displayClientName = clientSetup?.registered_name || engagement.client_name;
   const displayYearEnd = clientSetup?.financial_year_end || engagement.financial_year_end;
@@ -1054,16 +1138,6 @@ function ExportPrintPanel({
       finalAmount: finalTrialBalanceAmount(line),
     }))
     .filter((row) => Math.round(row.finalAmount) !== 0)
-    .sort((a, b) =>
-      String(a.line.account_code || "").localeCompare(String(b.line.account_code || "")),
-    );
-
-  const journalsPassedRows = trialBalanceLines
-    .map((line) => ({
-      line,
-      journalAmount: journalAmountForLine(line),
-    }))
-    .filter((row) => Math.round(row.journalAmount) !== 0)
     .sort((a, b) =>
       String(a.line.account_code || "").localeCompare(String(b.line.account_code || "")),
     );
@@ -1172,9 +1246,21 @@ function ExportPrintPanel({
           </p>
         </div>
 
-        <button type="button" style={styles.exportPrimaryButton} onClick={printSelectedDocument}>
-          Print selected
-        </button>
+        <div style={styles.exportToolbarActions}>
+          <button type="button" style={styles.exportSecondaryButton} onClick={printSelectedDocument}>
+            Print selected
+          </button>
+          <button
+            type="button"
+            style={styles.exportPrimaryButton}
+            onClick={() => {
+              const url = `/api/afs/engagements/${engagement.id}/working-file-export?document=${selectedDocument}`;
+              window.open(url, "_blank");
+            }}
+          >
+            Export PDF
+          </button>
+        </div>
       </div>
 
       <div style={styles.exportDocumentGrid}>
@@ -1209,7 +1295,7 @@ function ExportPrintPanel({
         )}
 
         {selectedDocument === "journals-passed" && (
-          <PrintableJournalsPassed rows={journalsPassedRows} />
+          <PrintableJournalsPassed journals={postedJournals} loading={loadingPostedJournals} />
         )}
 
         {selectedDocument === "lead-sheets-used" && (
@@ -1253,9 +1339,7 @@ function PrintableFinalTrialBalance({
               <td style={styles.exportTd}>
                 {row.line.mapping_code || row.line.mapping_label || "Unmapped"}
               </td>
-              <td style={styles.exportTdRight}>
-                {formatSignedMoney(safeNumber((row.line as any).prior_year_balance))}
-              </td>
+              <td style={styles.exportTdRight}>{formatSignedMoney(safeNumber(row.line.prior_year_balance))}</td>
               <td style={styles.exportTdRight}>{formatSignedMoney(row.finalAmount)}</td>
             </tr>
           ))}
@@ -1265,11 +1349,7 @@ function PrintableFinalTrialBalance({
             </td>
             <td style={styles.exportTotalTdRight}>
               {formatSignedMoney(
-                rows.reduce(
-                  (sum, row) =>
-                    sum + safeNumber((row.line as any).prior_year_balance),
-                  0,
-                ),
+                rows.reduce((sum, row) => sum + safeNumber(row.line.prior_year_balance), 0),
               )}
             </td>
             <td style={styles.exportTotalTdRight}>{formatSignedMoney(total)}</td>
@@ -1281,39 +1361,76 @@ function PrintableFinalTrialBalance({
 }
 
 function PrintableJournalsPassed({
-  rows,
+  journals,
+  loading,
 }: {
-  rows: { line: TrialBalanceLine; journalAmount: number }[];
+  journals: PostedJournal[];
+  loading: boolean;
 }) {
+  const sortedJournals = [...journals].sort((a, b) => {
+    const dateCompare = String(a.journal_date || a.posted_at).localeCompare(
+      String(b.journal_date || b.posted_at),
+    );
+
+    if (dateCompare !== 0) return dateCompare;
+    return a.reference.localeCompare(b.reference);
+  });
+
   return (
     <>
       <h3 style={styles.exportPrintTitle}>Journals Passed</h3>
 
-      {rows.length === 0 ? (
-        <p style={styles.exportEmpty}>No journal adjustments have been passed.</p>
+      {loading ? (
+        <p style={styles.exportEmpty}>Loading posted journals...</p>
+      ) : sortedJournals.length === 0 ? (
+        <p style={styles.exportEmpty}>No posted journals were found in the journal register.</p>
       ) : (
-        <table style={styles.exportTable}>
-          <thead>
-            <tr>
-              <th style={styles.exportTh}>Account</th>
-              <th style={styles.exportTh}>Description</th>
-              <th style={styles.exportTh}>Mapping</th>
-              <th style={styles.exportThRight}>Journal adjustment</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.line.id || row.line.account_code || row.line.account_name}>
-                <td style={styles.exportTd}>{row.line.account_code || ""}</td>
-                <td style={styles.exportTd}>{row.line.account_name}</td>
-                <td style={styles.exportTd}>
-                  {row.line.mapping_code || row.line.mapping_label || "Unmapped"}
-                </td>
-                <td style={styles.exportTdRight}>{formatSignedMoney(row.journalAmount)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div style={styles.exportJournalList}>
+          {sortedJournals.map((journal) => (
+            <section key={journal.id} style={styles.exportJournalBlock}>
+              <div style={styles.exportJournalHeader}>
+                <div>
+                  <strong>{journal.reference}</strong>
+                  <span>{journal.description}</span>
+                </div>
+                <div style={styles.exportJournalMeta}>
+                  <span>{journal.journal_date || journal.posted_at?.slice(0, 10) || ""}</span>
+                  <strong>{journal.is_balanced ? "Balanced" : "Unbalanced"}</strong>
+                </div>
+              </div>
+
+              <table style={styles.exportTableCompact}>
+                <thead>
+                  <tr>
+                    <th style={styles.exportTh}>Account</th>
+                    <th style={styles.exportTh}>Description</th>
+                    <th style={styles.exportTh}>Note</th>
+                    <th style={styles.exportThRight}>Debit</th>
+                    <th style={styles.exportThRight}>Credit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {journal.lines.map((line) => (
+                    <tr key={line.id}>
+                      <td style={styles.exportTd}>{line.account_code}</td>
+                      <td style={styles.exportTd}>{line.account_name}</td>
+                      <td style={styles.exportTd}>{line.note}</td>
+                      <td style={styles.exportTdRight}>{formatMoney(line.debit)}</td>
+                      <td style={styles.exportTdRight}>{formatMoney(line.credit)}</td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td style={styles.exportTotalTd} colSpan={3}>
+                      Total
+                    </td>
+                    <td style={styles.exportTotalTdRight}>{formatMoney(journal.debit_total)}</td>
+                    <td style={styles.exportTotalTdRight}>{formatMoney(journal.credit_total)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+          ))}
+        </div>
       )}
     </>
   );
@@ -1733,6 +1850,49 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
     borderRadius: "6px",
     whiteSpace: "nowrap",
+  },
+  exportToolbarActions: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+  },
+  exportSecondaryButton: {
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#0f172a",
+    padding: "9px 13px",
+    fontSize: "13px",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  exportJournalList: {
+    display: "grid",
+    gap: "14px",
+  },
+  exportJournalBlock: {
+    breakInside: "avoid",
+    pageBreakInside: "avoid",
+  },
+  exportJournalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "12px",
+    borderBottom: "1px solid #cbd5e1",
+    paddingBottom: "7px",
+    marginBottom: "7px",
+    fontSize: "12px",
+  },
+  exportJournalMeta: {
+    display: "grid",
+    gap: "3px",
+    textAlign: "right",
+    color: "#334155",
+  },
+  exportTableCompact: {
+    width: "100%",
+    borderCollapse: "collapse",
+    fontSize: "10.5px",
+    marginBottom: "10px",
   },
   exportDocumentGrid: {
     display: "grid",
