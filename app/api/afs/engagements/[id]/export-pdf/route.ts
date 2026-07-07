@@ -180,15 +180,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
       timeout: 60_000,
     });
 
-    /*
-      Do not print while Print Studio is still on the loading shell.
-
-      The previous route only waited for generic report words. That was too weak:
-      the app shell could still be visible and Puppeteer captured:
-      "A4 print-aware canvas / Loading Print Studio data... / PracticePilot Logout".
-
-      This waits for the real printable report DOM to exist.
-    */
     await page.waitForFunction(
       () => {
         const text = document.body?.innerText || "";
@@ -212,9 +203,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
         }
       });
 
-      document.documentElement.classList.add("afs-server-pdf-html");
-      document.body.classList.add("afs-server-pdf-body");
-
       window.dispatchEvent(
         new CustomEvent("afs-print-export-mode", {
           detail: true,
@@ -222,43 +210,160 @@ export async function GET(request: NextRequest, context: RouteContext) {
       );
     });
 
-    await page.waitForFunction(
-      () => {
-        const text = document.body?.innerText || "";
-        const stillLoading = /loading print studio data/i.test(text);
-        const hasSfp = Boolean(document.querySelector("#print-sfp"));
-        return document.body.classList.contains("afs-server-pdf-body") && hasSfp && !stillLoading;
-      },
-      { timeout: 10_000 },
-    );
-
-    await page.emulateMediaType("print");
-    await sleep(500);
+    await sleep(300);
 
     const exportInfo = await page.evaluate(() => {
-      const bodyText = document.body?.innerText || "";
-      const lines = bodyText
+      const printableIds = [
+        "print-cover-page",
+        "print-index",
+        "print-general-information",
+        "print-directors-responsibilities",
+        "print-directors-report",
+        "print-compiler-report",
+        "print-sfp",
+        "print-soci",
+        "print-sce",
+        "print-cash-flow",
+        "print-accounting-policies",
+        "print-notes",
+        "print-detailed-income-statement",
+        "print-tax-computation",
+      ];
+
+      const originalBodyText = document.body?.innerText || "";
+      const originalLines = originalBodyText
         .split(/\n+/)
         .map((line) => line.trim())
         .filter(Boolean);
 
       const entityLine =
-        lines.find((line) => /\(PTY\)\s+LTD/i.test(line)) ||
-        lines.find((line) => /LTD/i.test(line)) ||
+        originalLines.find((line) => /\(PTY\)\s+LTD/i.test(line)) ||
+        originalLines.find((line) => /LTD/i.test(line)) ||
         "annual-financial-statements";
 
-      const yearEndMatch = bodyText.match(/year ended\s+(\d{4}-\d{2}-\d{2})/i);
+      const yearEndMatch = originalBodyText.match(/year ended\s+(\d{4}-\d{2}-\d{2})/i);
       const yearEnd = yearEndMatch?.[1] || "";
-
       const title = [entityLine, "AFS", yearEnd].filter(Boolean).join(" - ");
+
+      const printRoot = document.createElement("main");
+      printRoot.id = "afs-pdf-print-root";
+
+      printableIds.forEach((id) => {
+        const source = document.getElementById(id);
+
+        if (!source) return;
+
+        const text = source.textContent || "";
+        if (!text.trim()) return;
+
+        const clone = source.cloneNode(true) as HTMLElement;
+        clone.removeAttribute("style");
+        clone.classList.add("afs-pdf-section");
+        printRoot.appendChild(clone);
+      });
+
+      if (!printRoot.children.length) {
+        throw new Error("No printable AFS sections found.");
+      }
+
+      document.documentElement.className = "";
+      document.body.className = "";
+      document.documentElement.classList.add("afs-server-pdf-html");
+      document.body.classList.add("afs-server-pdf-body");
+
+      document.body.innerHTML = "";
+      document.body.appendChild(printRoot);
+
+      const style = document.createElement("style");
+      style.setAttribute("data-afs-pdf-force-clean", "true");
+      style.textContent = `
+        @page {
+          size: A4;
+          margin: 0;
+        }
+
+        html.afs-server-pdf-html,
+        body.afs-server-pdf-body {
+          width: 210mm !important;
+          min-width: 210mm !important;
+          max-width: 210mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          color: #111827 !important;
+          overflow: visible !important;
+          font-family: Arial, Helvetica, sans-serif !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+
+        #afs-pdf-print-root {
+          width: 210mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          display: block !important;
+          transform: none !important;
+          zoom: 1 !important;
+        }
+
+        #afs-pdf-print-root,
+        #afs-pdf-print-root * {
+          box-sizing: border-box !important;
+          transform-origin: top left !important;
+        }
+
+        .afs-pdf-section {
+          display: block !important;
+          width: 210mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          transform: none !important;
+          zoom: 1 !important;
+          break-inside: auto !important;
+          page-break-inside: auto !important;
+        }
+
+        .afs-pdf-section > * {
+          transform: none !important;
+          zoom: 1 !important;
+        }
+
+        .afs-pdf-section:not(:last-child) {
+          break-after: page !important;
+          page-break-after: always !important;
+        }
+
+        #afs-pdf-print-root [class*="toolbar"],
+        #afs-pdf-print-root [class*="sidebar"],
+        #afs-pdf-print-root [class*="options"],
+        #afs-pdf-print-root button,
+        #afs-pdf-print-root input,
+        #afs-pdf-print-root select,
+        #afs-pdf-print-root textarea {
+          display: none !important;
+        }
+
+        img {
+          max-width: 100% !important;
+        }
+      `;
+      document.head.appendChild(style);
+
       document.title = title;
 
       return {
         title,
         entityName: entityLine,
         yearEnd,
+        sectionCount: printRoot.children.length,
       };
     });
+
+    await page.waitForSelector("#afs-pdf-print-root", { timeout: 10_000 });
+    await page.emulateMediaType("print");
+    await sleep(500);
 
     const pdfBytes = await page.pdf({
       format: "A4",
@@ -285,6 +390,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         "Cache-Control": "no-store, max-age=0",
         "X-AFS-PDF-Title": finalTitle,
         "X-AFS-PDF-Draft": isDraft ? "true" : "false",
+        "X-AFS-PDF-Sections": String(exportInfo?.sectionCount || ""),
       },
     });
   } catch (error: any) {
