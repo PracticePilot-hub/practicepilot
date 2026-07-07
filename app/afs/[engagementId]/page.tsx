@@ -1365,17 +1365,12 @@ function PrintableFinalTrialBalance({
   const totals = rows.reduce(
     (sum, row) => ({
       imported: sum.imported + preliminaryTrialBalanceAmount(row.line),
-      manual: sum.manual + manualAdjustmentAmount(row.line),
       journals: sum.journals + journalAdjustmentAmount(row.line),
       reclass: sum.reclass + reclassificationAmount(row.line),
       final: sum.final + row.finalAmount,
       prior: sum.prior + safeNumber(row.line.prior_year_balance),
     }),
-    { imported: 0, manual: 0, journals: 0, reclass: 0, final: 0, prior: 0 },
-  );
-
-  const showManualAdjustment = rows.some(
-    (row) => Math.round(manualAdjustmentAmount(row.line)) !== 0,
+    { imported: 0, journals: 0, reclass: 0, final: 0, prior: 0 },
   );
 
   return (
@@ -1385,21 +1380,19 @@ function PrintableFinalTrialBalance({
       <table style={styles.exportTableCompact}>
         <thead>
           <tr>
-            <th style={styles.exportTh}>Account</th>
-            <th style={styles.exportTh}>Description</th>
-            <th style={styles.exportThRight}>Imported Balance</th>
-            {showManualAdjustment ? <th style={styles.exportThRight}>Manual Adj.</th> : null}
-            <th style={styles.exportThRight}>Journal Adj.</th>
-            <th style={styles.exportThRight}>Reclassification</th>
-            <th style={styles.exportThRight}>Final AFS Balance</th>
-            <th style={styles.exportThRight}>Prior Year</th>
-            <th style={styles.exportTh}>Mapping</th>
+            <th style={{ ...styles.exportTh, width: "10%" }}>Account</th>
+            <th style={{ ...styles.exportTh, width: "24%" }}>Description</th>
+            <th style={{ ...styles.exportThRight, width: "12%" }}>Imported balance</th>
+            <th style={{ ...styles.exportThRight, width: "10%" }}>Journal adj.</th>
+            <th style={{ ...styles.exportThRight, width: "10%" }}>Reclass.</th>
+            <th style={{ ...styles.exportThRight, width: "12%" }}>Final AFS balance</th>
+            <th style={{ ...styles.exportThRight, width: "10%" }}>Prior year</th>
+            <th style={{ ...styles.exportTh, width: "12%" }}>Mapping</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => {
             const imported = preliminaryTrialBalanceAmount(row.line);
-            const manual = manualAdjustmentAmount(row.line);
             const journals = journalAdjustmentAmount(row.line);
             const reclass = reclassificationAmount(row.line);
             const prior = safeNumber(row.line.prior_year_balance);
@@ -1415,9 +1408,6 @@ function PrintableFinalTrialBalance({
                 <td style={styles.exportTd}>{row.line.account_code}</td>
                 <td style={styles.exportTd}>{description}</td>
                 <td style={styles.exportTdRight}>{formatSignedMoney(imported)}</td>
-                {showManualAdjustment ? (
-                  <td style={styles.exportTdRight}>{formatSignedMoney(manual)}</td>
-                ) : null}
                 <td style={styles.exportTdRight}>{formatSignedMoney(journals)}</td>
                 <td style={styles.exportTdRight}>{formatSignedMoney(reclass)}</td>
                 <td style={styles.exportTdRight}>{formatSignedMoney(row.finalAmount)}</td>
@@ -1429,9 +1419,6 @@ function PrintableFinalTrialBalance({
           <tr>
             <td style={styles.exportTotalTd} colSpan={2}>Total</td>
             <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.imported)}</td>
-            {showManualAdjustment ? (
-              <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.manual)}</td>
-            ) : null}
             <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.journals)}</td>
             <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.reclass)}</td>
             <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.final)}</td>
@@ -1975,7 +1962,9 @@ const styles: Record<string, CSSProperties> = {
   exportTableCompact: {
     width: "100%",
     borderCollapse: "collapse",
-    fontSize: "10.5px",
+    tableLayout: "fixed",
+    fontSize: "10.25px",
+    lineHeight: 1.18,
     marginBottom: "10px",
   },
   exportDocumentGrid: {
@@ -1999,16 +1988,18 @@ const styles: Record<string, CSSProperties> = {
     background: "#eff6ff",
   },
   exportPreviewPage: {
-    width: "210mm",
-    minHeight: "297mm",
+    width: "100%",
+    maxWidth: "1180px",
+    minHeight: "auto",
     background: "#ffffff",
     border: "1px solid #dbe3ef",
     boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
-    padding: "16mm",
+    padding: "28px 36px",
     boxSizing: "border-box",
     color: "#0f172a",
     fontSize: "11px",
-    lineHeight: 1.35,
+    lineHeight: 1.28,
+    overflowX: "auto",
   },
   exportPrintHeader: {
     borderBottom: "1px solid #0f172a",
@@ -2030,27 +2021,31 @@ const styles: Record<string, CSSProperties> = {
   },
   exportTh: {
     borderBottom: "1px solid #0f172a",
-    padding: "5px 4px",
+    padding: "4px 3px",
     textAlign: "left",
     fontWeight: 900,
+    verticalAlign: "bottom",
   },
   exportThRight: {
     borderBottom: "1px solid #0f172a",
-    padding: "5px 4px",
+    padding: "4px 3px",
     textAlign: "right",
     fontWeight: 900,
+    verticalAlign: "bottom",
   },
   exportTd: {
     borderBottom: "1px solid #e5e7eb",
-    padding: "4px",
+    padding: "3px",
     verticalAlign: "top",
+    overflowWrap: "anywhere",
   },
   exportTdRight: {
     borderBottom: "1px solid #e5e7eb",
-    padding: "4px",
+    padding: "3px",
     textAlign: "right",
     verticalAlign: "top",
     whiteSpace: "nowrap",
+    fontVariantNumeric: "tabular-nums",
   },
   exportTotalTd: {
     borderTop: "1.5px solid #0f172a",

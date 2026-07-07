@@ -185,39 +185,32 @@ function renderFinalTrialBalance(lines: Record<string, any>[]) {
   const totals = rows.reduce(
     (sum, row) => ({
       imported: sum.imported + preliminaryTrialBalanceAmount(row.line),
-      manual: sum.manual + manualAdjustmentAmount(row.line),
       journals: sum.journals + journalAdjustmentAmount(row.line),
       reclass: sum.reclass + reclassificationAmount(row.line),
       final: sum.final + row.finalAmount,
       prior: sum.prior + safeNumber(row.line.prior_year_balance),
     }),
-    { imported: 0, manual: 0, journals: 0, reclass: 0, final: 0, prior: 0 },
-  );
-
-  const showManualAdjustment = rows.some(
-    (row) => Math.round(manualAdjustmentAmount(row.line)) !== 0,
+    { imported: 0, journals: 0, reclass: 0, final: 0, prior: 0 },
   );
 
   return `
     <table class="tb-export">
       <thead>
         <tr>
-          <th>Account</th>
-          <th>Description</th>
-          <th class="amount">Imported Balance</th>
-          ${showManualAdjustment ? '<th class="amount">Manual Adj.</th>' : ''}
-          <th class="amount">Journal Adj.</th>
-          <th class="amount">Reclassification</th>
-          <th class="amount">Final AFS Balance</th>
-          <th class="amount">Prior Year</th>
-          <th>Mapping</th>
+          <th class="code">Account</th>
+          <th class="description">Description</th>
+          <th class="amount">Imported balance</th>
+          <th class="amount">Journal adj.</th>
+          <th class="amount">Reclass.</th>
+          <th class="amount">Final AFS balance</th>
+          <th class="amount">Prior year</th>
+          <th class="mapping">Mapping</th>
         </tr>
       </thead>
       <tbody>
         ${rows
           .map((row) => {
             const imported = preliminaryTrialBalanceAmount(row.line);
-            const manual = manualAdjustmentAmount(row.line);
             const journals = journalAdjustmentAmount(row.line);
             const reclass = reclassificationAmount(row.line);
             const prior = safeNumber(row.line.prior_year_balance);
@@ -234,7 +227,6 @@ function renderFinalTrialBalance(lines: Record<string, any>[]) {
                 <td>${escapeHtml(cleanText(row.line.account_code))}</td>
                 <td>${escapeHtml(description)}</td>
                 <td class="amount">${formatSignedMoney(imported)}</td>
-                ${showManualAdjustment ? `<td class="amount">${formatSignedMoney(manual)}</td>` : ''}
                 <td class="amount">${formatSignedMoney(journals)}</td>
                 <td class="amount">${formatSignedMoney(reclass)}</td>
                 <td class="amount">${formatSignedMoney(row.finalAmount)}</td>
@@ -247,7 +239,6 @@ function renderFinalTrialBalance(lines: Record<string, any>[]) {
         <tr class="total">
           <td colspan="2">Total</td>
           <td class="amount">${formatSignedMoney(totals.imported)}</td>
-          ${showManualAdjustment ? `<td class="amount">${formatSignedMoney(totals.manual)}</td>` : ''}
           <td class="amount">${formatSignedMoney(totals.journals)}</td>
           <td class="amount">${formatSignedMoney(totals.reclass)}</td>
           <td class="amount">${formatSignedMoney(totals.final)}</td>
@@ -429,14 +420,14 @@ function renderHtml(args: {
   <meta charset="utf-8" />
   <title>${escapeHtml(clientName)} - ${escapeHtml(title)}</title>
   <style>
-    @page { size: A4; margin: 14mm; }
+    @page { size: A4 landscape; margin: 10mm; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: Arial, Helvetica, sans-serif;
       color: #0f172a;
-      font-size: 11px;
-      line-height: 1.35;
+      font-size: 9.5px;
+      line-height: 1.22;
       background: #fff;
     }
     header {
@@ -446,19 +437,21 @@ function renderHtml(args: {
     }
     header strong { display: block; font-size: 13px; font-weight: 800; }
     header span { display: block; font-size: 11px; color: #334155; }
-    h1 { margin: 0 0 14px; font-size: 18px; line-height: 1.2; }
+    h1 { margin: 0 0 10px; font-size: 16px; line-height: 1.2; }
 
     table.tb-export {
       width: 100%;
       border-collapse: collapse;
-      font-size: 8px;
-      line-height: 1.12;
+      table-layout: fixed;
+      font-size: 8.5px;
+      line-height: 1.14;
     }
     table.tb-export th {
       border-bottom: 1.5px solid #111827;
-      padding: 2px 3px;
+      padding: 2.2px 3px;
       text-align: left;
       font-weight: 800;
+      vertical-align: bottom;
     }
     table.tb-export th.amount,
     table.tb-export td.amount,
@@ -468,14 +461,14 @@ function renderHtml(args: {
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
     }
-    table.tb-export th.account,
-    table.tb-export td.account {
-      width: 31%;
-    }
+    table.tb-export th.code { width: 9%; }
+    table.tb-export th.description { width: 24%; }
+    table.tb-export th.mapping { width: 13%; }
     table.tb-export td {
       border-bottom: 1px solid #e5e7eb;
-      padding: 1.8px 3px;
+      padding: 2px 3px;
       vertical-align: top;
+      overflow-wrap: anywhere;
     }
     table.tb-export tr.total td {
       border-top: 1.5px solid #111827;
@@ -600,10 +593,7 @@ export async function GET(request: NextRequest, context: any) {
     }
 
     const page = await browser.newPage();
-    await page.setContent(html, {
-  waitUntil: "load",
-  timeout: 60_000,
-});
+    await page.setContent(html, { waitUntil: "load", timeout: 60_000 });
     await page.emulateMediaType("print");
 
     const pdfBytes = await page.pdf({
