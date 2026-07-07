@@ -33,6 +33,12 @@ const NotesDisplayContext = createContext({
   hideComparatives: false,
 });
 
+
+function displayNoteLineLabel(label: unknown) {
+  const value = String(label ?? "");
+  return value.trim().toLowerCase() === "total" ? "" : value;
+}
+
 function useNotesDisplay() {
   return useContext(NotesDisplayContext);
 }
@@ -749,7 +755,7 @@ function NoteTable({
         {!hideTotal ? (
           <tr>
             <td data-total-label="true" style={styles.totalLabel}>
-              Total
+              &nbsp;
             </td>
             <td data-total-amount="true" style={styles.totalAmount}>
               {amount(totalCurrent)}
@@ -1094,7 +1100,7 @@ function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
       <tbody>
         {rows.map((row) => (
           <tr key={row.key}>
-            <td style={styles.tdLeft}>{row.label}</td>
+            <td style={styles.tdLeft}>{displayNoteLineLabel(row.label)}</td>
             <td style={styles.tdRight}>{amount(closingCost(row.current))}</td>
             <td style={styles.tdRight}>
               {amount(closingAccumulatedDepreciation(row.current))}
@@ -1111,7 +1117,7 @@ function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
         ))}
         <tr>
           <td data-total-label="true" style={styles.totalLabel}>
-            Total
+            &nbsp;
           </td>
           <td data-total-amount="true" style={styles.totalAmount}>
             {amount(sumPpeRows(rows, "current", closingCost))}
@@ -1173,7 +1179,7 @@ function PpeMovementEditor({
         <tbody>
           {rows.map((row) => (
             <tr key={`${year}-${row.key}`}>
-              <td style={styles.tdLeft}>{row.label}</td>
+              <td style={styles.tdLeft}>{displayNoteLineLabel(row.label)}</td>
               {movements.map((movement) => (
                 <PpeInput
                   key={movement.key}
@@ -1218,7 +1224,7 @@ function PpeFinancialMovementTable({
           <th style={styles.thLeft}>{title}</th>
           {rows.map((row) => (
             <th key={row.key} style={styles.thRight}>
-              {row.label}
+              {displayNoteLineLabel(row.label)}
             </th>
           ))}
           <th style={styles.thRight}>Total</th>
@@ -1624,7 +1630,7 @@ function CashUsedInOperationsNote({
               ) : null}
               <tr>
                 <td style={line.strong ? styles.totalLabel : styles.tdLeft}>
-                  {line.label}
+                  {displayNoteLineLabel(line.label)}
                   {edit &&
                   !line.calculated &&
                   line.key !== "profitBeforeTax" ? (
@@ -1818,7 +1824,7 @@ function ShareholderLoansNote({
         })}
         <tr>
           <td data-total-label="true" style={styles.totalLabel}>
-            Total
+            &nbsp;
           </td>
           <td data-total-amount="true" style={styles.totalAmount}>
             {amount(totalCurrent)}
