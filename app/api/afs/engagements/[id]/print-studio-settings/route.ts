@@ -47,6 +47,78 @@ function getLogoValue(row: AnyRow | null | undefined, keys: string[]) {
   return firstFilled(row, keys);
 }
 
+function firstFilledByNamePattern(row: AnyRow | null | undefined, includeTerms: string[], excludeTerms: string[] = []) {
+  if (!row) return "";
+
+  const entries = Object.entries(row);
+
+  for (const [key, value] of entries) {
+    const normalKey = key.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    const hasInclude = includeTerms.every((term) => normalKey.includes(term));
+    const hasExclude = excludeTerms.some((term) => normalKey.includes(term));
+
+    if (!hasInclude || hasExclude) continue;
+
+    if (value !== null && value !== undefined && String(value).trim() !== "") {
+      return String(value).trim();
+    }
+  }
+
+  return "";
+}
+
+async function tryDownloadFromPossibleBuckets(supabase: any, value: string) {
+  const cleanValue = String(value || "").trim().replace(/^\/+/, "");
+  if (!cleanValue) return "";
+
+  const possibleBuckets = [
+    "afs-firm-settings",
+    "afs_firm_settings",
+    "afs-settings",
+    "afs_settings",
+    "afs-logos",
+    "afs_logos",
+    "firm-settings",
+    "firm_settings",
+    "logos",
+    "public",
+  ];
+
+  const parts = cleanValue.split("/").filter(Boolean);
+  const candidates: Array<{ bucket: string; objectPath: string }> = [];
+
+  if (parts.length >= 2) {
+    candidates.push({
+      bucket: parts[0],
+      objectPath: parts.slice(1).join("/"),
+    });
+  }
+
+  for (const bucket of possibleBuckets) {
+    candidates.push({
+      bucket,
+      objectPath: cleanValue,
+    });
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const { data, error } = await supabase.storage
+        .from(candidate.bucket)
+        .download(candidate.objectPath);
+
+      if (!error && data) {
+        return await blobToDataUrl(data, getMimeFromUrl(cleanValue));
+      }
+    } catch {
+      // Try next candidate.
+    }
+  }
+
+  return "";
+}
+
+
 function getMimeFromUrl(value: string) {
   const lower = value.toLowerCase();
 
@@ -168,6 +240,9 @@ async function imageToDataUrl(supabase: any, rawValue: unknown) {
     }
   }
 
+  const downloadedFromPossibleBucket = await tryDownloadFromPossibleBuckets(supabase, value);
+  if (downloadedFromPossibleBucket) return downloadedFromPossibleBucket;
+
   return value;
 }
 
@@ -188,38 +263,88 @@ function cleanSettingsRow(row: AnyRow | null | undefined) {
 async function cleanFirmSettings(supabase: any, row: AnyRow | null | undefined) {
   if (!row) return null;
 
-  const logoUrl = getLogoValue(row, [
-    "logo_url",
-    "logoUrl",
-    "firm_logo_url",
-    "firmLogoUrl",
-    "letterhead_logo_url",
-    "letterheadLogoUrl",
-  ]);
+  const logoUrl =
+    getLogoValue(row, [
+      "logo_data_url",
+      "logoDataUrl",
+      "logo_url",
+      "logoUrl",
+      "logo_path",
+      "logoPath",
+      "logo_storage_path",
+      "logoStoragePath",
+      "firm_logo_url",
+      "firmLogoUrl",
+      "firm_logo_path",
+      "firmLogoPath",
+      "letterhead_logo_url",
+      "letterheadLogoUrl",
+      "letterhead_logo_path",
+      "letterheadLogoPath",
+      "header_logo_url",
+      "headerLogoUrl",
+      "header_logo_path",
+      "headerLogoPath",
+    ]) ||
+    firstFilledByNamePattern(row, ["logo"], [
+      "footer",
+      "governing",
+      "professional",
+      "second",
+    ]);
 
-  const governingBodyLogoUrl = getLogoValue(row, [
-    "governing_body_logo_url",
-    "governingBodyLogoUrl",
-    "governing_logo_url",
-    "professional_body_logo_url",
-    "professionalBodyLogoUrl",
-  ]);
+  const governingBodyLogoUrl =
+    getLogoValue(row, [
+      "governing_body_logo_data_url",
+      "governingBodyLogoDataUrl",
+      "governing_body_logo_url",
+      "governingBodyLogoUrl",
+      "governing_body_logo_path",
+      "governingBodyLogoPath",
+      "governing_logo_url",
+      "governing_logo_path",
+      "professional_body_logo_url",
+      "professionalBodyLogoUrl",
+      "professional_body_logo_path",
+      "professionalBodyLogoPath",
+    ]) ||
+    firstFilledByNamePattern(row, ["governing", "logo"], ["second"]) ||
+    firstFilledByNamePattern(row, ["professional", "logo"], ["second"]);
 
-  const secondGoverningBodyLogoUrl = getLogoValue(row, [
-    "second_governing_body_logo_url",
-    "secondGoverningBodyLogoUrl",
-    "second_professional_body_logo_url",
-    "secondProfessionalBodyLogoUrl",
-  ]);
+  const secondGoverningBodyLogoUrl =
+    getLogoValue(row, [
+      "second_governing_body_logo_data_url",
+      "secondGoverningBodyLogoDataUrl",
+      "second_governing_body_logo_url",
+      "secondGoverningBodyLogoUrl",
+      "second_governing_body_logo_path",
+      "secondGoverningBodyLogoPath",
+      "second_professional_body_logo_url",
+      "secondProfessionalBodyLogoUrl",
+      "second_professional_body_logo_path",
+      "secondProfessionalBodyLogoPath",
+    ]) ||
+    firstFilledByNamePattern(row, ["second", "logo"]);
 
-  const footerLogoUrl = getLogoValue(row, [
-    "footer_logo_url",
-    "footerLogoUrl",
-    "footer_strip_url",
-    "footerStripUrl",
-    "firm_footer_logo_url",
-    "firmFooterLogoUrl",
-  ]);
+  const footerLogoUrl =
+    getLogoValue(row, [
+      "footer_logo_data_url",
+      "footerLogoDataUrl",
+      "footer_logo_url",
+      "footerLogoUrl",
+      "footer_logo_path",
+      "footerLogoPath",
+      "footer_strip_url",
+      "footerStripUrl",
+      "footer_strip_path",
+      "footerStripPath",
+      "firm_footer_logo_url",
+      "firmFooterLogoUrl",
+      "firm_footer_logo_path",
+      "firmFooterLogoPath",
+    ]) ||
+    firstFilledByNamePattern(row, ["footer", "logo"]) ||
+    firstFilledByNamePattern(row, ["footer", "strip"]);
 
   const [logoDataUrl, governingBodyLogoDataUrl, secondGoverningBodyLogoDataUrl, footerLogoDataUrl] =
     await Promise.all([

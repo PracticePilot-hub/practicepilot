@@ -274,6 +274,8 @@ type ReportOptions = {
   showCoverFrameworkStatement: boolean;
   showCoverNoAssuranceStatement: boolean;
 
+  hideComparativeFigures: boolean;
+
   [key: string]: boolean;
 };
 
@@ -409,6 +411,7 @@ const defaultReportOptions: ReportOptions = {
   showCoverLogo: false,
   showCoverFrameworkStatement: true,
   showCoverNoAssuranceStatement: true,
+  hideComparativeFigures: false,
 };
 
 function safeNumber(value: unknown) {
@@ -1749,6 +1752,8 @@ const isDraftPdf =
     "Prior",
   );
 
+  const hideComparativeFigures = Boolean(reportOptions.hideComparativeFigures);
+
   const peopleFromSetup = [
     ...formatMultiline(
       getSetupValue(clientSetup, ["directors", "members", "trustees"]),
@@ -1820,8 +1825,6 @@ const isDraftPdf =
   const practitionerFooterLogoUrl =
     firmSetting("footer_logo_data_url") ||
     firmSetting("footer_logo_url") ||
-    firmSetting("governing_body_logo_data_url") ||
-    firmSetting("governing_body_logo_url") ||
     cleanString(
       getSetupValue(clientSetup, [
         "practitioner_footer_logo_data_url",
@@ -1875,6 +1878,10 @@ const isDraftPdf =
     practitionerDesignation: String(practitionerDesignation),
     practitionerLogoUrl,
     practitionerFooterLogoUrl,
+    logoDataUrl: firmSetting("logo_data_url"),
+    footerLogoDataUrl: firmSetting("footer_logo_data_url"),
+    governingBodyLogoDataUrl: firmSetting("governing_body_logo_data_url"),
+    secondGoverningBodyLogoDataUrl: firmSetting("second_governing_body_logo_data_url"),
     practitionerAddressLines: firmSetting("address_lines"),
     practitionerTelephone: firmSetting("telephone"),
     practitionerEmail: firmSetting("email"),
@@ -2850,16 +2857,18 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             >
               {currentHeading}
             </th>
-            <th
-              style={{
-                textAlign: "right",
-                borderBottom: "1.5px solid #111827",
-                padding: "2px 0 3px",
-                width: 80,
-              }}
-            >
-              {priorHeading}
-            </th>
+            {!hideComparativeFigures ? (
+              <th
+                style={{
+                  textAlign: "right",
+                  borderBottom: "1.5px solid #111827",
+                  padding: "2px 0 3px",
+                  width: 80,
+                }}
+              >
+                {priorHeading}
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -2886,16 +2895,18 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 >
                   {formatNoteAmount(line.current)}
                 </td>
-                <td
-                  style={{
-                    padding: "2px 0",
-                    textAlign: "right",
-                    borderBottom: line?.meta?.finalLine ? "1px solid #111827" : "0",
-                    fontWeight: line?.meta?.strong ? 800 : 400,
-                  }}
-                >
-                  {formatNoteAmount(line.prior)}
-                </td>
+                {!hideComparativeFigures ? (
+                  <td
+                    style={{
+                      padding: "2px 0",
+                      textAlign: "right",
+                      borderBottom: line?.meta?.finalLine ? "1px solid #111827" : "0",
+                      fontWeight: line?.meta?.strong ? 800 : 400,
+                    }}
+                  >
+                    {formatNoteAmount(line.prior)}
+                  </td>
+                ) : null}
               </tr>,
             ];
 
@@ -2908,7 +2919,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               rows.push(
                 <tr key={`${rowKey}-terms`}>
                   <td
-                    colSpan={3}
+                    colSpan={hideComparativeFigures ? 2 : 3}
                     style={{
                       padding: "0 0 5px 0",
                       fontSize: 9.9,
@@ -2945,16 +2956,18 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               >
                 {formatNoteAmount(totalCurrent)}
               </td>
-              <td
-                style={{
-                  padding: "3px 0",
-                  borderTop: "1px solid #111827",
-                  fontWeight: 800,
-                  textAlign: "right",
-                }}
-              >
-                {formatNoteAmount(totalPrior)}
-              </td>
+              {!hideComparativeFigures ? (
+                <td
+                  style={{
+                    padding: "3px 0",
+                    borderTop: "1px solid #111827",
+                    fontWeight: 800,
+                    textAlign: "right",
+                  }}
+                >
+                  {formatNoteAmount(totalPrior)}
+                </td>
+              ) : null}
             </tr>
           ) : null}
         </tbody>
@@ -2987,67 +3000,96 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
     const currentClosingRetained = sceValue("sce-retained-closing");
     const closingShare = sceValue("sce-share-closing");
 
-    const rows = [
-      {
-        label: "Balance at beginning of prior year",
-        share: openingShare,
-        retained: openingRetained,
-        total: openingShare + openingRetained,
-        strong: true,
-      },
-      {
-        label: "Profit / (loss) for prior year",
-        share: 0,
-        retained: priorProfit,
-        total: priorProfit,
-      },
-      {
-        label: "Other comprehensive income for prior year",
-        share: 0,
-        retained: 0,
-        total: 0,
-      },
-      {
-        label: "Other movements / distributions - prior year",
-        share: 0,
-        retained: priorOther,
-        total: priorOther,
-      },
-      {
-        label: "Balance at end of prior year",
-        share: openingShare,
-        retained: priorClosingRetained,
-        total: openingShare + priorClosingRetained,
-        strong: true,
-        underline: true,
-      },
-      {
-        label: "Profit / (loss) for current year",
-        share: 0,
-        retained: currentProfit,
-        total: currentProfit,
-      },
-      {
-        label: "Other comprehensive income for current year",
-        share: 0,
-        retained: 0,
-        total: 0,
-      },
-      {
-        label: "Other movements / distributions - current year",
-        share: 0,
-        retained: currentOther,
-        total: currentOther,
-      },
-      {
-        label: "Balance at end of current year",
-        share: closingShare,
-        retained: currentClosingRetained,
-        total: closingShare + currentClosingRetained,
-        strong: true,
-        underline: true,
-      },
-    ];
+    const rows = hideComparativeFigures
+      ? [
+          {
+            label: "Profit / (loss) for the year",
+            share: 0,
+            retained: currentProfit,
+            total: currentProfit,
+          },
+          {
+            label: "Other comprehensive income for the year",
+            share: 0,
+            retained: 0,
+            total: 0,
+          },
+          {
+            label: "Other movements / distributions",
+            share: 0,
+            retained: currentOther,
+            total: currentOther,
+          },
+          {
+            label: "Balance at end of year",
+            share: closingShare,
+            retained: currentClosingRetained,
+            total: closingShare + currentClosingRetained,
+            strong: true,
+            underline: true,
+          },
+        ]
+      : [
+          {
+            label: "Balance at beginning of prior year",
+            share: openingShare,
+            retained: openingRetained,
+            total: openingShare + openingRetained,
+            strong: true,
+          },
+          {
+            label: "Profit / (loss) for prior year",
+            share: 0,
+            retained: priorProfit,
+            total: priorProfit,
+          },
+          {
+            label: "Other comprehensive income for prior year",
+            share: 0,
+            retained: 0,
+            total: 0,
+          },
+          {
+            label: "Other movements / distributions - prior year",
+            share: 0,
+            retained: priorOther,
+            total: priorOther,
+          },
+          {
+            label: "Balance at end of prior year",
+            share: openingShare,
+            retained: priorClosingRetained,
+            total: openingShare + priorClosingRetained,
+            strong: true,
+            underline: true,
+          },
+          {
+            label: "Profit / (loss) for current year",
+            share: 0,
+            retained: currentProfit,
+            total: currentProfit,
+          },
+          {
+            label: "Other comprehensive income for current year",
+            share: 0,
+            retained: 0,
+            total: 0,
+          },
+          {
+            label: "Other movements / distributions - current year",
+            share: 0,
+            retained: currentOther,
+            total: currentOther,
+          },
+          {
+            label: "Balance at end of current year",
+            share: closingShare,
+            retained: currentClosingRetained,
+            total: closingShare + currentClosingRetained,
+            strong: true,
+            underline: true,
+          },
+        ];
 
     return (
       <section style={{ fontSize: 11, color: "#111827" }}>
@@ -3692,6 +3734,9 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         }
 
         .afsExportOnlyRoot {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
           position: fixed;
           inset: 0;
           z-index: 2147483647;
@@ -4461,6 +4506,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   currencyLabel="Figures in Rand"
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
+                  hidePriorYear={hideComparativeFigures}
                   rows={sfpRows}
                 />
               </AfsA4Page>
@@ -4475,6 +4521,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   currencyLabel="Figures in Rand"
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
+                  hidePriorYear={hideComparativeFigures}
                   rows={sociRows}
                 />
               </AfsA4Page>
@@ -4521,6 +4568,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                     currencyLabel="Figures in Rand"
                     currentHeading={currentHeading}
                     priorHeading={priorHeading}
+                  hidePriorYear={hideComparativeFigures}
                     rows={exportCashFlowRows}
                   />
                 )}
@@ -4654,6 +4702,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   currencyLabel="Figures in Rand"
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
+                  hidePriorYear={hideComparativeFigures}
                   rows={detailedIncomeRows}
                 />
                 </div>
