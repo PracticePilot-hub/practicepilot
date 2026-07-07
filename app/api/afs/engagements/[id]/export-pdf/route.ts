@@ -180,21 +180,30 @@ export async function GET(request: NextRequest, context: RouteContext) {
       timeout: 60_000,
     });
 
+    /*
+      Do not print while Print Studio is still on the loading shell.
+
+      The previous route only waited for generic report words. That was too weak:
+      the app shell could still be visible and Puppeteer captured:
+      "A4 print-aware canvas / Loading Print Studio data... / PracticePilot Logout".
+
+      This waits for the real printable report DOM to exist.
+    */
     await page.waitForFunction(
       () => {
-        const text = (document.body?.innerText || "").toLowerCase();
-
-        return (
-          text.includes("annual financial statements") &&
-          text.includes("statement of financial position")
+        const text = document.body?.innerText || "";
+        const stillLoading = /loading print studio data/i.test(text);
+        const hasCoverOrIndex = Boolean(
+          document.querySelector("#print-cover-page, #print-index"),
         );
+        const hasSfp = Boolean(document.querySelector("#print-sfp"));
+
+        return !stillLoading && hasCoverOrIndex && hasSfp;
       },
       { timeout: 60_000 },
     );
 
-    await page.emulateMediaType("print");
-
-    const exportInfo = await page.evaluate(async () => {
+    await page.evaluate(async () => {
       await new Promise<void>((resolve) => {
         if (document.fonts && document.fonts.ready) {
           document.fonts.ready.then(() => resolve()).catch(() => resolve());
@@ -211,7 +220,22 @@ export async function GET(request: NextRequest, context: RouteContext) {
           detail: true,
         }),
       );
+    });
 
+    await page.waitForFunction(
+      () => {
+        const text = document.body?.innerText || "";
+        const stillLoading = /loading print studio data/i.test(text);
+        const hasSfp = Boolean(document.querySelector("#print-sfp"));
+        return document.body.classList.contains("afs-server-pdf-body") && hasSfp && !stillLoading;
+      },
+      { timeout: 10_000 },
+    );
+
+    await page.emulateMediaType("print");
+    await sleep(500);
+
+    const exportInfo = await page.evaluate(() => {
       const bodyText = document.body?.innerText || "";
       const lines = bodyText
         .split(/\n+/)
@@ -235,13 +259,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
         yearEnd,
       };
     });
-
-    await page.waitForFunction(
-      () => document.body.classList.contains("afs-server-pdf-body"),
-      { timeout: 10_000 },
-    );
-
-    await sleep(250);
 
     const pdfBytes = await page.pdf({
       format: "A4",
