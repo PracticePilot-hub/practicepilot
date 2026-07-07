@@ -2410,10 +2410,41 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   const sociRows = statementEngine.sociRows;
   const sceRows = statementEngine.sceRows;
   const cashFlowRows = statementEngine.cashFlowRows;
-  const detailedIncomeRows = useMemo(
-    () => cleanDetailedIncomeRowsForReport(statementEngine.detailedIncomeRows || []),
-    [statementEngine.detailedIncomeRows],
-  );
+  const detailedIncomeRows = useMemo(() => {
+    const rows = cleanDetailedIncomeRowsForReport(
+      statementEngine.detailedIncomeRows || [],
+    );
+
+    const sociProfitBeforeTax = (sociRows || []).find((row: any) =>
+      String(row?.label || "").toLowerCase().includes("before taxation"),
+    ) as any;
+
+    const sociProfitForYear = (sociRows || []).find((row: any) =>
+      String(row?.label || "").toLowerCase().includes("for the year"),
+    ) as any;
+
+    return rows.map((row: any) => {
+      const label = String(row?.label || "").toLowerCase();
+
+      if (label.includes("before taxation") && sociProfitBeforeTax) {
+        return {
+          ...row,
+          current: Math.round(Number(sociProfitBeforeTax.current || 0)),
+          prior: Math.round(Number(sociProfitBeforeTax.prior || 0)),
+        };
+      }
+
+      if (label.includes("for the year") && sociProfitForYear) {
+        return {
+          ...row,
+          current: Math.round(Number(sociProfitForYear.current || 0)),
+          prior: Math.round(Number(sociProfitForYear.prior || 0)),
+        };
+      }
+
+      return row;
+    });
+  }, [statementEngine.detailedIncomeRows, sociRows]);
   const noteData = statementEngine.noteData;
 
   const noteDataForPrintStudio = useMemo(() => {

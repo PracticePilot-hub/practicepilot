@@ -1036,6 +1036,34 @@ export function buildAfsPrintStatementEngine(
     },
   ];
 
+  /*
+    AFS R1 DISPLAY ROUNDING FIX
+
+    When detailed buckets contain cents, each line is displayed rounded to Rand.
+    In rare cases the separately rounded assets total and equity/liabilities total
+    differ by R1. For the printed AFS, force the displayed SFP grand total to
+    agree where the difference is only a rounding cent issue.
+  */
+  const sfpAssetsDisplayCurrent = Math.round(assetsTotal.current);
+  const sfpAssetsDisplayPrior = Math.round(assetsTotal.prior);
+  const sfpEquityLiabilitiesDisplayCurrent = Math.round(equityLiabilitiesTotal.current);
+  const sfpEquityLiabilitiesDisplayPrior = Math.round(equityLiabilitiesTotal.prior);
+
+  const sfpCurrentRoundingDifference =
+    sfpAssetsDisplayCurrent - sfpEquityLiabilitiesDisplayCurrent;
+  const sfpPriorRoundingDifference =
+    sfpAssetsDisplayPrior - sfpEquityLiabilitiesDisplayPrior;
+
+  if (Math.abs(sfpCurrentRoundingDifference) <= 1) {
+    const eqlRow = sfpRows.find((row) => row.id === "eql-total") as any;
+    if (eqlRow) eqlRow.current = sfpAssetsDisplayCurrent;
+  }
+
+  if (Math.abs(sfpPriorRoundingDifference) <= 1) {
+    const eqlRow = sfpRows.find((row) => row.id === "eql-total") as any;
+    if (eqlRow) eqlRow.prior = sfpAssetsDisplayPrior;
+  }
+
   const sociRows: AfsStatementRow[] = [
     ...toRows(revenue),
     ...toRows(costOfSales),
