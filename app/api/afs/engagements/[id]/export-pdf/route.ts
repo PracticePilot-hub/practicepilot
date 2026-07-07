@@ -122,14 +122,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
       request.nextUrl.searchParams.get("draft") === "1" ||
       request.nextUrl.searchParams.get("draft") === "true";
 
-    /*
-      Boring export route.
-
-      This does NOT export the app shell.
-      This does NOT clone DOM.
-      This does NOT use the Print Studio working screen.
-      This opens the dedicated clean export renderer.
-    */
     const exportUrl = new URL(`${origin}/afs/${id}/print-studio/export`);
     exportUrl.searchParams.set("serverPdf", "1");
 
@@ -184,13 +176,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
       });
     }
 
-    /*
-      Screen media is intentional.
-      The export renderer already creates A4 pages.
-      Forcing print media was one of the reasons the PDF looked different from the screen.
-    */
-    await page.emulateMediaType("screen");
-
     await page.goto(exportUrl.toString(), {
       waitUntil: "domcontentloaded",
       timeout: 60_000,
@@ -199,18 +184,17 @@ export async function GET(request: NextRequest, context: RouteContext) {
     await page.waitForFunction(
       () => {
         const bodyText = document.body?.innerText || "";
+        const lowerText = bodyText.toLowerCase();
         const stillLoading = /loading print studio data/i.test(bodyText);
 
         return (
           !stillLoading &&
-          document.querySelector(".afsExportOnlyRoot") &&
-          document.getElementById("print-cover-page") &&
-          document.getElementById("print-index") &&
-          document.getElementById("print-general-info") &&
-          document.getElementById("print-compiler-report") &&
-          document.getElementById("print-sfp") &&
-          bodyText.toLowerCase().includes("annual financial statements") &&
-          bodyText.toLowerCase().includes("statement of financial position")
+          Boolean(document.querySelector(".afsExportOnlyRoot")) &&
+          Boolean(document.getElementById("print-cover-page")) &&
+          Boolean(document.getElementById("print-index")) &&
+          Boolean(document.getElementById("print-sfp")) &&
+          lowerText.includes("annual financial statements") &&
+          lowerText.includes("statement of financial position")
         );
       },
       { timeout: 60_000 },
@@ -225,14 +209,14 @@ export async function GET(request: NextRequest, context: RouteContext) {
         }
       });
 
+      document.documentElement.classList.add("afs-export-route-html");
+      document.body.classList.add("afs-export-route-body");
+
       window.dispatchEvent(
         new CustomEvent("afs-print-export-mode", {
           detail: true,
         }),
       );
-
-      document.documentElement.classList.add("afs-export-route-html");
-      document.body.classList.add("afs-export-route-body");
 
       const bodyText = document.body?.innerText || "";
       const lines = bodyText
@@ -260,6 +244,21 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     await page.waitForFunction(
       () => document.body.classList.contains("afs-export-route-body"),
+      { timeout: 10_000 },
+    );
+
+    /*
+      IMPORTANT:
+      The export renderer is built for print CSS.
+      Using screen media only prints the visible cover page.
+    */
+    await page.emulateMediaType("print");
+
+    await page.waitForFunction(
+      () => {
+        const style = window.getComputedStyle(document.body);
+        return style.display !== "none" && style.visibility !== "hidden";
+      },
       { timeout: 10_000 },
     );
 
