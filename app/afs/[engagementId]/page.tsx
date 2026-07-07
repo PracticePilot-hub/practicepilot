@@ -955,6 +955,49 @@ function finalTrialBalanceAmount(line: TrialBalanceLine) {
   );
 }
 
+function journalAmountForLine(line: TrialBalanceLine) {
+  const anyLine = line as any;
+
+  const explicitJournal =
+    anyLine.journal_adjustment ??
+    anyLine.journal_adjustments ??
+    anyLine.journal_adj ??
+    anyLine.journalAdj ??
+    anyLine.journalAmount ??
+    anyLine.journal_amount;
+
+  if (explicitJournal !== undefined && explicitJournal !== null) {
+    return safeNumber(explicitJournal);
+  }
+
+  const base =
+    anyLine.current_year_balance !== undefined &&
+    anyLine.current_year_balance !== null
+      ? safeNumber(anyLine.current_year_balance)
+      : safeNumber(line.debit) - safeNumber(line.credit);
+
+  const manual =
+    anyLine.manual_adjustment ??
+    anyLine.manual_adjustments ??
+    anyLine.manualAdj ??
+    anyLine.manual_amount ??
+    0;
+
+  const reclassification =
+    anyLine.reclassification ??
+    anyLine.reclassification_adjustment ??
+    anyLine.reclass ??
+    anyLine.reclass_amount ??
+    0;
+
+  return (
+    finalTrialBalanceAmount(line) -
+    base -
+    safeNumber(manual) -
+    safeNumber(reclassification)
+  );
+}
+
 function formatMoney(value: number) {
   const rounded = Math.round(value);
 
@@ -1018,7 +1061,7 @@ function ExportPrintPanel({
   const journalsPassedRows = trialBalanceLines
     .map((line) => ({
       line,
-      journalAmount: safeNumber((line as any).journal_adjustment),
+      journalAmount: journalAmountForLine(line),
     }))
     .filter((row) => Math.round(row.journalAmount) !== 0)
     .sort((a, b) =>
@@ -1198,6 +1241,7 @@ function PrintableFinalTrialBalance({
             <th style={styles.exportTh}>Account</th>
             <th style={styles.exportTh}>Description</th>
             <th style={styles.exportTh}>Mapping</th>
+            <th style={styles.exportThRight}>Prior year</th>
             <th style={styles.exportThRight}>Final AFS balance</th>
           </tr>
         </thead>
@@ -1209,12 +1253,24 @@ function PrintableFinalTrialBalance({
               <td style={styles.exportTd}>
                 {row.line.mapping_code || row.line.mapping_label || "Unmapped"}
               </td>
+              <td style={styles.exportTdRight}>
+                {formatSignedMoney(safeNumber((row.line as any).prior_year_balance))}
+              </td>
               <td style={styles.exportTdRight}>{formatSignedMoney(row.finalAmount)}</td>
             </tr>
           ))}
           <tr>
             <td style={styles.exportTotalTd} colSpan={3}>
               Total
+            </td>
+            <td style={styles.exportTotalTdRight}>
+              {formatSignedMoney(
+                rows.reduce(
+                  (sum, row) =>
+                    sum + safeNumber((row.line as any).prior_year_balance),
+                  0,
+                ),
+              )}
             </td>
             <td style={styles.exportTotalTdRight}>{formatSignedMoney(total)}</td>
           </tr>
