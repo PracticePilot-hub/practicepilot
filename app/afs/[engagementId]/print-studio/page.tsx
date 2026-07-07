@@ -763,14 +763,19 @@ function buildSfpRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
 }
 
 function buildSociRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
-  const revenue = buildBuckets(lines, (line) => {
-    const text = lineSearchText(line);
-    return includesAny(text, ["revenue", "sales", "turnover"]);
-  });
-
   const costOfSales = buildBuckets(lines, (line) => {
     const text = lineSearchText(line);
     return includesAny(text, ["cost of sales", "cost-of-sales"]);
+  });
+
+  const revenue = buildBuckets(lines, (line) => {
+    const text = lineSearchText(line);
+
+    if (includesAny(text, ["cost of sales", "cost-of-sales"])) {
+      return false;
+    }
+
+    return includesAny(text, ["revenue", "sales", "turnover"]);
   });
 
   const otherIncome = buildBuckets(lines, (line) => {
