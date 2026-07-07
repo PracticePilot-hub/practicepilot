@@ -20,8 +20,9 @@ type ExportDocumentKey =
   | "lead-sheets-used"
   | "subordination-agreements";
 
-function getId(context: any) {
-  return String(context?.params?.id || "");
+async function getId(context: any) {
+  const params = await context?.params;
+  return String(params?.id || "");
 }
 
 function safeNumber(value: unknown) {
@@ -510,7 +511,7 @@ export async function GET(request: NextRequest, context: any) {
   let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
 
   try {
-    const engagementId = getId(context);
+    const engagementId = await getId(context);
 
     if (!engagementId) {
       return NextResponse.json(
