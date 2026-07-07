@@ -388,6 +388,53 @@ export default function TrialBalancePanel({
     }
   }
 
+  async function saveAccountName(line: TrialBalanceLine, value: string) {
+    const nextAccountName = String(value || "").trim();
+    const currentAccountName = String(line.account_name || "").trim();
+    const lineId = line.id || null;
+
+    if (previewLines.length > 0) return;
+    if (!nextAccountName || nextAccountName === currentAccountName) return;
+
+    if (!lineId) {
+      alert("This line must be imported before you can edit the account name.");
+      return;
+    }
+
+    setSavingLineId(lineId);
+
+    try {
+      const res = await fetch(`/api/afs/engagements/${engagementId}/trial-balance`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: lineId,
+          account_name: nextAccountName,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to save account name.");
+      }
+
+      const updatedLine = data.line as TrialBalanceLine;
+
+      onImported(
+        trialBalanceLines.map((existing) =>
+          existing.id === lineId ? { ...existing, ...updatedLine } : existing
+        )
+      );
+    } catch (error: any) {
+      alert(error.message || "Failed to save account name.");
+    } finally {
+      setSavingLineId(null);
+    }
+  }
+
   const columnOptions = getColumnOptions(rawRows);
 
   return (
@@ -476,7 +523,14 @@ export default function TrialBalancePanel({
                 return (
                   <tr key={line.id || index}>
                     <td style={styles.td}>{line.account_code || ""}</td>
-                    <td style={styles.td}>{line.account_name}</td>
+                    <td style={styles.td}>
+                      <input
+                        style={styles.accountNameInput}
+                        defaultValue={line.account_name || ""}
+                        disabled={previewLines.length > 0 || savingLineId === line.id}
+                        onBlur={(event) => saveAccountName(line, event.target.value)}
+                      />
+                    </td>
                     <td style={styles.tdRight}>{formatMoney(sourceBalance)}</td>
                     <td style={styles.tdRight}>
                       <input
@@ -1050,6 +1104,16 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "12px",
     textAlign: "right",
     background: "#ffffff",
+  },
+  accountNameInput: {
+    width: "100%",
+    minWidth: "220px",
+    border: "1px solid transparent",
+    borderRadius: "6px",
+    padding: "6px 8px",
+    fontSize: "13px",
+    color: "#0f172a",
+    background: "transparent",
   },
   tdRightBold: {
     borderBottom: "1px solid #f3f4f6",
