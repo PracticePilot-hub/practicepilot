@@ -57,6 +57,10 @@ type NarrativeContext = Record<string, any> & {
   practitionerDesignation?: string | null;
   practitionerLogoUrl?: string | null;
   practitionerFooterLogoUrl?: string | null;
+  logo_url?: string | null;
+  footer_logo_url?: string | null;
+  governing_body_logo_url?: string | null;
+  second_governing_body_logo_url?: string | null;
   practitionerAddressLines?: string | null;
   practitionerTelephone?: string | null;
   practitionerEmail?: string | null;
@@ -126,6 +130,7 @@ function tokenise(text: string, context: NarrativeContext) {
     .replaceAll("{yearEnd}", value(context, "yearEnd", "the reporting date"))
     .replaceAll("{framework}", value(context, "framework", "the applicable financial reporting framework"))
     .replaceAll("{bodyLabel}", bodyLabel(context))
+    .replaceAll("{body}", bodyLabel(context))
     .replaceAll("{bodyLabelCapitalised}", bodyLabelCapitalised(context))
     .replaceAll("{roleLabel}", roleLabel(context))
     .replaceAll("{approvalDate}", value(context, "approvalDate", "________________"))
@@ -541,6 +546,10 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
       "firmLogoUrl",
       "logoUrl",
       "letterheadLogoUrl",
+      "logo_url",
+      "firm_logo_url",
+      "letterhead_logo_url",
+      "compiler_logo_url",
     ]),
   ]);
 
@@ -549,6 +558,10 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
       "practitionerFooterLogoUrl",
       "firmFooterLogoUrl",
       "footerLogoUrl",
+      "footer_logo_url",
+      "firm_footer_logo_url",
+      "letterhead_footer_logo_url",
+      "compiler_footer_logo_url",
     ]),
   ]);
 
@@ -557,11 +570,15 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
       "governingBodyLogoUrl",
       "governingBodyLogo1Url",
       "professionalBodyLogoUrl",
+      "governing_body_logo_url",
+      "professional_body_logo_url",
     ]),
     firstValue(context, [
       "secondGoverningBodyLogoUrl",
       "governingBodyLogo2Url",
       "secondProfessionalBodyLogoUrl",
+      "second_governing_body_logo_url",
+      "second_professional_body_logo_url",
     ]),
   ]);
 
@@ -790,14 +807,14 @@ const styles: Record<string, React.CSSProperties> = {
     position: "relative",
     minHeight: "265mm",
     paddingBottom: 0,
-    fontFamily: "Arial, Helvetica, sans-serif",
+    fontFamily: "inherit",
     fontSize: 10.1,
     lineHeight: 1.34,
     display: "flex",
     flexDirection: "column",
   },
   compilationHeading: {
-    fontFamily: "Arial, Helvetica, sans-serif",
+    fontFamily: "inherit",
     fontSize: 13.5,
     lineHeight: 1.25,
     fontWeight: 900,
@@ -833,7 +850,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   letterheadContactBlock: {
     textAlign: "right",
-    fontFamily: "Arial, Helvetica, sans-serif",
+    fontFamily: "inherit",
     fontSize: 8.5,
     lineHeight: 1.25,
     color: "#111827",
@@ -880,7 +897,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: "auto",
     paddingTop: 10,
     borderTop: "1px solid #111827",
-    fontFamily: "Arial, Helvetica, sans-serif",
+    fontFamily: "inherit",
     fontSize: 9.2,
     lineHeight: 1.3,
     color: "#111827",
