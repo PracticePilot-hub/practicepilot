@@ -523,6 +523,11 @@ function includesAny(value: string, terms: string[]) {
 }
 
 function lineSearchText(line: TrialBalanceLine) {
+  /*
+    AFS statements must be driven by the selected mapping, not by account names.
+    Account names may contain practical suffixes like (IS) or (SFP), but those
+    must not decide where the line appears in the statements.
+  */
   return [
     line.mapping_statement,
     line.mapping_section,
@@ -531,8 +536,6 @@ function lineSearchText(line: TrialBalanceLine) {
     line.mapping_label,
     line.mapping_code,
     line.lead_schedule_key,
-    line.account_name,
-    line.account_type,
   ]
     .filter(Boolean)
     .join(" ")
@@ -3176,7 +3179,10 @@ export default function AfsPrintStudioPage() {
                   currencyLabel="Figures in Rand"
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
-                  rows={sfpRows}
+                  rows={sfpRows.filter(
+                  (row: any) =>
+                    String(row?.label || "").trim().toLowerCase() !== "rounding",
+                )}
                 hidePriorYear={hideComparatives}
                 />
               </AfsA4Page>

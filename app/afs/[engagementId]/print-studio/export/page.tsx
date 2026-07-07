@@ -532,6 +532,11 @@ function includesAny(value: string, terms: string[]) {
 }
 
 function lineSearchText(line: TrialBalanceLine) {
+  /*
+    AFS statements must be driven by the selected mapping, not by account names.
+    Account names may contain practical suffixes like (IS) or (SFP), but those
+    must not decide where the line appears in the statements.
+  */
   return [
     line.mapping_statement,
     line.mapping_section,
@@ -540,8 +545,6 @@ function lineSearchText(line: TrialBalanceLine) {
     line.mapping_label,
     line.mapping_code,
     line.lead_schedule_key,
-    line.account_name,
-    line.account_type,
   ]
     .filter(Boolean)
     .join(" ")
@@ -2987,7 +2990,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   fontWeight: 800,
                 }}
               >
-                Total
+                &nbsp;
               </td>
               <td
                 style={{
@@ -4559,7 +4562,10 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
                   hidePriorYear={hideComparativeFigures}
-                  rows={sfpRows}
+                  rows={sfpRows.filter(
+                  (row: any) =>
+                    String(row?.label || "").trim().toLowerCase() !== "rounding",
+                )}
                 />
               </AfsA4Page>
             </div>
