@@ -2361,7 +2361,7 @@ export default function AfsPrintStudioPage() {
         <tbody>
           {displayLines.map((line) => (
             <tr key={line.id}>
-              <td style={{ padding: "3px 0" }}>{line.label}</td>
+              <td style={{ padding: "3px 0" }}>{String(line.label || "").trim().toLowerCase() === "total" ? "" : line.label}</td>
               <td style={{ padding: "3px 0", textAlign: "right" }}>
                 {Math.round(Number(line.current || 0)).toLocaleString("en-ZA")}
               </td>
@@ -2567,14 +2567,14 @@ export default function AfsPrintStudioPage() {
 
           <tbody>
             {rows.map((row) => (
-              <tr key={row.label}>
+              <tr key={String(row.label || "").trim().toLowerCase() === "total" ? "" : row.label}>
                 <td
                   style={{
                     padding: "4px 0",
                     fontWeight: row.strong ? 800 : 400,
                   }}
                 >
-                  {row.label}
+                  {String(row.label || "").trim().toLowerCase() === "total" ? "" : row.label}
                 </td>
                 <td
                   style={{

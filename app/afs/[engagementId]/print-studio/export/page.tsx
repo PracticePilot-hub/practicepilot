@@ -2921,7 +2921,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                     fontWeight: line?.meta?.strong ? 800 : 400,
                   }}
                 >
-                  {line.label}
+                  {String(line.label || "").trim().toLowerCase() === "total" ? "" : line.label}
                 </td>
                 <td
                   style={{
@@ -3186,14 +3186,14 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
           <tbody>
             {rows.map((row) => (
-              <tr key={row.label}>
+              <tr key={String(row.label || "").trim().toLowerCase() === "total" ? "" : row.label}>
                 <td
                   style={{
                     padding: "3px 0",
                     fontWeight: row.strong ? 800 : 400,
                   }}
                 >
-                  {row.label}
+                  {String(row.label || "").trim().toLowerCase() === "total" ? "" : row.label}
                 </td>
                 <td
                   style={{
@@ -4879,14 +4879,14 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           </thead>
                           <tbody>
                             {taxRows.map((row) => (
-                              <tr key={row.label}>
+                              <tr key={String(row.label || "").trim().toLowerCase() === "total" ? "" : row.label}>
                                 <td
                                   style={{
                                     padding: "3px 0",
                                     fontWeight: row.strong ? 800 : 400,
                                   }}
                                 >
-                                  {row.label}
+                                  {String(row.label || "").trim().toLowerCase() === "total" ? "" : row.label}
                                 </td>
                                 <td
                                   style={{
