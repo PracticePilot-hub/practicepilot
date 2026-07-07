@@ -95,6 +95,7 @@ type SectionKey =
   | "compilation-report"
   | "xbrl"
   | "finalisation"
+  | "export-print"
   | "review";
 
 type LeadScheduleItem = {
@@ -189,8 +190,14 @@ const sections: { key: SectionKey; number: string; title: string; description: s
     description: "Final checks, sign-off and lock file.",
   },
   {
-    key: "review",
+    key: "export-print",
     number: "12",
+    title: "Export / Print",
+    description: "Print working-file schedules and supporting export documents.",
+  },
+  {
+    key: "review",
+    number: "13",
     title: "Review",
     description: "AFS review points and sign-off.",
   },
@@ -865,6 +872,15 @@ export default function AFSEngagementPage() {
             />
           )}
 
+          {activeSection === "export-print" && (
+            <ExportPrintPanel
+              engagement={engagement}
+              clientSetup={clientSetup}
+              trialBalanceLines={trialBalanceLines}
+              leadScheduleStatements={leadScheduleStatements}
+            />
+          )}
+
           {activeSection === "review" && <ReviewPanel />}
 
           {activeSection === "minutes" && (
@@ -897,6 +913,400 @@ export default function AFSEngagementPage() {
         </section>
       </section>
     </main>
+  );
+}
+
+
+type ExportDocumentKey =
+  | "final-trial-balance"
+  | "journals-passed"
+  | "lead-sheets-used"
+  | "subordination-agreements";
+
+type ExportPrintPanelProps = {
+  engagement: AFSEngagement;
+  clientSetup: ClientSetupData | null;
+  trialBalanceLines: TrialBalanceLine[];
+  leadScheduleStatements: LeadScheduleStatement[];
+};
+
+function safeNumber(value: unknown) {
+  const numberValue = Number(value || 0);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function finalTrialBalanceAmount(line: TrialBalanceLine) {
+  const anyLine = line as any;
+
+  if (anyLine.final_afs_balance !== undefined && anyLine.final_afs_balance !== null) {
+    return safeNumber(anyLine.final_afs_balance);
+  }
+
+  const base =
+    anyLine.current_year_balance !== undefined && anyLine.current_year_balance !== null
+      ? safeNumber(anyLine.current_year_balance)
+      : safeNumber(line.debit) - safeNumber(line.credit);
+
+  return (
+    base +
+    safeNumber(anyLine.manual_adjustment) +
+    safeNumber(anyLine.journal_adjustment) +
+    safeNumber(anyLine.reclassification)
+  );
+}
+
+function formatMoney(value: number) {
+  const rounded = Math.round(value);
+
+  if (rounded === 0) return "–";
+
+  const absolute = Math.abs(rounded).toLocaleString("en-ZA", {
+    maximumFractionDigits: 0,
+  });
+
+  return rounded < 0 ? `(${absolute})` : absolute;
+}
+
+function formatSignedMoney(value: number) {
+  const rounded = Math.round(value);
+
+  if (rounded === 0) return "–";
+
+  return rounded.toLocaleString("en-ZA", {
+    maximumFractionDigits: 0,
+  });
+}
+
+function leadScheduleTitleFromKey(
+  leadScheduleStatements: LeadScheduleStatement[],
+  scheduleKey: string | null | undefined,
+) {
+  if (!scheduleKey) return "";
+
+  for (const statement of leadScheduleStatements) {
+    for (const group of statement.groups) {
+      const found = group.schedules.find((schedule) => schedule.key === scheduleKey);
+      if (found) return `${found.number} · ${found.title}`;
+    }
+  }
+
+  return String(scheduleKey);
+}
+
+function ExportPrintPanel({
+  engagement,
+  clientSetup,
+  trialBalanceLines,
+  leadScheduleStatements,
+}: ExportPrintPanelProps) {
+  const [selectedDocument, setSelectedDocument] =
+    useState<ExportDocumentKey>("final-trial-balance");
+
+  const displayClientName = clientSetup?.registered_name || engagement.client_name;
+  const displayYearEnd = clientSetup?.financial_year_end || engagement.financial_year_end;
+
+  const finalTrialBalanceRows = trialBalanceLines
+    .map((line) => ({
+      line,
+      finalAmount: finalTrialBalanceAmount(line),
+    }))
+    .filter((row) => Math.round(row.finalAmount) !== 0)
+    .sort((a, b) =>
+      String(a.line.account_code || "").localeCompare(String(b.line.account_code || "")),
+    );
+
+  const journalsPassedRows = trialBalanceLines
+    .map((line) => ({
+      line,
+      journalAmount: safeNumber((line as any).journal_adjustment),
+    }))
+    .filter((row) => Math.round(row.journalAmount) !== 0)
+    .sort((a, b) =>
+      String(a.line.account_code || "").localeCompare(String(b.line.account_code || "")),
+    );
+
+  const usedLeadSchedules = trialBalanceLines
+    .filter((line) => {
+      const finalAmount = finalTrialBalanceAmount(line);
+      return String(line.lead_schedule_key || "").trim() && Math.round(finalAmount) !== 0;
+    })
+    .reduce<Record<string, { title: string; amount: number; count: number }>>(
+      (accumulator, line) => {
+        const key = String(line.lead_schedule_key || "");
+        const number = String(line.lead_schedule_number || "");
+        const title =
+          number && leadScheduleTitleFromKey(leadScheduleStatements, line.lead_schedule_key)
+            ? leadScheduleTitleFromKey(leadScheduleStatements, line.lead_schedule_key)
+            : leadScheduleTitleFromKey(leadScheduleStatements, line.lead_schedule_key);
+
+        if (!accumulator[key]) {
+          accumulator[key] = {
+            title: title || key,
+            amount: 0,
+            count: 0,
+          };
+        }
+
+        accumulator[key].amount += finalTrialBalanceAmount(line);
+        accumulator[key].count += 1;
+
+        return accumulator;
+      },
+      {},
+    );
+
+  const usedLeadScheduleRows = Object.entries(usedLeadSchedules)
+    .map(([key, value]) => ({ key, ...value }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+
+  const documents: { key: ExportDocumentKey; title: string; description: string }[] = [
+    {
+      key: "final-trial-balance",
+      title: "Final Trial Balance",
+      description: "Final AFS TB after manual adjustments, journals and reclassifications.",
+    },
+    {
+      key: "journals-passed",
+      title: "Journals Passed",
+      description: "Summary of accounts affected by posted AFS journals.",
+    },
+    {
+      key: "lead-sheets-used",
+      title: "Lead Sheets Used",
+      description: "Only lead schedules linked to mapped accounts with balances.",
+    },
+    {
+      key: "subordination-agreements",
+      title: "Subordination Agreements",
+      description: "Supporting agreements to be generated after the TB and journals.",
+    },
+  ];
+
+  function printSelectedDocument() {
+    window.print();
+  }
+
+  return (
+    <section style={styles.exportPanelShell}>
+      <style>
+        {`
+          @media print {
+            body * {
+              visibility: hidden !important;
+            }
+
+            #afs-export-print-area,
+            #afs-export-print-area * {
+              visibility: visible !important;
+            }
+
+            #afs-export-print-area {
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: 100% !important;
+              background: #ffffff !important;
+            }
+
+            #afs-export-print-controls {
+              display: none !important;
+            }
+
+            @page {
+              size: A4;
+              margin: 12mm;
+            }
+          }
+        `}
+      </style>
+
+      <div id="afs-export-print-controls" style={styles.exportToolbar}>
+        <div>
+          <h3 style={styles.exportTitle}>Export / Print</h3>
+          <p style={styles.exportSubtitle}>
+            Print working-file schedules for the file pack. Start with Final TB and
+            Journals Passed.
+          </p>
+        </div>
+
+        <button type="button" style={styles.exportPrimaryButton} onClick={printSelectedDocument}>
+          Print selected
+        </button>
+      </div>
+
+      <div style={styles.exportDocumentGrid}>
+        {documents.map((document) => {
+          const isActive = selectedDocument === document.key;
+
+          return (
+            <button
+              key={document.key}
+              type="button"
+              style={{
+                ...styles.exportDocumentButton,
+                ...(isActive ? styles.exportDocumentButtonActive : {}),
+              }}
+              onClick={() => setSelectedDocument(document.key)}
+            >
+              <strong>{document.title}</strong>
+              <span>{document.description}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <section id="afs-export-print-area" style={styles.exportPreviewPage}>
+        <div style={styles.exportPrintHeader}>
+          <strong>{displayClientName}</strong>
+          <span>Financial year end {displayYearEnd}</span>
+        </div>
+
+        {selectedDocument === "final-trial-balance" && (
+          <PrintableFinalTrialBalance rows={finalTrialBalanceRows} />
+        )}
+
+        {selectedDocument === "journals-passed" && (
+          <PrintableJournalsPassed rows={journalsPassedRows} />
+        )}
+
+        {selectedDocument === "lead-sheets-used" && (
+          <PrintableLeadSheetsUsed rows={usedLeadScheduleRows} />
+        )}
+
+        {selectedDocument === "subordination-agreements" && (
+          <PrintableSubordinationAgreements />
+        )}
+      </section>
+    </section>
+  );
+}
+
+function PrintableFinalTrialBalance({
+  rows,
+}: {
+  rows: { line: TrialBalanceLine; finalAmount: number }[];
+}) {
+  const total = rows.reduce((sum, row) => sum + row.finalAmount, 0);
+
+  return (
+    <>
+      <h3 style={styles.exportPrintTitle}>Final Trial Balance</h3>
+
+      <table style={styles.exportTable}>
+        <thead>
+          <tr>
+            <th style={styles.exportTh}>Account</th>
+            <th style={styles.exportTh}>Description</th>
+            <th style={styles.exportTh}>Mapping</th>
+            <th style={styles.exportThRight}>Final AFS balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.line.id || row.line.account_code || row.line.account_name}>
+              <td style={styles.exportTd}>{row.line.account_code || ""}</td>
+              <td style={styles.exportTd}>{row.line.account_name}</td>
+              <td style={styles.exportTd}>
+                {row.line.mapping_code || row.line.mapping_label || "Unmapped"}
+              </td>
+              <td style={styles.exportTdRight}>{formatSignedMoney(row.finalAmount)}</td>
+            </tr>
+          ))}
+          <tr>
+            <td style={styles.exportTotalTd} colSpan={3}>
+              Total
+            </td>
+            <td style={styles.exportTotalTdRight}>{formatSignedMoney(total)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+function PrintableJournalsPassed({
+  rows,
+}: {
+  rows: { line: TrialBalanceLine; journalAmount: number }[];
+}) {
+  return (
+    <>
+      <h3 style={styles.exportPrintTitle}>Journals Passed</h3>
+
+      {rows.length === 0 ? (
+        <p style={styles.exportEmpty}>No journal adjustments have been passed.</p>
+      ) : (
+        <table style={styles.exportTable}>
+          <thead>
+            <tr>
+              <th style={styles.exportTh}>Account</th>
+              <th style={styles.exportTh}>Description</th>
+              <th style={styles.exportTh}>Mapping</th>
+              <th style={styles.exportThRight}>Journal adjustment</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.line.id || row.line.account_code || row.line.account_name}>
+                <td style={styles.exportTd}>{row.line.account_code || ""}</td>
+                <td style={styles.exportTd}>{row.line.account_name}</td>
+                <td style={styles.exportTd}>
+                  {row.line.mapping_code || row.line.mapping_label || "Unmapped"}
+                </td>
+                <td style={styles.exportTdRight}>{formatSignedMoney(row.journalAmount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function PrintableLeadSheetsUsed({
+  rows,
+}: {
+  rows: { key: string; title: string; amount: number; count: number }[];
+}) {
+  return (
+    <>
+      <h3 style={styles.exportPrintTitle}>Lead Sheets Used</h3>
+
+      {rows.length === 0 ? (
+        <p style={styles.exportEmpty}>No lead schedules are currently linked to balances.</p>
+      ) : (
+        <table style={styles.exportTable}>
+          <thead>
+            <tr>
+              <th style={styles.exportTh}>Lead sheet</th>
+              <th style={styles.exportThRight}>Accounts</th>
+              <th style={styles.exportThRight}>Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.key}>
+                <td style={styles.exportTd}>{row.title}</td>
+                <td style={styles.exportTdRight}>{row.count}</td>
+                <td style={styles.exportTdRight}>{formatMoney(row.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function PrintableSubordinationAgreements() {
+  return (
+    <>
+      <h3 style={styles.exportPrintTitle}>Subordination Agreements</h3>
+      <p style={styles.exportEmpty}>
+        Subordination agreement generation will be added after the Final Trial Balance
+        and Journals Passed export pages are signed off.
+      </p>
+    </>
   );
 }
 
@@ -1231,6 +1641,135 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "11px",
     lineHeight: 1.25,
   },
+
+  exportPanelShell: {
+    display: "grid",
+    gap: "10px",
+  },
+  exportToolbar: {
+    background: "#ffffff",
+    border: "1px solid #dbe3ef",
+    borderRadius: "8px",
+    padding: "10px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+  },
+  exportTitle: {
+    margin: 0,
+    color: "#0f172a",
+    fontSize: "15px",
+    fontWeight: 900,
+  },
+  exportSubtitle: {
+    margin: "3px 0 0",
+    color: "#64748b",
+    fontSize: "11px",
+  },
+  exportPrimaryButton: {
+    border: "1px solid #111827",
+    background: "#111827",
+    color: "#ffffff",
+    padding: "7px 12px",
+    fontSize: "12px",
+    fontWeight: 850,
+    cursor: "pointer",
+    borderRadius: "6px",
+    whiteSpace: "nowrap",
+  },
+  exportDocumentGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: "8px",
+  },
+  exportDocumentButton: {
+    border: "1px solid #dbe3ef",
+    background: "#ffffff",
+    borderRadius: "8px",
+    padding: "9px",
+    textAlign: "left",
+    cursor: "pointer",
+    display: "grid",
+    gap: "4px",
+    color: "#0f172a",
+  },
+  exportDocumentButtonActive: {
+    borderColor: "#1464b3",
+    background: "#eff6ff",
+  },
+  exportPreviewPage: {
+    width: "210mm",
+    minHeight: "297mm",
+    background: "#ffffff",
+    border: "1px solid #dbe3ef",
+    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
+    padding: "16mm",
+    boxSizing: "border-box",
+    color: "#0f172a",
+    fontSize: "11px",
+    lineHeight: 1.35,
+  },
+  exportPrintHeader: {
+    borderBottom: "1px solid #0f172a",
+    paddingBottom: "6px",
+    marginBottom: "12px",
+    display: "grid",
+    gap: "2px",
+  },
+  exportPrintTitle: {
+    margin: "0 0 10px",
+    fontSize: "18px",
+    color: "#0f172a",
+    fontWeight: 900,
+  },
+  exportTable: {
+    width: "100%",
+    borderCollapse: "collapse",
+    fontSize: "10.5px",
+  },
+  exportTh: {
+    borderBottom: "1px solid #0f172a",
+    padding: "5px 4px",
+    textAlign: "left",
+    fontWeight: 900,
+  },
+  exportThRight: {
+    borderBottom: "1px solid #0f172a",
+    padding: "5px 4px",
+    textAlign: "right",
+    fontWeight: 900,
+  },
+  exportTd: {
+    borderBottom: "1px solid #e5e7eb",
+    padding: "4px",
+    verticalAlign: "top",
+  },
+  exportTdRight: {
+    borderBottom: "1px solid #e5e7eb",
+    padding: "4px",
+    textAlign: "right",
+    verticalAlign: "top",
+    whiteSpace: "nowrap",
+  },
+  exportTotalTd: {
+    borderTop: "1.5px solid #0f172a",
+    padding: "5px 4px",
+    fontWeight: 900,
+  },
+  exportTotalTdRight: {
+    borderTop: "1.5px solid #0f172a",
+    padding: "5px 4px",
+    textAlign: "right",
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  },
+  exportEmpty: {
+    color: "#475569",
+    fontSize: "12px",
+    margin: "0",
+  },
+
   secondaryButton: {
     border: "1px solid #d1d5db",
     borderRadius: "7px",
