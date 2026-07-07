@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import AfsPrintStudioShell, {
   AfsReportOption,
@@ -1122,11 +1122,40 @@ function cleanDetailedIncomeRowsForReport(rows: AfsStatementRow[]) {
 
 export default function AfsPrintStudioPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const engagementId = String(params?.engagementId || "");
+  const isPdfExportMode =
+    searchParams.get("pdf") === "1" ||
+    searchParams.get("export") === "1" ||
+    searchParams.get("pdf") === "true";
 
   const [loading, setLoading] = useState(true);
   const [activeSectionId, setActiveSectionId] = useState("cover-page");
   const [cashFlowViewMode, setCashFlowViewMode] = useState<"afs" | "work">("afs");
+
+  useEffect(() => {
+    if (!isPdfExportMode) return;
+
+    document.documentElement.classList.add("afsPdfExportHtml");
+    document.body.classList.add("afsPdfExportMode");
+    document.body.setAttribute("data-afs-pdf-mode", "true");
+    document.body.setAttribute("data-afs-pdf-ready", loading ? "false" : "true");
+
+    window.dispatchEvent(
+      new CustomEvent("afs-print-export-mode", { detail: true }),
+    );
+
+    return () => {
+      document.documentElement.classList.remove("afsPdfExportHtml");
+      document.body.classList.remove("afsPdfExportMode");
+      document.body.removeAttribute("data-afs-pdf-mode");
+      document.body.removeAttribute("data-afs-pdf-ready");
+      window.dispatchEvent(
+        new CustomEvent("afs-print-export-mode", { detail: false }),
+      );
+    };
+  }, [isPdfExportMode, loading]);
+
   const [engagement, setEngagement] = useState<EngagementData | null>(null);
   const [clientSetup, setClientSetup] = useState<ClientSetupData | null>(null);
   const [firmSettings, setFirmSettings] = useState<AfsFirmSettings | null>(null);

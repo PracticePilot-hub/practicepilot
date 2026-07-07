@@ -122,9 +122,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
       request.nextUrl.searchParams.get("draft") === "1" ||
       request.nextUrl.searchParams.get("draft") === "true";
 
-    const exportUrl = `${origin}/afs/${id}/print-studio/export?serverPdf=1${
-      isDraft ? "&draft=1" : ""
-    }`;
+    const exportUrl = new URL(`${origin}/afs/${id}/print-studio`);
+    exportUrl.searchParams.set("pdf", "1");
+    exportUrl.searchParams.set("serverPdf", "1");
+
+    if (isDraft) {
+      exportUrl.searchParams.set("draft", "1");
+    }
 
     const isVercel = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
 
@@ -171,7 +175,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       });
     }
 
-    await page.goto(exportUrl, {
+    await page.goto(exportUrl.toString(), {
       waitUntil: "domcontentloaded",
       timeout: 60_000,
     });
@@ -198,6 +202,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
           resolve();
         }
       });
+
+      document.documentElement.classList.add("afs-server-pdf-html");
+      document.body.classList.add("afs-server-pdf-body");
 
       window.dispatchEvent(
         new CustomEvent("afs-print-export-mode", {
@@ -229,7 +236,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
       };
     });
 
-    await sleep(100);
+    await page.waitForFunction(
+      () => document.body.classList.contains("afs-server-pdf-body"),
+      { timeout: 10_000 },
+    );
+
+    await sleep(250);
 
     const pdfBytes = await page.pdf({
       format: "A4",
