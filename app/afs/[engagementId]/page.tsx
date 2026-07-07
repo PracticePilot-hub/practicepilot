@@ -32,6 +32,7 @@ type TrialBalanceLine = {
   id?: string;
   account_code: string | null;
   account_name: string;
+  description?: string | null;
   account_type: string | null;
   debit: number;
   credit: number;
@@ -1363,70 +1364,79 @@ function PrintableFinalTrialBalance({
 }) {
   const totals = rows.reduce(
     (sum, row) => ({
-      prelim: sum.prelim + preliminaryTrialBalanceAmount(row.line),
-      adjustments: sum.adjustments + manualAdjustmentAmount(row.line),
+      imported: sum.imported + preliminaryTrialBalanceAmount(row.line),
+      manual: sum.manual + manualAdjustmentAmount(row.line),
       journals: sum.journals + journalAdjustmentAmount(row.line),
       reclass: sum.reclass + reclassificationAmount(row.line),
-      report: sum.report + reportAnnotationAmount(row.line),
+      final: sum.final + row.finalAmount,
       prior: sum.prior + safeNumber(row.line.prior_year_balance),
     }),
-    { prelim: 0, adjustments: 0, journals: 0, reclass: 0, report: 0, prior: 0 },
+    { imported: 0, manual: 0, journals: 0, reclass: 0, final: 0, prior: 0 },
+  );
+
+  const showManualAdjustment = rows.some(
+    (row) => Math.round(manualAdjustmentAmount(row.line)) !== 0,
   );
 
   return (
     <>
       <h3 style={styles.exportPrintTitle}>Final Trial Balance</h3>
 
-      <table style={styles.casewareTbTable}>
+      <table style={styles.exportTableCompact}>
         <thead>
           <tr>
-            <th style={styles.casewareTbAccountTh}>Account</th>
-            <th style={styles.casewareTbAmountTh}>Prelim</th>
-            <th style={styles.casewareTbAmountTh}>Adj&apos;s</th>
-            <th style={styles.casewareTbAmountTh}>Reclass</th>
-            <th style={styles.casewareTbAmountTh}>Rep/Annotation</th>
-            <th style={styles.casewareTbAmountTh}>Rep</th>
-            <th style={styles.casewareTbAmountTh}>PY</th>
-            <th style={styles.casewareTbSmallTh}>%Chg</th>
-            <th style={styles.casewareTbSmallTh}>L/S</th>
+            <th style={styles.exportTh}>Account</th>
+            <th style={styles.exportTh}>Description</th>
+            <th style={styles.exportThRight}>Imported Balance</th>
+            {showManualAdjustment ? <th style={styles.exportThRight}>Manual Adj.</th> : null}
+            <th style={styles.exportThRight}>Journal Adj.</th>
+            <th style={styles.exportThRight}>Reclassification</th>
+            <th style={styles.exportThRight}>Final AFS Balance</th>
+            <th style={styles.exportThRight}>Prior Year</th>
+            <th style={styles.exportTh}>Mapping</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => {
-            const prelim = preliminaryTrialBalanceAmount(row.line);
-            const adjustments = manualAdjustmentAmount(row.line);
+            const imported = preliminaryTrialBalanceAmount(row.line);
+            const manual = manualAdjustmentAmount(row.line);
             const journals = journalAdjustmentAmount(row.line);
             const reclass = reclassificationAmount(row.line);
-            const report = reportAnnotationAmount(row.line);
             const prior = safeNumber(row.line.prior_year_balance);
-            const account = [row.line.account_code, row.line.account_name]
-              .filter(Boolean)
-              .join(" · ");
+            const description = row.line.account_name || row.line.description || "";
+            const mapping =
+              row.line.mapping_label ||
+              row.line.mapping_code ||
+              row.line.lead_schedule_number ||
+              "Unmapped";
 
             return (
               <tr key={row.line.id || row.line.account_code || row.line.account_name}>
-                <td style={styles.casewareTbAccountTd}>{account}</td>
-                <td style={styles.casewareTbAmountTd}>{formatSignedMoney(prelim)}</td>
-                <td style={styles.casewareTbAmountTd}>{formatSignedMoney(adjustments + journals)}</td>
-                <td style={styles.casewareTbAmountTd}>{formatSignedMoney(reclass)}</td>
-                <td style={styles.casewareTbAmountTd}>{formatSignedMoney(report)}</td>
-                <td style={styles.casewareTbAmountTd}>{formatSignedMoney(report)}</td>
-                <td style={styles.casewareTbAmountTd}>{formatSignedMoney(prior)}</td>
-                <td style={styles.casewareTbSmallTd}>{percentageChangeAmount(report, prior)}</td>
-                <td style={styles.casewareTbSmallTd}>{leadScheduleReference(row.line)}</td>
+                <td style={styles.exportTd}>{row.line.account_code}</td>
+                <td style={styles.exportTd}>{description}</td>
+                <td style={styles.exportTdRight}>{formatSignedMoney(imported)}</td>
+                {showManualAdjustment ? (
+                  <td style={styles.exportTdRight}>{formatSignedMoney(manual)}</td>
+                ) : null}
+                <td style={styles.exportTdRight}>{formatSignedMoney(journals)}</td>
+                <td style={styles.exportTdRight}>{formatSignedMoney(reclass)}</td>
+                <td style={styles.exportTdRight}>{formatSignedMoney(row.finalAmount)}</td>
+                <td style={styles.exportTdRight}>{formatSignedMoney(prior)}</td>
+                <td style={styles.exportTd}>{mapping}</td>
               </tr>
             );
           })}
           <tr>
-            <td style={styles.casewareTbTotalTd}>Total</td>
-            <td style={styles.casewareTbTotalAmountTd}>{formatSignedMoney(totals.prelim)}</td>
-            <td style={styles.casewareTbTotalAmountTd}>{formatSignedMoney(totals.adjustments + totals.journals)}</td>
-            <td style={styles.casewareTbTotalAmountTd}>{formatSignedMoney(totals.reclass)}</td>
-            <td style={styles.casewareTbTotalAmountTd}>{formatSignedMoney(totals.report)}</td>
-            <td style={styles.casewareTbTotalAmountTd}>{formatSignedMoney(totals.report)}</td>
-            <td style={styles.casewareTbTotalAmountTd}>{formatSignedMoney(totals.prior)}</td>
-            <td style={styles.casewareTbSmallTotalTd}></td>
-            <td style={styles.casewareTbSmallTotalTd}></td>
+            <td style={styles.exportTotalTd} colSpan={2}>Total</td>
+            <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.imported)}</td>
+            {showManualAdjustment ? (
+              <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.manual)}</td>
+            ) : null}
+            <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.journals)}</td>
+            <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.reclass)}</td>
+            <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.final)}</td>
+            <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.prior)}</td>
+            <td style={styles.exportTotalTd}></td>
           </tr>
         </tbody>
       </table>

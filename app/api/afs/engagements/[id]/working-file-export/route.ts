@@ -184,69 +184,75 @@ function renderFinalTrialBalance(lines: Record<string, any>[]) {
 
   const totals = rows.reduce(
     (sum, row) => ({
-      prelim: sum.prelim + preliminaryTrialBalanceAmount(row.line),
-      adjustments: sum.adjustments + manualAdjustmentAmount(row.line),
+      imported: sum.imported + preliminaryTrialBalanceAmount(row.line),
+      manual: sum.manual + manualAdjustmentAmount(row.line),
       journals: sum.journals + journalAdjustmentAmount(row.line),
       reclass: sum.reclass + reclassificationAmount(row.line),
-      report: sum.report + reportAnnotationAmount(row.line),
+      final: sum.final + row.finalAmount,
       prior: sum.prior + safeNumber(row.line.prior_year_balance),
     }),
-    { prelim: 0, adjustments: 0, journals: 0, reclass: 0, report: 0, prior: 0 },
+    { imported: 0, manual: 0, journals: 0, reclass: 0, final: 0, prior: 0 },
+  );
+
+  const showManualAdjustment = rows.some(
+    (row) => Math.round(manualAdjustmentAmount(row.line)) !== 0,
   );
 
   return `
-    <table class="caseware-tb">
+    <table class="tb-export">
       <thead>
         <tr>
-          <th class="account">Account</th>
-          <th class="amount">Prelim</th>
-          <th class="amount">Adj's</th>
-          <th class="amount">Reclass</th>
-          <th class="amount">Rep/Annotation</th>
-          <th class="amount">Rep</th>
-          <th class="amount">PY</th>
-          <th class="small">%Chg</th>
-          <th class="small">L/S</th>
+          <th>Account</th>
+          <th>Description</th>
+          <th class="amount">Imported Balance</th>
+          ${showManualAdjustment ? '<th class="amount">Manual Adj.</th>' : ''}
+          <th class="amount">Journal Adj.</th>
+          <th class="amount">Reclassification</th>
+          <th class="amount">Final AFS Balance</th>
+          <th class="amount">Prior Year</th>
+          <th>Mapping</th>
         </tr>
       </thead>
       <tbody>
         ${rows
           .map((row) => {
-            const prelim = preliminaryTrialBalanceAmount(row.line);
-            const adjustments = manualAdjustmentAmount(row.line);
+            const imported = preliminaryTrialBalanceAmount(row.line);
+            const manual = manualAdjustmentAmount(row.line);
             const journals = journalAdjustmentAmount(row.line);
             const reclass = reclassificationAmount(row.line);
-            const report = reportAnnotationAmount(row.line);
             const prior = safeNumber(row.line.prior_year_balance);
-            const account = [row.line.account_code, row.line.account_name]
-              .filter(Boolean)
-              .join(" · ");
+            const description = cleanText(row.line.account_name || row.line.description || "");
+            const mapping = cleanText(
+              row.line.mapping_label ||
+                row.line.mapping_code ||
+                row.line.lead_schedule_number ||
+                "Unmapped",
+            );
 
             return `
               <tr>
-                <td class="account">${escapeHtml(account)}</td>
-                <td class="amount">${formatSignedMoney(prelim)}</td>
-                <td class="amount">${formatSignedMoney(adjustments + journals)}</td>
+                <td>${escapeHtml(cleanText(row.line.account_code))}</td>
+                <td>${escapeHtml(description)}</td>
+                <td class="amount">${formatSignedMoney(imported)}</td>
+                ${showManualAdjustment ? `<td class="amount">${formatSignedMoney(manual)}</td>` : ''}
+                <td class="amount">${formatSignedMoney(journals)}</td>
                 <td class="amount">${formatSignedMoney(reclass)}</td>
-                <td class="amount">${formatSignedMoney(report)}</td>
-                <td class="amount">${formatSignedMoney(report)}</td>
+                <td class="amount">${formatSignedMoney(row.finalAmount)}</td>
                 <td class="amount">${formatSignedMoney(prior)}</td>
-                <td class="small">${escapeHtml(percentageChangeAmount(report, prior))}</td>
-                <td class="small">${escapeHtml(leadScheduleReference(row.line))}</td>
+                <td>${escapeHtml(mapping)}</td>
               </tr>
             `;
           })
           .join("")}
         <tr class="total">
-          <td>Total</td>
-          <td class="amount">${formatSignedMoney(totals.prelim)}</td>
-          <td class="amount">${formatSignedMoney(totals.adjustments + totals.journals)}</td>
+          <td colspan="2">Total</td>
+          <td class="amount">${formatSignedMoney(totals.imported)}</td>
+          ${showManualAdjustment ? `<td class="amount">${formatSignedMoney(totals.manual)}</td>` : ''}
+          <td class="amount">${formatSignedMoney(totals.journals)}</td>
           <td class="amount">${formatSignedMoney(totals.reclass)}</td>
-          <td class="amount">${formatSignedMoney(totals.report)}</td>
-          <td class="amount">${formatSignedMoney(totals.report)}</td>
+          <td class="amount">${formatSignedMoney(totals.final)}</td>
           <td class="amount">${formatSignedMoney(totals.prior)}</td>
-          <td class="small"></td>
-          <td class="small"></td>
+          <td></td>
         </tr>
       </tbody>
     </table>
@@ -442,36 +448,36 @@ function renderHtml(args: {
     header span { display: block; font-size: 11px; color: #334155; }
     h1 { margin: 0 0 14px; font-size: 18px; line-height: 1.2; }
 
-    table.caseware-tb {
+    table.tb-export {
       width: 100%;
       border-collapse: collapse;
       font-size: 8px;
       line-height: 1.12;
     }
-    table.caseware-tb th {
+    table.tb-export th {
       border-bottom: 1.5px solid #111827;
       padding: 2px 3px;
       text-align: left;
       font-weight: 800;
     }
-    table.caseware-tb th.amount,
-    table.caseware-tb td.amount,
-    table.caseware-tb th.small,
-    table.caseware-tb td.small {
+    table.tb-export th.amount,
+    table.tb-export td.amount,
+    table.tb-export th.small,
+    table.tb-export td.small {
       text-align: right;
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
     }
-    table.caseware-tb th.account,
-    table.caseware-tb td.account {
+    table.tb-export th.account,
+    table.tb-export td.account {
       width: 31%;
     }
-    table.caseware-tb td {
+    table.tb-export td {
       border-bottom: 1px solid #e5e7eb;
       padding: 1.8px 3px;
       vertical-align: top;
     }
-    table.caseware-tb tr.total td {
+    table.tb-export tr.total td {
       border-top: 1.5px solid #111827;
       font-weight: 800;
       padding-top: 3px;
