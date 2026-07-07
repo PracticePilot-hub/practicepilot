@@ -39,6 +39,138 @@ function firstFilled(row: AnyRow | null | undefined, keys: string[]) {
   return "";
 }
 
+function normaliseImageValue(value: unknown) {
+  return String(value || "").trim();
+}
+
+function getLogoValue(row: AnyRow | null | undefined, keys: string[]) {
+  return firstFilled(row, keys);
+}
+
+function getMimeFromUrl(value: string) {
+  const lower = value.toLowerCase();
+
+  if (lower.includes(".svg")) return "image/svg+xml";
+  if (lower.includes(".webp")) return "image/webp";
+  if (lower.includes(".jpg") || lower.includes(".jpeg")) return "image/jpeg";
+  if (lower.includes(".gif")) return "image/gif";
+
+  return "image/png";
+}
+
+async function blobToDataUrl(blob: Blob, fallbackMime: string) {
+  const arrayBuffer = await blob.arrayBuffer();
+  const base64 = Buffer.from(arrayBuffer).toString("base64");
+  const mime = blob.type || fallbackMime || "image/png";
+
+  return `data:${mime};base64,${base64}`;
+}
+
+function parseSupabaseStorageObject(value: string) {
+  try {
+    const url = new URL(value);
+    const publicMarker = "/storage/v1/object/public/";
+    const signedMarker = "/storage/v1/object/sign/";
+    const authMarker = "/storage/v1/object/authenticated/";
+
+    const marker = url.pathname.includes(publicMarker)
+      ? publicMarker
+      : url.pathname.includes(signedMarker)
+        ? signedMarker
+        : url.pathname.includes(authMarker)
+          ? authMarker
+          : "";
+
+    if (!marker) return null;
+
+    const afterMarker = decodeURIComponent(url.pathname.split(marker)[1] || "");
+    const parts = afterMarker.split("/").filter(Boolean);
+    const bucket = parts.shift();
+    const objectPath = parts.join("/");
+
+    if (!bucket || !objectPath) return null;
+
+    return { bucket, objectPath };
+  } catch {
+    return null;
+  }
+}
+
+async function imageToDataUrl(supabase: any, rawValue: unknown) {
+  const value = normaliseImageValue(rawValue);
+
+  if (!value) return "";
+  if (value.startsWith("data:image/")) return value;
+
+  /*
+    First try to fetch the URL exactly as stored. This covers public URLs and
+    signed URLs produced by the settings upload.
+  */
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      const response = await fetch(value, { cache: "no-store" });
+
+      if (response.ok) {
+        return await blobToDataUrl(await response.blob(), getMimeFromUrl(value));
+      }
+    } catch (error) {
+      console.error("Failed to fetch AFS settings image URL", value, error);
+    }
+
+    /*
+      If the direct URL failed, try downloading from Supabase storage with the
+      service-role client. This covers expired signed URLs and private buckets.
+    */
+    const parsed = parseSupabaseStorageObject(value);
+
+    if (parsed) {
+      try {
+        const { data, error } = await supabase.storage
+          .from(parsed.bucket)
+          .download(parsed.objectPath);
+
+        if (!error && data) {
+          return await blobToDataUrl(data, getMimeFromUrl(value));
+        }
+
+        if (error) {
+          console.error("Failed to download AFS settings image from storage", error);
+        }
+      } catch (error) {
+        console.error("Failed to download AFS settings image from storage", error);
+      }
+    }
+
+    return value;
+  }
+
+  /*
+    Last fallback for older rows that may store "bucket/path/to/file.png".
+  */
+  const parts = value.split("/").filter(Boolean);
+
+  if (parts.length >= 2) {
+    const bucket = parts.shift() || "";
+    const objectPath = parts.join("/");
+
+    try {
+      const { data, error } = await supabase.storage.from(bucket).download(objectPath);
+
+      if (!error && data) {
+        return await blobToDataUrl(data, getMimeFromUrl(value));
+      }
+
+      if (error) {
+        console.error("Failed to download relative AFS settings image path", error);
+      }
+    } catch (error) {
+      console.error("Failed to download relative AFS settings image path", error);
+    }
+  }
+
+  return value;
+}
+
 function cleanSettingsRow(row: AnyRow | null | undefined) {
   const data = row || {};
 
@@ -53,32 +185,104 @@ function cleanSettingsRow(row: AnyRow | null | undefined) {
   };
 }
 
-function cleanFirmSettings(row: AnyRow | null | undefined) {
+async function cleanFirmSettings(supabase: any, row: AnyRow | null | undefined) {
   if (!row) return null;
+
+  const logoUrl = getLogoValue(row, [
+    "logo_url",
+    "logoUrl",
+    "firm_logo_url",
+    "firmLogoUrl",
+    "letterhead_logo_url",
+    "letterheadLogoUrl",
+  ]);
+
+  const governingBodyLogoUrl = getLogoValue(row, [
+    "governing_body_logo_url",
+    "governingBodyLogoUrl",
+    "governing_logo_url",
+    "professional_body_logo_url",
+    "professionalBodyLogoUrl",
+  ]);
+
+  const secondGoverningBodyLogoUrl = getLogoValue(row, [
+    "second_governing_body_logo_url",
+    "secondGoverningBodyLogoUrl",
+    "second_professional_body_logo_url",
+    "secondProfessionalBodyLogoUrl",
+  ]);
+
+  const footerLogoUrl = getLogoValue(row, [
+    "footer_logo_url",
+    "footerLogoUrl",
+    "footer_strip_url",
+    "footerStripUrl",
+    "firm_footer_logo_url",
+    "firmFooterLogoUrl",
+  ]);
+
+  const [logoDataUrl, governingBodyLogoDataUrl, secondGoverningBodyLogoDataUrl, footerLogoDataUrl] =
+    await Promise.all([
+      imageToDataUrl(supabase, logoUrl),
+      imageToDataUrl(supabase, governingBodyLogoUrl),
+      imageToDataUrl(supabase, secondGoverningBodyLogoUrl),
+      imageToDataUrl(supabase, footerLogoUrl),
+    ]);
 
   return {
     id: row.id || null,
     user_id: row.user_id || null,
-    firm_name: row.firm_name || null,
-    trading_name: row.trading_name || null,
-    logo_url: row.logo_url || null,
-    address_lines: row.address_lines || null,
-    telephone: row.telephone || null,
-    email: row.email || null,
-    website: row.website || null,
-    practitioner_name: row.practitioner_name || null,
-    practitioner_designation: row.practitioner_designation || null,
-    governing_body_name: row.governing_body_name || null,
+
+    firm_name: row.firm_name || row.firmName || null,
+    trading_name: row.trading_name || row.tradingName || null,
+
+    logo_url: logoUrl || null,
+    logo_data_url: logoDataUrl || null,
+
+    address_lines: row.address_lines || row.addressLines || null,
+    telephone: row.telephone || row.phone || row.firm_phone || null,
+    email: row.email || row.firm_email || null,
+    website: row.website || row.firm_website || null,
+
+    practitioner_name:
+      row.practitioner_name || row.practitionerName || row.partner_name || null,
+    practitioner_designation:
+      row.practitioner_designation ||
+      row.practitionerDesignation ||
+      row.designation ||
+      null,
+
+    governing_body_name:
+      row.governing_body_name ||
+      row.governingBodyName ||
+      row.professional_body_name ||
+      null,
     governing_body_registration_number:
-      row.governing_body_registration_number || null,
-    governing_body_logo_url: row.governing_body_logo_url || null,
-    second_governing_body_name: row.second_governing_body_name || null,
+      row.governing_body_registration_number ||
+      row.governingBodyRegistrationNumber ||
+      row.professional_body_registration_number ||
+      row.practice_number ||
+      row.membership_number ||
+      null,
+    governing_body_logo_url: governingBodyLogoUrl || null,
+    governing_body_logo_data_url: governingBodyLogoDataUrl || null,
+
+    second_governing_body_name:
+      row.second_governing_body_name ||
+      row.secondGoverningBodyName ||
+      row.second_professional_body_name ||
+      null,
     second_governing_body_registration_number:
-      row.second_governing_body_registration_number || null,
-    second_governing_body_logo_url:
-      row.second_governing_body_logo_url || null,
-    footer_text: row.footer_text || null,
-    footer_logo_url: row.footer_logo_url || null,
+      row.second_governing_body_registration_number ||
+      row.secondGoverningBodyRegistrationNumber ||
+      row.second_professional_body_registration_number ||
+      null,
+    second_governing_body_logo_url: secondGoverningBodyLogoUrl || null,
+    second_governing_body_logo_data_url: secondGoverningBodyLogoDataUrl || null,
+
+    footer_text: row.footer_text || row.footerText || null,
+    footer_logo_url: footerLogoUrl || null,
+    footer_logo_data_url: footerLogoDataUrl || null,
   };
 }
 
@@ -127,10 +331,6 @@ async function loadFirmSettings(supabase: any, engagement: AnyRow | null) {
     }
   }
 
-  /*
-    Safety fallback for older/dev engagements that do not yet have an owner id.
-    This prevents the PDF export from losing the letterhead for existing files.
-  */
   const { data: fallbackData, error: fallbackError } = await supabase
     .from("afs_firm_settings")
     .select("*")
@@ -162,12 +362,13 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const settingsRow = await loadPrintStudioSettings(supabase, id);
     const firmSettingsRow = await loadFirmSettings(supabase, engagement);
     const settings = cleanSettingsRow(settingsRow);
+    const firmSettings = await cleanFirmSettings(supabase, firmSettingsRow);
 
     return NextResponse.json({
       success: true,
       ...settings,
-      firmSettings: cleanFirmSettings(firmSettingsRow),
-      firm_settings: cleanFirmSettings(firmSettingsRow),
+      firmSettings,
+      firm_settings: firmSettings,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -259,12 +460,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const firmSettingsRow = await loadFirmSettings(supabase, engagement);
     const settings = cleanSettingsRow(savedRow);
+    const firmSettings = await cleanFirmSettings(supabase, firmSettingsRow);
 
     return NextResponse.json({
       success: true,
       ...settings,
-      firmSettings: cleanFirmSettings(firmSettingsRow),
-      firm_settings: cleanFirmSettings(firmSettingsRow),
+      firmSettings,
+      firm_settings: firmSettings,
     });
   } catch (error: any) {
     return NextResponse.json(

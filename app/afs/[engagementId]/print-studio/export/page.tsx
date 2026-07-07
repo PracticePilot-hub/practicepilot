@@ -56,6 +56,10 @@ type AfsFirmSettings = {
   firm_name?: string | null;
   trading_name?: string | null;
   logo_url?: string | null;
+  logo_data_url?: string | null;
+  governing_body_logo_data_url?: string | null;
+  second_governing_body_logo_data_url?: string | null;
+  footer_logo_data_url?: string | null;
   address_lines?: string | null;
   telephone?: string | null;
   email?: string | null;
@@ -1800,9 +1804,11 @@ const isDraftPdf =
     "Professional Accountant (SA)";
 
   const practitionerLogoUrl =
+    firmSetting("logo_data_url") ||
     firmSetting("logo_url") ||
     cleanString(
       getSetupValue(clientSetup, [
+        "practitioner_logo_data_url",
         "practitioner_logo_url",
         "compiler_logo_url",
         "firm_logo_url",
@@ -1812,10 +1818,13 @@ const isDraftPdf =
     );
 
   const practitionerFooterLogoUrl =
+    firmSetting("footer_logo_data_url") ||
     firmSetting("footer_logo_url") ||
+    firmSetting("governing_body_logo_data_url") ||
     firmSetting("governing_body_logo_url") ||
     cleanString(
       getSetupValue(clientSetup, [
+        "practitioner_footer_logo_data_url",
         "practitioner_footer_logo_url",
         "compiler_footer_logo_url",
         "firm_footer_logo_url",
@@ -1874,12 +1883,16 @@ const isDraftPdf =
     governingBodyRegistrationNumber: firmSetting(
       "governing_body_registration_number",
     ),
-    governingBodyLogoUrl: firmSetting("governing_body_logo_url"),
+    governingBodyLogoUrl:
+      firmSetting("governing_body_logo_data_url") ||
+      firmSetting("governing_body_logo_url"),
     secondGoverningBodyName: firmSetting("second_governing_body_name"),
     secondGoverningBodyRegistrationNumber: firmSetting(
       "second_governing_body_registration_number",
     ),
-    secondGoverningBodyLogoUrl: firmSetting("second_governing_body_logo_url"),
+    secondGoverningBodyLogoUrl:
+      firmSetting("second_governing_body_logo_data_url") ||
+      firmSetting("second_governing_body_logo_url"),
     firmFooterText: firmSetting("footer_text"),
     practitionerFooterText: firmSetting("footer_text"),
     footerText: firmSetting("footer_text"),
@@ -4010,10 +4023,6 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             content: counter(afs-export-page);
           }
 
-.afsExportOnlyRoot,
-.afsExportOnlyRoot * {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
-}
 
         }
       `}</style>
