@@ -53,6 +53,7 @@ type ClientSetupData = Record<string, any>;
 type AfsFirmSettings = {
   id?: string | null;
   user_id?: string | null;
+  owner_user_id?: string | null;
   firm_name?: string | null;
   trading_name?: string | null;
   logo_url?: string | null;
@@ -68,6 +69,9 @@ type AfsFirmSettings = {
   second_governing_body_name?: string | null;
   second_governing_body_registration_number?: string | null;
   second_governing_body_logo_url?: string | null;
+  secondary_governing_body_name?: string | null;
+  secondary_governing_body_registration_number?: string | null;
+  secondary_governing_body_logo_url?: string | null;
   footer_text?: string | null;
   footer_logo_url?: string | null;
 };
@@ -1301,15 +1305,31 @@ const isDraftPdf =
         const authUser = authData.user;
 
         if (authUser?.id) {
-          const { data: firmData, error: firmError } = await supabase
+          let firmData: AfsFirmSettings | null = null;
+
+          const byUserId = await supabase
             .from("afs_firm_settings")
             .select("*")
             .eq("user_id", authUser.id)
             .maybeSingle();
 
-          if (!firmError && firmData) {
-            setFirmSettings(firmData);
+          if (!byUserId.error && byUserId.data) {
+            firmData = byUserId.data as AfsFirmSettings;
           }
+
+          if (!firmData) {
+            const byOwnerUserId = await supabase
+              .from("afs_firm_settings")
+              .select("*")
+              .eq("owner_user_id", authUser.id)
+              .maybeSingle();
+
+            if (!byOwnerUserId.error && byOwnerUserId.data) {
+              firmData = byOwnerUserId.data as AfsFirmSettings;
+            }
+          }
+
+          setFirmSettings(firmData || null);
         }
       }
 
@@ -1753,8 +1773,17 @@ const isDraftPdf =
   const bodyLabelCapitalised =
     bodyLabel.charAt(0).toUpperCase() + bodyLabel.slice(1);
 
-  const firmSetting = (key: keyof AfsFirmSettings) =>
-    cleanString(firmSettings?.[key]);
+  const firmSetting = (key: keyof AfsFirmSettings, fallbackKeys: Array<keyof AfsFirmSettings> = []) => {
+    const primary = cleanString(firmSettings?.[key]);
+    if (primary) return primary;
+
+    for (const fallbackKey of fallbackKeys) {
+      const fallback = cleanString(firmSettings?.[fallbackKey]);
+      if (fallback) return fallback;
+    }
+
+    return "";
+  };
 
   const practitionerFirm =
     firmSetting("firm_name") ||
@@ -1865,11 +1894,17 @@ const isDraftPdf =
       "governing_body_registration_number",
     ),
     governingBodyLogoUrl: firmSetting("governing_body_logo_url"),
-    secondGoverningBodyName: firmSetting("second_governing_body_name"),
+    secondGoverningBodyName: firmSetting("second_governing_body_name", ["secondary_governing_body_name"]),
     secondGoverningBodyRegistrationNumber: firmSetting(
       "second_governing_body_registration_number",
+      ["secondary_governing_body_registration_number"],
     ),
-    secondGoverningBodyLogoUrl: firmSetting("second_governing_body_logo_url"),
+    secondGoverningBodyLogoUrl: firmSetting("second_governing_body_logo_url", ["secondary_governing_body_logo_url"]),
+    logo_url: practitionerLogoUrl,
+    footer_logo_url: firmSetting("footer_logo_url"),
+    governing_body_logo_url: firmSetting("governing_body_logo_url"),
+    second_governing_body_logo_url: firmSetting("second_governing_body_logo_url", ["secondary_governing_body_logo_url"]),
+    secondary_governing_body_logo_url: firmSetting("secondary_governing_body_logo_url"),
     firmFooterText: firmSetting("footer_text"),
     practitionerFooterText: firmSetting("footer_text"),
     footerText: firmSetting("footer_text"),
@@ -3690,7 +3725,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   left: 50%;
   transform: translate(-50%, -50%) rotate(-35deg);
   z-index: 999999;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   font-size: 82pt;
   line-height: 1;
   font-weight: 900;
@@ -3719,7 +3754,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             position: absolute;
             right: 17mm;
             bottom: 8mm;
-            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
             font-size: 9.5px;
             line-height: 1;
             color: #475569;
@@ -3732,7 +3767,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   left: 50%;
   transform: translate(-50%, -50%) rotate(-35deg);
   z-index: 999998;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   font-size: 84pt;
   line-height: 1;
   font-weight: 900;
@@ -3996,13 +4031,17 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             break-after: page !important;
           }
 
+          .afs-export-compiler-page section {
+            height: 100% !important;
+          }
+
           .afs-export-compiler-page article::after {
             content: counter(afs-export-page);
           }
 
 .afsExportOnlyRoot,
 .afsExportOnlyRoot * {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif !important;
 }
 
         }
@@ -4405,32 +4444,9 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
           {reportOptions.compilerReport ? (
             <div id="print-compiler-report" className="afs-export-compiler-page">
-              <article
-                style={{
-                  position: "relative",
-                  width: "210mm",
-                  minHeight: "297mm",
-                  margin: "0 auto",
-                  background: "#ffffff",
-                  boxSizing: "border-box",
-                  pageBreakAfter: "always",
-                  breakAfter: "page",
-                }}
-              >
-                <div
-                  style={{
-                    width: "100%",
-                    minHeight: "297mm",
-                    padding: "16mm 17mm 16mm",
-                    boxSizing: "border-box",
-                    fontFamily:
-                      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-                    color: "#111827",
-                  }}
-                >
-                  <CompilationReportBlock context={narrativeContext} />
-                </div>
-              </article>
+              <AfsA4Page>
+                <CompilationReportBlock context={narrativeContext} />
+              </AfsA4Page>
             </div>
           ) : null}
 
