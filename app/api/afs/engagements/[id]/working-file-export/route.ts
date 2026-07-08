@@ -13,50 +13,6 @@ const CHROMIUM_PACK_URL =
 
 let cachedExecutablePath: string | null = null;
 let chromiumDownloadPromise: Promise<string> | null = null;
-let cachedInterFontCss: string | null = null;
-
-async function getInterFontCss() {
-  if (cachedInterFontCss !== null) return cachedInterFontCss;
-
-  try {
-    const cssResponse = await fetch(
-      "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap",
-      {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari",
-        },
-        cache: "force-cache",
-      },
-    );
-
-    if (!cssResponse.ok) {
-      cachedInterFontCss = "";
-      return cachedInterFontCss;
-    }
-
-    let css = await cssResponse.text();
-    const urls = Array.from(new Set(Array.from(css.matchAll(/url\((https:[^)]+)\)/g)).map((match) => match[1])));
-
-    for (const url of urls) {
-      try {
-        const fontResponse = await fetch(url, { cache: "force-cache" });
-        if (!fontResponse.ok) continue;
-        const fontBuffer = Buffer.from(await fontResponse.arrayBuffer());
-        const dataUrl = `url(data:font/woff2;base64,${fontBuffer.toString("base64")})`;
-        css = css.replaceAll(`url(${url})`, dataUrl);
-      } catch {
-        // Keep the original URL if one font file cannot be embedded.
-      }
-    }
-
-    cachedInterFontCss = css;
-    return cachedInterFontCss;
-  } catch {
-    cachedInterFontCss = "";
-    return cachedInterFontCss;
-  }
-}
 
 type ExportDocumentKey =
   | "final-tb-pilot-view"
@@ -557,7 +513,6 @@ function renderHtml(args: {
   clientSetup: Record<string, any> | null;
   trialBalanceLines: Record<string, any>[];
   journals: Record<string, any>[];
-  fontCss: string;
 }) {
   const clientName = args.clientSetup?.registered_name || args.engagement?.client_name || "AFS engagement";
   const yearEnd = args.clientSetup?.financial_year_end || args.engagement?.financial_year_end || "";
@@ -585,12 +540,15 @@ function renderHtml(args: {
   <meta charset="utf-8" />
   <title>${escapeHtml(clientName)} - ${escapeHtml(title)}</title>
   <style>
-    ${args.fontCss}
+    @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
+
     @page { size: ${pageCss}; margin: 10mm; }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; font-family: "Inter", Arial, sans-serif !important; }
     body {
       margin: 0;
-      font-family: "Inter", Arial, Helvetica, sans-serif;
+      font-family: "Inter", Arial, sans-serif !important;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
       color: #0f172a;
       font-size: 9.5px;
       line-height: 1.2;
@@ -732,15 +690,12 @@ export async function GET(request: NextRequest, context: any) {
 
     if (journalsError) throw journalsError;
 
-    const interFontCss = await getInterFontCss();
-
     const html = renderHtml({
       document,
       engagement: engagement || null,
       clientSetup: clientSetup || null,
       trialBalanceLines: trialBalanceLines || [],
       journals: journals || [],
-      fontCss: interFontCss,
     });
 
     const isVercel = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
@@ -774,10 +729,7 @@ export async function GET(request: NextRequest, context: any) {
       timeout: 60_000,
     });
 
-    await page.evaluate(async () => {
-      const fontSet = (document as any).fonts;
-      if (fontSet?.ready) await fontSet.ready;
-    });
+    await new Promise((resolve) => setTimeout(resolve, 900));
 
     await page.emulateMediaType("print");
 
