@@ -56,8 +56,6 @@ function formatMoney(value: unknown) {
 }
 
 function formatSignedMoney(value: unknown) {
-  if (Math.abs(Math.round(safeNumber(value))) <= 1) return "–";
-
   const rounded = Math.round(safeNumber(value));
 
   if (rounded === 0) return "–";
@@ -65,6 +63,34 @@ function formatSignedMoney(value: unknown) {
   return rounded.toLocaleString("en-ZA", {
     maximumFractionDigits: 0,
   });
+}
+
+function formatPdfMoney(value: unknown) {
+  return formatSignedMoney(value);
+}
+
+function formatSignedMoneyCents(value: unknown) {
+  const amount = safeNumber(value);
+
+  if (Math.abs(amount) < 0.005) return "–";
+
+  return amount.toLocaleString("en-ZA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function roundedDisplayAmount(value: unknown) {
+  return Math.round(safeNumber(value));
+}
+
+function presentationRoundingAdjustment(roundedTotal: number) {
+  if (roundedTotal === 0) return 0;
+
+  /* Presentation-only balancing line for whole-rand exports. */
+  if (Math.abs(roundedTotal) <= 5) return -roundedTotal;
+
+  return 0;
 }
 
 function finalTrialBalanceAmount(line: Record<string, any>) {
@@ -180,7 +206,7 @@ function documentTitle(document: ExportDocumentKey) {
 function renderFinalTrialBalance(lines: Record<string, any>[]) {
   const rows = lines
     .map((line) => ({ line, finalAmount: finalTrialBalanceAmount(line) }))
-    .filter((row) => Math.round(row.finalAmount) !== 0)
+    .filter((row) => Math.abs(row.finalAmount) >= 0.005)
     .sort((a, b) =>
       String(a.line.account_code || "").localeCompare(String(b.line.account_code || "")),
     );
@@ -229,11 +255,11 @@ function renderFinalTrialBalance(lines: Record<string, any>[]) {
               <tr>
                 <td>${escapeHtml(cleanText(row.line.account_code))}</td>
                 <td>${escapeHtml(description)}</td>
-                <td class="amount">${formatSignedMoney(imported)}</td>
-                <td class="amount">${formatSignedMoney(journals)}</td>
-                <td class="amount">${formatSignedMoney(reclass)}</td>
-                <td class="amount">${formatSignedMoney(row.finalAmount)}</td>
-                <td class="amount">${formatSignedMoney(prior)}</td>
+                <td class="amount">${formatSignedMoneyCents(imported)}</td>
+                <td class="amount">${formatSignedMoneyCents(journals)}</td>
+                <td class="amount">${formatSignedMoneyCents(reclass)}</td>
+                <td class="amount">${formatSignedMoneyCents(row.finalAmount)}</td>
+                <td class="amount">${formatSignedMoneyCents(prior)}</td>
                 <td>${escapeHtml(mapping)}</td>
               </tr>
             `;
@@ -241,11 +267,11 @@ function renderFinalTrialBalance(lines: Record<string, any>[]) {
           .join("")}
         <tr class="total">
           <td colspan="2">Total</td>
-          <td class="amount">${formatSignedMoney(totals.imported)}</td>
-          <td class="amount">${formatSignedMoney(totals.journals)}</td>
-          <td class="amount">${formatSignedMoney(totals.reclass)}</td>
-          <td class="amount">${formatSignedMoney(totals.final)}</td>
-          <td class="amount">${formatSignedMoney(totals.prior)}</td>
+          <td class="amount">${formatSignedMoneyCents(totals.imported)}</td>
+          <td class="amount">${formatSignedMoneyCents(totals.journals)}</td>
+          <td class="amount">${formatSignedMoneyCents(totals.reclass)}</td>
+          <td class="amount">${formatSignedMoneyCents(totals.final)}</td>
+          <td class="amount">${formatSignedMoneyCents(totals.prior)}</td>
           <td></td>
         </tr>
       </tbody>
@@ -272,68 +298,75 @@ function renderJournalsPassed(journals: Record<string, any>[]) {
     return `<p class="empty">No posted journals were found in the journal register.</p>`;
   }
 
-  return journals
-    .map((journal) => {
-      const lines = Array.isArray(journal.lines) ? journal.lines : [];
-      const debitTotal =
-        journal.debit_total !== undefined && journal.debit_total !== null
-          ? safeNumber(journal.debit_total)
-          : lines.reduce((sum: number, line: Record<string, any>) => sum + safeNumber(line.debit), 0);
-      const creditTotal =
-        journal.credit_total !== undefined && journal.credit_total !== null
-          ? safeNumber(journal.credit_total)
-          : lines.reduce((sum: number, line: Record<string, any>) => sum + safeNumber(line.credit), 0);
-      const balanced =
-        journal.is_balanced === false ? false : Math.abs(debitTotal - creditTotal) < 0.01;
+  return `
+    <div class="journalPack">
+      ${journals
+        .map((journal, index) => {
+          const lines = Array.isArray(journal.lines) ? journal.lines : [];
+          const debitTotal =
+            journal.debit_total !== undefined && journal.debit_total !== null
+              ? safeNumber(journal.debit_total)
+              : lines.reduce((sum: number, line: Record<string, any>) => sum + safeNumber(line.debit), 0);
+          const creditTotal =
+            journal.credit_total !== undefined && journal.credit_total !== null
+              ? safeNumber(journal.credit_total)
+              : lines.reduce((sum: number, line: Record<string, any>) => sum + safeNumber(line.credit), 0);
+          const balanced =
+            journal.is_balanced === false ? false : Math.abs(debitTotal - creditTotal) < 0.01;
+          const dateText = cleanText(journal.journal_date || String(journal.posted_at || "").slice(0, 10));
+          const reference = journalReference(journal);
+          const description = cleanText(journal.description || "Adjusting journal");
 
-      return `
-        <section class="journal">
-          <div class="journalHeader">
-            <div>
-              <strong>${escapeHtml(journalReference(journal))}</strong>
-              <span>${escapeHtml(journal.description || "Adjusting journal")}</span>
-            </div>
-            <div class="journalMeta">
-              <span>${escapeHtml(journal.journal_date || String(journal.posted_at || "").slice(0, 10))}</span>
-              <strong>${balanced ? "Balanced" : "Unbalanced"}</strong>
-            </div>
-          </div>
+          return `
+            <section class="journal">
+              <div class="journalBand">
+                <div>
+                  <span class="journalRef">${escapeHtml(reference)}</span>
+                  <span class="journalDescription">${escapeHtml(description)}</span>
+                </div>
+                <div class="journalMeta">
+                  <span>${escapeHtml(dateText || "No date")}</span>
+                  <strong class="${balanced ? "balanced" : "unbalanced"}">${balanced ? "Balanced" : "Unbalanced"}</strong>
+                </div>
+              </div>
 
-          <table>
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th>Description</th>
-                <th>Note</th>
-                <th class="amount">Debit</th>
-                <th class="amount">Credit</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${lines
-                .map(
-                  (line: Record<string, any>) => `
-                    <tr>
-                      <td>${escapeHtml(line.account_code)}</td>
-                      <td>${escapeHtml(line.account_name)}</td>
-                      <td>${escapeHtml(line.note)}</td>
-                      <td class="amount">${formatMoney(line.debit)}</td>
-                      <td class="amount">${formatMoney(line.credit)}</td>
-                    </tr>
-                  `,
-                )
-                .join("")}
-              <tr class="total">
-                <td colspan="3">Total</td>
-                <td class="amount">${formatMoney(debitTotal)}</td>
-                <td class="amount">${formatMoney(creditTotal)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-      `;
-    })
-    .join("");
+              <table class="journalTable">
+                <thead>
+                  <tr>
+                    <th class="journalAccount">Account</th>
+                    <th>Description</th>
+                    <th>Note</th>
+                    <th class="amount">Debit</th>
+                    <th class="amount">Credit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${lines
+                    .map(
+                      (line: Record<string, any>) => `
+                        <tr>
+                          <td class="journalAccount">${escapeHtml(line.account_code)}</td>
+                          <td>${escapeHtml(line.account_name)}</td>
+                          <td>${escapeHtml(line.note)}</td>
+                          <td class="amount">${formatMoney(line.debit)}</td>
+                          <td class="amount">${formatMoney(line.credit)}</td>
+                        </tr>
+                      `,
+                    )
+                    .join("")}
+                  <tr class="total">
+                    <td colspan="3">Total</td>
+                    <td class="amount">${formatMoney(debitTotal)}</td>
+                    <td class="amount">${formatMoney(creditTotal)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
 }
 
 function renderLeadSheetsUsed(lines: Record<string, any>[]) {
@@ -407,9 +440,15 @@ function renderHtml(args: {
 }) {
   const clientName =
     args.clientSetup?.registered_name || args.engagement?.client_name || "AFS engagement";
-  const yearEnd =
-    args.clientSetup?.financial_year_end || args.engagement?.financial_year_end || "";
+    const yearEnd =
+    args.clientSetup?.financial_year_end ||
+    args.engagement?.financial_year_end ||
+    "";
   const title = documentTitle(args.document);
+
+  const isFinalTrialBalance = args.document === "final-trial-balance";
+  const pageCss = isFinalTrialBalance ? "A4 landscape" : "A4 portrait";
+  const bodyClass = isFinalTrialBalance ? "tbLandscape" : "normalDocument";
 
   let body = "";
   if (args.document === "journals-passed") body = renderJournalsPassed(args.journals);
@@ -423,7 +462,7 @@ function renderHtml(args: {
   <meta charset="utf-8" />
   <title>${escapeHtml(clientName)} - ${escapeHtml(title)}</title>
   <style>
-    @page { size: A4 landscape; margin: 10mm; }
+    @page { size: ${pageCss}; margin: 10mm; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -473,6 +512,12 @@ function renderHtml(args: {
       vertical-align: top;
       overflow-wrap: anywhere;
     }
+    table.tb-export tr.rounding td {
+      border-top: 1px solid #cbd5e1;
+      background: #f8fafc;
+      color: #334155;
+      font-style: italic;
+    }
     table.tb-export tr.total td {
       border-top: 1.5px solid #111827;
       font-weight: 800;
@@ -484,21 +529,113 @@ function renderHtml(args: {
     .amount { text-align: right; white-space: nowrap; }
     .total td, tr.total td { border-top: 1.2px solid #0f172a; border-bottom: 0; font-weight: 800; }
     .empty { color: #475569; margin: 0; }
-    .journal { page-break-inside: avoid; break-inside: avoid; margin-bottom: 14px; }
-    .journalHeader {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      border-bottom: 1px solid #cbd5e1;
-      padding-bottom: 6px;
-      margin-bottom: 6px;
+    .journalDoc {
+      max-width: 176mm;
+      margin: 0 auto;
+      font-size: 10px;
+      line-height: 1.22;
     }
-    .journalHeader strong { display: block; font-size: 12px; }
-    .journalHeader span { display: block; color: #334155; }
-    .journalMeta { text-align: right; }
+    .journalDoc header {
+      margin-bottom: 6mm;
+    }
+    .journalDoc h1 {
+      font-size: 16px;
+      margin-bottom: 5mm;
+    }
+    .journalPack {
+      display: grid;
+      gap: 4mm;
+    }
+    .journal {
+      page-break-inside: avoid;
+      break-inside: avoid;
+      margin: 0;
+      border: 1px solid #cbd5e1;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .journalBand {
+      display: grid;
+      grid-template-columns: 1fr 32mm;
+      gap: 8mm;
+      align-items: start;
+      padding: 3mm 3.5mm;
+      background: #f8fafc;
+      border-bottom: 1px solid #94a3b8;
+    }
+    .journalRef {
+      display: block;
+      font-size: 11px;
+      font-weight: 900;
+      color: #0f172a;
+      letter-spacing: 0.01em;
+    }
+    .journalDescription {
+      display: block;
+      margin-top: 0.8mm;
+      color: #334155;
+      font-size: 9.5px;
+      font-weight: 700;
+    }
+    .journalMeta {
+      text-align: right;
+      font-size: 9px;
+      color: #334155;
+    }
+    .journalMeta span,
+    .journalMeta strong {
+      display: block;
+    }
+    .journalMeta strong {
+      margin-top: 0.8mm;
+      color: #166534;
+      font-weight: 900;
+    }
+    .journalMeta strong.unbalanced {
+      color: #991b1b;
+    }
+    table.journalTable {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9px;
+      margin: 0;
+      table-layout: fixed;
+    }
+    .journalTable th {
+      border-bottom: 1px solid #0f172a;
+      padding: 2.4px 4px;
+      font-size: 8.6px;
+      background: #ffffff;
+    }
+    .journalTable td {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 2.6px 4px;
+      vertical-align: top;
+    }
+    .journalTable .journalAccount {
+      width: 25mm;
+      white-space: nowrap;
+    }
+    .journalTable th:nth-child(3),
+    .journalTable td:nth-child(3) {
+      width: 34mm;
+    }
+    .journalTable th.amount,
+    .journalTable td.amount {
+      width: 24mm;
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .journalTable tr.total td {
+      border-top: 1.2px solid #0f172a;
+      border-bottom: 0;
+      font-weight: 900;
+      background: #ffffff;
+    }
   </style>
 </head>
-<body>
+<body class="${bodyClass}">
   <header>
     <strong>${escapeHtml(clientName)}</strong>
     <span>Financial year end ${escapeHtml(yearEnd)}</span>
