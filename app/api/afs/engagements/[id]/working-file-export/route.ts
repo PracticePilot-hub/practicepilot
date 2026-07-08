@@ -168,14 +168,16 @@ function reclassificationAmount(line: Record<string, any>) {
   return safeNumber(line.reclassification ?? line.reclassification_adjustment ?? line.reclass);
 }
 
-function finalAmountFromTbLine(line: Record<string, any>) {
-  if (line.current_year_balance !== undefined && line.current_year_balance !== null) {
-    return safeNumber(line.current_year_balance);
-  }
+function preliminaryAmountFromTbLine(line: Record<string, any>) {
+  const explicit =
+    line.imported_balance ??
+    line.source_balance ??
+    line.original_balance ??
+    line.original_current_year_balance ??
+    line.imported_current_year_balance ??
+    line.current_year_balance;
 
-  if (line.final_afs_balance !== undefined && line.final_afs_balance !== null) {
-    return safeNumber(line.final_afs_balance);
-  }
+  if (explicit !== undefined && explicit !== null) return safeNumber(explicit);
 
   return safeNumber(line.debit) - safeNumber(line.credit);
 }
@@ -195,23 +197,13 @@ function journalAmountForLine(line: Record<string, any>, journalMap: ReturnType<
   return 0;
 }
 
-function importedAmountForLine(
-  line: Record<string, any>,
-  finalAmount: number,
-  journalAmount: number,
+function finalAmountForLine(
+  importedAmount: number,
   manualAmount: number,
+  journalAmount: number,
   reclassAmount: number,
 ) {
-  const explicit =
-    line.imported_balance ??
-    line.source_balance ??
-    line.original_balance ??
-    line.original_current_year_balance ??
-    line.imported_current_year_balance;
-
-  if (explicit !== undefined && explicit !== null) return safeNumber(explicit);
-
-  return finalAmount - journalAmount - manualAmount - reclassAmount;
+  return importedAmount + manualAmount + journalAmount + reclassAmount;
 }
 
 function mappingLabel(line: Record<string, any>) {
@@ -225,18 +217,19 @@ function renderFinalTrialBalancePilotView(lines: Record<string, any>[], journals
 
   const rows = lines
     .map((line) => {
-      const finalAmount = finalAmountFromTbLine(line);
+      const imported = preliminaryAmountFromTbLine(line);
       const manual = manualAdjustmentAmount(line);
       const journal = journalAmountForLine(line, journalMap);
       const reclass = reclassificationAmount(line);
-      const imported = importedAmountForLine(line, finalAmount, journal, manual, reclass);
+      const finalAmount = finalAmountForLine(imported, manual, journal, reclass);
       const prior = safeNumber(line.prior_year_balance);
 
-      return { line, imported, journal, reclass, finalAmount, prior };
+      return { line, imported, manual, journal, reclass, finalAmount, prior };
     })
     .filter(
       (row) =>
         Math.abs(row.imported) >= 0.005 ||
+        Math.abs(row.manual) >= 0.005 ||
         Math.abs(row.journal) >= 0.005 ||
         Math.abs(row.reclass) >= 0.005 ||
         Math.abs(row.finalAmount) >= 0.005 ||
@@ -251,12 +244,13 @@ function renderFinalTrialBalancePilotView(lines: Record<string, any>[], journals
   const totals = rows.reduce(
     (sum, row) => ({
       imported: sum.imported + row.imported,
+      manual: sum.manual + row.manual,
       journal: sum.journal + row.journal,
       reclass: sum.reclass + row.reclass,
       final: sum.final + row.finalAmount,
       prior: sum.prior + row.prior,
     }),
-    { imported: 0, journal: 0, reclass: 0, final: 0, prior: 0 },
+    { imported: 0, manual: 0, journal: 0, reclass: 0, final: 0, prior: 0 },
   );
 
   return `
@@ -266,6 +260,7 @@ function renderFinalTrialBalancePilotView(lines: Record<string, any>[], journals
           <th class="code">Account</th>
           <th class="description">Description</th>
           <th class="amount">Imported balance</th>
+          <th class="amount">Manual adj.</th>
           <th class="amount">Journal adj.</th>
           <th class="amount">Reclass.</th>
           <th class="amount">Final AFS balance</th>
@@ -283,6 +278,7 @@ function renderFinalTrialBalancePilotView(lines: Record<string, any>[], journals
                 <td>${escapeHtml(row.line.account_code)}</td>
                 <td>${escapeHtml(description)}</td>
                 <td class="amount">${formatCents(row.imported)}</td>
+                <td class="amount">${formatCents(row.manual)}</td>
                 <td class="amount">${formatCents(row.journal)}</td>
                 <td class="amount">${formatCents(row.reclass)}</td>
                 <td class="amount">${formatCents(row.finalAmount)}</td>
@@ -295,6 +291,7 @@ function renderFinalTrialBalancePilotView(lines: Record<string, any>[], journals
         <tr class="total">
           <td colspan="2">Total</td>
           <td class="amount">${formatCents(totals.imported)}</td>
+          <td class="amount">${formatCents(totals.manual)}</td>
           <td class="amount">${formatCents(totals.journal)}</td>
           <td class="amount">${formatCents(totals.reclass)}</td>
           <td class="amount">${formatCents(totals.final)}</td>
@@ -307,10 +304,16 @@ function renderFinalTrialBalancePilotView(lines: Record<string, any>[], journals
 }
 
 
-function renderFinalTrialBalancePassengerView(lines: Record<string, any>[]) {
+function renderFinalTrialBalancePassengerView(lines: Record<string, any>[], journals: Record<string, any>[]) {
+  const journalMap = buildJournalAdjustmentMap(journals);
+
   const rows = lines
     .map((line) => {
-      const finalAmount = finalAmountFromTbLine(line);
+      const imported = preliminaryAmountFromTbLine(line);
+      const manual = manualAdjustmentAmount(line);
+      const journal = journalAmountForLine(line, journalMap);
+      const reclass = reclassificationAmount(line);
+      const finalAmount = finalAmountForLine(imported, manual, journal, reclass);
       const prior = safeNumber(line.prior_year_balance);
       return { line, finalAmount, prior };
     })
@@ -443,14 +446,19 @@ function renderJournalsPassed(journals: Record<string, any>[]) {
   `;
 }
 
-function renderLeadSheetsUsed(lines: Record<string, any>[]) {
+function renderLeadSheetsUsed(lines: Record<string, any>[], journals: Record<string, any>[]) {
+  const journalMap = buildJournalAdjustmentMap(journals);
   const grouped = new Map<string, { title: string; amount: number; count: number }>();
 
   lines.forEach((line) => {
     const key = cleanText(line.lead_schedule_key);
     if (!key) return;
 
-    const amount = finalAmountFromTbLine(line);
+    const imported = preliminaryAmountFromTbLine(line);
+    const manual = manualAdjustmentAmount(line);
+    const journal = journalAmountForLine(line, journalMap);
+    const reclass = reclassificationAmount(line);
+    const amount = finalAmountForLine(imported, manual, journal, reclass);
     if (Math.abs(amount) < 0.005) return;
 
     const title = cleanText(line.lead_schedule_number)
@@ -520,10 +528,10 @@ function renderHtml(args: {
 
   let body = "";
   if (args.document === "journals-passed") body = renderJournalsPassed(args.journals);
-  else if (args.document === "lead-sheets-used") body = renderLeadSheetsUsed(args.trialBalanceLines);
+  else if (args.document === "lead-sheets-used") body = renderLeadSheetsUsed(args.trialBalanceLines, args.journals);
   else if (args.document === "subordination-agreements") body = renderSubordinationAgreements();
   else if (args.document === "final-tb-passenger-view") {
-    body = renderFinalTrialBalancePassengerView(args.trialBalanceLines);
+    body = renderFinalTrialBalancePassengerView(args.trialBalanceLines, args.journals);
   } else {
     body = renderFinalTrialBalancePilotView(args.trialBalanceLines, args.journals);
   }

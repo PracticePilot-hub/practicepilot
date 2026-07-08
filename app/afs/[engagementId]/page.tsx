@@ -1016,6 +1016,93 @@ function safeNumber(value: unknown) {
   return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
+function exportAccountKey(value: unknown) {
+  return cleanExportText(value).toLowerCase();
+}
+
+function buildPostedJournalAdjustmentMap(journals: PostedJournal[]) {
+  const byCode = new Map<string, number>();
+  const byName = new Map<string, number>();
+
+  journals.forEach((journal) => {
+    journal.lines.forEach((line) => {
+      const amount = safeNumber(line.debit) - safeNumber(line.credit);
+      const code = exportAccountKey(line.account_code);
+      const name = exportAccountKey(line.account_name);
+
+      if (code) byCode.set(code, (byCode.get(code) || 0) + amount);
+      if (name) byName.set(name, (byName.get(name) || 0) + amount);
+    });
+  });
+
+  return { byCode, byName };
+}
+
+function postedJournalAdjustmentAmount(
+  line: TrialBalanceLine,
+  journalMap: ReturnType<typeof buildPostedJournalAdjustmentMap>,
+) {
+  const anyLine = line as any;
+  const explicit =
+    anyLine.journal_adjustment ??
+    anyLine.journal_adjustments ??
+    anyLine.journalAdj ??
+    anyLine.journal_amount;
+
+  if (explicit !== undefined && explicit !== null) return safeNumber(explicit);
+
+  const code = exportAccountKey(line.account_code);
+  const name = exportAccountKey(line.account_name || line.description);
+
+  if (code && journalMap.byCode.has(code)) return safeNumber(journalMap.byCode.get(code));
+  if (name && journalMap.byName.has(name)) return safeNumber(journalMap.byName.get(name));
+
+  return 0;
+}
+
+type FinalTrialBalanceExportRow = {
+  line: TrialBalanceLine;
+  imported: number;
+  manual: number;
+  journal: number;
+  reclass: number;
+  finalAmount: number;
+  prior: number;
+};
+
+function buildFinalTrialBalanceExportRows(
+  lines: TrialBalanceLine[],
+  journals: PostedJournal[],
+): FinalTrialBalanceExportRow[] {
+  const journalMap = buildPostedJournalAdjustmentMap(journals);
+
+  return lines
+    .map((line) => {
+      const imported = preliminaryTrialBalanceAmount(line);
+      const manual = manualAdjustmentAmount(line);
+      const journal = postedJournalAdjustmentAmount(line, journalMap);
+      const reclass = reclassificationAmount(line);
+      const finalAmount = imported + manual + journal + reclass;
+      const prior = safeNumber(line.prior_year_balance);
+
+      return { line, imported, manual, journal, reclass, finalAmount, prior };
+    })
+    .filter(
+      (row) =>
+        Math.abs(row.imported) >= 0.005 ||
+        Math.abs(row.manual) >= 0.005 ||
+        Math.abs(row.journal) >= 0.005 ||
+        Math.abs(row.reclass) >= 0.005 ||
+        Math.abs(row.finalAmount) >= 0.005 ||
+        Math.abs(row.prior) >= 0.005,
+    )
+    .sort((a, b) =>
+      String(a.line.account_code || "").localeCompare(String(b.line.account_code || ""), undefined, {
+        numeric: true,
+      }),
+    );
+}
+
 function finalTrialBalanceAmount(line: TrialBalanceLine) {
   const anyLine = line as any;
 
@@ -1206,23 +1293,18 @@ function ExportPrintPanel({
   const displayClientName = clientSetup?.registered_name || engagement.client_name;
   const displayYearEnd = clientSetup?.financial_year_end || engagement.financial_year_end;
 
-  const finalTrialBalanceRows = trialBalanceLines
-    .map((line) => ({
-      line,
-      finalAmount: finalTrialBalanceAmount(line),
-    }))
-    .filter((row) => Math.round(row.finalAmount) !== 0)
-    .sort((a, b) =>
-      String(a.line.account_code || "").localeCompare(String(b.line.account_code || "")),
-    );
+  const finalTrialBalanceRows = buildFinalTrialBalanceExportRows(
+    trialBalanceLines,
+    postedJournals,
+  );
 
-  const usedLeadSchedules = trialBalanceLines
-    .filter((line) => {
-      const finalAmount = finalTrialBalanceAmount(line);
-      return String(line.lead_schedule_key || "").trim() && Math.round(finalAmount) !== 0;
+  const usedLeadSchedules = finalTrialBalanceRows
+    .filter((row) => {
+      return String(row.line.lead_schedule_key || "").trim() && Math.abs(row.finalAmount) >= 0.005;
     })
     .reduce<Record<string, { title: string; amount: number; count: number }>>(
-      (accumulator, line) => {
+      (accumulator, row) => {
+        const line = row.line;
         const key = String(line.lead_schedule_key || "");
         const number = String(line.lead_schedule_number || "");
         const title =
@@ -1238,7 +1320,7 @@ function ExportPrintPanel({
           };
         }
 
-        accumulator[key].amount += finalTrialBalanceAmount(line);
+        accumulator[key].amount += row.finalAmount;
         accumulator[key].count += 1;
 
         return accumulator;
@@ -1401,17 +1483,18 @@ function ExportPrintPanel({
 function PrintableFinalTrialBalancePilotView({
   rows,
 }: {
-  rows: { line: TrialBalanceLine; finalAmount: number }[];
+  rows: FinalTrialBalanceExportRow[];
 }) {
   const totals = rows.reduce(
     (sum, row) => ({
-      imported: sum.imported + preliminaryTrialBalanceAmount(row.line),
-      journals: sum.journals + journalAdjustmentAmount(row.line),
-      reclass: sum.reclass + reclassificationAmount(row.line),
+      imported: sum.imported + row.imported,
+      manual: sum.manual + row.manual,
+      journals: sum.journals + row.journal,
+      reclass: sum.reclass + row.reclass,
       final: sum.final + row.finalAmount,
-      prior: sum.prior + safeNumber(row.line.prior_year_balance),
+      prior: sum.prior + row.prior,
     }),
-    { imported: 0, journals: 0, reclass: 0, final: 0, prior: 0 },
+    { imported: 0, manual: 0, journals: 0, reclass: 0, final: 0, prior: 0 },
   );
 
   return (
@@ -1423,20 +1506,22 @@ function PrintableFinalTrialBalancePilotView({
           <tr>
             <th style={{ ...styles.exportTh, width: "10%" }}>Account</th>
             <th style={{ ...styles.exportTh, width: "24%" }}>Description</th>
-            <th style={{ ...styles.exportThRight, width: "12%" }}>Imported balance</th>
-            <th style={{ ...styles.exportThRight, width: "10%" }}>Journal adj.</th>
-            <th style={{ ...styles.exportThRight, width: "10%" }}>Reclass.</th>
-            <th style={{ ...styles.exportThRight, width: "12%" }}>Final AFS balance</th>
-            <th style={{ ...styles.exportThRight, width: "10%" }}>Prior year</th>
-            <th style={{ ...styles.exportTh, width: "12%" }}>Mapping</th>
+            <th style={{ ...styles.exportThRight, width: "11%" }}>Imported balance</th>
+            <th style={{ ...styles.exportThRight, width: "9%" }}>Manual adj.</th>
+            <th style={{ ...styles.exportThRight, width: "9%" }}>Journal adj.</th>
+            <th style={{ ...styles.exportThRight, width: "9%" }}>Reclass.</th>
+            <th style={{ ...styles.exportThRight, width: "11%" }}>Final AFS balance</th>
+            <th style={{ ...styles.exportThRight, width: "9%" }}>Prior year</th>
+            <th style={{ ...styles.exportTh, width: "10%" }}>Mapping</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => {
-            const imported = preliminaryTrialBalanceAmount(row.line);
-            const journals = journalAdjustmentAmount(row.line);
-            const reclass = reclassificationAmount(row.line);
-            const prior = safeNumber(row.line.prior_year_balance);
+            const imported = row.imported;
+            const manual = row.manual;
+            const journals = row.journal;
+            const reclass = row.reclass;
+            const prior = row.prior;
             const description = row.line.account_name || row.line.description || "";
             const mapping =
               row.line.mapping_label ||
@@ -1449,6 +1534,7 @@ function PrintableFinalTrialBalancePilotView({
                 <td style={styles.exportTd}>{row.line.account_code}</td>
                 <td style={styles.exportTd}>{description}</td>
                 <td style={styles.exportTdRight}>{formatSignedMoneyCents(imported)}</td>
+                <td style={styles.exportTdRight}>{formatSignedMoneyCents(manual)}</td>
                 <td style={styles.exportTdRight}>{formatSignedMoneyCents(journals)}</td>
                 <td style={styles.exportTdRight}>{formatSignedMoneyCents(reclass)}</td>
                 <td style={styles.exportTdRight}>{formatSignedMoneyCents(row.finalAmount)}</td>
@@ -1460,6 +1546,7 @@ function PrintableFinalTrialBalancePilotView({
           <tr>
             <td style={styles.exportTotalTd} colSpan={2}>Total</td>
             <td style={styles.exportTotalTdRight}>{formatSignedMoneyCents(totals.imported)}</td>
+            <td style={styles.exportTotalTdRight}>{formatSignedMoneyCents(totals.manual)}</td>
             <td style={styles.exportTotalTdRight}>{formatSignedMoneyCents(totals.journals)}</td>
             <td style={styles.exportTotalTdRight}>{formatSignedMoneyCents(totals.reclass)}</td>
             <td style={styles.exportTotalTdRight}>{formatSignedMoneyCents(totals.final)}</td>
@@ -1476,12 +1563,12 @@ function PrintableFinalTrialBalancePilotView({
 function PrintableFinalTrialBalancePassengerView({
   rows,
 }: {
-  rows: { line: TrialBalanceLine; finalAmount: number }[];
+  rows: FinalTrialBalanceExportRow[];
 }) {
   const totals = rows.reduce(
     (sum, row) => ({
       final: sum.final + row.finalAmount,
-      prior: sum.prior + safeNumber(row.line.prior_year_balance),
+      prior: sum.prior + row.prior,
     }),
     { final: 0, prior: 0 },
   );
@@ -1505,7 +1592,7 @@ function PrintableFinalTrialBalancePassengerView({
         </thead>
         <tbody>
           {rows.map((row) => {
-            const prior = safeNumber(row.line.prior_year_balance);
+            const prior = row.prior;
             const description = row.line.account_name || row.line.description || "";
 
             return (
