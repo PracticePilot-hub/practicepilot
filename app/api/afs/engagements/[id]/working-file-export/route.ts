@@ -13,6 +13,50 @@ const CHROMIUM_PACK_URL =
 
 let cachedExecutablePath: string | null = null;
 let chromiumDownloadPromise: Promise<string> | null = null;
+let cachedInterFontCss: string | null = null;
+
+async function getInterFontCss() {
+  if (cachedInterFontCss !== null) return cachedInterFontCss;
+
+  try {
+    const cssResponse = await fetch(
+      "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap",
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari",
+        },
+        cache: "force-cache",
+      },
+    );
+
+    if (!cssResponse.ok) {
+      cachedInterFontCss = "";
+      return cachedInterFontCss;
+    }
+
+    let css = await cssResponse.text();
+    const urls = Array.from(new Set(Array.from(css.matchAll(/url\((https:[^)]+)\)/g)).map((match) => match[1])));
+
+    for (const url of urls) {
+      try {
+        const fontResponse = await fetch(url, { cache: "force-cache" });
+        if (!fontResponse.ok) continue;
+        const fontBuffer = Buffer.from(await fontResponse.arrayBuffer());
+        const dataUrl = `url(data:font/woff2;base64,${fontBuffer.toString("base64")})`;
+        css = css.replaceAll(`url(${url})`, dataUrl);
+      } catch {
+        // Keep the original URL if one font file cannot be embedded.
+      }
+    }
+
+    cachedInterFontCss = css;
+    return cachedInterFontCss;
+  } catch {
+    cachedInterFontCss = "";
+    return cachedInterFontCss;
+  }
+}
 
 type ExportDocumentKey =
   | "final-tb-pilot-view"
@@ -513,6 +557,7 @@ function renderHtml(args: {
   clientSetup: Record<string, any> | null;
   trialBalanceLines: Record<string, any>[];
   journals: Record<string, any>[];
+  fontCss: string;
 }) {
   const clientName = args.clientSetup?.registered_name || args.engagement?.client_name || "AFS engagement";
   const yearEnd = args.clientSetup?.financial_year_end || args.engagement?.financial_year_end || "";
@@ -540,57 +585,57 @@ function renderHtml(args: {
   <meta charset="utf-8" />
   <title>${escapeHtml(clientName)} - ${escapeHtml(title)}</title>
   <style>
+    ${args.fontCss}
     @page { size: ${pageCss}; margin: 10mm; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: Arial, Helvetica, sans-serif;
-      color: #111827;
-      font-size: 10.2px;
-      line-height: 1.28;
+      font-family: "Inter", Arial, Helvetica, sans-serif;
+      color: #0f172a;
+      font-size: 9.5px;
+      line-height: 1.2;
       background: #fff;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
     header {
-      margin-bottom: 10px;
-      border-bottom: 1.2px solid #111827;
-      padding-bottom: 6px;
+      margin-bottom: 12px;
+      border-bottom: 1.5px solid #0f172a;
+      padding-bottom: 7px;
     }
-    header strong { display: block; font-size: 11.2px; font-weight: 800; letter-spacing: 0; }
-    header span { display: block; font-size: 9.5px; color: #374151; }
-    h1 { margin: 0 0 9px; font-size: 13.5px; line-height: 1.2; font-weight: 800; }
+    header strong { display: block; font-size: 13px; font-weight: 800; }
+    header span { display: block; font-size: 11px; color: #334155; }
+    h1 { margin: 0 0 10px; font-size: 17px; line-height: 1.15; font-weight: 700; }
     table { width: 100%; border-collapse: collapse; }
     th {
-      padding: 3px 5px;
-      border-bottom: 1.2px solid #111827;
+      padding: 4px 5px;
+      border-bottom: 1.4px solid #0f172a;
       font-size: 8.6px;
-      font-weight: 800;
+      font-weight: 700;
       text-align: left;
       white-space: nowrap;
     }
     td {
-      padding: 2.45px 5px;
-      border-bottom: 0.8px solid #d1d5db;
+      padding: 3px 5px;
+      border-bottom: 1px solid #d9e0ea;
       vertical-align: top;
       font-variant-numeric: tabular-nums;
-      font-size: 8.9px;
     }
     .amount { text-align: right; white-space: nowrap; }
     .code { width: 76px; white-space: nowrap; }
     .description { width: 210px; }
     .mapping { width: 170px; }
     tr.total td {
-      border-top: 1.2px solid #111827;
+      border-top: 1.4px solid #0f172a;
       border-bottom: 0;
-      font-weight: 800;
-      padding-top: 4px;
+      font-weight: 700;
+      padding-top: 5px;
     }
-    .tbLandscape { font-size: 8.2px; line-height: 1.12; }
+    .tbLandscape { font-size: 8.4px; line-height: 1.08; }
     .tbLandscape header { margin-bottom: 8px; padding-bottom: 6px; }
-    .tbLandscape h1 { font-size: 13px; margin-bottom: 7px; }
-    .tbLandscape th { font-size: 7.2px; padding: 2.2px 4px; }
-    .tbLandscape td { padding: 1.8px 4px; font-size: 7.7px; }
+    .tbLandscape h1 { font-size: 15px; margin-bottom: 7px; }
+    .tbLandscape th { font-size: 7.6px; padding: 2.4px 4px; }
+    .tbLandscape td { padding: 1.9px 4px; }
     .tb-export .description { width: 190px; }
     .tb-export .mapping { width: 180px; }
     .empty { color: #475569; font-size: 12px; }
@@ -687,12 +732,15 @@ export async function GET(request: NextRequest, context: any) {
 
     if (journalsError) throw journalsError;
 
+    const interFontCss = await getInterFontCss();
+
     const html = renderHtml({
       document,
       engagement: engagement || null,
       clientSetup: clientSetup || null,
       trialBalanceLines: trialBalanceLines || [],
       journals: journals || [],
+      fontCss: interFontCss,
     });
 
     const isVercel = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
@@ -724,6 +772,11 @@ export async function GET(request: NextRequest, context: any) {
     await page.setContent(html, {
       waitUntil: "load" as any,
       timeout: 60_000,
+    });
+
+    await page.evaluate(async () => {
+      const fontSet = (document as any).fonts;
+      if (fontSet?.ready) await fontSet.ready;
     });
 
     await page.emulateMediaType("print");
