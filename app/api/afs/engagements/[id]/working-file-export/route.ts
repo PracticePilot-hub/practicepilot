@@ -61,15 +61,14 @@ function formatCents(value: unknown) {
 }
 
 function safeFilename(value: string) {
-  return String(value || "afs-working-file-export")
+  const cleaned = String(value || "AFS working file export")
     .replace(/[’']/g, "")
     .replace(/&/g, "and")
-    .replace(/\(pty\)/gi, "pty")
-    .replace(/ltd\.?/gi, "ltd")
-    .replace(/[^a-z0-9-_]+/gi, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .toLowerCase();
+    .replace(/[<>:"/\|?*\x00-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleaned || "AFS working file export";
 }
 
 function getLocalChromePath() {
@@ -546,7 +545,7 @@ function renderHtml(args: {
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: Arial, Helvetica, sans-serif;
+      font-family: "Open Sans", Arial, Helvetica, sans-serif;
       color: #0f172a;
       font-size: 9.5px;
       line-height: 1.2;
@@ -561,13 +560,13 @@ function renderHtml(args: {
     }
     header strong { display: block; font-size: 13px; font-weight: 800; }
     header span { display: block; font-size: 11px; color: #334155; }
-    h1 { margin: 0 0 10px; font-size: 17px; line-height: 1.15; font-weight: 850; }
+    h1 { margin: 0 0 10px; font-size: 17px; line-height: 1.15; font-weight: 700; }
     table { width: 100%; border-collapse: collapse; }
     th {
       padding: 4px 5px;
       border-bottom: 1.4px solid #0f172a;
       font-size: 8.6px;
-      font-weight: 850;
+      font-weight: 700;
       text-align: left;
       white-space: nowrap;
     }
@@ -584,7 +583,7 @@ function renderHtml(args: {
     tr.total td {
       border-top: 1.4px solid #0f172a;
       border-bottom: 0;
-      font-weight: 850;
+      font-weight: 700;
       padding-top: 5px;
     }
     .tbLandscape { font-size: 8.4px; line-height: 1.08; }
@@ -607,7 +606,7 @@ function renderHtml(args: {
       padding: 4px 0 5px;
       border-bottom: 1.2px solid #0f172a;
     }
-    .journal-heading strong { display: block; font-size: 12px; font-weight: 850; }
+    .journal-heading strong { display: block; font-size: 12px; font-weight: 700; }
     .journal-heading span { display: block; font-size: 9.5px; color: #334155; margin-top: 1px; }
     .journal-meta { text-align: right; min-width: 90px; }
     .journal-meta .balanced { color: #166534; }
@@ -744,7 +743,7 @@ export async function GET(request: NextRequest, context: any) {
     });
 
     const clientName = clientSetup?.registered_name || engagement?.client_name || "afs";
-    const fileName = `${safeFilename(`${clientName}-${documentTitle(document)}`)}.pdf`;
+    const fileName = `${safeFilename(clientName)} - ${safeFilename(documentTitle(document))}.pdf`;
 
     return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,

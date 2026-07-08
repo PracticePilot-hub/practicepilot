@@ -1214,15 +1214,14 @@ function excelNumber(value: number) {
 }
 
 function safeExportFilename(value: string) {
-  return String(value || "afs-export")
+  const cleaned = String(value || "AFS export")
     .replace(/[’']/g, "")
     .replace(/&/g, "and")
-    .replace(/\(pty\)/gi, "pty")
-    .replace(/ltd\.?/gi, "ltd")
-    .replace(/[^a-z0-9-_]+/gi, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .toLowerCase();
+    .replace(/[<>:"/\|?*\x00-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleaned || "AFS export";
 }
 
 function roundedDisplayAmount(value: number) {
@@ -1596,7 +1595,7 @@ function ExportPrintPanel({
         <head>
           <meta charset="utf-8" />
           <style>
-            table { border-collapse: collapse; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; }
+            table { border-collapse: collapse; font-family: "Open Sans", Arial, Helvetica, sans-serif; font-size: 10pt; }
             th { background: #eef2f7; border: 1px solid #9aa7b8; font-weight: 700; text-align: left; }
             td { border: 1px solid #d6dde8; }
             th, td { padding: 4px 6px; }
@@ -1618,7 +1617,7 @@ function ExportPrintPanel({
     const url = URL.createObjectURL(blob);
     const link = window.document.createElement("a");
     link.href = url;
-    link.download = `${safeExportFilename(displayClientName)}-${safeExportFilename(title)}.xls`;
+    link.download = `${safeExportFilename(displayClientName)} - ${safeExportFilename(title)}.xls`;
     window.document.body.appendChild(link);
     link.click();
     window.document.body.removeChild(link);
@@ -1649,7 +1648,7 @@ function ExportPrintPanel({
               top: 0 !important;
               width: 100% !important;
               background: #ffffff !important;
-              font-family: Arial, Helvetica, sans-serif !important;
+              font-family: "Open Sans", Arial, Helvetica, sans-serif !important;
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
