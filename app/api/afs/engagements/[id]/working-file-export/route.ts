@@ -539,15 +539,12 @@ function renderHtml(args: {
 <head>
   <meta charset="utf-8" />
   <title>${escapeHtml(clientName)} - ${escapeHtml(title)}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     @page { size: ${pageCss}; margin: 10mm; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: "Inter", Arial, Helvetica, sans-serif;
+      font-family: Arial, Helvetica, sans-serif;
       color: #0f172a;
       font-size: 9.5px;
       line-height: 1.2;
@@ -724,13 +721,8 @@ export async function GET(request: NextRequest, context: any) {
     page.setDefaultTimeout(60_000);
 
     await page.setContent(html, {
-      waitUntil: "networkidle0" as any,
+      waitUntil: "load" as any,
       timeout: 60_000,
-    });
-
-    await page.evaluate(async () => {
-      const fontSet = (document as any).fonts;
-      if (fontSet?.ready) await fontSet.ready;
     });
 
     await page.emulateMediaType("print");
