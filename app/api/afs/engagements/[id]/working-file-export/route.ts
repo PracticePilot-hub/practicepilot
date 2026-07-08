@@ -545,7 +545,7 @@ function renderHtml(args: {
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: "Open Sans", Arial, Helvetica, sans-serif;
+      font-family: Inter, Arial, Helvetica, sans-serif;
       color: #0f172a;
       font-size: 9.5px;
       line-height: 1.2;
