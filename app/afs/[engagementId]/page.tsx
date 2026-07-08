@@ -919,6 +919,8 @@ export default function AFSEngagementPage() {
 
 
 type ExportDocumentKey =
+  | "final-tb-pilot-view"
+  | "final-tb-passenger-view"
   | "final-trial-balance"
   | "journals-passed"
   | "lead-sheets-used"
@@ -1102,6 +1104,15 @@ function formatSignedMoney(value: number) {
   });
 }
 
+function formatSignedMoneyCents(value: number) {
+  if (Math.abs(value) < 0.005) return "–";
+
+  return value.toLocaleString("en-ZA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function roundedDisplayAmount(value: number) {
   return Math.round(value);
 }
@@ -1141,7 +1152,7 @@ function ExportPrintPanel({
   leadScheduleStatements,
 }: ExportPrintPanelProps) {
   const [selectedDocument, setSelectedDocument] =
-    useState<ExportDocumentKey>("final-trial-balance");
+    useState<ExportDocumentKey>("final-tb-pilot-view");
   const [postedJournals, setPostedJournals] = useState<PostedJournal[]>([]);
   const [loadingPostedJournals, setLoadingPostedJournals] = useState(false);
 
@@ -1241,9 +1252,16 @@ function ExportPrintPanel({
 
   const documents: { key: ExportDocumentKey; title: string; description: string }[] = [
     {
-      key: "final-trial-balance",
-      title: "Final Trial Balance",
-      description: "Final AFS TB after manual adjustments, journals and reclassifications.",
+      key: "final-tb-pilot-view",
+      title: "Final TB - Pilot View",
+      description:
+        "Full PracticePilot control TB with imported balance, journals, reclassifications, final balance, prior year and mapping.",
+    },
+    {
+      key: "final-tb-passenger-view",
+      title: "Final TB - Passenger View",
+      description:
+        "Clean client-facing TB with account, description, final current year and final prior year only.",
     },
     {
       key: "journals-passed",
@@ -1267,7 +1285,7 @@ function ExportPrintPanel({
   }
 
   function printSelectedDocument() {
-    window.open(selectedExportPdfUrl(), "_blank", "noopener,noreferrer");
+    window.print();
   }
 
   return (
@@ -1297,8 +1315,8 @@ function ExportPrintPanel({
             }
 
             @page {
-              size: A4;
-              margin: 12mm;
+              size: ${selectedDocument === "final-tb-pilot-view" || selectedDocument === "final-trial-balance" ? "A4 landscape" : "A4 portrait"};
+              margin: 10mm;
             }
           }
         `}
@@ -1355,8 +1373,13 @@ function ExportPrintPanel({
           <span>Financial year end {displayYearEnd}</span>
         </div>
 
-        {selectedDocument === "final-trial-balance" && (
-          <PrintableFinalTrialBalance rows={finalTrialBalanceRows} />
+        {(selectedDocument === "final-tb-pilot-view" ||
+          selectedDocument === "final-trial-balance") && (
+          <PrintableFinalTrialBalancePilotView rows={finalTrialBalanceRows} />
+        )}
+
+        {selectedDocument === "final-tb-passenger-view" && (
+          <PrintableFinalTrialBalancePassengerView rows={finalTrialBalanceRows} />
         )}
 
         {selectedDocument === "journals-passed" && (
@@ -1375,45 +1398,25 @@ function ExportPrintPanel({
   );
 }
 
-function PrintableFinalTrialBalance({
+function PrintableFinalTrialBalancePilotView({
   rows,
 }: {
   rows: { line: TrialBalanceLine; finalAmount: number }[];
 }) {
-  const roundedTotals = rows.reduce(
+  const totals = rows.reduce(
     (sum, row) => ({
-      imported:
-        sum.imported + roundedDisplayAmount(preliminaryTrialBalanceAmount(row.line)),
-      journals: sum.journals + roundedDisplayAmount(journalAdjustmentAmount(row.line)),
-      reclass: sum.reclass + roundedDisplayAmount(reclassificationAmount(row.line)),
-      final: sum.final + roundedDisplayAmount(row.finalAmount),
-      prior: sum.prior + roundedDisplayAmount(safeNumber(row.line.prior_year_balance)),
+      imported: sum.imported + preliminaryTrialBalanceAmount(row.line),
+      journals: sum.journals + journalAdjustmentAmount(row.line),
+      reclass: sum.reclass + reclassificationAmount(row.line),
+      final: sum.final + row.finalAmount,
+      prior: sum.prior + safeNumber(row.line.prior_year_balance),
     }),
     { imported: 0, journals: 0, reclass: 0, final: 0, prior: 0 },
   );
 
-  const presentationRounding = {
-    imported: presentationRoundingAdjustment(roundedTotals.imported),
-    journals: 0,
-    reclass: 0,
-    final: presentationRoundingAdjustment(roundedTotals.final),
-    prior: 0,
-  };
-
-  const showPresentationRounding =
-    presentationRounding.imported !== 0 || presentationRounding.final !== 0;
-
-  const totals = {
-    imported: roundedTotals.imported + presentationRounding.imported,
-    journals: roundedTotals.journals,
-    reclass: roundedTotals.reclass,
-    final: roundedTotals.final + presentationRounding.final,
-    prior: roundedTotals.prior,
-  };
-
   return (
     <>
-      <h3 style={styles.exportPrintTitle}>Final Trial Balance</h3>
+      <h3 style={styles.exportPrintTitle}>Final TB - Pilot View</h3>
 
       <table style={styles.exportTableCompact}>
         <thead>
@@ -1445,41 +1448,89 @@ function PrintableFinalTrialBalance({
               <tr key={row.line.id || row.line.account_code || row.line.account_name}>
                 <td style={styles.exportTd}>{row.line.account_code}</td>
                 <td style={styles.exportTd}>{description}</td>
-                <td style={styles.exportTdRight}>{formatSignedMoney(imported)}</td>
-                <td style={styles.exportTdRight}>{formatSignedMoney(journals)}</td>
-                <td style={styles.exportTdRight}>{formatSignedMoney(reclass)}</td>
-                <td style={styles.exportTdRight}>{formatSignedMoney(row.finalAmount)}</td>
-                <td style={styles.exportTdRight}>{formatSignedMoney(prior)}</td>
+                <td style={styles.exportTdRight}>{formatSignedMoneyCents(imported)}</td>
+                <td style={styles.exportTdRight}>{formatSignedMoneyCents(journals)}</td>
+                <td style={styles.exportTdRight}>{formatSignedMoneyCents(reclass)}</td>
+                <td style={styles.exportTdRight}>{formatSignedMoneyCents(row.finalAmount)}</td>
+                <td style={styles.exportTdRight}>{formatSignedMoneyCents(prior)}</td>
                 <td style={styles.exportTd}>{mapping}</td>
               </tr>
             );
           })}
-          {showPresentationRounding && (
-            <tr>
-              <td style={styles.exportRoundingTd}>ROUND</td>
-              <td style={styles.exportRoundingTd}>
-                Rounding difference on whole-rand presentation
-              </td>
-              <td style={styles.exportRoundingTdRight}>
-                {formatSignedMoney(presentationRounding.imported)}
-              </td>
-              <td style={styles.exportRoundingTdRight}>–</td>
-              <td style={styles.exportRoundingTdRight}>–</td>
-              <td style={styles.exportRoundingTdRight}>
-                {formatSignedMoney(presentationRounding.final)}
-              </td>
-              <td style={styles.exportRoundingTdRight}>–</td>
-              <td style={styles.exportRoundingTd}>Presentation only</td>
-            </tr>
-          )}
           <tr>
             <td style={styles.exportTotalTd} colSpan={2}>Total</td>
-            <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.imported)}</td>
-            <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.journals)}</td>
-            <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.reclass)}</td>
-            <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.final)}</td>
-            <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.prior)}</td>
+            <td style={styles.exportTotalTdRight}>{formatSignedMoneyCents(totals.imported)}</td>
+            <td style={styles.exportTotalTdRight}>{formatSignedMoneyCents(totals.journals)}</td>
+            <td style={styles.exportTotalTdRight}>{formatSignedMoneyCents(totals.reclass)}</td>
+            <td style={styles.exportTotalTdRight}>{formatSignedMoneyCents(totals.final)}</td>
+            <td style={styles.exportTotalTdRight}>{formatSignedMoneyCents(totals.prior)}</td>
             <td style={styles.exportTotalTd}></td>
+          </tr>
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+
+function PrintableFinalTrialBalancePassengerView({
+  rows,
+}: {
+  rows: { line: TrialBalanceLine; finalAmount: number }[];
+}) {
+  const totals = rows.reduce(
+    (sum, row) => ({
+      final: sum.final + row.finalAmount,
+      prior: sum.prior + safeNumber(row.line.prior_year_balance),
+    }),
+    { final: 0, prior: 0 },
+  );
+
+  return (
+    <>
+      <h3 style={styles.exportPrintTitle}>Final TB - Passenger View</h3>
+
+      <table style={styles.exportTable}>
+        <thead>
+          <tr>
+            <th style={{ ...styles.exportTh, width: "14%" }}>Account</th>
+            <th style={{ ...styles.exportTh, width: "46%" }}>Description</th>
+            <th style={{ ...styles.exportThRight, width: "20%" }}>
+              Final current year
+            </th>
+            <th style={{ ...styles.exportThRight, width: "20%" }}>
+              Final prior year
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const prior = safeNumber(row.line.prior_year_balance);
+            const description = row.line.account_name || row.line.description || "";
+
+            return (
+              <tr key={row.line.id || row.line.account_code || row.line.account_name}>
+                <td style={styles.exportTd}>{row.line.account_code}</td>
+                <td style={styles.exportTd}>{description}</td>
+                <td style={styles.exportTdRight}>
+                  {formatSignedMoneyCents(row.finalAmount)}
+                </td>
+                <td style={styles.exportTdRight}>
+                  {formatSignedMoneyCents(prior)}
+                </td>
+              </tr>
+            );
+          })}
+          <tr>
+            <td style={styles.exportTotalTd} colSpan={2}>
+              Total
+            </td>
+            <td style={styles.exportTotalTdRight}>
+              {formatSignedMoneyCents(totals.final)}
+            </td>
+            <td style={styles.exportTotalTdRight}>
+              {formatSignedMoneyCents(totals.prior)}
+            </td>
           </tr>
         </tbody>
       </table>

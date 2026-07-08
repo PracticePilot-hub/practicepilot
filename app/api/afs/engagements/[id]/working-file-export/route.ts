@@ -15,6 +15,8 @@ let cachedExecutablePath: string | null = null;
 let chromiumDownloadPromise: Promise<string> | null = null;
 
 type ExportDocumentKey =
+  | "final-tb-pilot-view"
+  | "final-tb-passenger-view"
   | "final-trial-balance"
   | "journals-passed"
   | "lead-sheets-used"
@@ -39,76 +41,23 @@ function escapeHtml(value: unknown) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+    .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
 
-function formatMoney(value: unknown) {
+function formatWhole(value: unknown) {
   const rounded = Math.round(safeNumber(value));
-
   if (rounded === 0) return "–";
-
-  const absolute = Math.abs(rounded).toLocaleString("en-ZA", {
-    maximumFractionDigits: 0,
-  });
-
-  return rounded < 0 ? `(${absolute})` : absolute;
+  return rounded.toLocaleString("en-ZA", { maximumFractionDigits: 0 });
 }
 
-function formatSignedMoney(value: unknown) {
-  const rounded = Math.round(safeNumber(value));
-
-  if (rounded === 0) return "–";
-
-  return rounded.toLocaleString("en-ZA", {
-    maximumFractionDigits: 0,
-  });
-}
-
-function formatPdfMoney(value: unknown) {
-  return formatSignedMoney(value);
-}
-
-function formatSignedMoneyCents(value: unknown) {
+function formatCents(value: unknown) {
   const amount = safeNumber(value);
-
   if (Math.abs(amount) < 0.005) return "–";
-
   return amount.toLocaleString("en-ZA", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-}
-
-function roundedDisplayAmount(value: unknown) {
-  return Math.round(safeNumber(value));
-}
-
-function presentationRoundingAdjustment(roundedTotal: number) {
-  if (roundedTotal === 0) return 0;
-
-  /* Presentation-only balancing line for whole-rand exports. */
-  if (Math.abs(roundedTotal) <= 5) return -roundedTotal;
-
-  return 0;
-}
-
-function finalTrialBalanceAmount(line: Record<string, any>) {
-  if (line.final_afs_balance !== undefined && line.final_afs_balance !== null) {
-    return safeNumber(line.final_afs_balance);
-  }
-
-  const base =
-    line.current_year_balance !== undefined && line.current_year_balance !== null
-      ? safeNumber(line.current_year_balance)
-      : safeNumber(line.debit) - safeNumber(line.credit);
-
-  return (
-    base +
-    safeNumber(line.manual_adjustment) +
-    safeNumber(line.journal_adjustment) +
-    safeNumber(line.reclassification)
-  );
 }
 
 function safeFilename(value: string) {
@@ -156,70 +105,158 @@ async function getVercelChromiumPath() {
   return chromiumDownloadPromise;
 }
 
-
-function preliminaryTrialBalanceAmount(line: Record<string, any>) {
-  if (line.current_year_balance !== undefined && line.current_year_balance !== null) {
-    return safeNumber(line.current_year_balance);
+function documentTitle(document: ExportDocumentKey) {
+  if (document === "final-tb-pilot-view" || document === "final-trial-balance") {
+    return "Final TB - Pilot View";
   }
+  if (document === "final-tb-passenger-view") return "Final TB - Passenger View";
+  if (document === "journals-passed") return "Journals Passed";
+  if (document === "lead-sheets-used") return "Lead Sheets Used";
+  if (document === "subordination-agreements") return "Subordination Agreements";
+  return "Final TB - Pilot View";
+}
 
-  return safeNumber(line.debit) - safeNumber(line.credit);
+function accountKey(value: unknown) {
+  return cleanText(value).toLowerCase();
+}
+
+function journalReference(rawJournal: Record<string, any>) {
+  const explicit = cleanText(
+    rawJournal.journal_reference ?? rawJournal.journalReference ?? rawJournal.reference,
+  );
+
+  if (explicit) return explicit;
+
+  const numberValue = cleanText(rawJournal.journal_number ?? rawJournal.number);
+  if (!numberValue) return "AJ";
+  if (/^AJ/i.test(numberValue)) return numberValue.toUpperCase();
+
+  return `AJ${String(Number(numberValue) || numberValue).padStart(3, "0")}`;
+}
+
+function journalLines(rawJournal: Record<string, any>) {
+  return Array.isArray(rawJournal.lines) ? rawJournal.lines : [];
+}
+
+function postedJournalsOnly(journals: Record<string, any>[]) {
+  return journals.filter((journal) => cleanText(journal.status || "posted").toLowerCase() !== "draft");
+}
+
+function buildJournalAdjustmentMap(journals: Record<string, any>[]) {
+  const byCode = new Map<string, number>();
+  const byName = new Map<string, number>();
+
+  postedJournalsOnly(journals).forEach((journal) => {
+    journalLines(journal).forEach((line: Record<string, any>) => {
+      const amount = safeNumber(line.debit) - safeNumber(line.credit);
+      const code = accountKey(line.account_code);
+      const name = accountKey(line.account_name);
+
+      if (code) byCode.set(code, (byCode.get(code) || 0) + amount);
+      if (name) byName.set(name, (byName.get(name) || 0) + amount);
+    });
+  });
+
+  return { byCode, byName };
 }
 
 function manualAdjustmentAmount(line: Record<string, any>) {
   return safeNumber(line.manual_adjustment ?? line.manual_adjustments ?? line.manualAdj);
 }
 
-function journalAdjustmentAmount(line: Record<string, any>) {
-  return safeNumber(line.journal_adjustment ?? line.journal_adjustments ?? line.journalAdj);
-}
-
 function reclassificationAmount(line: Record<string, any>) {
   return safeNumber(line.reclassification ?? line.reclassification_adjustment ?? line.reclass);
 }
 
-function reportAnnotationAmount(line: Record<string, any>) {
-  return finalTrialBalanceAmount(line);
+function finalAmountFromTbLine(line: Record<string, any>) {
+  if (line.current_year_balance !== undefined && line.current_year_balance !== null) {
+    return safeNumber(line.current_year_balance);
+  }
+
+  if (line.final_afs_balance !== undefined && line.final_afs_balance !== null) {
+    return safeNumber(line.final_afs_balance);
+  }
+
+  return safeNumber(line.debit) - safeNumber(line.credit);
 }
 
-function percentageChangeAmount(current: number, prior: number) {
-  const roundedPrior = Math.round(prior);
-  const roundedCurrent = Math.round(current);
+function journalAmountForLine(line: Record<string, any>, journalMap: ReturnType<typeof buildJournalAdjustmentMap>) {
+  const explicit =
+    line.journal_adjustment ?? line.journal_adjustments ?? line.journalAdj ?? line.journal_amount;
 
-  if (roundedPrior === 0 && roundedCurrent === 0) return "";
-  if (roundedPrior === 0) return "(100)";
+  if (explicit !== undefined && explicit !== null) return safeNumber(explicit);
 
-  const percent = Math.round(((roundedCurrent - roundedPrior) / Math.abs(roundedPrior)) * 100);
-  return `(${percent})`;
+  const code = accountKey(line.account_code);
+  const name = accountKey(line.account_name || line.description);
+
+  if (code && journalMap.byCode.has(code)) return safeNumber(journalMap.byCode.get(code));
+  if (name && journalMap.byName.has(name)) return safeNumber(journalMap.byName.get(name));
+
+  return 0;
 }
 
-function leadScheduleReference(line: Record<string, any>) {
-  return cleanText(line.lead_schedule_number || line.mapping_code) || "–";
+function importedAmountForLine(
+  line: Record<string, any>,
+  finalAmount: number,
+  journalAmount: number,
+  manualAmount: number,
+  reclassAmount: number,
+) {
+  const explicit =
+    line.imported_balance ??
+    line.source_balance ??
+    line.original_balance ??
+    line.original_current_year_balance ??
+    line.imported_current_year_balance;
+
+  if (explicit !== undefined && explicit !== null) return safeNumber(explicit);
+
+  return finalAmount - journalAmount - manualAmount - reclassAmount;
 }
 
-function documentTitle(document: ExportDocumentKey) {
-  if (document === "journals-passed") return "Journals Passed";
-  if (document === "lead-sheets-used") return "Lead Sheets Used";
-  if (document === "subordination-agreements") return "Subordination Agreements";
-  return "Final Trial Balance";
+function mappingLabel(line: Record<string, any>) {
+  return cleanText(
+    line.mapping_label || line.mapping_code || line.lead_schedule_number || line.mapping_category || "Unmapped",
+  );
 }
 
-function renderFinalTrialBalance(lines: Record<string, any>[]) {
+function renderFinalTrialBalancePilotView(lines: Record<string, any>[], journals: Record<string, any>[]) {
+  const journalMap = buildJournalAdjustmentMap(journals);
+
   const rows = lines
-    .map((line) => ({ line, finalAmount: finalTrialBalanceAmount(line) }))
-    .filter((row) => Math.abs(row.finalAmount) >= 0.005)
+    .map((line) => {
+      const finalAmount = finalAmountFromTbLine(line);
+      const manual = manualAdjustmentAmount(line);
+      const journal = journalAmountForLine(line, journalMap);
+      const reclass = reclassificationAmount(line);
+      const imported = importedAmountForLine(line, finalAmount, journal, manual, reclass);
+      const prior = safeNumber(line.prior_year_balance);
+
+      return { line, imported, journal, reclass, finalAmount, prior };
+    })
+    .filter(
+      (row) =>
+        Math.abs(row.imported) >= 0.005 ||
+        Math.abs(row.journal) >= 0.005 ||
+        Math.abs(row.reclass) >= 0.005 ||
+        Math.abs(row.finalAmount) >= 0.005 ||
+        Math.abs(row.prior) >= 0.005,
+    )
     .sort((a, b) =>
-      String(a.line.account_code || "").localeCompare(String(b.line.account_code || "")),
+      cleanText(a.line.account_code).localeCompare(cleanText(b.line.account_code), undefined, {
+        numeric: true,
+      }),
     );
 
   const totals = rows.reduce(
     (sum, row) => ({
-      imported: sum.imported + preliminaryTrialBalanceAmount(row.line),
-      journals: sum.journals + journalAdjustmentAmount(row.line),
-      reclass: sum.reclass + reclassificationAmount(row.line),
+      imported: sum.imported + row.imported,
+      journal: sum.journal + row.journal,
+      reclass: sum.reclass + row.reclass,
       final: sum.final + row.finalAmount,
-      prior: sum.prior + safeNumber(row.line.prior_year_balance),
+      prior: sum.prior + row.prior,
     }),
-    { imported: 0, journals: 0, reclass: 0, final: 0, prior: 0 },
+    { imported: 0, journal: 0, reclass: 0, final: 0, prior: 0 },
   );
 
   return `
@@ -239,39 +276,29 @@ function renderFinalTrialBalance(lines: Record<string, any>[]) {
       <tbody>
         ${rows
           .map((row) => {
-            const imported = preliminaryTrialBalanceAmount(row.line);
-            const journals = journalAdjustmentAmount(row.line);
-            const reclass = reclassificationAmount(row.line);
-            const prior = safeNumber(row.line.prior_year_balance);
             const description = cleanText(row.line.account_name || row.line.description || "");
-            const mapping = cleanText(
-              row.line.mapping_label ||
-                row.line.mapping_code ||
-                row.line.lead_schedule_number ||
-                "Unmapped",
-            );
 
             return `
               <tr>
-                <td>${escapeHtml(cleanText(row.line.account_code))}</td>
+                <td>${escapeHtml(row.line.account_code)}</td>
                 <td>${escapeHtml(description)}</td>
-                <td class="amount">${formatSignedMoneyCents(imported)}</td>
-                <td class="amount">${formatSignedMoneyCents(journals)}</td>
-                <td class="amount">${formatSignedMoneyCents(reclass)}</td>
-                <td class="amount">${formatSignedMoneyCents(row.finalAmount)}</td>
-                <td class="amount">${formatSignedMoneyCents(prior)}</td>
-                <td>${escapeHtml(mapping)}</td>
+                <td class="amount">${formatCents(row.imported)}</td>
+                <td class="amount">${formatCents(row.journal)}</td>
+                <td class="amount">${formatCents(row.reclass)}</td>
+                <td class="amount">${formatCents(row.finalAmount)}</td>
+                <td class="amount">${formatCents(row.prior)}</td>
+                <td>${escapeHtml(mappingLabel(row.line))}</td>
               </tr>
             `;
           })
           .join("")}
         <tr class="total">
           <td colspan="2">Total</td>
-          <td class="amount">${formatSignedMoneyCents(totals.imported)}</td>
-          <td class="amount">${formatSignedMoneyCents(totals.journals)}</td>
-          <td class="amount">${formatSignedMoneyCents(totals.reclass)}</td>
-          <td class="amount">${formatSignedMoneyCents(totals.final)}</td>
-          <td class="amount">${formatSignedMoneyCents(totals.prior)}</td>
+          <td class="amount">${formatCents(totals.imported)}</td>
+          <td class="amount">${formatCents(totals.journal)}</td>
+          <td class="amount">${formatCents(totals.reclass)}</td>
+          <td class="amount">${formatCents(totals.final)}</td>
+          <td class="amount">${formatCents(totals.prior)}</td>
           <td></td>
         </tr>
       </tbody>
@@ -279,61 +306,108 @@ function renderFinalTrialBalance(lines: Record<string, any>[]) {
   `;
 }
 
-function journalReference(rawJournal: Record<string, any>) {
-  const explicit = cleanText(
-    rawJournal.journal_reference ?? rawJournal.journalReference ?? rawJournal.reference,
+
+function renderFinalTrialBalancePassengerView(lines: Record<string, any>[]) {
+  const rows = lines
+    .map((line) => {
+      const finalAmount = finalAmountFromTbLine(line);
+      const prior = safeNumber(line.prior_year_balance);
+      return { line, finalAmount, prior };
+    })
+    .filter(
+      (row) =>
+        Math.abs(row.finalAmount) >= 0.005 || Math.abs(row.prior) >= 0.005,
+    )
+    .sort((a, b) =>
+      cleanText(a.line.account_code).localeCompare(cleanText(b.line.account_code), undefined, {
+        numeric: true,
+      }),
+    );
+
+  const totals = rows.reduce(
+    (sum, row) => ({
+      final: sum.final + row.finalAmount,
+      prior: sum.prior + row.prior,
+    }),
+    { final: 0, prior: 0 },
   );
 
-  if (explicit) return explicit;
+  return `
+    <table class="tb-export tb-passenger">
+      <thead>
+        <tr>
+          <th class="code">Account</th>
+          <th class="description">Description</th>
+          <th class="amount">Final current year</th>
+          <th class="amount">Final prior year</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows
+          .map((row) => {
+            const description = cleanText(row.line.account_name || row.line.description || "");
 
-  const numberValue = cleanText(rawJournal.journal_number ?? rawJournal.number);
-  if (!numberValue) return "AJ";
-  if (/^AJ/i.test(numberValue)) return numberValue.toUpperCase();
-
-  return `AJ${String(Number(numberValue) || numberValue).padStart(3, "0")}`;
+            return `
+              <tr>
+                <td>${escapeHtml(row.line.account_code)}</td>
+                <td>${escapeHtml(description)}</td>
+                <td class="amount">${formatCents(row.finalAmount)}</td>
+                <td class="amount">${formatCents(row.prior)}</td>
+              </tr>
+            `;
+          })
+          .join("")}
+        <tr class="total">
+          <td colspan="2">Total</td>
+          <td class="amount">${formatCents(totals.final)}</td>
+          <td class="amount">${formatCents(totals.prior)}</td>
+        </tr>
+      </tbody>
+    </table>
+  `;
 }
 
 function renderJournalsPassed(journals: Record<string, any>[]) {
-  if (!journals.length) {
+  const postedJournals = postedJournalsOnly(journals);
+
+  if (!postedJournals.length) {
     return `<p class="empty">No posted journals were found in the journal register.</p>`;
   }
 
   return `
-    <div class="journalPack">
-      ${journals
-        .map((journal, index) => {
-          const lines = Array.isArray(journal.lines) ? journal.lines : [];
-          const debitTotal =
-            journal.debit_total !== undefined && journal.debit_total !== null
-              ? safeNumber(journal.debit_total)
-              : lines.reduce((sum: number, line: Record<string, any>) => sum + safeNumber(line.debit), 0);
-          const creditTotal =
-            journal.credit_total !== undefined && journal.credit_total !== null
-              ? safeNumber(journal.credit_total)
-              : lines.reduce((sum: number, line: Record<string, any>) => sum + safeNumber(line.credit), 0);
-          const balanced =
-            journal.is_balanced === false ? false : Math.abs(debitTotal - creditTotal) < 0.01;
+    <div class="journal-list">
+      ${postedJournals
+        .map((journal) => {
+          const lines = journalLines(journal);
+          const debitTotal = lines.reduce(
+            (sum: number, line: Record<string, any>) => sum + safeNumber(line.debit),
+            0,
+          );
+          const creditTotal = lines.reduce(
+            (sum: number, line: Record<string, any>) => sum + safeNumber(line.credit),
+            0,
+          );
+          const balanced = journal.is_balanced === false ? false : Math.abs(debitTotal - creditTotal) < 0.01;
           const dateText = cleanText(journal.journal_date || String(journal.posted_at || "").slice(0, 10));
           const reference = journalReference(journal);
           const description = cleanText(journal.description || "Adjusting journal");
 
           return `
-            <section class="journal">
-              <div class="journalBand">
+            <section class="journal-block">
+              <div class="journal-heading">
                 <div>
-                  <span class="journalRef">${escapeHtml(reference)}</span>
-                  <span class="journalDescription">${escapeHtml(description)}</span>
+                  <strong>${escapeHtml(reference)}</strong>
+                  <span>${escapeHtml(description)}</span>
                 </div>
-                <div class="journalMeta">
+                <div class="journal-meta">
                   <span>${escapeHtml(dateText || "No date")}</span>
                   <strong class="${balanced ? "balanced" : "unbalanced"}">${balanced ? "Balanced" : "Unbalanced"}</strong>
                 </div>
               </div>
-
-              <table class="journalTable">
+              <table class="journal-table">
                 <thead>
                   <tr>
-                    <th class="journalAccount">Account</th>
+                    <th class="code">Account</th>
                     <th>Description</th>
                     <th>Note</th>
                     <th class="amount">Debit</th>
@@ -345,19 +419,19 @@ function renderJournalsPassed(journals: Record<string, any>[]) {
                     .map(
                       (line: Record<string, any>) => `
                         <tr>
-                          <td class="journalAccount">${escapeHtml(line.account_code)}</td>
+                          <td>${escapeHtml(line.account_code)}</td>
                           <td>${escapeHtml(line.account_name)}</td>
                           <td>${escapeHtml(line.note)}</td>
-                          <td class="amount">${formatMoney(line.debit)}</td>
-                          <td class="amount">${formatMoney(line.credit)}</td>
+                          <td class="amount">${formatWhole(line.debit)}</td>
+                          <td class="amount">${formatWhole(line.credit)}</td>
                         </tr>
                       `,
                     )
                     .join("")}
                   <tr class="total">
                     <td colspan="3">Total</td>
-                    <td class="amount">${formatMoney(debitTotal)}</td>
-                    <td class="amount">${formatMoney(creditTotal)}</td>
+                    <td class="amount">${formatWhole(debitTotal)}</td>
+                    <td class="amount">${formatWhole(creditTotal)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -376,16 +450,14 @@ function renderLeadSheetsUsed(lines: Record<string, any>[]) {
     const key = cleanText(line.lead_schedule_key);
     if (!key) return;
 
-    const amount = finalTrialBalanceAmount(line);
-    if (Math.round(amount) === 0) return;
+    const amount = finalAmountFromTbLine(line);
+    if (Math.abs(amount) < 0.005) return;
 
     const title = cleanText(line.lead_schedule_number)
-      ? `${cleanText(line.lead_schedule_number)} · ${cleanText(line.lead_schedule_key).replaceAll("-", " ")}`
-      : cleanText(line.lead_schedule_key).replaceAll("-", " ");
+      ? `${cleanText(line.lead_schedule_number)} · ${key.replaceAll("-", " ")}`
+      : key.replaceAll("-", " ");
 
-    if (!grouped.has(key)) {
-      grouped.set(key, { title, amount: 0, count: 0 });
-    }
+    if (!grouped.has(key)) grouped.set(key, { title, amount: 0, count: 0 });
 
     const item = grouped.get(key);
     if (!item) return;
@@ -397,9 +469,7 @@ function renderLeadSheetsUsed(lines: Record<string, any>[]) {
     .map(([key, value]) => ({ key, ...value }))
     .sort((a, b) => a.title.localeCompare(b.title));
 
-  if (!rows.length) {
-    return `<p class="empty">No lead schedules are currently linked to balances.</p>`;
-  }
+  if (!rows.length) return `<p class="empty">No lead schedules are currently linked to balances.</p>`;
 
   return `
     <table>
@@ -417,7 +487,7 @@ function renderLeadSheetsUsed(lines: Record<string, any>[]) {
               <tr>
                 <td>${escapeHtml(row.title)}</td>
                 <td class="amount">${row.count}</td>
-                <td class="amount">${formatMoney(row.amount)}</td>
+                <td class="amount">${formatWhole(row.amount)}</td>
               </tr>
             `,
           )
@@ -428,7 +498,7 @@ function renderLeadSheetsUsed(lines: Record<string, any>[]) {
 }
 
 function renderSubordinationAgreements() {
-  return `<p class="empty">Subordination agreement generation will be added after the Final Trial Balance and Journals Passed export pages are signed off.</p>`;
+  return `<p class="empty">Subordination agreements will be generated from selected shareholder / director loan balances after the TB and journal pack are finalised.</p>`;
 }
 
 function renderHtml(args: {
@@ -438,23 +508,25 @@ function renderHtml(args: {
   trialBalanceLines: Record<string, any>[];
   journals: Record<string, any>[];
 }) {
-  const clientName =
-    args.clientSetup?.registered_name || args.engagement?.client_name || "AFS engagement";
-    const yearEnd =
-    args.clientSetup?.financial_year_end ||
-    args.engagement?.financial_year_end ||
-    "";
+  const clientName = args.clientSetup?.registered_name || args.engagement?.client_name || "AFS engagement";
+  const yearEnd = args.clientSetup?.financial_year_end || args.engagement?.financial_year_end || "";
   const title = documentTitle(args.document);
-
-  const isFinalTrialBalance = args.document === "final-trial-balance";
-  const pageCss = isFinalTrialBalance ? "A4 landscape" : "A4 portrait";
-  const bodyClass = isFinalTrialBalance ? "tbLandscape" : "normalDocument";
+  const isPilotTb =
+    args.document === "final-tb-pilot-view" ||
+    args.document === "final-trial-balance";
+  const isPassengerTb = args.document === "final-tb-passenger-view";
+  const pageCss = isPilotTb ? "A4 landscape" : "A4 portrait";
+  const bodyClass = isPilotTb ? "tbLandscape" : isPassengerTb ? "tbPassenger" : "normalDocument";
 
   let body = "";
   if (args.document === "journals-passed") body = renderJournalsPassed(args.journals);
   else if (args.document === "lead-sheets-used") body = renderLeadSheetsUsed(args.trialBalanceLines);
   else if (args.document === "subordination-agreements") body = renderSubordinationAgreements();
-  else body = renderFinalTrialBalance(args.trialBalanceLines);
+  else if (args.document === "final-tb-passenger-view") {
+    body = renderFinalTrialBalancePassengerView(args.trialBalanceLines);
+  } else {
+    body = renderFinalTrialBalancePilotView(args.trialBalanceLines, args.journals);
+  }
 
   return `<!doctype html>
 <html>
@@ -466,173 +538,73 @@ function renderHtml(args: {
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: Arial, Helvetica, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, Helvetica, sans-serif;
       color: #0f172a;
       font-size: 9.5px;
-      line-height: 1.22;
+      line-height: 1.2;
       background: #fff;
     }
     header {
-      margin-bottom: 14px;
-      border-bottom: 1.2px solid #0f172a;
-      padding-bottom: 8px;
+      margin-bottom: 12px;
+      border-bottom: 1.5px solid #0f172a;
+      padding-bottom: 7px;
     }
     header strong { display: block; font-size: 13px; font-weight: 800; }
     header span { display: block; font-size: 11px; color: #334155; }
-    h1 { margin: 0 0 10px; font-size: 16px; line-height: 1.2; }
-
-    table.tb-export {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-      font-size: 8.5px;
-      line-height: 1.14;
-    }
-    table.tb-export th {
-      border-bottom: 1.5px solid #111827;
-      padding: 2.2px 3px;
-      text-align: left;
-      font-weight: 800;
-      vertical-align: bottom;
-    }
-    table.tb-export th.amount,
-    table.tb-export td.amount,
-    table.tb-export th.small,
-    table.tb-export td.small {
-      text-align: right;
-      white-space: nowrap;
-      font-variant-numeric: tabular-nums;
-    }
-    table.tb-export th.code { width: 9%; }
-    table.tb-export th.description { width: 24%; }
-    table.tb-export th.mapping { width: 13%; }
-    table.tb-export td {
-      border-bottom: 1px solid #e5e7eb;
-      padding: 2px 3px;
-      vertical-align: top;
-      overflow-wrap: anywhere;
-    }
-    table.tb-export tr.rounding td {
-      border-top: 1px solid #cbd5e1;
-      background: #f8fafc;
-      color: #334155;
-      font-style: italic;
-    }
-    table.tb-export tr.total td {
-      border-top: 1.5px solid #111827;
-      font-weight: 800;
-      padding-top: 3px;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 10.5px; margin-bottom: 10px; }
-    th { text-align: left; border-bottom: 1px solid #94a3b8; padding: 5px 4px; font-weight: 800; }
-    td { border-bottom: 1px solid #e2e8f0; padding: 4px; vertical-align: top; }
-    .amount { text-align: right; white-space: nowrap; }
-    .total td, tr.total td { border-top: 1.2px solid #0f172a; border-bottom: 0; font-weight: 800; }
-    .empty { color: #475569; margin: 0; }
-    .journalDoc {
-      max-width: 176mm;
-      margin: 0 auto;
-      font-size: 10px;
-      line-height: 1.22;
-    }
-    .journalDoc header {
-      margin-bottom: 6mm;
-    }
-    .journalDoc h1 {
-      font-size: 16px;
-      margin-bottom: 5mm;
-    }
-    .journalPack {
-      display: grid;
-      gap: 4mm;
-    }
-    .journal {
-      page-break-inside: avoid;
-      break-inside: avoid;
-      margin: 0;
-      border: 1px solid #cbd5e1;
-      border-radius: 2px;
-      overflow: hidden;
-    }
-    .journalBand {
-      display: grid;
-      grid-template-columns: 1fr 32mm;
-      gap: 8mm;
-      align-items: start;
-      padding: 3mm 3.5mm;
-      background: #f8fafc;
-      border-bottom: 1px solid #94a3b8;
-    }
-    .journalRef {
-      display: block;
-      font-size: 11px;
-      font-weight: 900;
-      color: #0f172a;
-      letter-spacing: 0.01em;
-    }
-    .journalDescription {
-      display: block;
-      margin-top: 0.8mm;
-      color: #334155;
-      font-size: 9.5px;
-      font-weight: 700;
-    }
-    .journalMeta {
-      text-align: right;
-      font-size: 9px;
-      color: #334155;
-    }
-    .journalMeta span,
-    .journalMeta strong {
-      display: block;
-    }
-    .journalMeta strong {
-      margin-top: 0.8mm;
-      color: #166534;
-      font-weight: 900;
-    }
-    .journalMeta strong.unbalanced {
-      color: #991b1b;
-    }
-    table.journalTable {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 9px;
-      margin: 0;
-      table-layout: fixed;
-    }
-    .journalTable th {
-      border-bottom: 1px solid #0f172a;
-      padding: 2.4px 4px;
+    h1 { margin: 0 0 10px; font-size: 17px; line-height: 1.15; font-weight: 850; }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      padding: 4px 5px;
+      border-bottom: 1.4px solid #0f172a;
       font-size: 8.6px;
-      background: #ffffff;
+      font-weight: 850;
+      text-align: left;
+      white-space: nowrap;
     }
-    .journalTable td {
-      border-bottom: 1px solid #e5e7eb;
-      padding: 2.6px 4px;
+    td {
+      padding: 3px 5px;
+      border-bottom: 1px solid #d9e0ea;
       vertical-align: top;
-    }
-    .journalTable .journalAccount {
-      width: 25mm;
-      white-space: nowrap;
-    }
-    .journalTable th:nth-child(3),
-    .journalTable td:nth-child(3) {
-      width: 34mm;
-    }
-    .journalTable th.amount,
-    .journalTable td.amount {
-      width: 24mm;
-      text-align: right;
-      white-space: nowrap;
       font-variant-numeric: tabular-nums;
     }
-    .journalTable tr.total td {
-      border-top: 1.2px solid #0f172a;
+    .amount { text-align: right; white-space: nowrap; }
+    .code { width: 76px; white-space: nowrap; }
+    .description { width: 210px; }
+    .mapping { width: 170px; }
+    tr.total td {
+      border-top: 1.4px solid #0f172a;
       border-bottom: 0;
-      font-weight: 900;
-      background: #ffffff;
+      font-weight: 850;
+      padding-top: 5px;
     }
+    .tbLandscape { font-size: 8.4px; line-height: 1.08; }
+    .tbLandscape header { margin-bottom: 8px; padding-bottom: 6px; }
+    .tbLandscape h1 { font-size: 15px; margin-bottom: 7px; }
+    .tbLandscape th { font-size: 7.6px; padding: 2.4px 4px; }
+    .tbLandscape td { padding: 1.9px 4px; }
+    .tb-export .description { width: 190px; }
+    .tb-export .mapping { width: 180px; }
+    .empty { color: #475569; font-size: 12px; }
+    .journal-block {
+      break-inside: avoid;
+      margin: 0 0 16px;
+      padding: 0;
+    }
+    .journal-heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 4px 0 5px;
+      border-bottom: 1.2px solid #0f172a;
+    }
+    .journal-heading strong { display: block; font-size: 12px; font-weight: 850; }
+    .journal-heading span { display: block; font-size: 9.5px; color: #334155; margin-top: 1px; }
+    .journal-meta { text-align: right; min-width: 90px; }
+    .journal-meta .balanced { color: #166534; }
+    .journal-meta .unbalanced { color: #991b1b; }
+    .journal-table { margin-top: 0; }
+    .journal-table th { font-size: 8.5px; padding: 3px 4px; }
+    .journal-table td { font-size: 8.7px; padding: 3px 4px; }
   </style>
 </head>
 <body class="${bodyClass}">
@@ -660,17 +632,19 @@ export async function GET(request: NextRequest, context: any) {
     }
 
     const requestedDocument = cleanText(
-      request.nextUrl.searchParams.get("document") || "final-trial-balance",
+      request.nextUrl.searchParams.get("document") || "final-tb-pilot-view",
     ) as ExportDocumentKey;
 
     const document: ExportDocumentKey = [
+      "final-tb-pilot-view",
+      "final-tb-passenger-view",
       "final-trial-balance",
       "journals-passed",
       "lead-sheets-used",
       "subordination-agreements",
     ].includes(requestedDocument)
       ? requestedDocument
-      : "final-trial-balance";
+      : "final-tb-pilot-view";
 
     const supabase = getSupabaseServer();
 
@@ -720,26 +694,37 @@ export async function GET(request: NextRequest, context: any) {
         args: chromium.args,
         executablePath: await getVercelChromiumPath(),
         headless: true,
+        defaultViewport: { width: 1600, height: 1000 },
       });
     } else {
-      const executablePath = getLocalChromePath();
-      if (!executablePath) throw new Error("Local Google Chrome executable was not found.");
+      const localChromePath = getLocalChromePath();
+      if (!localChromePath) throw new Error("Local Google Chrome executable was not found.");
 
       browser = await puppeteer.launch({
         args: ["--no-sandbox", "--disable-setuid-sandbox"],
-        executablePath,
+        executablePath: localChromePath,
         headless: true,
+        defaultViewport: { width: 1600, height: 1000 },
       });
     }
 
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "load", timeout: 60_000 });
+    page.setDefaultNavigationTimeout(60_000);
+    page.setDefaultTimeout(60_000);
+
+    await page.setContent(html, {
+      waitUntil: "load",
+      timeout: 60_000,
+    });
+
     await page.emulateMediaType("print");
 
     const pdfBytes = await page.pdf({
       format: "A4",
+      landscape: document === "final-trial-balance",
       printBackground: true,
       preferCSSPageSize: true,
+      displayHeaderFooter: false,
       margin: {
         top: "0mm",
         right: "0mm",
