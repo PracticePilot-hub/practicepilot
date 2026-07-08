@@ -137,70 +137,52 @@ const sections: { key: SectionKey; number: string; title: string; description: s
     description: "Import and review the trial balance.",
   },
   {
-    key: "mapping",
+    key: "adjusting-journals",
     number: "03",
+    title: "Adjusting Journals",
+    description: "Post AFS adjusting journals and review journal effects.",
+  },
+  {
+    key: "mapping",
+    number: "04",
     title: "Mapping",
     description: "Map accounts to AFS sections and notes.",
   },
   {
     key: "lead-schedules",
-    number: "04",
+    number: "05",
     title: "Lead Schedules",
     description: "Prepare lead schedules and linked working papers.",
   },
   {
-    key: "adjusting-journals",
-    number: "05",
-    title: "Adjusting Journals",
-    description: "Post AFS adjusting journals and review journal effects.",
-  },
-  {
-    key: "tax-calculator",
-    number: "06",
-    title: "Tax Calculator",
-    description: "Calculate taxable income, normal tax and tax payable.",
-  },
-  {
     key: "financial-statements",
-    number: "07",
+    number: "06",
     title: "Financial Statements",
-    description: "Generate and review the full AFS pack.",
+    description: "AFS report, compilation report, tax computation and statement output.",
   },
   {
     key: "minutes",
-    number: "08",
+    number: "07",
     title: "Minutes / Resolutions",
-    description: "Director and member approvals.",
-  },
-  {
-    key: "compilation-report",
-    number: "09",
-    title: "Compilation Report",
-    description: "Compilation report and practitioner details.",
-  },
-  {
-    key: "xbrl",
-    number: "10",
-    title: "XBRL / iXBRL",
-    description: "XBRL tagging and submission pack.",
-  },
-  {
-    key: "finalisation",
-    number: "11",
-    title: "Finalisation",
-    description: "Final checks, sign-off and lock file.",
+    description: "Approval minutes, resolutions and closing documents.",
   },
   {
     key: "export-print",
-    number: "12",
+    number: "08",
     title: "Export / Print",
     description: "Print working-file schedules and supporting export documents.",
   },
   {
+    key: "finalisation",
+    number: "09",
+    title: "Finalisation",
+    description: "Final checks, sign-off and lock file.",
+  },
+  {
     key: "review",
-    number: "13",
-    title: "Review",
-    description: "AFS review points and sign-off.",
+    number: "10",
+    title: "FlightDeck",
+    description: "Pre-flight checks, review points and sign-off.",
   },
 ];
 
@@ -1217,7 +1199,7 @@ function safeExportFilename(value: string) {
   const cleaned = String(value || "AFS export")
     .replace(/[’']/g, "")
     .replace(/&/g, "and")
-    .replace(/[<>:"/\|?*\x00-]+/g, " ")
+    .replace(/[<>:"/\|?*\x00-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -1595,8 +1577,8 @@ function ExportPrintPanel({
         <head>
           <meta charset="utf-8" />
           <style>
-            @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
-            table { border-collapse: collapse; font-family: "Inter", Arial, Helvetica, sans-serif; font-size: 10pt; }
+            
+            table { border-collapse: collapse; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; }
             th { background: #eef2f7; border: 1px solid #9aa7b8; font-weight: 700; text-align: left; }
             td { border: 1px solid #d6dde8; }
             th, td { padding: 4px 6px; }
@@ -1633,7 +1615,7 @@ function ExportPrintPanel({
     <section style={styles.exportPanelShell}>
       <style>
         {`
-          @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+          
 
           @media print {
             body * {
