@@ -61,14 +61,13 @@ function formatCents(value: unknown) {
 }
 
 function safeFilename(value: string) {
-  const cleaned = String(value || "AFS working file export")
+  return cleanText(value)
     .replace(/[’']/g, "")
     .replace(/&/g, "and")
-    .replace(/[<>:"/\|?*\x00-]+/g, " ")
+    .replace(/[<>:"/\|?*]+/g, " ")
+    .replace(/[-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-
-  return cleaned || "AFS working file export";
 }
 
 function getLocalChromePath() {
@@ -541,12 +540,11 @@ function renderHtml(args: {
   <meta charset="utf-8" />
   <title>${escapeHtml(clientName)} - ${escapeHtml(title)}</title>
   <style>
-    @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
     @page { size: ${pageCss}; margin: 10mm; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: "Inter", Arial, Helvetica, sans-serif;
+      font-family: Arial, Helvetica, sans-serif;
       color: #0f172a;
       font-size: 9.5px;
       line-height: 1.2;
@@ -723,14 +721,8 @@ export async function GET(request: NextRequest, context: any) {
     page.setDefaultTimeout(60_000);
 
     await page.setContent(html, {
-      waitUntil: "networkidle0" as any,
+      waitUntil: "load" as any,
       timeout: 60_000,
-    });
-
-    await page.evaluate(() => {
-      const fontSet = (document as any).fonts;
-      if (!fontSet?.ready) return true;
-      return fontSet.ready.then(() => true);
     });
 
     await page.emulateMediaType("print");
