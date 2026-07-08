@@ -1649,6 +1649,9 @@ function ExportPrintPanel({
               top: 0 !important;
               width: 100% !important;
               background: #ffffff !important;
+              font-family: Arial, Helvetica, sans-serif !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
 
             #afs-export-print-controls {
@@ -2453,6 +2456,7 @@ const styles: Record<string, CSSProperties> = {
     padding: "28px 36px",
     boxSizing: "border-box",
     color: "#0f172a",
+    fontFamily: "Arial, Helvetica, sans-serif",
     fontSize: "11px",
     lineHeight: 1.28,
     overflowX: "auto",

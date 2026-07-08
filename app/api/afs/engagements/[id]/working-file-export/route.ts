@@ -546,11 +546,13 @@ function renderHtml(args: {
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, Helvetica, sans-serif;
+      font-family: Arial, Helvetica, sans-serif;
       color: #0f172a;
       font-size: 9.5px;
       line-height: 1.2;
       background: #fff;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     header {
       margin-bottom: 12px;
