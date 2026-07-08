@@ -1595,7 +1595,8 @@ function ExportPrintPanel({
         <head>
           <meta charset="utf-8" />
           <style>
-            table { border-collapse: collapse; font-family: Inter, Arial, Helvetica, sans-serif; font-size: 10pt; }
+            @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+            table { border-collapse: collapse; font-family: "Inter", Arial, Helvetica, sans-serif; font-size: 10pt; }
             th { background: #eef2f7; border: 1px solid #9aa7b8; font-weight: 700; text-align: left; }
             td { border: 1px solid #d6dde8; }
             th, td { padding: 4px 6px; }
@@ -1632,6 +1633,8 @@ function ExportPrintPanel({
     <section style={styles.exportPanelShell}>
       <style>
         {`
+          @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
           @media print {
             body * {
               visibility: hidden !important;
@@ -1648,7 +1651,7 @@ function ExportPrintPanel({
               top: 0 !important;
               width: 100% !important;
               background: #ffffff !important;
-              font-family: Inter, Arial, Helvetica, sans-serif !important;
+              font-family: "Inter", Arial, Helvetica, sans-serif !important;
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }

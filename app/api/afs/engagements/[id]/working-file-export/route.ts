@@ -541,11 +541,12 @@ function renderHtml(args: {
   <meta charset="utf-8" />
   <title>${escapeHtml(clientName)} - ${escapeHtml(title)}</title>
   <style>
+    @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
     @page { size: ${pageCss}; margin: 10mm; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: Inter, Arial, Helvetica, sans-serif;
+      font-family: "Inter", Arial, Helvetica, sans-serif;
       color: #0f172a;
       font-size: 9.5px;
       line-height: 1.2;
@@ -722,15 +723,21 @@ export async function GET(request: NextRequest, context: any) {
     page.setDefaultTimeout(60_000);
 
     await page.setContent(html, {
-      waitUntil: "load",
+      waitUntil: "networkidle0" as any,
       timeout: 60_000,
+    });
+
+    await page.evaluate(() => {
+      const fontSet = (document as any).fonts;
+      if (!fontSet?.ready) return true;
+      return fontSet.ready.then(() => true);
     });
 
     await page.emulateMediaType("print");
 
     const pdfBytes = await page.pdf({
       format: "A4",
-      landscape: document === "final-trial-balance",
+      landscape: document === "final-trial-balance" || document === "final-tb-pilot-view",
       printBackground: true,
       preferCSSPageSize: true,
       displayHeaderFooter: false,
