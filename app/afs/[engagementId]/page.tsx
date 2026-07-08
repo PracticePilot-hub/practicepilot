@@ -1200,6 +1200,31 @@ function formatSignedMoneyCents(value: number) {
   });
 }
 
+function escapeExcelCell(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;");
+}
+
+function excelNumber(value: number) {
+  const amount = Math.abs(value) < 0.005 ? 0 : value;
+  return amount.toFixed(2);
+}
+
+function safeExportFilename(value: string) {
+  return String(value || "afs-export")
+    .replace(/[’']/g, "")
+    .replace(/&/g, "and")
+    .replace(/\(pty\)/gi, "pty")
+    .replace(/ltd\.?/gi, "ltd")
+    .replace(/[^a-z0-9-_]+/gi, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
+}
+
 function roundedDisplayAmount(value: number) {
   return Math.round(value);
 }
@@ -1366,6 +1391,232 @@ function ExportPrintPanel({
     return `/api/afs/engagements/${engagement.id}/working-file-export?document=${selectedDocument}`;
   }
 
+  function selectedDocumentTitle() {
+    return documents.find((document) => document.key === selectedDocument)?.title ||
+      "AFS working-file export";
+  }
+
+  function buildExcelRowsForSelectedDocument() {
+    if (selectedDocument === "final-tb-passenger-view") {
+      const rows = finalTrialBalanceRows.map((row) => {
+        const description = row.line.account_name || row.line.description || "";
+
+        return `
+          <tr>
+            <td style="mso-number-format:'\@';">${escapeExcelCell(row.line.account_code)}</td>
+            <td>${escapeExcelCell(description)}</td>
+            <td style="mso-number-format:'#,##0.00';">${excelNumber(row.finalAmount)}</td>
+            <td style="mso-number-format:'#,##0.00';">${excelNumber(row.prior)}</td>
+          </tr>
+        `;
+      });
+
+      const totals = finalTrialBalanceRows.reduce(
+        (sum, row) => ({
+          final: sum.final + row.finalAmount,
+          prior: sum.prior + row.prior,
+        }),
+        { final: 0, prior: 0 },
+      );
+
+      return `
+        <table>
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Description</th>
+              <th>Final current year</th>
+              <th>Final prior year</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.join("")}
+            <tr>
+              <td colspan="2"><strong>Total</strong></td>
+              <td style="mso-number-format:'#,##0.00';"><strong>${excelNumber(totals.final)}</strong></td>
+              <td style="mso-number-format:'#,##0.00';"><strong>${excelNumber(totals.prior)}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      `;
+    }
+
+    if (selectedDocument === "journals-passed") {
+      const sortedJournals = [...postedJournals].sort((a, b) => {
+        const dateCompare = String(a.journal_date || a.posted_at).localeCompare(
+          String(b.journal_date || b.posted_at),
+        );
+
+        if (dateCompare !== 0) return dateCompare;
+        return a.reference.localeCompare(b.reference);
+      });
+
+      const rows = sortedJournals.flatMap((journal) => {
+        const detailRows = journal.lines.map((line) => `
+          <tr>
+            <td>${escapeExcelCell(journal.reference)}</td>
+            <td>${escapeExcelCell(journal.description)}</td>
+            <td>${escapeExcelCell(journal.journal_date || journal.posted_at?.slice(0, 10) || "")}</td>
+            <td>${escapeExcelCell(journal.is_balanced ? "Balanced" : "Unbalanced")}</td>
+            <td style="mso-number-format:'\@';">${escapeExcelCell(line.account_code)}</td>
+            <td>${escapeExcelCell(line.account_name)}</td>
+            <td>${escapeExcelCell(line.note)}</td>
+            <td style="mso-number-format:'#,##0.00';">${excelNumber(line.debit)}</td>
+            <td style="mso-number-format:'#,##0.00';">${excelNumber(line.credit)}</td>
+          </tr>
+        `);
+
+        return detailRows;
+      });
+
+      return `
+        <table>
+          <thead>
+            <tr>
+              <th>Journal</th>
+              <th>Description</th>
+              <th>Date</th>
+              <th>Status</th>
+              <th>Account</th>
+              <th>Account description</th>
+              <th>Note</th>
+              <th>Debit</th>
+              <th>Credit</th>
+            </tr>
+          </thead>
+          <tbody>${rows.join("")}</tbody>
+        </table>
+      `;
+    }
+
+    if (selectedDocument === "lead-sheets-used") {
+      const rows = usedLeadScheduleRows.map((row) => `
+        <tr>
+          <td>${escapeExcelCell(row.title)}</td>
+          <td style="mso-number-format:'#,##0.00';">${excelNumber(row.amount)}</td>
+          <td>${escapeExcelCell(row.count)}</td>
+        </tr>
+      `);
+
+      return `
+        <table>
+          <thead>
+            <tr>
+              <th>Lead schedule</th>
+              <th>Final balance</th>
+              <th>Accounts linked</th>
+            </tr>
+          </thead>
+          <tbody>${rows.join("")}</tbody>
+        </table>
+      `;
+    }
+
+    const rows = finalTrialBalanceRows.map((row) => {
+      const description = row.line.account_name || row.line.description || "";
+      const mapping =
+        row.line.mapping_label ||
+        row.line.mapping_code ||
+        row.line.lead_schedule_number ||
+        "Unmapped";
+
+      return `
+        <tr>
+          <td style="mso-number-format:'\@';">${escapeExcelCell(row.line.account_code)}</td>
+          <td>${escapeExcelCell(description)}</td>
+          <td style="mso-number-format:'#,##0.00';">${excelNumber(row.imported)}</td>
+          <td style="mso-number-format:'#,##0.00';">${excelNumber(row.manual)}</td>
+          <td style="mso-number-format:'#,##0.00';">${excelNumber(row.journal)}</td>
+          <td style="mso-number-format:'#,##0.00';">${excelNumber(row.reclass)}</td>
+          <td style="mso-number-format:'#,##0.00';">${excelNumber(row.finalAmount)}</td>
+          <td style="mso-number-format:'#,##0.00';">${excelNumber(row.prior)}</td>
+          <td>${escapeExcelCell(mapping)}</td>
+        </tr>
+      `;
+    });
+
+    const totals = finalTrialBalanceRows.reduce(
+      (sum, row) => ({
+        imported: sum.imported + row.imported,
+        manual: sum.manual + row.manual,
+        journal: sum.journal + row.journal,
+        reclass: sum.reclass + row.reclass,
+        final: sum.final + row.finalAmount,
+        prior: sum.prior + row.prior,
+      }),
+      { imported: 0, manual: 0, journal: 0, reclass: 0, final: 0, prior: 0 },
+    );
+
+    return `
+      <table>
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Description</th>
+            <th>Imported balance</th>
+            <th>Manual adj.</th>
+            <th>Journal adj.</th>
+            <th>Reclass.</th>
+            <th>Final AFS balance</th>
+            <th>Prior year</th>
+            <th>Mapping</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.join("")}
+          <tr>
+            <td colspan="2"><strong>Total</strong></td>
+            <td style="mso-number-format:'#,##0.00';"><strong>${excelNumber(totals.imported)}</strong></td>
+            <td style="mso-number-format:'#,##0.00';"><strong>${excelNumber(totals.manual)}</strong></td>
+            <td style="mso-number-format:'#,##0.00';"><strong>${excelNumber(totals.journal)}</strong></td>
+            <td style="mso-number-format:'#,##0.00';"><strong>${excelNumber(totals.reclass)}</strong></td>
+            <td style="mso-number-format:'#,##0.00';"><strong>${excelNumber(totals.final)}</strong></td>
+            <td style="mso-number-format:'#,##0.00';"><strong>${excelNumber(totals.prior)}</strong></td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+  }
+
+  function exportSelectedToExcel() {
+    const title = selectedDocumentTitle();
+    const excelHtml = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office"
+            xmlns:x="urn:schemas-microsoft-com:office:excel"
+            xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+          <meta charset="utf-8" />
+          <style>
+            table { border-collapse: collapse; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; }
+            th { background: #eef2f7; border: 1px solid #9aa7b8; font-weight: 700; text-align: left; }
+            td { border: 1px solid #d6dde8; }
+            th, td { padding: 4px 6px; }
+          </style>
+        </head>
+        <body>
+          <h2>${escapeExcelCell(displayClientName)}</h2>
+          <p>Financial year end ${escapeExcelCell(displayYearEnd)}</p>
+          <h3>${escapeExcelCell(title)}</h3>
+          ${buildExcelRowsForSelectedDocument()}
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob(["\ufeff", excelHtml], {
+      type: "application/vnd.ms-excel;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = window.document.createElement("a");
+    link.href = url;
+    link.download = `${safeExportFilename(displayClientName)}-${safeExportFilename(title)}.xls`;
+    window.document.body.appendChild(link);
+    link.click();
+    window.document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   function printSelectedDocument() {
     window.print();
   }
@@ -1416,6 +1667,9 @@ function ExportPrintPanel({
         <div style={styles.exportToolbarActions}>
           <button type="button" style={styles.exportSecondaryButton} onClick={printSelectedDocument}>
             Print selected
+          </button>
+          <button type="button" style={styles.exportSecondaryButton} onClick={exportSelectedToExcel}>
+            Export Excel
           </button>
           <a
             href={selectedExportPdfUrl()}
