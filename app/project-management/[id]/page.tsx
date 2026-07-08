@@ -138,6 +138,18 @@ type SupplierPayment = {
   notes: string | null;
 };
 
+type SupplierInvoiceFile = {
+  id: string;
+  project_id: string;
+  line_item_id: string;
+  phase_split_id: string | null;
+  contractor_id: string | null;
+  supplier_phase_number: number;
+  file_path: string;
+  file_name: string;
+  uploaded_at: string | null;
+};
+
 type Contractor = {
   id: string;
   contractor_name: string;
@@ -309,6 +321,7 @@ export default function ProjectDetailPage() {
   const [paymentDates, setPaymentDates] = useState<Record<number, string>>({});
 
   const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
+  const [supplierInvoiceFiles, setSupplierInvoiceFiles] = useState<SupplierInvoiceFile[]>([]);
   const [loadingSupplierPayments, setLoadingSupplierPayments] = useState(false);
   const [supplierPaidAmounts, setSupplierPaidAmounts] = useState<Record<string, string>>({});
   const [supplierPaymentDates, setSupplierPaymentDates] = useState<Record<string, string>>({});
@@ -320,6 +333,7 @@ export default function ProjectDetailPage() {
   const [phasePaymentListContractorFilter, setPhasePaymentListContractorFilter] = useState("");
   const [savingSupplierPaymentKey, setSavingSupplierPaymentKey] = useState<string | null>(null);
   const [uploadingPopKey, setUploadingPopKey] = useState<string | null>(null);
+  const [uploadingSupplierInvoiceKey, setUploadingSupplierInvoiceKey] = useState<string | null>(null);
 
   const [editingLineItemId, setEditingLineItemId] = useState<string | null>(null);
   const [loadingProject, setLoadingProject] = useState(true);
@@ -1138,6 +1152,7 @@ async function handleDeleteContractor(contractorId: string) {
 
     if (response.ok) {
       setSupplierPayments(data.supplierPayments || []);
+      setSupplierInvoiceFiles(data.supplierInvoiceFiles || []);
     } else {
       alert(data.error || "Could not load supplier payments.");
     }
@@ -1879,6 +1894,14 @@ async function handleInlinePhaseAmountSave(
     );
   }
 
+  function getSupplierInvoiceFilesForLineItemPhase(lineItemId: string, phaseNumber: number) {
+    return supplierInvoiceFiles.filter(
+      (invoiceFile) =>
+        invoiceFile.line_item_id === lineItemId &&
+        invoiceFile.supplier_phase_number === phaseNumber
+    );
+  }
+
   function getSupplierPaidForLineItemPhase(lineItemId: string, phaseNumber: number) {
     return getSupplierPaymentsForLineItemPhase(lineItemId, phaseNumber).reduce(
       (total, payment) => total + Number(payment.paid_amount || 0),
@@ -2021,6 +2044,99 @@ async function handleInlinePhaseAmountSave(
     }
 
     window.open(data.signedUrl, "_blank");
+  }
+
+  async function handleUploadSupplierInvoice(lineItem: LineItem, phase: PhaseSplit, file: File | null) {
+    if (!file) return;
+
+    const phaseNumber = phase.phaseNumber;
+    const key = getSupplierPaymentKey(lineItem.id, phaseNumber);
+
+    setUploadingSupplierInvoiceKey(key);
+
+    const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const filePath = `supplier-invoices/${projectId}/${lineItem.id}/phase-${phaseNumber}/${Date.now()}-${safeFileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("quote-files")
+      .upload(filePath, file, {
+        cacheControl: "3600",
+        upsert: true,
+      });
+
+    if (uploadError) {
+      alert(uploadError.message);
+      setUploadingSupplierInvoiceKey(null);
+      return;
+    }
+
+    const response = await fetch(`/api/projects/${projectId}/supplier-payments`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "upload-supplier-invoice",
+        lineItemId: lineItem.id,
+        phaseSplitId: phase.id || null,
+        contractorId: lineItem.contractorId || null,
+        supplierPhaseNumber: phaseNumber,
+        filePath,
+        fileName: file.name,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      alert(data.error || "Could not save supplier invoice.");
+      setUploadingSupplierInvoiceKey(null);
+      return;
+    }
+
+    setUploadingSupplierInvoiceKey(null);
+    await loadSupplierPayments();
+  }
+
+  async function handleOpenSupplierInvoice(filePath: string | null) {
+    if (!filePath) return;
+
+    const { data, error } = await supabase.storage
+      .from("quote-files")
+      .createSignedUrl(filePath, 60);
+
+    if (error || !data?.signedUrl) {
+      alert(error?.message || "Could not open supplier invoice.");
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank");
+  }
+
+  async function handleDeleteSupplierInvoice(invoiceFileId: string, filePath: string) {
+    const confirmed = window.confirm("Delete this supplier invoice file?");
+    if (!confirmed) return;
+
+    const response = await fetch(`/api/projects/${projectId}/supplier-payments`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "delete-supplier-invoice",
+        supplierInvoiceFileId: invoiceFileId,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      alert(data.error || "Could not delete supplier invoice file.");
+      return;
+    }
+
+    await supabase.storage.from("quote-files").remove([filePath]);
+    await loadSupplierPayments();
   }
 
   async function handleSaveSupplierPayment(
@@ -4198,8 +4314,8 @@ return (
         <div style={styles.summaryValue}>{formatCurrency(totalIncludingVat - getSupplierPaidTotal())}</div>
       </div>
       <div style={styles.summaryTile}>
-        <div style={styles.summaryLabel}>POP Records</div>
-        <div style={styles.summaryValue}>{supplierPayments.filter((payment) => payment.pop_file_path).length}</div>
+        <div style={styles.summaryLabel}>Supplier Invoices</div>
+        <div style={styles.summaryValue}>{supplierInvoiceFiles.length}</div>
       </div>
     </div>
 
@@ -4269,6 +4385,7 @@ return (
               <th style={styles.thRight}>Paid</th>
               <th style={styles.thRight}>Balance</th>
               <th style={styles.th}>Status</th>
+              <th style={styles.th}>Supplier Invoice</th>
               <th style={styles.thRight}>New Paid</th>
               <th style={styles.th}>Pay Date</th>
               <th style={styles.th}>POP / Action</th>
@@ -4305,6 +4422,7 @@ return (
                 const balance = expectedAmount - paidAmount;
                 const status = getSupplierPaymentStatus(expectedAmount, paidAmount);
                 const payments = getSupplierPaymentsForLineItemPhase(lineItem.id, phaseNumber);
+                const invoiceFiles = getSupplierInvoiceFilesForLineItemPhase(lineItem.id, phaseNumber);
 
                 return (
                   <tr key={key}>
@@ -4315,6 +4433,47 @@ return (
                     <td style={styles.tdRight}>{formatCurrency(paidAmount)}</td>
                     <td style={styles.tdRight}>{formatCurrency(balance)}</td>
                     <td style={styles.td}><span style={getStatusStyle(status)}>{status}</span></td>
+                    <td style={styles.td}>
+                      <div style={styles.actionStack}>
+                        <label style={styles.smallUploadButton}>
+                          {uploadingSupplierInvoiceKey === key ? "Uploading" : "Invoice"}
+                          <input
+                            type="file"
+                            accept=".pdf,.png,.jpg,.jpeg"
+                            style={{ display: "none" }}
+                            onChange={async (e) => {
+                              await handleUploadSupplierInvoice(lineItem, phase, e.target.files?.[0] || null);
+                              e.currentTarget.value = "";
+                            }}
+                          />
+                        </label>
+
+                        {invoiceFiles.length > 0 ? (
+                          <div style={styles.popList}>
+                            {invoiceFiles.map((invoiceFile) => (
+                              <div key={invoiceFile.id} style={styles.popListRow}>
+                                <button
+                                  style={styles.linkButton}
+                                  onClick={() => handleOpenSupplierInvoice(invoiceFile.file_path)}
+                                >
+                                  {invoiceFile.file_name}
+                                </button>
+                                <button
+                                  style={styles.deleteMiniButton}
+                                  onClick={() =>
+                                    handleDeleteSupplierInvoice(invoiceFile.id, invoiceFile.file_path)
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ color: "#64748b", fontSize: "11px" }}>No invoice</span>
+                        )}
+                      </div>
+                    </td>
                     <td style={styles.tdRight}>
                       <input
                         style={styles.tableInputRightSmall}

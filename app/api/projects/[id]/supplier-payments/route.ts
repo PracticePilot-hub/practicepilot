@@ -28,7 +28,7 @@ async function getProjectId(context: RouteContext) {
 export async function GET(req: Request, context: RouteContext) {
   const projectId = await getProjectId(context);
 
-  const { data, error } = await supabase
+  const { data: supplierPayments, error } = await supabase
     .from("project_supplier_payments")
     .select(`
       *,
@@ -60,12 +60,68 @@ export async function GET(req: Request, context: RouteContext) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ supplierPayments: data || [] });
+  const { data: supplierInvoiceFiles, error: invoiceFilesError } = await supabase
+    .from("project_supplier_invoice_files")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("uploaded_at", { ascending: true });
+
+  if (invoiceFilesError) {
+    return NextResponse.json({ error: invoiceFilesError.message }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    supplierPayments: supplierPayments || [],
+    supplierInvoiceFiles: supplierInvoiceFiles || [],
+  });
 }
 
 export async function POST(req: Request, context: RouteContext) {
   const projectId = await getProjectId(context);
   const body = await req.json();
+
+  if (body.action === "upload-supplier-invoice") {
+    const lineItemId = String(body.lineItemId || "").trim();
+    const phaseSplitId = String(body.phaseSplitId || "").trim() || null;
+    const contractorId = String(body.contractorId || "").trim() || null;
+    const supplierPhaseNumber = Number(body.supplierPhaseNumber || 0);
+    const filePath = String(body.filePath || "").trim();
+    const fileName = String(body.fileName || "").trim();
+
+    if (!lineItemId) {
+      return NextResponse.json({ error: "Line item is required." }, { status: 400 });
+    }
+
+    if (!supplierPhaseNumber || supplierPhaseNumber <= 0) {
+      return NextResponse.json({ error: "Supplier phase number is required." }, { status: 400 });
+    }
+
+    if (!filePath || !fileName) {
+      return NextResponse.json({ error: "Supplier invoice file is required." }, { status: 400 });
+    }
+
+    const { data, error } = await supabase
+      .from("project_supplier_invoice_files")
+      .insert([
+        {
+          project_id: projectId,
+          line_item_id: lineItemId,
+          phase_split_id: phaseSplitId,
+          contractor_id: contractorId,
+          supplier_phase_number: supplierPhaseNumber,
+          file_path: filePath,
+          file_name: fileName,
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ supplierInvoiceFile: data });
+  }
 
   const lineItemId = String(body.lineItemId || "").trim();
   const phaseSplitId = String(body.phaseSplitId || "").trim() || null;
@@ -191,6 +247,26 @@ export async function PATCH(req: Request, context: RouteContext) {
 export async function DELETE(req: Request, context: RouteContext) {
   const projectId = await getProjectId(context);
   const body = await req.json();
+
+  if (body.action === "delete-supplier-invoice") {
+    const supplierInvoiceFileId = String(body.supplierInvoiceFileId || "").trim();
+
+    if (!supplierInvoiceFileId) {
+      return NextResponse.json({ error: "Supplier invoice file ID is required." }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from("project_supplier_invoice_files")
+      .delete()
+      .eq("id", supplierInvoiceFileId)
+      .eq("project_id", projectId);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  }
 
   const supplierPaymentId = String(body.supplierPaymentId || "").trim();
 
