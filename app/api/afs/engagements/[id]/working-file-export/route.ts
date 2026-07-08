@@ -107,13 +107,13 @@ async function getVercelChromiumPath() {
 
 function documentTitle(document: ExportDocumentKey) {
   if (document === "final-tb-pilot-view" || document === "final-trial-balance") {
-    return "Final TB - Pilot View";
+    return "Final Trial Balance - Working File";
   }
-  if (document === "final-tb-passenger-view") return "Final TB - Passenger View";
+  if (document === "final-tb-passenger-view") return "Final Trial Balance";
   if (document === "journals-passed") return "Journals Passed";
   if (document === "lead-sheets-used") return "Lead Sheets Used";
   if (document === "subordination-agreements") return "Subordination Agreements";
-  return "Final TB - Pilot View";
+  return "Final Trial Balance - Working File";
 }
 
 function accountKey(value: unknown) {

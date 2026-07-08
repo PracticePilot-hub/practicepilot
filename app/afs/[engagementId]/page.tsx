@@ -1392,6 +1392,14 @@ function ExportPrintPanel({
   }
 
   function selectedDocumentTitle() {
+    if (selectedDocument === "final-tb-pilot-view" || selectedDocument === "final-trial-balance") {
+      return "Final Trial Balance - Working File";
+    }
+
+    if (selectedDocument === "final-tb-passenger-view") {
+      return "Final Trial Balance";
+    }
+
     return documents.find((document) => document.key === selectedDocument)?.title ||
       "AFS working-file export";
   }
@@ -1753,7 +1761,7 @@ function PrintableFinalTrialBalancePilotView({
 
   return (
     <>
-      <h3 style={styles.exportPrintTitle}>Final TB - Pilot View</h3>
+      <h3 style={styles.exportPrintTitle}>Final Trial Balance - Working File</h3>
 
       <table style={styles.exportTableCompact}>
         <thead>
@@ -1829,7 +1837,7 @@ function PrintableFinalTrialBalancePassengerView({
 
   return (
     <>
-      <h3 style={styles.exportPrintTitle}>Final TB - Passenger View</h3>
+      <h3 style={styles.exportPrintTitle}>Final Trial Balance</h3>
 
       <table style={styles.exportTable}>
         <thead>
