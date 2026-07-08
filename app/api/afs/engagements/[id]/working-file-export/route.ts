@@ -545,51 +545,52 @@ function renderHtml(args: {
     body {
       margin: 0;
       font-family: Arial, Helvetica, sans-serif;
-      color: #0f172a;
-      font-size: 9.5px;
-      line-height: 1.2;
+      color: #111827;
+      font-size: 10.2px;
+      line-height: 1.28;
       background: #fff;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
     header {
-      margin-bottom: 12px;
-      border-bottom: 1.5px solid #0f172a;
-      padding-bottom: 7px;
+      margin-bottom: 10px;
+      border-bottom: 1.2px solid #111827;
+      padding-bottom: 6px;
     }
-    header strong { display: block; font-size: 13px; font-weight: 800; }
-    header span { display: block; font-size: 11px; color: #334155; }
-    h1 { margin: 0 0 10px; font-size: 17px; line-height: 1.15; font-weight: 700; }
+    header strong { display: block; font-size: 11.2px; font-weight: 800; letter-spacing: 0; }
+    header span { display: block; font-size: 9.5px; color: #374151; }
+    h1 { margin: 0 0 9px; font-size: 13.5px; line-height: 1.2; font-weight: 800; }
     table { width: 100%; border-collapse: collapse; }
     th {
-      padding: 4px 5px;
-      border-bottom: 1.4px solid #0f172a;
+      padding: 3px 5px;
+      border-bottom: 1.2px solid #111827;
       font-size: 8.6px;
-      font-weight: 700;
+      font-weight: 800;
       text-align: left;
       white-space: nowrap;
     }
     td {
-      padding: 3px 5px;
-      border-bottom: 1px solid #d9e0ea;
+      padding: 2.45px 5px;
+      border-bottom: 0.8px solid #d1d5db;
       vertical-align: top;
       font-variant-numeric: tabular-nums;
+      font-size: 8.9px;
     }
     .amount { text-align: right; white-space: nowrap; }
     .code { width: 76px; white-space: nowrap; }
     .description { width: 210px; }
     .mapping { width: 170px; }
     tr.total td {
-      border-top: 1.4px solid #0f172a;
+      border-top: 1.2px solid #111827;
       border-bottom: 0;
-      font-weight: 700;
-      padding-top: 5px;
+      font-weight: 800;
+      padding-top: 4px;
     }
-    .tbLandscape { font-size: 8.4px; line-height: 1.08; }
+    .tbLandscape { font-size: 8.2px; line-height: 1.12; }
     .tbLandscape header { margin-bottom: 8px; padding-bottom: 6px; }
-    .tbLandscape h1 { font-size: 15px; margin-bottom: 7px; }
-    .tbLandscape th { font-size: 7.6px; padding: 2.4px 4px; }
-    .tbLandscape td { padding: 1.9px 4px; }
+    .tbLandscape h1 { font-size: 13px; margin-bottom: 7px; }
+    .tbLandscape th { font-size: 7.2px; padding: 2.2px 4px; }
+    .tbLandscape td { padding: 1.8px 4px; font-size: 7.7px; }
     .tb-export .description { width: 190px; }
     .tb-export .mapping { width: 180px; }
     .empty { color: #475569; font-size: 12px; }
