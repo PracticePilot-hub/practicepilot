@@ -1092,16 +1092,30 @@ function formatMoney(value: number) {
   return rounded < 0 ? `(${absolute})` : absolute;
 }
 
-function formatSignedMoney(value: unknown) {
-  if (Math.abs(Math.round(safeNumber(value))) <= 1) return "–";
-
-  const rounded = Math.round(safeNumber(value));
+function formatSignedMoney(value: number) {
+  const rounded = Math.round(value);
 
   if (rounded === 0) return "–";
 
   return rounded.toLocaleString("en-ZA", {
     maximumFractionDigits: 0,
   });
+}
+
+function roundedDisplayAmount(value: number) {
+  return Math.round(value);
+}
+
+function presentationRoundingAdjustment(roundedTotal: number) {
+  if (roundedTotal === 0) return 0;
+
+  /*
+    Whole-rand schedules can be R1 out because each row is rounded separately.
+    This is a presentation line only. Larger differences must remain visible.
+  */
+  if (Math.abs(roundedTotal) <= 5) return -roundedTotal;
+
+  return 0;
 }
 
 function leadScheduleTitleFromKey(
@@ -1248,8 +1262,12 @@ function ExportPrintPanel({
     },
   ];
 
+  function selectedExportPdfUrl() {
+    return `/api/afs/engagements/${engagement.id}/working-file-export?document=${selectedDocument}`;
+  }
+
   function printSelectedDocument() {
-    window.print();
+    window.open(selectedExportPdfUrl(), "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -1300,7 +1318,7 @@ function ExportPrintPanel({
             Print selected
           </button>
           <a
-            href={`/api/afs/engagements/${engagement.id}/working-file-export?document=${selectedDocument}`}
+            href={selectedExportPdfUrl()}
             target="_blank"
             rel="noopener noreferrer"
             style={{ ...styles.exportPrimaryButton, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
@@ -1362,16 +1380,36 @@ function PrintableFinalTrialBalance({
 }: {
   rows: { line: TrialBalanceLine; finalAmount: number }[];
 }) {
-  const totals = rows.reduce(
+  const roundedTotals = rows.reduce(
     (sum, row) => ({
-      imported: sum.imported + preliminaryTrialBalanceAmount(row.line),
-      journals: sum.journals + journalAdjustmentAmount(row.line),
-      reclass: sum.reclass + reclassificationAmount(row.line),
-      final: sum.final + row.finalAmount,
-      prior: sum.prior + safeNumber(row.line.prior_year_balance),
+      imported:
+        sum.imported + roundedDisplayAmount(preliminaryTrialBalanceAmount(row.line)),
+      journals: sum.journals + roundedDisplayAmount(journalAdjustmentAmount(row.line)),
+      reclass: sum.reclass + roundedDisplayAmount(reclassificationAmount(row.line)),
+      final: sum.final + roundedDisplayAmount(row.finalAmount),
+      prior: sum.prior + roundedDisplayAmount(safeNumber(row.line.prior_year_balance)),
     }),
     { imported: 0, journals: 0, reclass: 0, final: 0, prior: 0 },
   );
+
+  const presentationRounding = {
+    imported: presentationRoundingAdjustment(roundedTotals.imported),
+    journals: 0,
+    reclass: 0,
+    final: presentationRoundingAdjustment(roundedTotals.final),
+    prior: 0,
+  };
+
+  const showPresentationRounding =
+    presentationRounding.imported !== 0 || presentationRounding.final !== 0;
+
+  const totals = {
+    imported: roundedTotals.imported + presentationRounding.imported,
+    journals: roundedTotals.journals,
+    reclass: roundedTotals.reclass,
+    final: roundedTotals.final + presentationRounding.final,
+    prior: roundedTotals.prior,
+  };
 
   return (
     <>
@@ -1416,6 +1454,24 @@ function PrintableFinalTrialBalance({
               </tr>
             );
           })}
+          {showPresentationRounding && (
+            <tr>
+              <td style={styles.exportRoundingTd}>ROUND</td>
+              <td style={styles.exportRoundingTd}>
+                Rounding difference on whole-rand presentation
+              </td>
+              <td style={styles.exportRoundingTdRight}>
+                {formatSignedMoney(presentationRounding.imported)}
+              </td>
+              <td style={styles.exportRoundingTdRight}>–</td>
+              <td style={styles.exportRoundingTdRight}>–</td>
+              <td style={styles.exportRoundingTdRight}>
+                {formatSignedMoney(presentationRounding.final)}
+              </td>
+              <td style={styles.exportRoundingTdRight}>–</td>
+              <td style={styles.exportRoundingTd}>Presentation only</td>
+            </tr>
+          )}
           <tr>
             <td style={styles.exportTotalTd} colSpan={2}>Total</td>
             <td style={styles.exportTotalTdRight}>{formatSignedMoney(totals.imported)}</td>
@@ -2046,6 +2102,27 @@ const styles: Record<string, CSSProperties> = {
     verticalAlign: "top",
     whiteSpace: "nowrap",
     fontVariantNumeric: "tabular-nums",
+  },
+  exportRoundingTd: {
+    borderTop: "1px solid #cbd5e1",
+    background: "#f8fafc",
+    color: "#334155",
+    padding: "4px 3px",
+    fontSize: "10px",
+    fontStyle: "italic",
+    verticalAlign: "top",
+  },
+  exportRoundingTdRight: {
+    borderTop: "1px solid #cbd5e1",
+    background: "#f8fafc",
+    color: "#334155",
+    padding: "4px 3px",
+    fontSize: "10px",
+    fontStyle: "italic",
+    textAlign: "right",
+    whiteSpace: "nowrap",
+    fontVariantNumeric: "tabular-nums",
+    verticalAlign: "top",
   },
   exportTotalTd: {
     borderTop: "1.5px solid #0f172a",
