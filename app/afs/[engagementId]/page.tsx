@@ -421,6 +421,12 @@ export default function AFSEngagementPage() {
   }
 
   function openSection(sectionKey: SectionKey) {
+    if (sectionKey === "financial-statements") {
+      if (!engagementId) return;
+      window.open(`/afs/${String(engagementId)}/print-studio`, "_blank", "noopener,noreferrer");
+      return;
+    }
+
     setActiveSection(sectionKey);
 
     if (sectionKey === "lead-schedules") {
