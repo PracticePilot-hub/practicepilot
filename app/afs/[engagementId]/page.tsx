@@ -402,7 +402,7 @@ export default function AFSEngagementPage() {
 
   useEffect(() => {
     if (isAfsPdfMode) {
-      setActiveSection("financial-statements");
+      window.open(`/afs/${String(engagementId)}/print-studio`, "_blank", "noopener,noreferrer");
     }
   }, [isAfsPdfMode]);
 
