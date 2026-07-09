@@ -519,7 +519,7 @@ export default function AFSEngagementPage() {
   ];
 
   function jumpToFinancialStatementSection(targetId: string) {
-    setActiveSection("financial-statements");
+    window.open(`/afs/${String(engagementId)}/print-studio`, "_blank", "noopener,noreferrer");
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
