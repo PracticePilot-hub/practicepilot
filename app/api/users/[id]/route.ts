@@ -136,9 +136,12 @@ export async function PATCH(req: Request, context: any) {
     }
 
     if (nextRole === "Client Manager") {
-      updateData.can_edit_projects = true;
-      updateData.can_access_projects = true;
-    }
+  // Client Managers may be given module access, but the tick boxes must remain the source of truth.
+  // Do not force Projects on just because the role is Client Manager.
+  if (body.canEditProjects === undefined && updateData.can_access_projects === false) {
+    updateData.can_edit_projects = false;
+  }
+}
   }
 
   if (updateData.can_access_projects === false) {
