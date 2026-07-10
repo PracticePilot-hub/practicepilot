@@ -189,7 +189,7 @@ const sections: { key: SectionKey; number: string; title: string; description: s
 const leadScheduleStatements: LeadScheduleStatement[] = [
   {
     key: "sfp",
-    title: "Statement of Financial Position",
+    title: "SFP",
     groups: [
       {
         key: "sfp-non-current-assets",
@@ -269,7 +269,7 @@ const leadScheduleStatements: LeadScheduleStatement[] = [
   },
   {
     key: "pl",
-    title: "Income Statement",
+    title: "SOCI",
     groups: [
       {
         key: "pl-revenue-income",
@@ -2224,20 +2224,22 @@ const styles: Record<string, CSSProperties> = {
   leadStatementButton: {
     width: "100%",
     border: "0",
-    background: "transparent",
-    color: "#0f172a",
-    padding: "4px 5px",
+    borderTop: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.06)",
+    color: "#ffffff",
+    padding: "7px 6px",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: "6px",
     textAlign: "left",
-    textTransform: "uppercase",
-    letterSpacing: "0.07em",
-    fontSize: "9.5px",
-    fontWeight: 850,
+    fontSize: "10px",
+    fontWeight: 900,
     cursor: "pointer",
-    lineHeight: 1.12,
+    lineHeight: 1.15,
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginTop: "6px",
   },
   leadGroupList: {
     display: "grid",
