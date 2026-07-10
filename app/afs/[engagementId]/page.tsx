@@ -421,22 +421,23 @@ export default function AFSEngagementPage() {
   }
 
   function openSection(sectionKey: SectionKey) {
-  if (sectionKey === "financial-statements") {
-    window.open(
-      `/afs/${String(engagementId)}/print-studio`,
-      "_blank",
-      "noopener,noreferrer"
-    );
-    return;
+    if (sectionKey === "financial-statements") {
+      window.open(
+        `/afs/${String(engagementId)}/print-studio`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+      return;
+    }
+
+    setActiveSection(sectionKey);
+
+    if (sectionKey === "lead-schedules") {
+      setActiveLeadSchedule(null);
+      setActiveLeadSubPage("lead-schedule");
+    }
   }
 
-  setActiveSection(sectionKey);
-
-  if (sectionKey === "lead-schedules") {
-    setActiveLeadSchedule(null);
-    setActiveLeadSubPage("lead-schedule");
-  }
-}
   function openLeadSchedule(scheduleKey: LeadScheduleKey, subPage: LeadScheduleSubPage) {
     setActiveSection("lead-schedules");
     setActiveLeadSchedule(scheduleKey);
@@ -1060,6 +1061,24 @@ type FinalTrialBalanceExportRow = {
   prior: number;
 };
 
+type LeadSheetUsedExportAccount = {
+  id: string;
+  accountCode: string;
+  accountName: string;
+  mapping: string;
+  finalAmount: number;
+  prior: number;
+};
+
+type LeadSheetUsedExportGroup = {
+  key: string;
+  title: string;
+  accountCount: number;
+  total: number;
+  priorTotal: number;
+  rows: LeadSheetUsedExportAccount[];
+};
+
 function buildFinalTrialBalanceExportRows(
   lines: TrialBalanceLine[],
   journals: PostedJournal[],
@@ -1312,39 +1331,57 @@ function ExportPrintPanel({
     postedJournals,
   );
 
-  const usedLeadSchedules = finalTrialBalanceRows
+  const usedLeadScheduleMap = finalTrialBalanceRows
     .filter((row) => {
       return String(row.line.lead_schedule_key || "").trim() && Math.abs(row.finalAmount) >= 0.005;
     })
-    .reduce<Record<string, { title: string; amount: number; count: number }>>(
-      (accumulator, row) => {
-        const line = row.line;
-        const key = String(line.lead_schedule_key || "");
-        const number = String(line.lead_schedule_number || "");
-        const title =
-          number && leadScheduleTitleFromKey(leadScheduleStatements, line.lead_schedule_key)
-            ? leadScheduleTitleFromKey(leadScheduleStatements, line.lead_schedule_key)
-            : leadScheduleTitleFromKey(leadScheduleStatements, line.lead_schedule_key);
+    .reduce<Record<string, LeadSheetUsedExportGroup>>((accumulator, row) => {
+      const line = row.line;
+      const key = String(line.lead_schedule_key || "").trim();
+      const scheduleTitle = leadScheduleTitleFromKey(leadScheduleStatements, key);
+      const fallbackTitle = key.replaceAll("-", " ");
+      const title = scheduleTitle || fallbackTitle || "Unclassified lead schedule";
+      const description = line.account_name || line.description || "";
+      const mapping =
+        line.mapping_label ||
+        line.mapping_code ||
+        line.lead_schedule_number ||
+        "Unmapped";
 
-        if (!accumulator[key]) {
-          accumulator[key] = {
-            title: title || key,
-            amount: 0,
-            count: 0,
-          };
-        }
+      if (!accumulator[key]) {
+        accumulator[key] = {
+          key,
+          title,
+          accountCount: 0,
+          total: 0,
+          priorTotal: 0,
+          rows: [],
+        };
+      }
 
-        accumulator[key].amount += row.finalAmount;
-        accumulator[key].count += 1;
+      accumulator[key].rows.push({
+        id: String(line.id || line.account_code || `${key}-${accumulator[key].rows.length}`),
+        accountCode: String(line.account_code || ""),
+        accountName: String(description || ""),
+        mapping: String(mapping || ""),
+        finalAmount: row.finalAmount,
+        prior: row.prior,
+      });
+      accumulator[key].accountCount += 1;
+      accumulator[key].total += row.finalAmount;
+      accumulator[key].priorTotal += row.prior;
 
-        return accumulator;
-      },
-      {},
-    );
+      return accumulator;
+    }, {});
 
-  const usedLeadScheduleRows = Object.entries(usedLeadSchedules)
-    .map(([key, value]) => ({ key, ...value }))
-    .sort((a, b) => a.title.localeCompare(b.title));
+  const usedLeadScheduleGroups = Object.values(usedLeadScheduleMap)
+    .map((group) => ({
+      ...group,
+      rows: [...group.rows].sort((a, b) =>
+        a.accountCode.localeCompare(b.accountCode, undefined, { numeric: true }),
+      ),
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
 
   const documents: { key: ExportDocumentKey; title: string; description: string }[] = [
     {
@@ -1367,7 +1404,7 @@ function ExportPrintPanel({
     {
       key: "lead-sheets-used",
       title: "Lead Sheets Used",
-      description: "Only lead schedules linked to mapped accounts with balances.",
+      description: "Detailed list of used lead schedules and the accounts linked to each schedule.",
     },
     {
       key: "subordination-agreements",
@@ -1487,21 +1524,45 @@ function ExportPrintPanel({
     }
 
     if (selectedDocument === "lead-sheets-used") {
-      const rows = usedLeadScheduleRows.map((row) => `
-        <tr>
-          <td>${escapeExcelCell(row.title)}</td>
-          <td style="mso-number-format:'#,##0.00';">${excelNumber(row.amount)}</td>
-          <td>${escapeExcelCell(row.count)}</td>
-        </tr>
-      `);
+      const rows = usedLeadScheduleGroups.flatMap((group) => {
+        const headerRow = `
+          <tr>
+            <td colspan="5"><strong>${escapeExcelCell(group.title)}</strong></td>
+          </tr>
+        `;
+
+        const accountRows = group.rows.map((row) => `
+          <tr>
+            <td>${escapeExcelCell(group.title)}</td>
+            <td style="mso-number-format:'\@';">${escapeExcelCell(row.accountCode)}</td>
+            <td>${escapeExcelCell(row.accountName)}</td>
+            <td>${escapeExcelCell(row.mapping)}</td>
+            <td style="mso-number-format:'#,##0.00';">${excelNumber(row.finalAmount)}</td>
+            <td style="mso-number-format:'#,##0.00';">${excelNumber(row.prior)}</td>
+          </tr>
+        `);
+
+        const totalRow = `
+          <tr>
+            <td colspan="4"><strong>${escapeExcelCell(group.title)} total</strong></td>
+            <td style="mso-number-format:'#,##0.00';"><strong>${excelNumber(group.total)}</strong></td>
+            <td style="mso-number-format:'#,##0.00';"><strong>${excelNumber(group.priorTotal)}</strong></td>
+          </tr>
+        `;
+
+        return [headerRow, ...accountRows, totalRow];
+      });
 
       return `
         <table>
           <thead>
             <tr>
               <th>Lead schedule</th>
-              <th>Final balance</th>
-              <th>Accounts linked</th>
+              <th>Account</th>
+              <th>Description</th>
+              <th>Mapping</th>
+              <th>Final current year</th>
+              <th>Final prior year</th>
             </tr>
           </thead>
           <tbody>${rows.join("")}</tbody>
@@ -1726,7 +1787,7 @@ function ExportPrintPanel({
         )}
 
         {selectedDocument === "lead-sheets-used" && (
-          <PrintableLeadSheetsUsed rows={usedLeadScheduleRows} />
+          <PrintableLeadSheetsUsed groups={usedLeadScheduleGroups} />
         )}
 
         {selectedDocument === "subordination-agreements" && (
@@ -1959,35 +2020,61 @@ function PrintableJournalsPassed({
 }
 
 function PrintableLeadSheetsUsed({
-  rows,
+  groups,
 }: {
-  rows: { key: string; title: string; amount: number; count: number }[];
+  groups: LeadSheetUsedExportGroup[];
 }) {
   return (
     <>
       <h3 style={styles.exportPrintTitle}>Lead Sheets Used</h3>
 
-      {rows.length === 0 ? (
+      {groups.length === 0 ? (
         <p style={styles.exportEmpty}>No lead schedules are currently linked to balances.</p>
       ) : (
-        <table style={styles.exportTable}>
-          <thead>
-            <tr>
-              <th style={styles.exportTh}>Lead sheet</th>
-              <th style={styles.exportThRight}>Accounts</th>
-              <th style={styles.exportThRight}>Balance</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.key}>
-                <td style={styles.exportTd}>{row.title}</td>
-                <td style={styles.exportTdRight}>{row.count}</td>
-                <td style={styles.exportTdRight}>{formatMoney(row.amount)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div style={styles.exportJournalList}>
+          {groups.map((group) => (
+            <section key={group.key} style={styles.exportJournalBlock}>
+              <div style={styles.exportJournalHeader}>
+                <div>
+                  <strong>{group.title}</strong>
+                  <span>{group.accountCount} account{group.accountCount === 1 ? "" : "s"} linked</span>
+                </div>
+                <div style={styles.exportJournalMeta}>
+                  <span>Final balance</span>
+                  <strong>{formatSignedMoneyCents(group.total)}</strong>
+                </div>
+              </div>
+
+              <table style={styles.exportTableCompact}>
+                <thead>
+                  <tr>
+                    <th style={{ ...styles.exportTh, width: "13%" }}>Account</th>
+                    <th style={{ ...styles.exportTh, width: "37%" }}>Description</th>
+                    <th style={{ ...styles.exportTh, width: "22%" }}>Mapping</th>
+                    <th style={{ ...styles.exportThRight, width: "14%" }}>Final current year</th>
+                    <th style={{ ...styles.exportThRight, width: "14%" }}>Final prior year</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.rows.map((row) => (
+                    <tr key={row.id}>
+                      <td style={styles.exportTd}>{row.accountCode}</td>
+                      <td style={styles.exportTd}>{row.accountName}</td>
+                      <td style={styles.exportTd}>{row.mapping}</td>
+                      <td style={styles.exportTdRight}>{formatSignedMoneyCents(row.finalAmount)}</td>
+                      <td style={styles.exportTdRight}>{formatSignedMoneyCents(row.prior)}</td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td style={styles.exportTotalTd} colSpan={3}>Total</td>
+                    <td style={styles.exportTotalTdRight}>{formatSignedMoneyCents(group.total)}</td>
+                    <td style={styles.exportTotalTdRight}>{formatSignedMoneyCents(group.priorTotal)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+          ))}
+        </div>
       )}
     </>
   );

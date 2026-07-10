@@ -446,7 +446,23 @@ function renderJournalsPassed(journals: Record<string, any>[]) {
 
 function renderLeadSheetsUsed(lines: Record<string, any>[], journals: Record<string, any>[]) {
   const journalMap = buildJournalAdjustmentMap(journals);
-  const grouped = new Map<string, { title: string; amount: number; count: number }>();
+
+  const grouped = new Map<
+    string,
+    {
+      key: string;
+      title: string;
+      total: number;
+      priorTotal: number;
+      rows: {
+        accountCode: string;
+        accountName: string;
+        mapping: string;
+        finalAmount: number;
+        prior: number;
+      }[];
+    }
+  >();
 
   lines.forEach((line) => {
     const key = cleanText(line.lead_schedule_key);
@@ -456,50 +472,105 @@ function renderLeadSheetsUsed(lines: Record<string, any>[], journals: Record<str
     const manual = manualAdjustmentAmount(line);
     const journal = journalAmountForLine(line, journalMap);
     const reclass = reclassificationAmount(line);
-    const amount = finalAmountForLine(imported, manual, journal, reclass);
-    if (Math.abs(amount) < 0.005) return;
+    const finalAmount = finalAmountForLine(imported, manual, journal, reclass);
+    const prior = safeNumber(line.prior_year_balance);
+
+    if (Math.abs(finalAmount) < 0.005 && Math.abs(prior) < 0.005) return;
 
     const title = cleanText(line.lead_schedule_number)
       ? `${cleanText(line.lead_schedule_number)} · ${key.replaceAll("-", " ")}`
       : key.replaceAll("-", " ");
 
-    if (!grouped.has(key)) grouped.set(key, { title, amount: 0, count: 0 });
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        key,
+        title,
+        total: 0,
+        priorTotal: 0,
+        rows: [],
+      });
+    }
 
     const item = grouped.get(key);
     if (!item) return;
-    item.amount += amount;
-    item.count += 1;
+
+    item.rows.push({
+      accountCode: cleanText(line.account_code),
+      accountName: cleanText(line.account_name || line.description),
+      mapping: mappingLabel(line),
+      finalAmount,
+      prior,
+    });
+    item.total += finalAmount;
+    item.priorTotal += prior;
   });
 
-  const rows = Array.from(grouped.entries())
-    .map(([key, value]) => ({ key, ...value }))
-    .sort((a, b) => a.title.localeCompare(b.title));
+  const groups = Array.from(grouped.values())
+    .map((group) => ({
+      ...group,
+      rows: [...group.rows].sort((a, b) =>
+        a.accountCode.localeCompare(b.accountCode, undefined, { numeric: true }),
+      ),
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
 
-  if (!rows.length) return `<p class="empty">No lead schedules are currently linked to balances.</p>`;
+  if (!groups.length) {
+    return `<p class="empty">No lead schedules are currently linked to balances.</p>`;
+  }
 
   return `
-    <table>
-      <thead>
-        <tr>
-          <th>Lead sheet</th>
-          <th class="amount">Accounts</th>
-          <th class="amount">Balance</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows
-          .map(
-            (row) => `
-              <tr>
-                <td>${escapeHtml(row.title)}</td>
-                <td class="amount">${row.count}</td>
-                <td class="amount">${formatWhole(row.amount)}</td>
-              </tr>
-            `,
-          )
-          .join("")}
-      </tbody>
-    </table>
+    <div class="lead-used-list">
+      ${groups
+        .map(
+          (group) => `
+            <section class="lead-used-block">
+              <div class="lead-used-heading">
+                <div>
+                  <strong>${escapeHtml(group.title)}</strong>
+                  <span>${group.rows.length} account${group.rows.length === 1 ? "" : "s"} linked</span>
+                </div>
+                <div class="lead-used-meta">
+                  <span>Final balance</span>
+                  <strong>${formatCents(group.total)}</strong>
+                </div>
+              </div>
+
+              <table class="lead-used-table">
+                <thead>
+                  <tr>
+                    <th class="code">Account</th>
+                    <th>Description</th>
+                    <th>Mapping</th>
+                    <th class="amount">Final current year</th>
+                    <th class="amount">Final prior year</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${group.rows
+                    .map(
+                      (row) => `
+                        <tr>
+                          <td>${escapeHtml(row.accountCode)}</td>
+                          <td>${escapeHtml(row.accountName)}</td>
+                          <td>${escapeHtml(row.mapping)}</td>
+                          <td class="amount">${formatCents(row.finalAmount)}</td>
+                          <td class="amount">${formatCents(row.prior)}</td>
+                        </tr>
+                      `,
+                    )
+                    .join("")}
+                  <tr class="total">
+                    <td colspan="3">Total</td>
+                    <td class="amount">${formatCents(group.total)}</td>
+                    <td class="amount">${formatCents(group.priorTotal)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+          `,
+        )
+        .join("")}
+    </div>
   `;
 }
 
@@ -617,6 +688,27 @@ function renderHtml(args: {
     .journal-table { margin-top: 0; }
     .journal-table th { font-size: 8.5px; padding: 3px 4px; }
     .journal-table td { font-size: 8.7px; padding: 3px 4px; }
+    .lead-used-list { display: grid; gap: 10px; }
+    .lead-used-block {
+      border: 1px solid #d3dce9;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .lead-used-heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      background: #f8fafc;
+      border-bottom: 1px solid #d3dce9;
+      padding: 7px 8px;
+    }
+    .lead-used-heading strong { display: block; font-size: 12px; font-weight: 700; }
+    .lead-used-heading span { display: block; font-size: 9.5px; color: #334155; margin-top: 1px; }
+    .lead-used-meta { text-align: right; min-width: 95px; }
+    .lead-used-table { margin-top: 0; }
+    .lead-used-table th { font-size: 8.5px; padding: 3px 4px; }
+    .lead-used-table td { font-size: 8.7px; padding: 3px 4px; }
   </style>
 </head>
 <body class="${bodyClass}">
