@@ -2,6 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl) {
+  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+}
+
+if (!supabaseAnonKey) {
+  throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
+}
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 type AFSEngagement = {
   id: string;
@@ -13,60 +27,58 @@ type AFSEngagement = {
   reviewed_by: string | null;
   notes: string | null;
   created_at: string;
+  organisation_id?: string | null;
+  firm_client_name?: string | null;
 };
 
-type FirmOption = {
+type Organisation = {
   id: string;
   name: string;
-  status: string;
+  status: string | null;
+  access_enabled: boolean | null;
 };
 
-const firmOptions: FirmOption[] = [
-  {
-    id: "bizzacc-menlyn",
-    name: "Bizzacc Menlyn (Pty) Ltd",
-    status: "Active · Access enabled",
-  },
-];
+type UserProfile = {
+  id: string;
+  user_id: string;
+  full_name: string | null;
+  email: string;
+  role: string;
+  organisation_id: string | null;
+  access_enabled: boolean;
+  can_access_afs?: boolean | null;
+};
 
-function formatDisplayDate(value: string | null | undefined) {
-  if (!value) return "—";
+function isInternalRole(role: string) {
+  return role === "Super Admin" || role === "Admin" || role === "Staff";
+}
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+function formatDate(dateValue: string | null | undefined) {
+  if (!dateValue) return "-";
 
-  return date.toLocaleDateString("en-ZA", {
-    day: "2-digit",
-    month: "short",
+  return new Date(dateValue).toLocaleDateString("en-ZA", {
     year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   });
 }
 
-function statusBadgeStyle(status: string | null | undefined) {
-  const value = String(status || "draft").toLowerCase();
-
-  if (value.includes("final")) {
-    return { ...styles.statusBadge, ...styles.statusFinal };
-  }
-
-  if (value.includes("review")) {
-    return { ...styles.statusBadge, ...styles.statusReview };
-  }
-
-  return { ...styles.statusBadge, ...styles.statusDraft };
+function normaliseStatus(status: string | null | undefined) {
+  const value = String(status || "Draft").trim();
+  if (!value) return "Draft";
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
 }
 
 export default function AFSPage() {
   const router = useRouter();
 
   const [engagements, setEngagements] = useState<AFSEngagement[]>([]);
+  const [organisations, setOrganisations] = useState<Organisation[]>([]);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+
+  const [selectedOrganisationId, setSelectedOrganisationId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-
-  const [selectedFirmId, setSelectedFirmId] = useState(firmOptions[0]?.id || "");
-  const [searchText, setSearchText] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [sortMode, setSortMode] = useState("Entity A-Z");
 
   const [clientName, setClientName] = useState("");
   const [entityType, setEntityType] = useState("Company");
@@ -75,23 +87,132 @@ export default function AFSPage() {
   const [reviewedBy, setReviewedBy] = useState("");
   const [notes, setNotes] = useState("");
 
-  const selectedFirm = firmOptions.find((firm) => firm.id === selectedFirmId) || firmOptions[0];
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [sortBy, setSortBy] = useState("Entity A-Z");
 
-  async function loadEngagements() {
+  const internalUser = isInternalRole(profile?.role || "");
+
+  const selectedOrganisation = useMemo(() => {
+    return organisations.find((organisation) => organisation.id === selectedOrganisationId) || null;
+  }, [organisations, selectedOrganisationId]);
+
+  const visibleEngagements = useMemo(() => {
+    let rows = [...engagements];
+
+    if (profile) {
+      if (internalUser) {
+        if (!selectedOrganisationId) rows = [];
+        else if (selectedOrganisationId !== "all") {
+          rows = rows.filter((engagement) => engagement.organisation_id === selectedOrganisationId);
+        }
+      } else {
+        rows = rows.filter((engagement) => engagement.organisation_id === profile.organisation_id);
+      }
+    }
+
+    const search = searchText.trim().toLowerCase();
+
+    if (search) {
+      rows = rows.filter((engagement) => {
+        const firmClient = engagement.firm_client_name || "";
+        return (
+          engagement.client_name.toLowerCase().includes(search) ||
+          String(engagement.entity_type || "").toLowerCase().includes(search) ||
+          String(engagement.financial_year_end || "").toLowerCase().includes(search) ||
+          firmClient.toLowerCase().includes(search)
+        );
+      });
+    }
+
+    if (statusFilter !== "All") {
+      rows = rows.filter((engagement) => normaliseStatus(engagement.status) === statusFilter);
+    }
+
+    rows.sort((a, b) => {
+      if (sortBy === "Entity A-Z") return a.client_name.localeCompare(b.client_name);
+      if (sortBy === "Entity Z-A") return b.client_name.localeCompare(a.client_name);
+      if (sortBy === "Year end newest") {
+        return new Date(b.financial_year_end).getTime() - new Date(a.financial_year_end).getTime();
+      }
+      if (sortBy === "Year end oldest") {
+        return new Date(a.financial_year_end).getTime() - new Date(b.financial_year_end).getTime();
+      }
+      if (sortBy === "Newest created") {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+      if (sortBy === "Oldest created") {
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      }
+      return 0;
+    });
+
+    return rows;
+  }, [engagements, selectedOrganisationId, profile, internalUser, searchText, statusFilter, sortBy]);
+
+  async function loadPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/afs/engagements", {
-        cache: "no-store",
-      });
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to load AFS engagements.");
+      if (userError || !user) {
+        window.location.href = "/login";
+        return;
       }
 
-      setEngagements(data.engagements || []);
+      const { data: profileData, error: profileError } = await supabase
+        .from("user_profiles")
+        .select("*")
+        .eq("user_id", user.id)
+        .single();
+
+      if (profileError || !profileData) {
+        alert("Could not load your user profile.");
+        window.location.href = "/login";
+        return;
+      }
+
+      if (!profileData.access_enabled || !profileData.can_access_afs) {
+        alert("You do not have access to Annual Financial Statements.");
+        window.location.href = "/dashboard";
+        return;
+      }
+
+      setProfile(profileData);
+
+      const internal = isInternalRole(profileData.role || "");
+
+      const organisationsResponse = await fetch("/api/organisations", { cache: "no-store" });
+      const organisationsData = await organisationsResponse.json();
+
+      if (!organisationsResponse.ok) {
+        throw new Error(organisationsData.error || "Could not load firms/clients.");
+      }
+
+      const loadedOrganisations: Organisation[] = organisationsData.organisations || [];
+      setOrganisations(loadedOrganisations);
+
+      const engagementsResponse = await fetch("/api/afs/engagements", { cache: "no-store" });
+      const engagementsData = await engagementsResponse.json();
+
+      if (!engagementsResponse.ok) {
+        throw new Error(engagementsData.error || "Could not load AFS engagements.");
+      }
+
+      setEngagements(engagementsData.engagements || []);
+
+      if (internal) {
+        const bizzacc = loadedOrganisations.find((organisation) =>
+          organisation.name.toLowerCase().includes("bizzacc menlyn")
+        );
+        setSelectedOrganisationId(bizzacc?.id || loadedOrganisations[0]?.id || "");
+      } else {
+        setSelectedOrganisationId(profileData.organisation_id || "");
+      }
     } catch (error: any) {
       alert(error.message || "Failed to load AFS engagements.");
     } finally {
@@ -101,6 +222,11 @@ export default function AFSPage() {
 
   async function createEngagement(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
+    if (!selectedOrganisationId || selectedOrganisationId === "all") {
+      alert("Please choose a specific firm/client first.");
+      return;
+    }
 
     if (!clientName.trim()) {
       alert("Client name is required.");
@@ -115,6 +241,8 @@ export default function AFSPage() {
     setSaving(true);
 
     try {
+      const firmClient = organisations.find((organisation) => organisation.id === selectedOrganisationId) || null;
+
       const res = await fetch("/api/afs/engagements", {
         method: "POST",
         headers: {
@@ -127,8 +255,8 @@ export default function AFSPage() {
           preparedBy,
           reviewedBy,
           notes,
-          firmClientId: selectedFirmId,
-          firmClientName: selectedFirm?.name || "Bizzacc Menlyn (Pty) Ltd",
+          organisationId: selectedOrganisationId,
+          firmClientName: firmClient?.name || null,
         }),
       });
 
@@ -153,84 +281,90 @@ export default function AFSPage() {
     }
   }
 
-  useEffect(() => {
-    loadEngagements();
-  }, []);
+  function clearFilters() {
+    setSearchText("");
+    setStatusFilter("All");
+    setSortBy("Entity A-Z");
+  }
 
-  const filteredEngagements = useMemo(() => {
-    const search = searchText.trim().toLowerCase();
-
-    const filtered = engagements.filter((engagement) => {
-      const status = String(engagement.status || "").toLowerCase();
-      const statusMatches =
-        statusFilter === "All" || status === statusFilter.toLowerCase();
-
-      const searchMatches =
-        !search ||
-        String(engagement.client_name || "").toLowerCase().includes(search) ||
-        String(engagement.entity_type || "").toLowerCase().includes(search) ||
-        String(engagement.financial_year_end || "").toLowerCase().includes(search) ||
-        String(engagement.prepared_by || "").toLowerCase().includes(search) ||
-        String(engagement.reviewed_by || "").toLowerCase().includes(search);
-
-      return statusMatches && searchMatches;
-    });
-
-    return filtered.sort((a, b) => {
-      if (sortMode === "Year end newest") {
-        return String(b.financial_year_end || "").localeCompare(String(a.financial_year_end || ""));
-      }
-
-      if (sortMode === "Created newest") {
-        return String(b.created_at || "").localeCompare(String(a.created_at || ""));
-      }
-
-      return String(a.client_name || "").localeCompare(String(b.client_name || ""));
-    });
-  }, [engagements, searchText, sortMode, statusFilter]);
+  if (loading) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.emptyState}>Loading AFS engagements...</div>
+      </main>
+    );
+  }
 
   return (
     <main style={styles.page}>
-      <section style={styles.headerBand}>
+      <section style={styles.heroPanel}>
         <div>
-          <p style={styles.kicker}>PracticePilot</p>
+          <div style={styles.kicker}>PracticePilot</div>
           <h1 style={styles.title}>Annual Financial Statements</h1>
         </div>
-        <p style={styles.headerDescription}>
+
+        <p style={styles.heroText}>
           Create and manage AFS engagements, trial balances, lead schedules, statements and final file packs.
         </p>
       </section>
 
-      <section style={styles.layoutGrid}>
-        <aside style={styles.leftRail}>
-          <section style={styles.panel}>
-            <h2 style={styles.panelTitle}>Firm control</h2>
+      <div style={styles.layoutGrid}>
+        <aside style={styles.leftPanel}>
+          <h2 style={styles.panelTitle}>Firm control</h2>
 
-            <label style={styles.label}>
-              Working firm / client
+          <div style={styles.fieldGroup}>
+            <label style={styles.label}>Working firm / client</label>
+            {internalUser ? (
               <select
                 style={styles.input}
-                value={selectedFirmId}
-                onChange={(e) => setSelectedFirmId(e.target.value)}
+                value={selectedOrganisationId}
+                onChange={(e) => {
+                  setSelectedOrganisationId(e.target.value);
+                  setSearchText("");
+                }}
               >
-                {firmOptions.map((firm) => (
-                  <option key={firm.id} value={firm.id}>
-                    {firm.name}
+                <option value="">Choose firm/client</option>
+                <option value="all">All firms / clients</option>
+                {organisations.map((organisation) => (
+                  <option key={organisation.id} value={organisation.id}>
+                    {organisation.name}
+                    {organisation.access_enabled === false ? " - Suspended" : ""}
                   </option>
                 ))}
               </select>
-            </label>
+            ) : (
+              <div style={styles.lockedClientBox}>
+                {selectedOrganisation?.name || profile?.organisation_id || "Client"}
+              </div>
+            )}
+          </div>
 
-            <div style={styles.firmCard}>
-              <strong>{selectedFirm?.name || "Bizzacc Menlyn (Pty) Ltd"}</strong>
-              <span>{selectedFirm?.status || "Active · Access enabled"}</span>
-            </div>
-          </section>
+          <div style={styles.infoBox}>
+            {selectedOrganisationId === "all" ? (
+              <>
+                <strong>All firms / clients</strong>
+                <span>Showing all AFS engagements</span>
+              </>
+            ) : selectedOrganisation ? (
+              <>
+                <strong>{selectedOrganisation.name}</strong>
+                <span>
+                  {selectedOrganisation.status || "Active"} ·{" "}
+                  {selectedOrganisation.access_enabled === false ? "Access blocked" : "Access enabled"}
+                </span>
+              </>
+            ) : (
+              <>
+                <strong>Choose firm/client</strong>
+                <span>No firm/client selected</span>
+              </>
+            )}
+          </div>
 
-          <form onSubmit={createEngagement} style={styles.panel}>
+          <form onSubmit={createEngagement} style={styles.createForm}>
             <h2 style={styles.panelTitle}>New AFS engagement</h2>
 
-            <label style={styles.label}>
+            <label style={styles.labelBlock}>
               Client name
               <input
                 style={styles.input}
@@ -240,7 +374,7 @@ export default function AFSPage() {
               />
             </label>
 
-            <label style={styles.label}>
+            <label style={styles.labelBlock}>
               Entity type
               <select
                 style={styles.input}
@@ -256,7 +390,7 @@ export default function AFSPage() {
               </select>
             </label>
 
-            <label style={styles.label}>
+            <label style={styles.labelBlock}>
               Financial year end
               <input
                 style={styles.input}
@@ -266,7 +400,7 @@ export default function AFSPage() {
               />
             </label>
 
-            <label style={styles.label}>
+            <label style={styles.labelBlock}>
               Prepared by
               <input
                 style={styles.input}
@@ -276,7 +410,7 @@ export default function AFSPage() {
               />
             </label>
 
-            <label style={styles.label}>
+            <label style={styles.labelBlock}>
               Reviewed by
               <input
                 style={styles.input}
@@ -286,87 +420,74 @@ export default function AFSPage() {
               />
             </label>
 
-            <label style={styles.label}>
+            <label style={styles.labelBlock}>
               Notes
               <textarea
-                style={{ ...styles.input, minHeight: 74, resize: "vertical" }}
+                style={{ ...styles.input, height: 58, paddingTop: 7, resize: "vertical" }}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional internal notes"
               />
             </label>
 
-            <button type="submit" style={styles.primaryButton} disabled={saving}>
+            <button type="submit" style={styles.primaryButtonFull} disabled={saving}>
               {saving ? "Creating..." : "Create AFS engagement"}
             </button>
           </form>
         </aside>
 
-        <section style={styles.mainPanel}>
-          <div style={styles.listHeaderRow}>
+        <section style={styles.rightPanel}>
+          <div style={styles.tableHeaderRow}>
             <div>
-              <h2 style={styles.listTitle}>{selectedFirm?.name || "Bizzacc Menlyn (Pty) Ltd"} AFS engagements</h2>
-              <p style={styles.listSubtitle}>
-                Showing {filteredEngagements.length} of {engagements.length} engagement(s)
-              </p>
+              <h2 style={styles.panelTitle}>
+                {selectedOrganisationId === "all"
+                  ? "All AFS engagements"
+                  : `${selectedOrganisation?.name || "AFS"} AFS engagements`}
+              </h2>
+              <p style={styles.resultText}>Showing {visibleEngagements.length} of {engagements.length} engagement(s)</p>
             </div>
 
-            <button
-              type="button"
-              style={styles.secondaryButton}
-              onClick={() => {
-                setSearchText("");
-                setStatusFilter("All");
-                setSortMode("Entity A-Z");
-              }}
-            >
+            <button style={styles.clearButton} onClick={clearFilters}>
               Clear filters
             </button>
           </div>
 
           <div style={styles.filtersGrid}>
-            <label style={styles.compactLabel}>
-              Entity / year end
+            <div style={styles.fieldGroupCompact}>
+              <label style={styles.label}>Entity / year end</label>
               <input
-                style={styles.compactInput}
+                style={styles.input}
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 placeholder="Search engagement..."
               />
-            </label>
+            </div>
 
-            <label style={styles.compactLabel}>
-              Status
-              <select
-                style={styles.compactInput}
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
+            <div style={styles.fieldGroupCompact}>
+              <label style={styles.label}>Status</label>
+              <select style={styles.input} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                 <option value="All">All</option>
                 <option value="Draft">Draft</option>
-                <option value="Review">Review</option>
-                <option value="Finalised">Finalised</option>
+                <option value="Final">Final</option>
+                <option value="Archived">Archived</option>
               </select>
-            </label>
+            </div>
 
-            <label style={styles.compactLabel}>
-              Sort by
-              <select
-                style={styles.compactInput}
-                value={sortMode}
-                onChange={(e) => setSortMode(e.target.value)}
-              >
+            <div style={styles.fieldGroupCompact}>
+              <label style={styles.label}>Sort by</label>
+              <select style={styles.input} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
                 <option value="Entity A-Z">Entity A-Z</option>
+                <option value="Entity Z-A">Entity Z-A</option>
                 <option value="Year end newest">Year end newest</option>
-                <option value="Created newest">Created newest</option>
+                <option value="Year end oldest">Year end oldest</option>
+                <option value="Newest created">Newest created</option>
+                <option value="Oldest created">Oldest created</option>
               </select>
-            </label>
+            </div>
           </div>
 
-          {loading ? (
-            <p style={styles.emptyText}>Loading engagements...</p>
-          ) : filteredEngagements.length === 0 ? (
-            <p style={styles.emptyText}>No AFS engagements match the current filters.</p>
+          {visibleEngagements.length === 0 ? (
+            <div style={styles.emptyState}>No AFS engagements found for the current selection.</div>
           ) : (
             <div style={styles.tableWrap}>
               <table style={styles.table}>
@@ -379,29 +500,24 @@ export default function AFSPage() {
                     <th style={styles.th}>Prepared</th>
                     <th style={styles.th}>Reviewed</th>
                     <th style={styles.th}>Status</th>
-                    <th style={styles.thRight}>Action</th>
+                    <th style={{ ...styles.th, textAlign: "right" }}>Action</th>
                   </tr>
                 </thead>
+
                 <tbody>
-                  {filteredEngagements.map((engagement) => (
-                    <tr key={engagement.id} style={styles.tr}>
+                  {visibleEngagements.map((engagement) => (
+                    <tr key={engagement.id}>
                       <td style={styles.tdStrong}>{engagement.client_name}</td>
                       <td style={styles.td}>{engagement.entity_type || "Entity"}</td>
-                      <td style={styles.td}>{engagement.financial_year_end || "—"}</td>
-                      <td style={styles.td}>{selectedFirm?.name || "Bizzacc Menlyn (Pty) Ltd"}</td>
-                      <td style={styles.td}>{engagement.prepared_by || "—"}</td>
-                      <td style={styles.td}>{engagement.reviewed_by || "—"}</td>
+                      <td style={styles.td}>{formatDate(engagement.financial_year_end)}</td>
+                      <td style={styles.td}>{engagement.firm_client_name || "Not allocated"}</td>
+                      <td style={styles.td}>{engagement.prepared_by || "-"}</td>
+                      <td style={styles.td}>{engagement.reviewed_by || "-"}</td>
                       <td style={styles.td}>
-                        <span style={statusBadgeStyle(engagement.status)}>
-                          {engagement.status || "draft"}
-                        </span>
+                        <span style={styles.statusBadge}>{normaliseStatus(engagement.status)}</span>
                       </td>
-                      <td style={styles.tdRight}>
-                        <button
-                          type="button"
-                          style={styles.openButton}
-                          onClick={() => router.push(`/afs/${engagement.id}`)}
-                        >
+                      <td style={{ ...styles.td, textAlign: "right" }}>
+                        <button style={styles.openButton} onClick={() => router.push(`/afs/${engagement.id}`)}>
                           Open
                         </button>
                       </td>
@@ -411,273 +527,229 @@ export default function AFSPage() {
               </table>
             </div>
           )}
-
-          <p style={styles.footNote}>
-            Current AFS engagements are shown under Bizzacc Menlyn. Firm/client allocation will be persisted in the next database step.
-          </p>
         </section>
-      </section>
+      </div>
     </main>
   );
 }
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
+    padding: "18px",
+    background: "#eef3f8",
     minHeight: "100vh",
-    background: "#f5f7fb",
-    padding: "16px",
-    color: "#111827",
-    fontFamily:
-      'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    fontSize: "12px",
+    color: "#12304a",
   },
-  headerBand: {
+  heroPanel: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1.5fr",
+    gap: "24px",
+    alignItems: "end",
     background: "#ffffff",
-    border: "1px solid #dfe5ef",
-    borderRadius: "6px",
+    border: "1px solid #d8e2ef",
     padding: "14px 18px",
-    marginBottom: "7px",
-    display: "flex",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    gap: "18px",
-    boxShadow: "none",
+    marginBottom: "10px",
   },
   kicker: {
-    margin: "0 0 5px",
-    fontSize: "11px",
-    fontWeight: 850,
-    color: "#2563eb",
+    color: "#0b63ff",
+    fontSize: "12px",
+    fontWeight: 900,
     textTransform: "uppercase",
-    letterSpacing: "0.08em",
+    letterSpacing: "0.12em",
+    marginBottom: "6px",
   },
   title: {
-    margin: 0,
     fontSize: "24px",
-    lineHeight: 1.12,
-    fontWeight: 650,
-    color: "#111827",
-  },
-  headerDescription: {
+    fontWeight: 900,
     margin: 0,
-    color: "#64748b",
-    fontSize: "12px",
-    maxWidth: "760px",
-    textAlign: "right",
+    color: "#0f2742",
+  },
+  heroText: {
+    margin: 0,
+    color: "#56657a",
+    fontSize: "13px",
+    lineHeight: 1.45,
   },
   layoutGrid: {
     display: "grid",
-    gridTemplateColumns: "300px minmax(0, 1fr)",
+    gridTemplateColumns: "300px 1fr",
     gap: "10px",
     alignItems: "start",
   },
-  leftRail: {
-    display: "grid",
-    gap: "8px",
-  },
-  panel: {
+  leftPanel: {
     background: "#ffffff",
-    border: "1px solid #dfe5ef",
-    borderRadius: "6px",
+    border: "1px solid #d8e2ef",
     padding: "8px",
-    boxShadow: "none",
+  },
+  rightPanel: {
+    background: "#ffffff",
+    border: "1px solid #d8e2ef",
+    padding: "8px",
+    minWidth: 0,
   },
   panelTitle: {
-    margin: "0 0 12px",
-    fontSize: "15px",
-    fontWeight: 750,
-    color: "#111827",
+    fontSize: "16px",
+    margin: "0 0 7px 0",
+    color: "#0f2742",
+    fontWeight: 900,
+  },
+  resultText: {
+    margin: 0,
+    color: "#64748b",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+  fieldGroup: {
+    display: "grid",
+    gap: "5px",
+    marginBottom: "8px",
+  },
+  fieldGroupCompact: {
+    display: "grid",
+    gap: "5px",
   },
   label: {
-    display: "block",
-    marginBottom: "7px",
     fontSize: "12px",
-    fontWeight: 750,
+    fontWeight: 900,
+    color: "#334155",
+  },
+  labelBlock: {
+    display: "grid",
+    gap: "5px",
+    marginBottom: "8px",
+    fontSize: "12px",
+    fontWeight: 900,
     color: "#334155",
   },
   input: {
     width: "100%",
-    marginTop: "5px",
-    border: "1px solid #cfd8e6",
-    borderRadius: "4px",
-    padding: "7px 8px",
-    fontSize: "12px",
-    outline: "none",
-    boxSizing: "border-box",
+    height: "34px",
+    border: "1px solid #cbd5e1",
+    padding: "0 9px",
+    fontSize: "13px",
     background: "#ffffff",
-    color: "#111827",
-    fontFamily: "inherit",
+    color: "#12304a",
+    outline: "none",
+    borderRadius: 0,
+    boxSizing: "border-box",
   },
-  firmCard: {
-    border: "1px solid #dfe5ef",
-    borderRadius: "5px",
+  lockedClientBox: {
+    minHeight: "34px",
+    border: "1px solid #cbd5e1",
+    padding: "8px 9px",
+    fontSize: "13px",
     background: "#f8fafc",
-    padding: "8px",
+    color: "#12304a",
+    boxSizing: "border-box",
+    fontWeight: 800,
+  },
+  infoBox: {
     display: "grid",
     gap: "4px",
-    color: "#334155",
-  },
-  primaryButton: {
-    width: "100%",
-    border: "1px solid #2563eb",
-    borderRadius: "4px",
-    padding: "7px 9px",
-    background: "#2563eb",
-    color: "#ffffff",
-    fontWeight: 850,
-    fontSize: "12px",
-    cursor: "pointer",
-    fontFamily: "inherit",
-  },
-  mainPanel: {
-    background: "#ffffff",
-    border: "1px solid #dfe5ef",
-    borderRadius: "6px",
+    border: "1px solid #d8e2ef",
+    background: "#f8fafc",
     padding: "8px",
-    boxShadow: "none",
-    minHeight: "300px",
+    marginBottom: "10px",
+    fontSize: "12px",
+    color: "#12304a",
   },
-  listHeaderRow: {
+  createForm: {
+    borderTop: "2px solid #0f2742",
+    paddingTop: "10px",
+  },
+  primaryButtonFull: {
+    width: "100%",
+    background: "#0b5cab",
+    color: "#ffffff",
+    border: "1px solid #0b5cab",
+    padding: "9px 10px",
+    fontSize: "13px",
+    fontWeight: 900,
+    cursor: "pointer",
+    borderRadius: 0,
+  },
+  tableHeaderRow: {
     display: "flex",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "8px",
-    marginBottom: "7px",
+    alignItems: "start",
+    gap: "12px",
+    marginBottom: "8px",
   },
-  listTitle: {
-    margin: 0,
-    fontSize: "17px",
-    fontWeight: 800,
-    color: "#111827",
-  },
-  listSubtitle: {
-    margin: "4px 0 0",
-    color: "#64748b",
-    fontSize: "12px",
-    fontWeight: 650,
-  },
-  secondaryButton: {
-    border: "1px solid #d6deea",
-    borderRadius: "4px",
+  clearButton: {
     background: "#ffffff",
-    color: "#334155",
-    padding: "7px 9px",
+    color: "#12304a",
+    border: "1px solid #cbd5e1",
+    padding: "8px 12px",
     fontSize: "12px",
-    fontWeight: 800,
+    fontWeight: 900,
     cursor: "pointer",
-    fontFamily: "inherit",
+    borderRadius: 0,
   },
   filtersGrid: {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) 140px 160px",
+    gridTemplateColumns: "1fr 150px 170px",
     gap: "8px",
-    marginBottom: "7px",
-  },
-  compactLabel: {
-    display: "grid",
-    gap: "4px",
-    color: "#475569",
-    fontSize: "11px",
-    fontWeight: 750,
-  },
-  compactInput: {
-    border: "1px solid #cfd8e6",
-    borderRadius: "4px",
-    padding: "8px 9px",
-    fontSize: "12px",
-    color: "#111827",
-    background: "#ffffff",
-    outline: "none",
-    fontFamily: "inherit",
+    marginBottom: "8px",
   },
   tableWrap: {
-    border: "1px solid #e2e8f0",
-    borderRadius: "5px",
-    overflow: "hidden",
+    border: "1px solid #d8e2ef",
+    overflowX: "auto",
   },
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    fontSize: "12px",
+    fontSize: "13px",
   },
   th: {
-    background: "#f8fafc",
-    borderBottom: "1px solid #dfe5ef",
-    padding: "8px 7px",
+    background: "#eef3f8",
+    color: "#334155",
     textAlign: "left",
-    color: "#334155",
-    fontSize: "11px",
-    fontWeight: 850,
-    whiteSpace: "nowrap",
-  },
-  thRight: {
-    background: "#f8fafc",
-    borderBottom: "1px solid #dfe5ef",
     padding: "8px 7px",
-    textAlign: "right",
-    color: "#334155",
-    fontSize: "11px",
-    fontWeight: 850,
+    borderBottom: "1px solid #cbd5e1",
+    fontSize: "12px",
+    fontWeight: 900,
     whiteSpace: "nowrap",
-  },
-  tr: {
-    borderBottom: "1px solid #eef2f7",
   },
   td: {
     padding: "8px 7px",
-    color: "#334155",
+    borderBottom: "1px solid #e5edf6",
+    color: "#12304a",
     verticalAlign: "middle",
+    whiteSpace: "nowrap",
   },
   tdStrong: {
     padding: "8px 7px",
-    color: "#111827",
-    fontWeight: 850,
+    borderBottom: "1px solid #e5edf6",
+    color: "#0f2742",
+    fontWeight: 900,
     verticalAlign: "middle",
-  },
-  tdRight: {
-    padding: "8px 7px",
-    textAlign: "right",
-    verticalAlign: "middle",
+    whiteSpace: "nowrap",
   },
   statusBadge: {
-    borderRadius: "999px",
-    padding: "4px 8px",
-    fontSize: "11px",
-    fontWeight: 850,
-    textTransform: "lowercase",
-    whiteSpace: "nowrap",
-    display: "inline-flex",
-  },
-  statusDraft: {
-    background: "#eff6ff",
-    color: "#1d4ed8",
-  },
-  statusReview: {
-    background: "#fffbeb",
-    color: "#92400e",
-  },
-  statusFinal: {
-    background: "#dcfce7",
-    color: "#166534",
+    display: "inline-block",
+    padding: "3px 8px",
+    background: "#eaf3ff",
+    color: "#0b5cab",
+    border: "1px solid #bfdbfe",
+    fontSize: "12px",
+    fontWeight: 900,
   },
   openButton: {
-    border: "0",
+    border: 0,
     background: "transparent",
-    color: "#2563eb",
-    padding: "4px 0",
-    fontSize: "12px",
-    fontWeight: 850,
+    color: "#0b5cab",
+    textDecoration: "none",
+    fontWeight: 900,
     cursor: "pointer",
-    fontFamily: "inherit",
+    padding: 0,
+    fontSize: "13px",
   },
-  emptyText: {
+  emptyState: {
+    padding: "28px",
+    textAlign: "center",
     color: "#64748b",
-    fontSize: "12px",
-    padding: "18px 4px",
-  },
-  footNote: {
-    margin: "10px 0 0",
-    color: "#64748b",
-    fontSize: "11px",
+    border: "1px dashed #cbd5e1",
+    background: "#f8fafc",
+    fontWeight: 700,
   },
 };
