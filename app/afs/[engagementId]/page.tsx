@@ -421,19 +421,22 @@ export default function AFSEngagementPage() {
   }
 
   function openSection(sectionKey: SectionKey) {
-    if (sectionKey === "financial-statements") {
-      router.push(`/afs/${String(engagementId)}/print-studio`);
-      return;
-    }
-
-    setActiveSection(sectionKey);
-
-    if (sectionKey === "lead-schedules") {
-      setActiveLeadSchedule(null);
-      setActiveLeadSubPage("lead-schedule");
-    }
+  if (sectionKey === "financial-statements") {
+    window.open(
+      `/afs/${String(engagementId)}/print-studio`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+    return;
   }
 
+  setActiveSection(sectionKey);
+
+  if (sectionKey === "lead-schedules") {
+    setActiveLeadSchedule(null);
+    setActiveLeadSubPage("lead-schedule");
+  }
+}
   function openLeadSchedule(scheduleKey: LeadScheduleKey, subPage: LeadScheduleSubPage) {
     setActiveSection("lead-schedules");
     setActiveLeadSchedule(scheduleKey);
