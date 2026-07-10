@@ -552,27 +552,7 @@ export default function AFSEngagementPage() {
             ← Back to AFS
           </button>
 
-<button
-  type="button"
-  onClick={() => {
-    if (!engagementId) return;
-    window.open(`/afs/${String(engagementId)}/print-studio`, "_blank", "noopener,noreferrer");
-  }}
-  style={{
-    fontSize: 12,
-    fontWeight: 600,
-    color: "#ffffff",
-    background: "#111827",
-    border: "1px solid #111827",
-    padding: "7px 12px",
-    textDecoration: "none",
-    whiteSpace: "nowrap",
-    cursor: engagementId ? "pointer" : "not-allowed",
-    opacity: engagementId ? 1 : 0.55,
-  }}
->
-  Open Print Studio ↗
-</button>
+
 
           <div style={styles.fileHeaderLine}>
             <span style={styles.fileHeaderLabel}>AFS Working File</span>
@@ -783,7 +763,6 @@ export default function AFSEngagementPage() {
         >
           {!isMappingMode && (
             <div style={styles.workHeader}>
-              <p style={styles.kicker}>{selectedSection?.number}</p>
               <h2 style={styles.workTitle}>{selectedSection?.title}</h2>
               <p style={styles.subtitle}>{selectedSection?.description}</p>
             </div>
