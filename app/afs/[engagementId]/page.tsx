@@ -546,8 +546,7 @@ export default function AFSEngagementPage() {
 
   return (
     <main style={styles.page}>
-      {!isMappingMode && (
-        <section style={styles.topBar}>
+      <section style={styles.topBar}>
           <button style={styles.backButton} onClick={() => router.push("/afs")}>
             ← Back to AFS
           </button>
@@ -566,7 +565,6 @@ export default function AFSEngagementPage() {
 
           <span style={styles.status}>{engagement.status || "Draft"}</span>
         </section>
-      )}
 
       {activeSection === "financial-statements" && (
         <div style={styles.financialQuickNavShell}>
