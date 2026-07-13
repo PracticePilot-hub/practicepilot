@@ -278,7 +278,39 @@ function bucketKey(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket) 
   );
 }
 
+function mappingStartsWith(line: AfsEngineTrialBalanceLine, prefixes: string[]) {
+  const values = [
+    line.mapping_code,
+    line.lead_schedule_number,
+    line.lead_schedule_key,
+    line.mapping_leaf_id,
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  return values.some((value) =>
+    prefixes.some((prefix) => {
+      const clean = String(prefix || "").trim().toLowerCase();
+      return (
+        value === clean ||
+        value.startsWith(`${clean}.`) ||
+        value.startsWith(`${clean} `) ||
+        value.includes(` ${clean}.`) ||
+        value.includes(` ${clean} `)
+      );
+    })
+  );
+}
+
+
 function bucketLabel(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket) {
+  if (
+    canonical.noteKey === "otherFinancialLiabilities" &&
+    mappingStartsWith(line, ["590", "500.590"])
+  ) {
+    return "Other non-current liabilities";
+  }
+
   if (canonical.noteKey === "currentTaxReceivable" && isDeferredTaxAssetLine(line)) {
     return "Deferred tax asset";
   }
@@ -317,6 +349,15 @@ function detailedLabel(line: AfsEngineTrialBalanceLine) {
 
 function canonicalFromMapping(line: AfsEngineTrialBalanceLine): CanonicalBucket {
   const text = mappingText(line);
+
+  /*
+    Mapping-code driven classification.
+    590 / 500.590 is Other non-current liabilities.
+    This must not be decided from account names or label wording.
+  */
+  if (mappingStartsWith(line, ["590", "500.590"])) {
+    return { statement: "nonCurrentLiability", noteKey: "otherFinancialLiabilities" };
+  }
 
   if (!text.trim()) return { statement: "unmapped" };
 

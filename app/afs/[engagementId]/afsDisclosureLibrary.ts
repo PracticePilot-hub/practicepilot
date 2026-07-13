@@ -255,8 +255,10 @@ export const AFS_DISCLOSURE_LIBRARY: AfsDisclosureLibraryItem[] = [
     displayOrder: 180,
     supportsSplit: true,
     supportsTerms: true,
-    linkedMappingPrefixes: ["547", "531"],
+    linkedMappingPrefixes: ["590", "500.590", "547", "531"],
     policyKey: "financial-instruments",
+    defaultText:
+      "Other financial liabilities are disclosed by lender, relationship, interest terms, repayment terms and security where applicable.",
   },
   {
     key: "trade-and-other-payables",

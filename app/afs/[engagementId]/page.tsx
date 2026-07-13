@@ -2062,13 +2062,13 @@ function PrintableSubordinationAgreements() {
     <>
       <h3 style={styles.exportPrintTitle}>Subordination Agreements</h3>
       <p style={styles.exportEmpty}>
-        Full subordination agreements are generated through Export PDF. The PDF export detects
-        shareholder, director and member loan accounts from the final trial balance and creates
-        one agreement per qualifying loan account.
-      </p>
-      <p style={{ ...styles.exportEmpty, marginTop: "8px" }}>
-        If a loan account has been remapped to Other non-current liabilities, it will not be
-        treated as a shareholder/director/member loan for subordination purposes.
+        Subordination agreements are not generated automatically.
+
+Only shareholder / director / member loan accounts mapped to 548 will be eligible for subordination, and the preparer must specifically select which loans are to be subordinated.
+
+Other non-current liabilities are not shareholder loans and must not be subordinated.
+
+The selection screen for subordination agreements will be added as a separate support document workflow.
       </p>
     </>
   );

@@ -200,6 +200,31 @@ function clean(value: unknown) {
   return String(value || "").trim();
 }
 
+function mappingStartsWith(line: any, prefixes: string[]) {
+  const values = [
+    line.mapping_code,
+    line.lead_schedule_number,
+    line.lead_schedule_key,
+    line.mapping_leaf_id,
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  return values.some((value) =>
+    prefixes.some((prefix) => {
+      const cleanPrefix = String(prefix || "").trim().toLowerCase();
+      return (
+        value === cleanPrefix ||
+        value.startsWith(`${cleanPrefix}.`) ||
+        value.startsWith(`${cleanPrefix} `) ||
+        value.includes(` ${cleanPrefix}.`) ||
+        value.includes(` ${cleanPrefix} `)
+      );
+    })
+  );
+}
+
+
 function splitRows(lines: AmountLine[]) {
   return lines.filter(
     (line) =>
@@ -589,17 +614,12 @@ function shareholderLoanSearchText(line: any) {
 }
 
 function isShareholderLoanLine(line: any) {
-  const text = shareholderLoanSearchText(line);
-
-  return (
-    text.includes("548") ||
-    text.includes("shareholder") ||
-    text.includes("director loan") ||
-    text.includes("member loan") ||
-    text.includes("loan from shareholder") ||
-    text.includes("loan from director") ||
-    text.includes("loan from member")
-  );
+  /*
+    Mapping-driven only:
+    548 / 500.548 = shareholder / director / member loans.
+    Do not include accounts because of account names or wording.
+  */
+  return mappingStartsWith(line, ["548", "500.548"]);
 }
 
 function shareholderLoanLabel(line: any) {
@@ -1662,6 +1682,291 @@ function CashUsedInOperationsNote({
   );
 }
 
+function isOtherFinancialLiabilityLine(line: any) {
+  /*
+    Mapping-driven only:
+    590 / 500.590 = other non-current financial liabilities.
+    These are not shareholder loans and must never be auto-subordinated.
+  */
+  return mappingStartsWith(line, ["590", "500.590"]);
+}
+
+function otherFinancialLiabilityLabel(line: any) {
+  return (
+    clean(line.account_name) ||
+    clean(line.description) ||
+    clean(line.mapping_label) ||
+    clean(line.mapping_category) ||
+    "Other non-current financial liability"
+  );
+}
+
+function otherFinancialLiabilityLineKey(line: any, index: number) {
+  return String(
+    line.id ||
+      line.account_code ||
+      line.account_name ||
+      line.mapping_leaf_id ||
+      line.mapping_code ||
+      `other-financial-liability-${index}`,
+  );
+}
+
+function buildOtherFinancialLiabilityDetailRows(
+  trialBalanceLines: any[],
+  fallbackRows: AmountLine[],
+): AmountLine[] {
+  const grouped = new Map<string, AmountLine>();
+
+  (trialBalanceLines || [])
+    .filter(isOtherFinancialLiabilityLine)
+    .forEach((line, index) => {
+      const current = normaliseLoanAmount(lineAmount(line, "current"));
+      const prior = normaliseLoanAmount(lineAmount(line, "prior"));
+      if (current === 0 && prior === 0) return;
+
+      const label = otherFinancialLiabilityLabel(line);
+      const key = otherFinancialLiabilityLineKey(line, index);
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          id: key,
+          label,
+          current: 0,
+          prior: 0,
+          meta: { source: "trialBalanceLine", noteFamily: "otherFinancialLiabilities" },
+        });
+      }
+
+      const row = grouped.get(key);
+      if (!row) return;
+      row.current += current;
+      row.prior += prior;
+    });
+
+  const detailRows = Array.from(grouped.values()).filter(
+    (row) => roundAmount(row.current) !== 0 || roundAmount(row.prior) !== 0,
+  );
+
+  if (detailRows.length > 0) {
+    return detailRows.sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  return fallbackRows;
+}
+
+function OtherFinancialLiabilitiesNote({
+  rows,
+  trialBalanceLines,
+  edit,
+  state,
+  update,
+}: {
+  rows: AmountLine[];
+  trialBalanceLines: any[];
+  edit: boolean;
+  state: StructuredState;
+  update: (path: string[], value: any) => void;
+}) {
+  const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
+  const visibleRows = splitRows(
+    buildOtherFinancialLiabilityDetailRows(trialBalanceLines, rows),
+  );
+  const totalCurrent = visibleRows.reduce(
+    (sum, row) => sum + toNumber(row.current),
+    0,
+  );
+  const totalPrior = visibleRows.reduce(
+    (sum, row) => sum + toNumber(row.prior),
+    0,
+  );
+
+  if (visibleRows.length === 0 && !edit) return null;
+
+  return (
+    <>
+      <table style={styles.table}>
+        <colgroup>
+          <col style={{ width: "auto" }} />
+          <col style={{ width: 76 }} />
+          {!hideComparatives ? <col style={{ width: 76 }} /> : null}
+        </colgroup>
+        <thead>
+          <tr>
+            <th style={styles.thLeft}>Description</th>
+            <th style={styles.thRight}>{currentHeading}</th>
+            {!hideComparatives ? (
+              <th style={styles.thRight}>{priorHeading}</th>
+            ) : null}
+          </tr>
+        </thead>
+        <tbody>
+          {visibleRows.map((row, index) => {
+            const key = row.id || row.label || String(index);
+            const savedLabel = state.otherFinancialLiabilities?.[key]?.label || "";
+            const displayLabel = savedLabel || row.label;
+            const terms =
+              state.otherFinancialLiabilities?.[key]?.terms ||
+              "The liability is unsecured, bears no interest and has no fixed repayment terms unless otherwise disclosed.";
+            const interest = state.otherFinancialLiabilities?.[key]?.interest || "";
+            const repayment = state.otherFinancialLiabilities?.[key]?.repayment || "";
+            const security = state.otherFinancialLiabilities?.[key]?.security || "";
+            const relationship = state.otherFinancialLiabilities?.[key]?.relationship || "";
+
+            return (
+              <FragmentWithKey key={key}>
+                <tr>
+                  <td style={styles.tdLeft}>
+                    {edit ? (
+                      <input
+                        value={displayLabel}
+                        onChange={(event) =>
+                          update(
+                            ["otherFinancialLiabilities", key, "label"],
+                            event.target.value,
+                          )
+                        }
+                        style={inputStyle()}
+                      />
+                    ) : (
+                      displayLabel
+                    )}
+                  </td>
+                  <td style={styles.tdRight}>{amount(row.current)}</td>
+                  {!hideComparatives ? (
+                    <td style={styles.tdRight}>{amount(row.prior)}</td>
+                  ) : null}
+                </tr>
+                <tr>
+                  <td colSpan={hideComparatives ? 2 : 3} style={styles.loanTermsCell}>
+                    {edit ? (
+                      <div style={styles.loanTermsGrid}>
+                        <label>
+                          <span style={styles.smallLabel}>
+                            Terms for {displayLabel}
+                          </span>
+                          <input
+                            value={terms}
+                            onChange={(event) =>
+                              update(
+                                ["otherFinancialLiabilities", key, "terms"],
+                                event.target.value,
+                              )
+                            }
+                            style={inputStyle()}
+                          />
+                        </label>
+                        <label>
+                          <span style={styles.smallLabel}>Relationship / lender type</span>
+                          <input
+                            value={relationship}
+                            onChange={(event) =>
+                              update(
+                                ["otherFinancialLiabilities", key, "relationship"],
+                                event.target.value,
+                              )
+                            }
+                            style={inputStyle()}
+                          />
+                        </label>
+                        <label>
+                          <span style={styles.smallLabel}>Interest</span>
+                          <input
+                            value={interest}
+                            onChange={(event) =>
+                              update(
+                                ["otherFinancialLiabilities", key, "interest"],
+                                event.target.value,
+                              )
+                            }
+                            style={inputStyle()}
+                          />
+                        </label>
+                        <label>
+                          <span style={styles.smallLabel}>Repayment</span>
+                          <input
+                            value={repayment}
+                            onChange={(event) =>
+                              update(
+                                ["otherFinancialLiabilities", key, "repayment"],
+                                event.target.value,
+                              )
+                            }
+                            style={inputStyle()}
+                          />
+                        </label>
+                        <label>
+                          <span style={styles.smallLabel}>Security</span>
+                          <input
+                            value={security}
+                            onChange={(event) =>
+                              update(
+                                ["otherFinancialLiabilities", key, "security"],
+                                event.target.value,
+                              )
+                            }
+                            style={inputStyle()}
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                      <div>
+                        {relationship ? (
+                          <p style={styles.paragraph}>Relationship / lender type: {relationship}</p>
+                        ) : null}
+                        {terms ? <p style={styles.paragraph}>{terms}</p> : null}
+                        {interest ? (
+                          <p style={styles.paragraph}>Interest: {interest}</p>
+                        ) : null}
+                        {repayment ? (
+                          <p style={styles.paragraph}>
+                            Repayment terms: {repayment}
+                          </p>
+                        ) : null}
+                        {security ? (
+                          <p style={styles.paragraph}>Security: {security}</p>
+                        ) : null}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              </FragmentWithKey>
+            );
+          })}
+          <tr>
+            <td data-total-label="true" style={styles.totalLabel}>
+              &nbsp;
+            </td>
+            <td data-total-amount="true" style={styles.totalAmount}>
+              {amount(totalCurrent)}
+            </td>
+            {!hideComparatives ? (
+              <td data-total-amount="true" style={styles.totalAmount}>
+                {amount(totalPrior)}
+              </td>
+            ) : null}
+          </tr>
+        </tbody>
+      </table>
+
+      {edit ? (
+        <EditableTextBlock
+          label="Additional disclosure wording"
+          value={state.otherFinancialLiabilities?.extraText || ""}
+          edit
+          onChange={(value) =>
+            update(["otherFinancialLiabilities", "extraText"], value)
+          }
+        />
+      ) : state.otherFinancialLiabilities?.extraText ? (
+        <p style={styles.paragraph}>
+          {state.otherFinancialLiabilities.extraText}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 function ShareholderLoansNote({
   rows,
   trialBalanceLines,
@@ -2643,11 +2948,10 @@ export default function AfsStructuredNotesPanel({
                       update={update}
                     />
                   ) : section.key === "notesOtherFinancialLiabilities" ? (
-                    <GenericStructuredNote
+                    <OtherFinancialLiabilitiesNote
                       rows={rows}
+                      trialBalanceLines={trialBalanceLines}
                       edit={mode === "edit"}
-                      stateKey="financialLiabilities"
-                      defaultText="Financial liabilities are disclosed by lender, repayment terms, interest rate and security where applicable."
                       state={state}
                       update={update}
                     />
@@ -2747,11 +3051,10 @@ export default function AfsStructuredNotesPanel({
                       update={update}
                     />
                   ) : section.key === "notesOtherFinancialLiabilities" ? (
-                    <GenericStructuredNote
+                    <OtherFinancialLiabilitiesNote
                       rows={rows}
+                      trialBalanceLines={trialBalanceLines}
                       edit={false}
-                      stateKey="financialLiabilities"
-                      defaultText="Financial liabilities are disclosed by lender, repayment terms, interest rate and security where applicable."
                       state={state}
                       update={update}
                     />
