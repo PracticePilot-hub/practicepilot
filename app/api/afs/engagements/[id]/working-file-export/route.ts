@@ -574,8 +574,218 @@ function renderLeadSheetsUsed(lines: Record<string, any>[], journals: Record<str
   `;
 }
 
-function renderSubordinationAgreements() {
-  return `<p class="empty">Subordination agreements will be generated from selected shareholder / director loan balances after the TB and journal pack are finalised.</p>`;
+function isSubordinationLoanLine(line: Record<string, any>) {
+  const haystack = [
+    line.account_code,
+    line.account_name,
+    line.description,
+    line.mapping_label,
+    line.mapping_code,
+    line.lead_schedule_key,
+    line.lead_schedule_number,
+    line.mapping_category,
+  ]
+    .map((value) => cleanText(value).toLowerCase())
+    .join(" ");
+
+  return (
+    haystack.includes("shareholder") ||
+    haystack.includes("director") ||
+    haystack.includes("member loan") ||
+    haystack.includes("loan from") ||
+    haystack.includes("loan account") ||
+    haystack.includes("subordinated")
+  );
+}
+
+function buildSubordinationLoanRows(lines: Record<string, any>[], journals: Record<string, any>[]) {
+  const journalMap = buildJournalAdjustmentMap(journals);
+
+  return lines
+    .map((line) => {
+      const imported = preliminaryAmountFromTbLine(line);
+      const manual = manualAdjustmentAmount(line);
+      const journal = journalAmountForLine(line, journalMap);
+      const reclass = reclassificationAmount(line);
+      const finalAmount = finalAmountForLine(imported, manual, journal, reclass);
+      const prior = safeNumber(line.prior_year_balance);
+
+      return {
+        accountCode: cleanText(line.account_code),
+        accountName: cleanText(line.account_name || line.description || "Loan account"),
+        mapping: mappingLabel(line),
+        finalAmount,
+        prior,
+        isLoan: isSubordinationLoanLine(line),
+      };
+    })
+    .filter((row) => row.isLoan && row.finalAmount < -0.005)
+    .sort((a, b) => a.accountCode.localeCompare(b.accountCode, undefined, { numeric: true }));
+}
+
+function renderSubordinationAgreements(args: {
+  engagement: Record<string, any> | null;
+  clientSetup: Record<string, any> | null;
+  trialBalanceLines: Record<string, any>[];
+  journals: Record<string, any>[];
+}) {
+  const companyName = cleanText(args.clientSetup?.registered_name || args.engagement?.client_name || "the Company");
+  const registrationNumber = cleanText(args.clientSetup?.registration_number || args.engagement?.registration_number || "");
+  const yearEnd = cleanText(args.clientSetup?.financial_year_end || args.engagement?.financial_year_end || "");
+  const loanRows = buildSubordinationLoanRows(args.trialBalanceLines, args.journals);
+
+  if (!loanRows.length) {
+    return `
+      <section class="agreement-empty">
+        <h2>No subordination agreement generated</h2>
+        <p>
+          No credit shareholder, director or member loan balances were detected from the mapped trial balance.
+          Review the trial balance mapping if a subordination agreement is required.
+        </p>
+      </section>
+    `;
+  }
+
+  return `
+    <div class="agreement-pack">
+      ${loanRows
+        .map((loan, index) => {
+          const creditorName = loan.accountName;
+          const amountOwing = Math.abs(loan.finalAmount);
+
+          return `
+            <section class="agreement-document">
+              <div class="agreement-title-block">
+                <p class="agreement-kicker">Agreement ${index + 1} of ${loanRows.length}</p>
+                <h2>Subordination Agreement</h2>
+                <p>in respect of amounts owing by</p>
+                <h3>${escapeHtml(companyName)}</h3>
+                ${
+                  registrationNumber
+                    ? `<p class="agreement-muted">Registration number: ${escapeHtml(registrationNumber)}</p>`
+                    : ""
+                }
+              </div>
+
+              <div class="agreement-parties">
+                <p>
+                  This agreement is entered into between <strong>${escapeHtml(creditorName)}</strong>
+                  ("the Creditor") and <strong>${escapeHtml(companyName)}</strong> ("the Company").
+                </p>
+                <p>
+                  The Creditor is reflected in the accounting records of the Company as having advanced or left
+                  amounts owing by the Company under account <strong>${escapeHtml(loan.accountCode || "N/A")}</strong>.
+                </p>
+              </div>
+
+              <table class="agreement-summary">
+                <tbody>
+                  <tr>
+                    <td>Company</td>
+                    <td>${escapeHtml(companyName)}</td>
+                  </tr>
+                  ${
+                    registrationNumber
+                      ? `<tr><td>Registration number</td><td>${escapeHtml(registrationNumber)}</td></tr>`
+                      : ""
+                  }
+                  <tr>
+                    <td>Financial year end</td>
+                    <td>${escapeHtml(yearEnd || "Not specified")}</td>
+                  </tr>
+                  <tr>
+                    <td>Creditor / loan account</td>
+                    <td>${escapeHtml(creditorName)}</td>
+                  </tr>
+                  <tr>
+                    <td>Account code</td>
+                    <td>${escapeHtml(loan.accountCode || "N/A")}</td>
+                  </tr>
+                  <tr>
+                    <td>Amount reflected as owing by the Company</td>
+                    <td>${formatCents(amountOwing)}</td>
+                  </tr>
+                  <tr>
+                    <td>Mapping</td>
+                    <td>${escapeHtml(loan.mapping)}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <ol class="agreement-clauses">
+                <li>
+                  <strong>Indebtedness.</strong>
+                  The Creditor acknowledges that the Company is indebted to the Creditor in respect of the loan
+                  account and any further amounts which may become owing by the Company to the Creditor from time
+                  to time, whether by way of loan, advance, credit, capital contribution or any similar arrangement.
+                </li>
+                <li>
+                  <strong>Subordination.</strong>
+                  The Creditor irrevocably subordinates, in favour of the other present and future creditors of the
+                  Company, all claims which the Creditor has or may in future have against the Company, to the extent
+                  necessary to ensure that the claims of such other creditors rank in priority to the Creditor's claim.
+                </li>
+                <li>
+                  <strong>Repayment restriction.</strong>
+                  The Company shall not repay, settle, set off, reduce or otherwise discharge any subordinated amount
+                  to the Creditor while such repayment would result in the Company being unable to pay its debts as
+                  they become due in the ordinary course of business, or where the liabilities of the Company would
+                  exceed its assets fairly valued.
+                </li>
+                <li>
+                  <strong>No demand for payment.</strong>
+                  The Creditor undertakes not to demand, sue for, prove a claim for, accept payment of, or otherwise
+                  seek to recover the subordinated amount, except to the extent that the Company is solvent and liquid
+                  after taking such payment into account.
+                </li>
+                <li>
+                  <strong>No preference or security.</strong>
+                  The Creditor shall not obtain or enforce any security, preference, cession, pledge, lien, set-off or
+                  other advantage in respect of the subordinated amount which would prejudice the rights of the other
+                  creditors of the Company.
+                </li>
+                <li>
+                  <strong>Continuing effect.</strong>
+                  This subordination shall remain in force until the directors or members of the Company are satisfied
+                  that the assets of the Company, fairly valued, exceed its liabilities and that the Company is able to
+                  pay its debts as they become due in the ordinary course of business.
+                </li>
+                <li>
+                  <strong>Accounting records.</strong>
+                  This agreement is prepared with reference to the accounting records and working papers of the Company
+                  for the financial year ended <strong>${escapeHtml(yearEnd || "as reflected above")}</strong>. The
+                  parties acknowledge that the final amount owing may be adjusted by subsequent accounting entries,
+                  repayments, advances or other transactions.
+                </li>
+                <li>
+                  <strong>Governing law.</strong>
+                  This agreement shall be governed by and interpreted in accordance with the laws of the Republic of
+                  South Africa.
+                </li>
+              </ol>
+
+              <div class="agreement-signatures">
+                <div class="signature-block">
+                  <div class="signature-line"></div>
+                  <strong>For and on behalf of the Creditor</strong>
+                  <span>Name: ${escapeHtml(creditorName)}</span>
+                  <span>Date: __________________________</span>
+                </div>
+
+                <div class="signature-block">
+                  <div class="signature-line"></div>
+                  <strong>For and on behalf of the Company</strong>
+                  <span>Name: __________________________</span>
+                  <span>Capacity: Director / authorised representative</span>
+                  <span>Date: __________________________</span>
+                </div>
+              </div>
+            </section>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
 }
 
 function renderHtml(args: {
@@ -598,7 +808,14 @@ function renderHtml(args: {
   let body = "";
   if (args.document === "journals-passed") body = renderJournalsPassed(args.journals);
   else if (args.document === "lead-sheets-used") body = renderLeadSheetsUsed(args.trialBalanceLines, args.journals);
-  else if (args.document === "subordination-agreements") body = renderSubordinationAgreements();
+  else if (args.document === "subordination-agreements") {
+    body = renderSubordinationAgreements({
+      engagement: args.engagement,
+      clientSetup: args.clientSetup,
+      trialBalanceLines: args.trialBalanceLines,
+      journals: args.journals,
+    });
+  }
   else if (args.document === "final-tb-passenger-view") {
     body = renderFinalTrialBalancePassengerView(args.trialBalanceLines, args.journals);
   } else {
@@ -709,6 +926,119 @@ function renderHtml(args: {
     .lead-used-table { margin-top: 0; }
     .lead-used-table th { font-size: 8.5px; padding: 3px 4px; }
     .lead-used-table td { font-size: 8.7px; padding: 3px 4px; }
+
+    .agreement-pack {
+      display: grid;
+      gap: 16px;
+    }
+    .agreement-document {
+      break-after: page;
+      page-break-after: always;
+      font-size: 10.5px;
+      line-height: 1.45;
+      color: #0f172a;
+    }
+    .agreement-document:last-child {
+      break-after: auto;
+      page-break-after: auto;
+    }
+    .agreement-title-block {
+      text-align: center;
+      border: 1.4px solid #0f172a;
+      padding: 16px 18px;
+      margin-bottom: 14px;
+    }
+    .agreement-kicker {
+      margin: 0 0 8px;
+      color: #475569;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-weight: 800;
+    }
+    .agreement-title-block h2 {
+      margin: 0 0 7px;
+      font-size: 22px;
+      line-height: 1.1;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .agreement-title-block h3 {
+      margin: 7px 0 3px;
+      font-size: 15px;
+      font-weight: 800;
+    }
+    .agreement-title-block p {
+      margin: 2px 0;
+    }
+    .agreement-muted {
+      color: #475569;
+    }
+    .agreement-parties {
+      margin-bottom: 12px;
+    }
+    .agreement-parties p {
+      margin: 0 0 8px;
+    }
+    .agreement-summary {
+      margin: 10px 0 14px;
+      border: 1px solid #cbd5e1;
+    }
+    .agreement-summary td {
+      font-size: 9.8px;
+      padding: 6px 7px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .agreement-summary td:first-child {
+      width: 34%;
+      background: #f8fafc;
+      font-weight: 800;
+      color: #334155;
+    }
+    .agreement-clauses {
+      margin: 0;
+      padding-left: 18px;
+    }
+    .agreement-clauses li {
+      margin: 0 0 8px;
+      padding-left: 3px;
+      break-inside: avoid;
+    }
+    .agreement-signatures {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+      margin-top: 26px;
+      break-inside: avoid;
+    }
+    .signature-block {
+      display: grid;
+      gap: 5px;
+      font-size: 9.8px;
+    }
+    .signature-line {
+      border-top: 1.2px solid #0f172a;
+      height: 1px;
+      margin-bottom: 4px;
+    }
+    .signature-block strong {
+      font-size: 10px;
+    }
+    .signature-block span {
+      display: block;
+      color: #334155;
+    }
+    .agreement-empty {
+      border: 1px solid #d3dce9;
+      background: #f8fafc;
+      padding: 16px;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .agreement-empty h2 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
   </style>
 </head>
 <body class="${bodyClass}">
