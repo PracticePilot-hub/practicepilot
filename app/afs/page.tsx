@@ -213,12 +213,16 @@ export default function AFSPage() {
       } else {
         setSelectedOrganisationId(profileData.organisation_id || "");
       }
-    } catch (error: any) {
+       } catch (error: any) {
       alert(error.message || "Failed to load AFS engagements.");
     } finally {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    void loadPage();
+  }, []);
 
   async function createEngagement(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
