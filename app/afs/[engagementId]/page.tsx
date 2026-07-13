@@ -2062,8 +2062,13 @@ function PrintableSubordinationAgreements() {
     <>
       <h3 style={styles.exportPrintTitle}>Subordination Agreements</h3>
       <p style={styles.exportEmpty}>
-        Subordination agreement generation will be added after the Final Trial Balance
-        and Journals Passed export pages are signed off.
+        Full subordination agreements are generated through Export PDF. The PDF export detects
+        shareholder, director and member loan accounts from the final trial balance and creates
+        one agreement per qualifying loan account.
+      </p>
+      <p style={{ ...styles.exportEmpty, marginTop: "8px" }}>
+        If a loan account has been remapped to Other non-current liabilities, it will not be
+        treated as a shareholder/director/member loan for subordination purposes.
       </p>
     </>
   );
