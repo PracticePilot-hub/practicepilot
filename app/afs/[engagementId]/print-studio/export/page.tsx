@@ -794,7 +794,7 @@ function buildOtherFinancialLiabilitySplitRows(
             source: "trial-balance-split",
             accountCode: line.account_code,
             terms:
-              "The liability is unsecured, bears no interest and has no fixed repayment terms unless otherwise disclosed.",
+              "The liability is unsecured, bears no interest and has no fixed repayment terms.",
           },
         });
       }
@@ -1289,7 +1289,7 @@ function renderInfoRow(label: string, value: unknown) {
       <td
         style={{
           width: "36%",
-          padding: "6px 0 7px",
+          padding: "8px 0 9px",
           fontWeight: 500,
           verticalAlign: "top",
           lineHeight: 1.35,
@@ -1326,10 +1326,11 @@ function sectionHeadingStyle() {
 
 function subsectionHeadingStyle() {
   return {
-    fontSize: 10.6,
+    fontSize: 10.7,
     lineHeight: 1.3,
     fontWeight: 500,
     margin: "9px 0 3px",
+    color: "#334155",
   };
 }
 
@@ -1339,7 +1340,7 @@ function pageHeadingStyle() {
     fontWeight: 500,
     margin: "0 0 14px",
     paddingBottom: 5,
-    borderBottom: "0.6px solid #64748b",
+    borderBottom: "0.5px solid #94a3b8",
     textTransform: "none" as const,
     letterSpacing: "-0.008em",
     color: "#273449",
@@ -3125,13 +3126,17 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               isShareholdersLoansNote ||
               isOtherFinancialLiabilitiesNote
             ) {
-              const termsText =
+              const rawTermsText =
                 savedNoteRow?.terms ||
                 line?.meta?.terms ||
                 line?.meta?.loanTerms ||
                 (isOtherFinancialLiabilitiesNote
-                  ? "The liability is unsecured, bears no interest and has no fixed repayment terms unless otherwise disclosed."
+                  ? "The liability is unsecured, bears no interest and has no fixed repayment terms."
                   : "The loan is unsecured, bears no interest and has no fixed repayment terms.");
+
+              const termsText = String(rawTermsText || "")
+                .replace(/\s+unless otherwise disclosed\.?$/i, ".")
+                .trim();
 
               rows.push(
                 <tr key={`${rowKey}-terms`}>
@@ -3981,8 +3986,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
         .afsExportOnlyRoot h1 {
           font-weight: 500 !important;
-          letter-spacing: -0.008em !important;
-          color: #273449 !important;
+          letter-spacing: -0.004em !important;
+          color: #334155 !important;
         }
 
         .afsExportOnlyRoot h2 {
@@ -4012,6 +4017,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         .afsExportOnlyRoot strong,
         .afsExportOnlyRoot b {
           font-weight: 500 !important;
+          color: #334155 !important;
         }
 
         .afs-export-notes-page tbody tr:last-child td {
@@ -4123,8 +4129,10 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
           .afs-export-notes-page h2,
           .afs-export-notes-page h3 {
-            margin-top: 10px !important;
-            margin-bottom: 5px !important;
+            margin-top: 12px !important;
+            margin-bottom: 6px !important;
+            font-weight: 500 !important;
+            color: #334155 !important;
           }
 
           .afs-export-notes-page table {
@@ -4163,13 +4171,13 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
           .afs-export-notes-page tbody tr:not(:last-child) td:nth-child(2),
           .afs-export-notes-page tbody tr:not(:last-child) td:nth-child(3) {
-            border-bottom: 0.6px solid #cbd5e1 !important;
+            border-bottom: 0.4px solid #e2e8f0 !important;
           }
 
           .afs-export-notes-page tbody tr:last-child td:nth-child(2),
           .afs-export-notes-page tbody tr:last-child td:nth-child(3) {
-            border-top: 0.8px solid #64748b !important;
-            border-bottom: 1px solid #475569 !important;
+            border-top: 0.6px solid #94a3b8 !important;
+            border-bottom: 0.8px solid #64748b !important;
           }
 
           .afs-export-notes-page th:nth-child(2),
