@@ -474,7 +474,7 @@ const styles: Record<string, CSSProperties> = {
   },
   navLinkActive: {
     color: "#0f172a",
-    borderBottomColor: "#2563eb",
+    boxShadow: "inset 0 -3px 0 #2563eb",
     fontWeight: 900,
   },
   chevron: {

@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ClientSetupPanel from "./ClientSetupPanel";
 import TrialBalancePanel from "./TrialBalancePanel";
@@ -12,10 +11,27 @@ import AdjustingJournalsPanel from "./AdjustingJournalsPanel";
 import ReviewPanel from "./ReviewPanel";
 import FinancialStatementsPanel from "./FinancialStatementsPanel";
 import TaxCalculatorPanel from "./TaxCalculatorPanel";
+import SubordinationAgreementEditor from "./components/SubordinationAgreementEditor";
 
-
-
-
+type SubordinationSelection = {
+  id?: string;
+  trial_balance_line_id?: string | null;
+  account_code?: string | null;
+  account_name?: string | null;
+  creditor_name?: string | null;
+  relationship?: string | null;
+  balance_current?: number | null;
+  balance_prior?: number | null;
+  include_in_agreement?: boolean;
+  interest_terms?: string | null;
+  repayment_terms?: string | null;
+  security_terms?: string | null;
+  subordination_terms?: string | null;
+  company_signatory_person_id?: string | null;
+  company_signatory_name?: string | null;
+  company_signatory_capacity?: string | null;
+  agreement_status?: string | null;
+};
 
 type AFSEngagement = {
   id: string;
@@ -344,6 +360,13 @@ export default function AFSEngagementPage() {
   const isAfsPdfMode = searchParams.get("afsPdf") === "1";
 
   const [loading, setLoading] = useState(true);
+
+  const [subordinationSelections, setSubordinationSelections] = useState<
+    Record<string, SubordinationSelection>
+  >({});
+  const [savingSubordinationId, setSavingSubordinationId] = useState<string | null>(
+    null
+  );
   const [engagement, setEngagement] = useState<AFSEngagement | null>(null);
   const [clientSetup, setClientSetup] = useState<ClientSetupData | null>(null);
   const [clientPeople, setClientPeople] = useState<ClientPerson[]>([]);
@@ -354,6 +377,118 @@ export default function AFSEngagementPage() {
     useState<LeadScheduleSubPage>("lead-schedule");
   const [openLeadStatements, setOpenLeadStatements] = useState<Record<string, boolean>>({});
   const [openLeadGroups, setOpenLeadGroups] = useState<Record<string, boolean>>({});
+
+
+  async function loadSubordinationSelections() {
+    if (!engagement?.id) return;
+
+    try {
+      const res = await fetch(
+        `/api/afs/engagements/${engagement.id}/subordination-selections`,
+        { cache: "no-store" }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to load subordination selections.");
+      }
+
+      const next: Record<string, SubordinationSelection> = {};
+
+      (data.selections || []).forEach((selection: SubordinationSelection) => {
+        const key = String(
+          selection.trial_balance_line_id ||
+            selection.account_code ||
+            selection.account_name ||
+            selection.id ||
+            ""
+        );
+
+        if (key) {
+          next[key] = selection;
+        }
+      });
+
+      setSubordinationSelections(next);
+    } catch (error) {
+      console.error("SUBORDINATION SELECTION LOAD ERROR:", error);
+    }
+  }
+
+  function updateSubordinationSelection(
+    key: string,
+    patch: Partial<SubordinationSelection>
+  ) {
+    setSubordinationSelections((current) => ({
+      ...current,
+      [key]: {
+        ...(current[key] || {}),
+        ...patch,
+      },
+    }));
+  }
+
+  async function saveSubordinationSelection(line: any, index: number) {
+    if (!engagement?.id) return;
+
+    const key = subordinationLineId(line, index);
+    const current = subordinationSelections[key] || {};
+
+    setSavingSubordinationId(key);
+
+    try {
+      const payload = {
+        trialBalanceLineId: line.id || line.trial_balance_line_id || null,
+        accountCode: subordinationAccountCode(line),
+        accountName: subordinationAccountName(line),
+        creditorName:
+          current.creditor_name || subordinationAccountName(line) || null,
+        relationship:
+          current.relationship || "Shareholder / director / member loan",
+        balanceCurrent: subordinationCurrentBalance(line),
+        balancePrior: subordinationPriorBalance(line),
+        includeInAgreement: Boolean(current.include_in_agreement),
+        interestTerms: current.interest_terms || "",
+        repaymentTerms: current.repayment_terms || "",
+        securityTerms: current.security_terms || "",
+        subordinationTerms: current.subordination_terms || "",
+        companySignatoryPersonId:
+          current.company_signatory_person_id || null,
+        companySignatoryName:
+          current.company_signatory_name || null,
+        companySignatoryCapacity:
+          current.company_signatory_capacity || null,
+        agreementStatus: current.agreement_status || "Draft",
+      };
+
+      const res = await fetch(
+        `/api/afs/engagements/${engagement.id}/subordination-selections`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to save subordination selection.");
+      }
+
+      setSubordinationSelections((currentSelections) => ({
+        ...currentSelections,
+        [key]: data.selection || currentSelections[key],
+      }));
+    } catch (error: any) {
+      alert(error?.message || "Failed to save subordination selection.");
+    } finally {
+      setSavingSubordinationId(null);
+    }
+  }
 
   async function loadEngagement() {
     setLoading(true);
@@ -489,6 +624,10 @@ export default function AFSEngagementPage() {
     }
   }
 
+ useEffect(() => {
+    loadSubordinationSelections();
+  }, [engagement?.id]);
+
   if (loading) {
     return <main style={styles.page}>Loading AFS engagement...</main>;
   }
@@ -543,6 +682,9 @@ export default function AFSEngagementPage() {
       });
     });
   }
+
+
+ 
 
   return (
     <main style={styles.page}>
@@ -847,6 +989,11 @@ export default function AFSEngagementPage() {
               clientSetup={clientSetup}
               trialBalanceLines={trialBalanceLines}
               leadScheduleStatements={leadScheduleStatements}
+              clientPeople={clientPeople}
+              subordinationSelections={subordinationSelections}
+              savingSubordinationId={savingSubordinationId}
+              updateSubordinationSelection={updateSubordinationSelection}
+              saveSubordinationSelection={saveSubordinationSelection}
             />
           )}
 
@@ -885,6 +1032,14 @@ export default function AFSEngagementPage() {
   );
 }
 
+function PlaceholderCard({ title, text }: { title: string; text: string }) {
+  return (
+    <section style={styles.card}>
+      <h3 style={styles.cardTitle}>{title}</h3>
+      <p style={styles.emptyText}>{text}</p>
+    </section>
+  );
+}
 
 type ExportDocumentKey =
   | "final-tb-pilot-view"
@@ -899,6 +1054,14 @@ type ExportPrintPanelProps = {
   clientSetup: ClientSetupData | null;
   trialBalanceLines: TrialBalanceLine[];
   leadScheduleStatements: LeadScheduleStatement[];
+  clientPeople: ClientPerson[];
+  subordinationSelections: Record<string, SubordinationSelection>;
+  savingSubordinationId: string | null;
+  updateSubordinationSelection: (
+    key: string,
+    patch: Partial<SubordinationSelection>
+  ) => void;
+  saveSubordinationSelection: (line: any, index: number) => Promise<void>;
 };
 
 type PostedJournalLine = {
@@ -1247,6 +1410,11 @@ function ExportPrintPanel({
   clientSetup,
   trialBalanceLines,
   leadScheduleStatements,
+  clientPeople,
+  subordinationSelections,
+  savingSubordinationId,
+  updateSubordinationSelection,
+  saveSubordinationSelection,
 }: ExportPrintPanelProps) {
   const [selectedDocument, setSelectedDocument] =
     useState<ExportDocumentKey>("final-tb-pilot-view");
@@ -1654,6 +1822,15 @@ function ExportPrintPanel({
   }
 
   function printSelectedDocument() {
+    if (selectedDocument === "subordination-agreements") {
+      window.open(
+        selectedExportPdfUrl(),
+        "_blank",
+        "noopener,noreferrer"
+      );
+      return;
+    }
+
     window.print();
   }
 
@@ -1706,10 +1883,31 @@ function ExportPrintPanel({
         </div>
 
         <div style={styles.exportToolbarActions}>
-          <button type="button" style={styles.exportSecondaryButton} onClick={printSelectedDocument}>
-            Print selected
-          </button>
-          <button type="button" style={styles.exportSecondaryButton} onClick={exportSelectedToExcel}>
+          {selectedDocument !== "subordination-agreements" && (
+            <button
+              type="button"
+              style={styles.exportSecondaryButton}
+              onClick={printSelectedDocument}
+            >
+              Print selected
+            </button>
+          )}
+          <button
+            type="button"
+            style={{
+              ...styles.exportSecondaryButton,
+              ...(selectedDocument === "subordination-agreements"
+                ? styles.exportDisabledButton
+                : {}),
+            }}
+            onClick={exportSelectedToExcel}
+            disabled={selectedDocument === "subordination-agreements"}
+            title={
+              selectedDocument === "subordination-agreements"
+                ? "Excel export is not available for Subordination Agreements."
+                : undefined
+            }
+          >
             Export Excel
           </button>
           <a
@@ -1768,7 +1966,14 @@ function ExportPrintPanel({
         )}
 
         {selectedDocument === "subordination-agreements" && (
-          <PrintableSubordinationAgreements />
+          <PrintableSubordinationAgreements
+            trialBalanceLines={trialBalanceLines}
+            clientPeople={clientPeople}
+            subordinationSelections={subordinationSelections}
+            savingSubordinationId={savingSubordinationId}
+            updateSubordinationSelection={updateSubordinationSelection}
+            saveSubordinationSelection={saveSubordinationSelection}
+          />
         )}
       </section>
     </section>
@@ -2057,30 +2262,126 @@ function PrintableLeadSheetsUsed({
   );
 }
 
-function PrintableSubordinationAgreements() {
+function PrintableSubordinationAgreements({
+  trialBalanceLines,
+  clientPeople,
+  subordinationSelections,
+  savingSubordinationId,
+  updateSubordinationSelection,
+  saveSubordinationSelection,
+}: {
+  trialBalanceLines: TrialBalanceLine[];
+  clientPeople: ClientPerson[];
+  subordinationSelections: Record<string, SubordinationSelection>;
+  savingSubordinationId: string | null;
+  updateSubordinationSelection: (
+    key: string,
+    patch: Partial<SubordinationSelection>
+  ) => void;
+  saveSubordinationSelection: (line: any, index: number) => Promise<void>;
+}) {
+  const eligibleLines = (trialBalanceLines || []).filter(
+    isEligibleSubordinationLine
+  );
+
   return (
-    <>
-      <h3 style={styles.exportPrintTitle}>Subordination Agreements</h3>
-      <p style={styles.exportEmpty}>
-        Subordination agreements are not generated automatically.
-
-Only shareholder / director / member loan accounts mapped to 548 will be eligible for subordination, and the preparer must specifically select which loans are to be subordinated.
-
-Other non-current liabilities are not shareholder loans and must not be subordinated.
-
-The selection screen for subordination agreements will be added as a separate support document workflow.
-      </p>
-    </>
+    <SubordinationAgreementEditor
+      lines={eligibleLines}
+      selections={subordinationSelections}
+      people={clientPeople}
+      savingId={savingSubordinationId}
+      getLineKey={subordinationLineId}
+      getAccountCode={subordinationAccountCode}
+      getAccountName={subordinationAccountName}
+      getCurrentBalance={subordinationCurrentBalance}
+      formatMoney={formatSubordinationMoney}
+      onChange={updateSubordinationSelection}
+      onSave={saveSubordinationSelection}
+    />
   );
 }
 
-function PlaceholderCard({ title, text }: { title: string; text: string }) {
-  return (
-    <section style={styles.card}>
-      <h3 style={styles.cardTitle}>{title}</h3>
-      <p style={styles.emptyText}>{text}</p>
-    </section>
+function valueStartsWith(value: unknown, prefixes: string[]) {
+  const cleanValue = String(value || "").trim().toLowerCase();
+  if (!cleanValue) return false;
+
+  return prefixes.some((prefix) => {
+    const cleanPrefix = String(prefix || "").trim().toLowerCase();
+    return (
+      cleanValue === cleanPrefix ||
+      cleanValue.startsWith(`${cleanPrefix}.`) ||
+      cleanValue.startsWith(`${cleanPrefix} `) ||
+      cleanValue.includes(` ${cleanPrefix}.`) ||
+      cleanValue.includes(` ${cleanPrefix} `)
+    );
+  });
+}
+
+function isEligibleSubordinationLine(line: any) {
+  return [
+    line.mapping_code,
+    line.lead_schedule_number,
+    line.lead_schedule_key,
+    line.mapping_leaf_id,
+  ].some((value) => valueStartsWith(value, ["548", "500.548"]));
+}
+
+function subordinationLineId(line: any, index: number) {
+  return String(
+    line.id ||
+      line.trial_balance_line_id ||
+      line.account_code ||
+      line.account ||
+      line.account_name ||
+      `subordination-line-${index}`
   );
+}
+
+function subordinationAccountCode(line: any) {
+  return String(line.account_code || line.account || line.code || "");
+}
+
+function subordinationAccountName(line: any) {
+  return String(line.account_name || line.description || line.name || "");
+}
+
+function subordinationCurrentBalance(line: any) {
+  const value =
+    line.final_balance ??
+    line.finalBalance ??
+    line.current ??
+    line.current_balance ??
+    line.balance_current ??
+    line.amount ??
+    0;
+
+  const numberValue = Number(value || 0);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function subordinationPriorBalance(line: any) {
+  const value =
+    line.prior_year_balance ??
+    line.priorBalance ??
+    line.prior ??
+    line.prior_balance ??
+    line.balance_prior ??
+    0;
+
+  const numberValue = Number(value || 0);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function formatSubordinationMoney(value: unknown) {
+  const numberValue = Number(value || 0);
+  const abs = Math.abs(numberValue);
+
+  const formatted = abs.toLocaleString("en-ZA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  return `${numberValue < 0 ? "-" : ""}R ${formatted}`;
 }
 
 const styles: Record<string, CSSProperties> = {
@@ -2459,6 +2760,12 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 900,
     cursor: "pointer",
   },
+  exportDisabledButton: {
+    background: "#e5e7eb",
+    borderColor: "#d1d5db",
+    color: "#9ca3af",
+    cursor: "not-allowed",
+  },
   exportJournalList: {
     display: "grid",
     gap: "14px",
@@ -2538,6 +2845,13 @@ const styles: Record<string, CSSProperties> = {
     color: "#0f172a",
     fontWeight: 900,
   },
+
+  exportPrintText: {
+    margin: "0 0 12px",
+    color: "#334155",
+    fontSize: "12px",
+    lineHeight: 1.45,
+  },
   exportTable: {
     width: "100%",
     borderCollapse: "collapse",
@@ -2603,6 +2917,15 @@ const styles: Record<string, CSSProperties> = {
     textAlign: "right",
     fontWeight: 900,
     whiteSpace: "nowrap",
+  },
+
+  exportEmptyState: {
+    border: "1px dashed #cbd5e1",
+    background: "#f8fafc",
+    color: "#475569",
+    padding: "12px",
+    fontSize: "12px",
+    fontWeight: 700,
   },
   exportEmpty: {
     color: "#475569",

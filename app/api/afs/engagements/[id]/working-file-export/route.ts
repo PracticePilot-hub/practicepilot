@@ -574,35 +574,66 @@ function renderLeadSheetsUsed(lines: Record<string, any>[], journals: Record<str
   `;
 }
 
-function isSubordinationLoanLine(line: Record<string, any>) {
-  const haystack = [
-    line.account_code,
-    line.account_name,
-    line.description,
-    line.mapping_label,
+function isEligibleSubordinationLoanLine(line: Record<string, any>) {
+  const mappingLabelText = cleanText(
+    line.mapping_label || line.mapping_name || line.mapping_category,
+  ).toLowerCase();
+
+  if (
+    mappingLabelText.includes("other non-current liabilities") ||
+    mappingLabelText.includes("other non current liabilities")
+  ) {
+    return false;
+  }
+
+  const mappingValues = [
     line.mapping_code,
+    line.mapping_key,
     line.lead_schedule_key,
     line.lead_schedule_number,
-    line.mapping_category,
   ]
-    .map((value) => cleanText(value).toLowerCase())
-    .join(" ");
+    .map((value) => cleanText(value).toLowerCase().replace(/\s+/g, ""))
+    .filter(Boolean);
+
+  const hasEligibleMappingCode = mappingValues.some(
+    (value) =>
+      value === "548" ||
+      value.startsWith("548.") ||
+      value === "500.548" ||
+      value.startsWith("500.548."),
+  );
+
+  if (hasEligibleMappingCode) {
+    return true;
+  }
 
   return (
-    haystack.includes("shareholder") ||
-    haystack.includes("director") ||
-    haystack.includes("member loan") ||
-    haystack.includes("loan from") ||
-    haystack.includes("loan account") ||
-    haystack.includes("subordinated")
+    mappingLabelText.includes("shareholder") ||
+    mappingLabelText.includes("director") ||
+    mappingLabelText.includes("member loan")
   );
 }
 
-function buildSubordinationLoanRows(lines: Record<string, any>[], journals: Record<string, any>[]) {
+function buildSubordinationLoanRows(
+  lines: Record<string, any>[],
+  journals: Record<string, any>[],
+  selections: Record<string, any>[],
+) {
   const journalMap = buildJournalAdjustmentMap(journals);
+  const lineMap = new Map(
+    lines.map((line) => [cleanText(line.id), line]),
+  );
 
-  return lines
-    .map((line) => {
+  return selections
+    .filter((selection) => Boolean(selection.include_in_agreement))
+    .map((selection) => {
+      const trialBalanceLineId = cleanText(selection.trial_balance_line_id);
+      const line = lineMap.get(trialBalanceLineId);
+
+      if (!line || !isEligibleSubordinationLoanLine(line)) {
+        return null;
+      }
+
       const imported = preliminaryAmountFromTbLine(line);
       const manual = manualAdjustmentAmount(line);
       const journal = journalAmountForLine(line, journalMap);
@@ -611,16 +642,40 @@ function buildSubordinationLoanRows(lines: Record<string, any>[], journals: Reco
       const prior = safeNumber(line.prior_year_balance);
 
       return {
-        accountCode: cleanText(line.account_code),
-        accountName: cleanText(line.account_name || line.description || "Loan account"),
+        accountCode: cleanText(selection.account_code || line.account_code),
+        accountName: cleanText(
+          selection.account_name ||
+            line.account_name ||
+            line.description ||
+            "Loan account",
+        ),
+        creditorName: cleanText(
+          selection.creditor_name ||
+            selection.account_name ||
+            line.account_name ||
+            line.description ||
+            "Loan account",
+        ),
         mapping: mappingLabel(line),
         finalAmount,
         prior,
-        isLoan: isSubordinationLoanLine(line),
+        interestTerms: cleanText(selection.interest_terms),
+        repaymentTerms: cleanText(selection.repayment_terms),
+        securityTerms: cleanText(selection.security_terms),
+        subordinationTerms: cleanText(selection.subordination_terms),
+        companySignatoryName: cleanText(selection.company_signatory_name),
+        companySignatoryCapacity: cleanText(
+          selection.company_signatory_capacity || "Director"
+        ),
       };
     })
-    .filter((row) => row.isLoan && row.finalAmount < -0.005)
-    .sort((a, b) => a.accountCode.localeCompare(b.accountCode, undefined, { numeric: true }));
+    .filter(
+      (row): row is NonNullable<typeof row> =>
+        row !== null && row.finalAmount < -0.005,
+    )
+    .sort((a, b) =>
+      a.accountCode.localeCompare(b.accountCode, undefined, { numeric: true }),
+    );
 }
 
 function renderSubordinationAgreements(args: {
@@ -628,19 +683,24 @@ function renderSubordinationAgreements(args: {
   clientSetup: Record<string, any> | null;
   trialBalanceLines: Record<string, any>[];
   journals: Record<string, any>[];
+  subordinationSelections: Record<string, any>[];
 }) {
   const companyName = cleanText(args.clientSetup?.registered_name || args.engagement?.client_name || "the Company");
   const registrationNumber = cleanText(args.clientSetup?.registration_number || args.engagement?.registration_number || "");
   const yearEnd = cleanText(args.clientSetup?.financial_year_end || args.engagement?.financial_year_end || "");
-  const loanRows = buildSubordinationLoanRows(args.trialBalanceLines, args.journals);
+  const loanRows = buildSubordinationLoanRows(
+    args.trialBalanceLines,
+    args.journals,
+    args.subordinationSelections,
+  );
 
   if (!loanRows.length) {
     return `
       <section class="agreement-empty">
         <h2>No subordination agreement generated</h2>
         <p>
-          No credit shareholder, director or member loan balances were detected from the mapped trial balance.
-          Review the trial balance mapping if a subordination agreement is required.
+          No eligible shareholder, director or member loan accounts have been selected for inclusion.
+          Select the required qualifying accounts in the working file and save the selection before exporting.
         </p>
       </section>
     `;
@@ -650,7 +710,7 @@ function renderSubordinationAgreements(args: {
     <div class="agreement-pack">
       ${loanRows
         .map((loan, index) => {
-          const creditorName = loan.accountName;
+          const creditorName = loan.creditorName;
           const amountOwing = Math.abs(loan.finalAmount);
 
           return `
@@ -698,16 +758,20 @@ function renderSubordinationAgreements(args: {
                     <td>${escapeHtml(creditorName)}</td>
                   </tr>
                   <tr>
-                    <td>Account code</td>
-                    <td>${escapeHtml(loan.accountCode || "N/A")}</td>
-                  </tr>
-                  <tr>
                     <td>Amount reflected as owing by the Company</td>
                     <td>${formatCents(amountOwing)}</td>
                   </tr>
                   <tr>
-                    <td>Mapping</td>
-                    <td>${escapeHtml(loan.mapping)}</td>
+                    <td>Interest terms</td>
+                    <td>${escapeHtml(loan.interestTerms || "Not specified")}</td>
+                  </tr>
+                  <tr>
+                    <td>Repayment terms</td>
+                    <td>${escapeHtml(loan.repaymentTerms || "Not specified")}</td>
+                  </tr>
+                  <tr>
+                    <td>Security</td>
+                    <td>${escapeHtml(loan.securityTerms || "Unsecured")}</td>
                   </tr>
                 </tbody>
               </table>
@@ -775,8 +839,16 @@ function renderSubordinationAgreements(args: {
                 <div class="signature-block">
                   <div class="signature-line"></div>
                   <strong>For and on behalf of the Company</strong>
-                  <span>Name: __________________________</span>
-                  <span>Capacity: Director / authorised representative</span>
+                  <span>Name: ${
+                    loan.companySignatoryName
+                      ? escapeHtml(loan.companySignatoryName)
+                      : "__________________________"
+                  }</span>
+                  <span>Capacity: ${
+                    loan.companySignatoryCapacity
+                      ? escapeHtml(loan.companySignatoryCapacity)
+                      : "Director / authorised representative"
+                  }</span>
                   <span>Date: __________________________</span>
                 </div>
               </div>
@@ -794,6 +866,7 @@ function renderHtml(args: {
   clientSetup: Record<string, any> | null;
   trialBalanceLines: Record<string, any>[];
   journals: Record<string, any>[];
+  subordinationSelections: Record<string, any>[];
 }) {
   const clientName = args.clientSetup?.registered_name || args.engagement?.client_name || "AFS engagement";
   const yearEnd = args.clientSetup?.financial_year_end || args.engagement?.financial_year_end || "";
@@ -814,6 +887,7 @@ function renderHtml(args: {
       clientSetup: args.clientSetup,
       trialBalanceLines: args.trialBalanceLines,
       journals: args.journals,
+      subordinationSelections: args.subordinationSelections,
     });
   }
   else if (args.document === "final-tb-passenger-view") {
@@ -1042,11 +1116,17 @@ function renderHtml(args: {
   </style>
 </head>
 <body class="${bodyClass}">
+  ${
+    args.document === "subordination-agreements"
+      ? ""
+      : `
   <header>
     <strong>${escapeHtml(clientName)}</strong>
     <span>Financial year end ${escapeHtml(yearEnd)}</span>
   </header>
   <h1>${escapeHtml(title)}</h1>
+  `
+  }
   ${body}
 </body>
 </html>`;
@@ -1112,12 +1192,25 @@ export async function GET(request: NextRequest, context: any) {
 
     if (journalsError) throw journalsError;
 
+    const { data: subordinationSelections, error: subordinationSelectionsError } =
+      await supabase
+        .from("afs_subordination_selections")
+        .select("*")
+        .eq("engagement_id", engagementId)
+        .eq("include_in_agreement", true)
+        .order("account_code", { ascending: true });
+
+    if (subordinationSelectionsError) {
+      throw subordinationSelectionsError;
+    }
+
     const html = renderHtml({
       document,
       engagement: engagement || null,
       clientSetup: clientSetup || null,
       trialBalanceLines: trialBalanceLines || [],
       journals: journals || [],
+      subordinationSelections: subordinationSelections || [],
     });
 
     const isVercel = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
