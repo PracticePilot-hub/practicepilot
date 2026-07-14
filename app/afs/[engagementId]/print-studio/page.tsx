@@ -1344,6 +1344,8 @@ export default function AfsPrintStudioPage() {
           settingsData.accountingPolicyTexts || {};
         const savedNoteTexts = settingsData.noteTexts || {};
         const savedStatementOverrides = settingsData.statementOverrides || {};
+        const savedStructuredNotesState =
+          settingsData.structuredNotesState || {};
 
         if (
           savedReportOptions &&
@@ -1419,6 +1421,23 @@ export default function AfsPrintStudioPage() {
         ) {
           setStatementOverrides(savedStatementOverrides);
         }
+
+        if (
+          savedStructuredNotesState &&
+          typeof savedStructuredNotesState === "object" &&
+          Object.keys(savedStructuredNotesState).length > 0
+        ) {
+          setStructuredNotesState(savedStructuredNotesState);
+
+          try {
+            window.localStorage.setItem(
+              `practicepilot-afs-structured-notes:${engagementId}`,
+              JSON.stringify(savedStructuredNotesState),
+            );
+          } catch {
+            // Supabase remains the source of truth.
+          }
+        }
       }
     } catch (error) {
       console.error("Failed to load Print Studio data", error);
@@ -1438,6 +1457,7 @@ export default function AfsPrintStudioPage() {
     accountingPolicyTexts?: EditableDisclosureTextMap;
     noteTexts?: EditableDisclosureTextMap;
     statementOverrides?: AfsStatementOverrides;
+    structuredNotesState?: Record<string, any>;
   }) {
     if (!engagementId || !printStudioSettingsLoaded) return;
 
@@ -1531,6 +1551,25 @@ export default function AfsPrintStudioPage() {
 
     savePrintStudioSettingsToSupabase({
       statementOverrides: next,
+    });
+  }
+
+  function saveStructuredNotesStateEverywhere(next: Record<string, any>) {
+    if (!engagementId) return;
+
+    setStructuredNotesState(next);
+
+    try {
+      window.localStorage.setItem(
+        `practicepilot-afs-structured-notes:${engagementId}`,
+        JSON.stringify(next),
+      );
+    } catch {
+      // Supabase remains the source of truth.
+    }
+
+    savePrintStudioSettingsToSupabase({
+      structuredNotesState: next,
     });
   }
 
@@ -3617,6 +3656,10 @@ export default function AfsPrintStudioPage() {
                   defaultNoteTexts={defaultNoteTexts}
                   disclosureTokens={disclosureTokens}
                   hideComparatives={hideComparatives}
+                  structuredNotesState={structuredNotesState}
+                  onStructuredNotesStateChange={
+                    saveStructuredNotesStateEverywhere
+                  }
                 />
               </AfsA4Page>
             </div>

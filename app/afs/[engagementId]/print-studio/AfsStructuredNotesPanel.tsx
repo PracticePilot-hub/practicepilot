@@ -12,6 +12,8 @@ type AmountLine = {
 
 type Props = {
   engagementId: string;
+  structuredNotesState?: Record<string, any>;
+  onStructuredNotesStateChange?: (next: Record<string, any>) => void;
   noteSections: any[];
   reportOptions: Record<string, boolean>;
   toggleReportOption: (key: string, checked: boolean) => void;
@@ -310,18 +312,32 @@ function ppeClassKeyFromLine(line: any) {
   return { key: "propertyPlantEquipment1", label };
 }
 
-function useStructuredNotesState(engagementId: string) {
+function useStructuredNotesState(
+  engagementId: string,
+  initialState: StructuredState = {},
+  onChange?: (next: StructuredState) => void,
+) {
   const storageKey = `practicepilot-afs-structured-notes:${engagementId}`;
-  const [state, setState] = useState<StructuredState>({});
+  const [state, setState] = useState<StructuredState>(initialState || {});
 
   useEffect(() => {
+    if (initialState && Object.keys(initialState).length > 0) {
+      setState(initialState);
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(initialState));
+      } catch {
+        // localStorage is only a fallback cache
+      }
+      return;
+    }
+
     try {
       const raw = window.localStorage.getItem(storageKey);
-      if (raw) setState(JSON.parse(raw));
+      setState(raw ? JSON.parse(raw) : {});
     } catch {
       setState({});
     }
-  }, [storageKey]);
+  }, [storageKey, initialState]);
 
   function update(path: string[], value: any) {
     setState((current) => {
@@ -338,8 +354,10 @@ function useStructuredNotesState(engagementId: string) {
       try {
         window.localStorage.setItem(storageKey, JSON.stringify(next));
       } catch {
-        // local only for now
+        // localStorage is only a fallback cache
       }
+
+      onChange?.(next);
 
       window.dispatchEvent(
         new CustomEvent("afs-structured-notes-change", {
@@ -2655,6 +2673,8 @@ export default function AfsStructuredNotesPanel({
   activeNoteTexts,
   defaultNoteTexts,
   hideComparatives = false,
+  structuredNotesState = {},
+  onStructuredNotesStateChange,
 }: Props) {
   const [mode, setMode] = useState<"review" | "edit">("review");
   const notesRootRef = useRef<HTMLElement | null>(null);
@@ -2684,7 +2704,11 @@ export default function AfsStructuredNotesPanel({
       window.removeEventListener("afs-notes-mode-change", onModeChange);
   }, [engagementId]);
 
-  const { state, update } = useStructuredNotesState(engagementId);
+  const { state, update } = useStructuredNotesState(
+    engagementId,
+    structuredNotesState,
+    onStructuredNotesStateChange,
+  );
   const ppeRows = buildPpeRows(trialBalanceLines, state.ppeRows || []);
 
   const sectionsWithNumbers = useMemo(() => {

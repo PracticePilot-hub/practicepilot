@@ -256,7 +256,10 @@ function cleanSettingsRow(row: AnyRow | null | undefined) {
     accountingPolicyTexts:
       data.accounting_policy_texts || data.accountingPolicyTexts || {},
     noteTexts: data.note_texts || data.noteTexts || {},
-    statementOverrides: data.statement_overrides || data.statementOverrides || {},
+    statementOverrides:
+      data.statement_overrides || data.statementOverrides || {},
+    structuredNotesState:
+      data.structured_notes_state || data.structuredNotesState || {},
   };
 }
 
@@ -544,6 +547,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         payload.statementOverrides !== undefined
           ? payload.statementOverrides
           : existing?.statement_overrides || {},
+      structured_notes_state:
+        payload.structuredNotesState !== undefined
+          ? payload.structuredNotesState
+          : existing?.structured_notes_state || {},
       owner_user_id:
         existing?.owner_user_id ||
         firstFilled(engagement, [
