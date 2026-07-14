@@ -1,6 +1,10 @@
 "use client";
 
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  buildSharedOtherFinancialLiabilityRows,
+  buildSharedShareholderLoanRows,
+} from "./AfsSharedStructuredNoteData";
 
 type AmountLine = {
   id?: string;
@@ -1809,7 +1813,7 @@ function OtherFinancialLiabilitiesNote({
 }) {
   const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
   const visibleRows = splitRows(
-    buildOtherFinancialLiabilityDetailRows(trialBalanceLines, rows),
+    buildSharedOtherFinancialLiabilityRows(trialBalanceLines, rows),
   );
   const totalCurrent = visibleRows.reduce(
     (sum, row) => sum + toNumber(row.current),
@@ -2021,7 +2025,7 @@ function ShareholderLoansNote({
 }) {
   const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
   const visibleRows = splitRows(
-    buildShareholderLoanDetailRows(trialBalanceLines, rows),
+    buildSharedShareholderLoanRows(trialBalanceLines, rows),
   );
   const totalCurrent = visibleRows.reduce(
     (sum, row) => sum + toNumber(row.current),

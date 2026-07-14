@@ -16,6 +16,11 @@ import AfsEditableDisclosureSettings from "../../components/AfsEditableDisclosur
 import AfsStatementOverrideSettings from "../../components/AfsStatementOverrideSettings";
 import AfsStructuredNotesPanel from "../AfsStructuredNotesPanel";
 import {
+  buildSharedOtherFinancialLiabilityRows,
+  buildSharedShareholderLoanRows,
+  resolveSharedStructuredNoteEntry,
+} from "../AfsSharedStructuredNoteData";
+import {
   buildAfsFlightDeckIssuesFromEngine,
 } from "../AfsFlightDeck";
 import {
@@ -2596,13 +2601,13 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   const noteDataForPrintStudio = useMemo(() => {
     const base: Record<string, any[]> = { ...(noteData as any) };
 
-    base.shareholdersLoans = buildShareholderLoanSplitRows(
+    base.shareholdersLoans = buildSharedShareholderLoanRows(
       trialBalanceLines,
       base.shareholdersLoans || [],
     );
 
     base.otherFinancialLiabilities =
-      buildOtherFinancialLiabilitySplitRows(
+      buildSharedOtherFinancialLiabilityRows(
         trialBalanceLines,
         base.otherFinancialLiabilities || [],
       );
@@ -3063,14 +3068,16 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         <tbody>
           {displayLines.flatMap((line, lineIndex) => {
             const rowKey = String(line.id || line.label || lineIndex);
-            const savedShareholder =
-              structuredNotesState.shareholderLoans?.[rowKey] || {};
-            const savedOtherLiability =
-              structuredNotesState.otherFinancialLiabilities?.[rowKey] || {};
             const savedNoteRow = isShareholdersLoansNote
-              ? savedShareholder
+              ? resolveSharedStructuredNoteEntry(
+                  structuredNotesState.shareholderLoans,
+                  line,
+                )
               : isOtherFinancialLiabilitiesNote
-                ? savedOtherLiability
+                ? resolveSharedStructuredNoteEntry(
+                    structuredNotesState.otherFinancialLiabilities,
+                    line,
+                  )
                 : {};
             const displayLabel =
               String(savedNoteRow?.label || "").trim() ||
