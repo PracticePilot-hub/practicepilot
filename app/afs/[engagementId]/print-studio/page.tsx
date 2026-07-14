@@ -1178,6 +1178,8 @@ export default function AfsPrintStudioPage() {
   const [loading, setLoading] = useState(true);
   const [activeSectionId, setActiveSectionId] = useState("cover-page");
   const [cashFlowViewMode, setCashFlowViewMode] = useState<"afs" | "work">("afs");
+  const [structuredNotesState, setStructuredNotesState] =
+    useState<Record<string, any>>({});
 
   useEffect(() => {
     if (!isPdfExportMode) return;
@@ -1201,6 +1203,41 @@ export default function AfsPrintStudioPage() {
       );
     };
   }, [isPdfExportMode, loading]);
+
+  useEffect(() => {
+    if (!engagementId) return;
+
+    const storageKey = `practicepilot-afs-structured-notes:${engagementId}`;
+
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      setStructuredNotesState(raw ? JSON.parse(raw) : {});
+    } catch {
+      setStructuredNotesState({});
+    }
+
+    const onStructuredNotesChange = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+
+      if (String(detail.engagementId || "") !== engagementId) return;
+
+      setStructuredNotesState(
+        detail.state && typeof detail.state === "object" ? detail.state : {},
+      );
+    };
+
+    window.addEventListener(
+      "afs-structured-notes-change",
+      onStructuredNotesChange,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "afs-structured-notes-change",
+        onStructuredNotesChange,
+      );
+    };
+  }, [engagementId]);
 
   const [engagement, setEngagement] = useState<EngagementData | null>(null);
   const [clientSetup, setClientSetup] = useState<ClientSetupData | null>(null);
@@ -2102,7 +2139,7 @@ export default function AfsPrintStudioPage() {
     return map;
   }, [reportOptions]);
 
-  const statementEngine = useMemo(
+  const baseStatementEngine = useMemo(
     () =>
       buildAfsPrintStatementEngine(
         trialBalanceLines,
@@ -2111,6 +2148,193 @@ export default function AfsPrintStudioPage() {
       ),
     [trialBalanceLines, statementOverrides, noteNumberMap]
   );
+
+  const statementEngine = useMemo(() => {
+    const values =
+      structuredNotesState?.cashGeneratedFromOperations?.values || {};
+
+    const hasStoredValue = (key: string, side: "current" | "prior") => {
+      const value = values?.[key]?.[side];
+      return value !== undefined && value !== null && value !== "";
+    };
+
+    const storedAmount = (
+      key: string,
+      side: "current" | "prior",
+      fallback: number,
+    ) => {
+      if (!hasStoredValue(key, side)) return fallback;
+      const parsed = Number(values[key][side]);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+
+    const rows = (baseStatementEngine.cashFlowRows || []).map((row: any) => ({
+      ...row,
+    }));
+
+    const findById = (id: string) =>
+      rows.find((row: any) => String(row?.id || "") === id);
+
+    const originalGenerated = findById("cfs-cash-generated-operations");
+    const originalGeneratedCurrent = Number(originalGenerated?.current || 0);
+    const originalGeneratedPrior = Number(originalGenerated?.prior || 0);
+
+    const adjustmentKeys = [
+      "adjustments",
+      "depreciationAmortisationImpairment",
+      "lossOnSaleAssetsLiabilities",
+      "fairValueGainsLosses",
+      "movementProvisions",
+      "otherNonCash1",
+      "investmentIncome",
+      "financeCosts",
+    ];
+
+    const adjustmentsCurrent = adjustmentKeys.reduce(
+      (sum, key) => sum + storedAmount(key, "current", 0),
+      0,
+    );
+    const adjustmentsPrior = adjustmentKeys.reduce(
+      (sum, key) => sum + storedAmount(key, "prior", 0),
+      0,
+    );
+
+    const inventoryRow = findById("cfs-inventories");
+    const receivablesRow = findById("cfs-trade-receivables");
+    const payablesRow = findById("cfs-trade-payables");
+    const adjustmentsRow = findById("cfs-adjustments");
+
+    const inventoryCurrent = storedAmount(
+      "inventories",
+      "current",
+      Number(inventoryRow?.current || 0),
+    );
+    const inventoryPrior = storedAmount(
+      "inventories",
+      "prior",
+      Number(inventoryRow?.prior || 0),
+    );
+
+    const receivablesCurrent =
+      storedAmount(
+        "tradeReceivables",
+        "current",
+        Number(receivablesRow?.current || 0),
+      ) + storedAmount("prepayments", "current", 0);
+    const receivablesPrior =
+      storedAmount(
+        "tradeReceivables",
+        "prior",
+        Number(receivablesRow?.prior || 0),
+      ) + storedAmount("prepayments", "prior", 0);
+
+    const payablesCurrent =
+      storedAmount(
+        "tradePayables",
+        "current",
+        Number(payablesRow?.current || 0),
+      ) + storedAmount("deferredIncome", "current", 0);
+    const payablesPrior =
+      storedAmount(
+        "tradePayables",
+        "prior",
+        Number(payablesRow?.prior || 0),
+      ) + storedAmount("deferredIncome", "prior", 0);
+
+    const profitRow = findById("cfs-profit-before-tax");
+    const generatedCurrent =
+      Number(profitRow?.current || 0) +
+      adjustmentsCurrent +
+      inventoryCurrent +
+      receivablesCurrent +
+      payablesCurrent;
+    const generatedPrior =
+      Number(profitRow?.prior || 0) +
+      adjustmentsPrior +
+      inventoryPrior +
+      receivablesPrior +
+      payablesPrior;
+
+    if (adjustmentsRow) {
+      adjustmentsRow.current = Math.round(adjustmentsCurrent);
+      adjustmentsRow.prior = Math.round(adjustmentsPrior);
+    }
+    if (inventoryRow) {
+      inventoryRow.current = Math.round(inventoryCurrent);
+      inventoryRow.prior = Math.round(inventoryPrior);
+    }
+    if (receivablesRow) {
+      receivablesRow.current = Math.round(receivablesCurrent);
+      receivablesRow.prior = Math.round(receivablesPrior);
+    }
+    if (payablesRow) {
+      payablesRow.current = Math.round(payablesCurrent);
+      payablesRow.prior = Math.round(payablesPrior);
+    }
+    if (originalGenerated) {
+      originalGenerated.current = Math.round(generatedCurrent);
+      originalGenerated.prior = Math.round(generatedPrior);
+    }
+
+    const currentDelta = Math.round(
+      generatedCurrent - originalGeneratedCurrent,
+    );
+    const priorDelta = Math.round(generatedPrior - originalGeneratedPrior);
+
+    const addDelta = (id: string) => {
+      const row = findById(id);
+      if (!row) return;
+      row.current = Math.round(Number(row.current || 0) + currentDelta);
+      row.prior = Math.round(Number(row.prior || 0) + priorDelta);
+    };
+
+    addDelta("cfs-net-operating");
+
+    rows.forEach((row: any) => {
+      const label = String(row?.label || "").toLowerCase();
+
+      if (
+        label.includes("net increase") ||
+        label.includes("net decrease") ||
+        label.includes("net movement")
+      ) {
+        row.current = Math.round(Number(row.current || 0) + currentDelta);
+        row.prior = Math.round(Number(row.prior || 0) + priorDelta);
+      }
+
+      if (
+        label.includes("cash and cash equivalents at end of year") ||
+        label.includes("cash and cash equivalents at the end of year")
+      ) {
+        row.current = Math.round(Number(row.current || 0) + currentDelta);
+        row.prior = Math.round(Number(row.prior || 0) + priorDelta);
+      }
+    });
+
+    const checks = {
+      ...baseStatementEngine.checks,
+      cashMovementFromCashFlow:
+        baseStatementEngine.checks.cashMovementFromCashFlow + currentDelta,
+      cashClosingFromCashFlow:
+        baseStatementEngine.checks.cashClosingFromCashFlow + currentDelta,
+      cashFlowMovementDifference:
+        baseStatementEngine.checks.cashFlowMovementDifference + currentDelta,
+      cashFlowClosingDifference:
+        baseStatementEngine.checks.cashFlowClosingDifference + currentDelta,
+      cashMovementPriorFromCashFlow:
+        baseStatementEngine.checks.cashMovementPriorFromCashFlow + priorDelta,
+      cashClosingPriorFromCashFlow:
+        baseStatementEngine.checks.cashClosingPriorFromCashFlow + priorDelta,
+      cashFlowPriorClosingDifference:
+        baseStatementEngine.checks.cashFlowPriorClosingDifference + priorDelta,
+    };
+
+    return {
+      ...baseStatementEngine,
+      cashFlowRows: rows,
+      checks,
+    };
+  }, [baseStatementEngine, structuredNotesState]);
 
   const flightDeckIssues = useMemo(
     () => buildAfsFlightDeckIssuesFromEngine(statementEngine),

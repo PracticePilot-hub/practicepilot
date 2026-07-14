@@ -341,6 +341,15 @@ function useStructuredNotesState(engagementId: string) {
         // local only for now
       }
 
+      window.dispatchEvent(
+        new CustomEvent("afs-structured-notes-change", {
+          detail: {
+            engagementId,
+            state: next,
+          },
+        }),
+      );
+
       return next;
     });
   }
