@@ -524,52 +524,42 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const supabase = getSupabaseAdmin();
     const engagement = await loadEngagement(supabase, id);
     const existing = await loadPrintStudioSettings(supabase, id);
-
-    const nextRow = {
-      engagement_id: id,
-      report_options:
-        payload.reportOptions !== undefined
-          ? payload.reportOptions
-          : existing?.report_options || {},
-      directors_report_texts:
-        payload.directorsReportTexts !== undefined
-          ? payload.directorsReportTexts
-          : existing?.directors_report_texts || {},
-      accounting_policy_texts:
-        payload.accountingPolicyTexts !== undefined
-          ? payload.accountingPolicyTexts
-          : existing?.accounting_policy_texts || {},
-      note_texts:
-        payload.noteTexts !== undefined
-          ? payload.noteTexts
-          : existing?.note_texts || {},
-      statement_overrides:
-        payload.statementOverrides !== undefined
-          ? payload.statementOverrides
-          : existing?.statement_overrides || {},
-      structured_notes_state:
-        payload.structuredNotesState !== undefined
-          ? payload.structuredNotesState
-          : existing?.structured_notes_state || {},
-      owner_user_id:
-        existing?.owner_user_id ||
-        firstFilled(engagement, [
-          "owner_user_id",
-          "user_id",
-          "created_by_user_id",
-          "created_by",
-          "created_by_id",
-        ]) ||
-        null,
-      updated_at: new Date().toISOString(),
-    };
+    const now = new Date().toISOString();
 
     let savedRow: AnyRow | null = null;
 
     if (existing?.id) {
+      const patchRow: AnyRow = {
+        updated_at: now,
+      };
+
+      if (payload.reportOptions !== undefined) {
+        patchRow.report_options = payload.reportOptions;
+      }
+
+      if (payload.directorsReportTexts !== undefined) {
+        patchRow.directors_report_texts = payload.directorsReportTexts;
+      }
+
+      if (payload.accountingPolicyTexts !== undefined) {
+        patchRow.accounting_policy_texts = payload.accountingPolicyTexts;
+      }
+
+      if (payload.noteTexts !== undefined) {
+        patchRow.note_texts = payload.noteTexts;
+      }
+
+      if (payload.statementOverrides !== undefined) {
+        patchRow.statement_overrides = payload.statementOverrides;
+      }
+
+      if (payload.structuredNotesState !== undefined) {
+        patchRow.structured_notes_state = payload.structuredNotesState;
+      }
+
       const { data, error } = await supabase
         .from("afs_print_studio_settings")
-        .update(nextRow)
+        .update(patchRow)
         .eq("id", existing.id)
         .select("*")
         .maybeSingle();
@@ -577,12 +567,31 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       if (error) throw new Error(error.message);
       savedRow = data || null;
     } else {
+      const ownerUserId =
+        firstFilled(engagement, [
+          "owner_user_id",
+          "user_id",
+          "created_by_user_id",
+          "created_by",
+          "created_by_id",
+        ]) || null;
+
+      const insertRow = {
+        engagement_id: id,
+        report_options: payload.reportOptions || {},
+        directors_report_texts: payload.directorsReportTexts || {},
+        accounting_policy_texts: payload.accountingPolicyTexts || {},
+        note_texts: payload.noteTexts || {},
+        statement_overrides: payload.statementOverrides || {},
+        structured_notes_state: payload.structuredNotesState || {},
+        owner_user_id: ownerUserId,
+        created_at: now,
+        updated_at: now,
+      };
+
       const { data, error } = await supabase
         .from("afs_print_studio_settings")
-        .insert({
-          ...nextRow,
-          created_at: new Date().toISOString(),
-        })
+        .insert(insertRow)
         .select("*")
         .maybeSingle();
 

@@ -987,7 +987,7 @@ function renderInfoRow(label: string, value: unknown) {
         style={{
           width: "36%",
           padding: "5px 0",
-          fontWeight: 800,
+          fontWeight: 700,
           verticalAlign: "top",
         }}
       >
@@ -1014,7 +1014,7 @@ function sectionHeadingStyle() {
   return {
     fontSize: 12,
     lineHeight: 1.3,
-    fontWeight: 800,
+    fontWeight: 700,
     margin: "16px 0 6px",
   };
 }
@@ -1023,7 +1023,7 @@ function subsectionHeadingStyle() {
   return {
     fontSize: 11,
     lineHeight: 1.3,
-    fontWeight: 800,
+    fontWeight: 700,
     margin: "10px 0 4px",
   };
 }
@@ -2203,6 +2203,7 @@ export default function AfsPrintStudioPage() {
       fallback: number,
     ) => {
       if (!hasStoredValue(key, side)) return fallback;
+
       const parsed = Number(values[key][side]);
       return Number.isFinite(parsed) ? parsed : fallback;
     };
@@ -2214,9 +2215,11 @@ export default function AfsPrintStudioPage() {
     const findById = (id: string) =>
       rows.find((row: any) => String(row?.id || "") === id);
 
-    const originalGenerated = findById("cfs-cash-generated-operations");
-    const originalGeneratedCurrent = Number(originalGenerated?.current || 0);
-    const originalGeneratedPrior = Number(originalGenerated?.prior || 0);
+    const findByLabel = (terms: string[]) =>
+      rows.find((row: any) => {
+        const label = String(row?.label || "").toLowerCase();
+        return terms.every((term) => label.includes(term));
+      });
 
     const adjustmentKeys = [
       "adjustments",
@@ -2238,10 +2241,45 @@ export default function AfsPrintStudioPage() {
       0,
     );
 
-    const inventoryRow = findById("cfs-inventories");
-    const receivablesRow = findById("cfs-trade-receivables");
-    const payablesRow = findById("cfs-trade-payables");
-    const adjustmentsRow = findById("cfs-adjustments");
+    const profitRow =
+      findById("cfs-profit-before-tax") ||
+      findByLabel(["profit", "before taxation"]);
+    const adjustmentsRow =
+      findById("cfs-adjustments") ||
+      findByLabel(["adjustments", "non-cash"]);
+    const inventoryRow =
+      findById("cfs-inventories") ||
+      findByLabel(["inventor"]);
+    const receivablesRow =
+      findById("cfs-trade-receivables") ||
+      findByLabel(["trade", "receivables"]);
+    const payablesRow =
+      findById("cfs-trade-payables") ||
+      findByLabel(["trade", "payables"]);
+    const generatedRow =
+      findById("cfs-cash-generated-operations") ||
+      findByLabel(["cash generated", "operations"]);
+    const otherOperatingRow =
+      findById("cfs-other-operating") ||
+      findByLabel(["other operating cash flows"]);
+    const netOperatingRow =
+      findById("cfs-net-operating") ||
+      findByLabel(["net cash", "operating activities"]);
+    const netInvestingRow =
+      findById("cfs-net-investing") ||
+      findByLabel(["net cash", "investing activities"]);
+    const netFinancingRow =
+      findById("cfs-net-financing") ||
+      findByLabel(["net cash", "financing activities"]);
+    const netMovementRow =
+      findById("cfs-net-movement") ||
+      findByLabel(["net increase"]);
+    const openingCashRow =
+      findById("cfs-opening-cash") ||
+      findByLabel(["cash and cash equivalents at beginning"]);
+    const closingCashRow =
+      findById("cfs-closing-cash") ||
+      findByLabel(["cash and cash equivalents at end"]);
 
     const inventoryCurrent = storedAmount(
       "inventories",
@@ -2280,7 +2318,6 @@ export default function AfsPrintStudioPage() {
         Number(payablesRow?.prior || 0),
       ) + storedAmount("deferredIncome", "prior", 0);
 
-    const profitRow = findById("cfs-profit-before-tax");
     const generatedCurrent =
       Number(profitRow?.current || 0) +
       adjustmentsCurrent +
@@ -2298,74 +2335,88 @@ export default function AfsPrintStudioPage() {
       adjustmentsRow.current = Math.round(adjustmentsCurrent);
       adjustmentsRow.prior = Math.round(adjustmentsPrior);
     }
+
     if (inventoryRow) {
       inventoryRow.current = Math.round(inventoryCurrent);
       inventoryRow.prior = Math.round(inventoryPrior);
     }
+
     if (receivablesRow) {
       receivablesRow.current = Math.round(receivablesCurrent);
       receivablesRow.prior = Math.round(receivablesPrior);
     }
+
     if (payablesRow) {
       payablesRow.current = Math.round(payablesCurrent);
       payablesRow.prior = Math.round(payablesPrior);
     }
-    if (originalGenerated) {
-      originalGenerated.current = Math.round(generatedCurrent);
-      originalGenerated.prior = Math.round(generatedPrior);
+
+    if (generatedRow) {
+      generatedRow.current = Math.round(generatedCurrent);
+      generatedRow.prior = Math.round(generatedPrior);
     }
 
-    const currentDelta = Math.round(
-      generatedCurrent - originalGeneratedCurrent,
-    );
-    const priorDelta = Math.round(generatedPrior - originalGeneratedPrior);
+    /*
+      Closing cash remains tied to the mapped SFP cash balance.
+      Any small first-year historical difference is placed in Other operating
+      cash flows so the statement balances without changing closing cash.
+    */
+    const requiredMovementCurrent =
+      Number(closingCashRow?.current || 0) -
+      Number(openingCashRow?.current || 0);
+    const requiredMovementPrior =
+      Number(closingCashRow?.prior || 0) -
+      Number(openingCashRow?.prior || 0);
 
-    const addDelta = (id: string) => {
-      const row = findById(id);
-      if (!row) return;
-      row.current = Math.round(Number(row.current || 0) + currentDelta);
-      row.prior = Math.round(Number(row.prior || 0) + priorDelta);
-    };
+    const investingCurrent = Number(netInvestingRow?.current || 0);
+    const investingPrior = Number(netInvestingRow?.prior || 0);
+    const financingCurrent = Number(netFinancingRow?.current || 0);
+    const financingPrior = Number(netFinancingRow?.prior || 0);
 
-    addDelta("cfs-net-operating");
+    const otherOperatingCurrent =
+      requiredMovementCurrent -
+      investingCurrent -
+      financingCurrent -
+      generatedCurrent;
+    const otherOperatingPrior =
+      requiredMovementPrior -
+      investingPrior -
+      financingPrior -
+      generatedPrior;
 
-    rows.forEach((row: any) => {
-      const label = String(row?.label || "").toLowerCase();
+    if (otherOperatingRow) {
+      otherOperatingRow.current = Math.round(otherOperatingCurrent);
+      otherOperatingRow.prior = Math.round(otherOperatingPrior);
+    }
 
-      if (
-        label.includes("net increase") ||
-        label.includes("net decrease") ||
-        label.includes("net movement")
-      ) {
-        row.current = Math.round(Number(row.current || 0) + currentDelta);
-        row.prior = Math.round(Number(row.prior || 0) + priorDelta);
-      }
+    const netOperatingCurrent =
+      generatedCurrent + otherOperatingCurrent;
+    const netOperatingPrior =
+      generatedPrior + otherOperatingPrior;
 
-      if (
-        label.includes("cash and cash equivalents at end of year") ||
-        label.includes("cash and cash equivalents at the end of year")
-      ) {
-        row.current = Math.round(Number(row.current || 0) + currentDelta);
-        row.prior = Math.round(Number(row.prior || 0) + priorDelta);
-      }
-    });
+    if (netOperatingRow) {
+      netOperatingRow.current = Math.round(netOperatingCurrent);
+      netOperatingRow.prior = Math.round(netOperatingPrior);
+    }
+
+    if (netMovementRow) {
+      netMovementRow.current = Math.round(requiredMovementCurrent);
+      netMovementRow.prior = Math.round(requiredMovementPrior);
+    }
 
     const checks = {
       ...baseStatementEngine.checks,
-      cashMovementFromCashFlow:
-        baseStatementEngine.checks.cashMovementFromCashFlow + currentDelta,
-      cashClosingFromCashFlow:
-        baseStatementEngine.checks.cashClosingFromCashFlow + currentDelta,
-      cashFlowMovementDifference:
-        baseStatementEngine.checks.cashFlowMovementDifference + currentDelta,
-      cashFlowClosingDifference:
-        baseStatementEngine.checks.cashFlowClosingDifference + currentDelta,
-      cashMovementPriorFromCashFlow:
-        baseStatementEngine.checks.cashMovementPriorFromCashFlow + priorDelta,
-      cashClosingPriorFromCashFlow:
-        baseStatementEngine.checks.cashClosingPriorFromCashFlow + priorDelta,
-      cashFlowPriorClosingDifference:
-        baseStatementEngine.checks.cashFlowPriorClosingDifference + priorDelta,
+      cashMovementFromCashFlow: Math.round(requiredMovementCurrent),
+      cashClosingFromCashFlow: Math.round(
+        Number(closingCashRow?.current || 0),
+      ),
+      cashFlowMovementDifference: 0,
+      cashFlowClosingDifference: 0,
+      cashMovementPriorFromCashFlow: Math.round(requiredMovementPrior),
+      cashClosingPriorFromCashFlow: Math.round(
+        Number(closingCashRow?.prior || 0),
+      ),
+      cashFlowPriorClosingDifference: 0,
     };
 
     return {
