@@ -26,6 +26,7 @@ type Props = {
   defaultNoteTexts?: Record<string, { title?: string; text?: string }>;
   disclosureTokens?: Record<string, any>;
   hideComparatives?: boolean;
+  forceReviewMode?: boolean;
 };
 
 
@@ -2686,6 +2687,7 @@ export default function AfsStructuredNotesPanel({
   hideComparatives = false,
   structuredNotesState = {},
   onStructuredNotesStateChange,
+  forceReviewMode = false,
 }: Props) {
   const [mode, setMode] = useState<"review" | "edit">("review");
   const notesRootRef = useRef<HTMLElement | null>(null);
@@ -2720,6 +2722,7 @@ export default function AfsStructuredNotesPanel({
     structuredNotesState,
     onStructuredNotesStateChange,
   );
+  const isEditing = mode === "edit" && !forceReviewMode;
   const ppeRows = buildPpeRows(trialBalanceLines, state.ppeRows || []);
 
   const sectionsWithNumbers = useMemo(() => {
@@ -2733,7 +2736,7 @@ export default function AfsStructuredNotesPanel({
           splitRows(rows).length > 0 ||
           section.key === "notesPropertyPlantEquipment";
 
-        if (!active && mode === "review" && !hasData) return null;
+        if (!active && !isEditing && !hasData) return null;
         if (active) noteNumber += 1;
 
         return {
@@ -2749,7 +2752,7 @@ export default function AfsStructuredNotesPanel({
       noteNumber: number | null;
       rows: AmountLine[];
     }[];
-  }, [mode, noteSections, reportOptions, noteData]);
+  }, [isEditing, noteSections, reportOptions, noteData]);
 
   return (
     <NotesDisplayContext.Provider
@@ -2790,19 +2793,10 @@ export default function AfsStructuredNotesPanel({
           border-top: 1px solid #111827 !important;
           border-bottom: 1.5px solid #111827 !important;
         }
-        #print-notes .afs-notes-print-content {
-          display: none;
-        }
         @media print {
           #print-notes {
             font-size: 10.45px !important;
             line-height: 1.34 !important;
-          }
-          #print-notes .afs-notes-screen-content {
-            display: none !important;
-          }
-          #print-notes .afs-notes-print-content {
-            display: block !important;
           }
           #print-notes [data-note-active="false"],
           #print-notes .afs-screen-only {
@@ -2849,10 +2843,10 @@ export default function AfsStructuredNotesPanel({
             <div
               key={section.key}
               style={
-                !active && mode === "edit" ? styles.noteSectionOff : undefined
+                !active && isEditing ? styles.noteSectionOff : undefined
               }
             >
-              {mode === "edit" ? (
+              {isEditing ? (
                 <div style={styles.headingRow}>
                   <span
                     style={!active ? styles.noteHeadingOff : styles.noteHeading}
@@ -2872,37 +2866,21 @@ export default function AfsStructuredNotesPanel({
                   </button>
                 </div>
               ) : null}
-              {active || mode === "edit" ? (
-                <>
-                  <div className="afs-notes-screen-content">
-                    <PpeStructuredNote
-                      noteNumber={active ? noteNumber : null}
-                      edit={mode === "edit"}
-                      rows={ppeRows}
-                      mappedRows={noteData.propertyPlantEquipment || []}
-                      state={state}
-                      update={update}
-                    />
-                  </div>
-                  {active ? (
-                    <div className="afs-notes-print-content">
-                      <PpeStructuredNote
-                        noteNumber={noteNumber}
-                        edit={false}
-                        rows={ppeRows}
-                        mappedRows={noteData.propertyPlantEquipment || []}
-                        state={state}
-                        update={update}
-                      />
-                    </div>
-                  ) : null}
-                </>
+              {active || isEditing ? (
+                <PpeStructuredNote
+                  noteNumber={active ? noteNumber : null}
+                  edit={isEditing}
+                  rows={ppeRows}
+                  mappedRows={noteData.propertyPlantEquipment || []}
+                  state={state}
+                  update={update}
+                />
               ) : null}
             </div>
           );
         }
 
-        if (!active && mode !== "edit") return null;
+        if (!active && !isEditing) return null;
 
         return (
           <section
@@ -2933,212 +2911,107 @@ export default function AfsStructuredNotesPanel({
               </p>
             ) : (
               <>
-                <div className="afs-notes-screen-content">
-                  {section.key === "notesCashAndCashEquivalents" ? (
-                    <CashNote
-                      rows={rows}
-                      edit={mode === "edit"}
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesShareholdersLoans" ? (
-                    <ShareholderLoansNote
-                      rows={rows}
-                      trialBalanceLines={trialBalanceLines}
-                      edit={mode === "edit"}
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesCashUsedInOperations" ? (
-                    <CashUsedInOperationsNote
-                      rows={rows}
-                      edit={mode === "edit"}
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesShareCapital" ? (
-                    <ShareCapitalNote
-                      rows={rows}
-                      edit={mode === "edit"}
-                      state={state}
-                      update={update}
-                      clientSetup={clientSetup}
-                    />
-                  ) : section.key === "notesInventories" ? (
-                    <GenericStructuredNote
-                      rows={rows}
-                      edit={mode === "edit"}
-                      stateKey="inventories"
-                      defaultText="Inventories are analysed by category where applicable. Inventories pledged as security and write-downs to net realisable value are disclosed where applicable."
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesTradeReceivables" ? (
-                    <GenericStructuredNote
-                      rows={rows}
-                      edit={mode === "edit"}
-                      stateKey="receivables"
-                      defaultText="The directors consider that the carrying amount of trade and other receivables approximates their fair value."
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesTradePayables" ? (
-                    <GenericStructuredNote
-                      rows={rows}
-                      edit={mode === "edit"}
-                      stateKey="payables"
-                      defaultText="Trade and other payables are payable within normal credit terms unless otherwise disclosed."
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesOtherFinancialLiabilities" ? (
-                    <OtherFinancialLiabilitiesNote
-                      rows={rows}
-                      trialBalanceLines={trialBalanceLines}
-                      edit={mode === "edit"}
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesTaxation" ? (
-                    <TaxationNote
-                      rows={rows}
-                      edit={mode === "edit"}
-                      state={state}
-                      update={update}
-                      clientSetup={clientSetup}
-                      cashUsedInOperationsRows={noteData.cashUsedInOperations || []}
-                      currentTaxReceivableRows={noteData.currentTaxReceivable || []}
-                      currentTaxPayableRows={noteData.currentTaxPayable || []}
-                    />
-                  ) : section.key === "notesCurrentTaxReceivable" ? (
-                    <CurrentTaxBalanceNote
-                      rows={rows}
-                      edit={mode === "edit"}
-                      state={state}
-                      update={update}
-                      stateKey="currentTaxReceivable"
-                    />
-                  ) : section.key === "notesCurrentTaxPayable" ? (
-                    <CurrentTaxBalanceNote
-                      rows={rows}
-                      edit={mode === "edit"}
-                      state={state}
-                      update={update}
-                      stateKey="currentTaxPayable"
-                    />
-                  ) : (
-                    <GenericStructuredNote
-                      rows={rows}
-                      edit={mode === "edit"}
-                      stateKey={section.key}
-                      state={state}
-                      update={update}
-                    />
-                  )}
-                </div>
-                <div className="afs-notes-print-content">
-                  {section.key === "notesCashAndCashEquivalents" ? (
-                    <CashNote
-                      rows={rows}
-                      edit={false}
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesShareholdersLoans" ? (
-                    <ShareholderLoansNote
-                      rows={rows}
-                      trialBalanceLines={trialBalanceLines}
-                      edit={false}
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesCashUsedInOperations" ? (
-                    <CashUsedInOperationsNote
-                      rows={rows}
-                      edit={false}
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesShareCapital" ? (
-                    <ShareCapitalNote
-                      rows={rows}
-                      edit={false}
-                      state={state}
-                      update={update}
-                      clientSetup={clientSetup}
-                    />
-                  ) : section.key === "notesInventories" ? (
-                    <GenericStructuredNote
-                      rows={rows}
-                      edit={false}
-                      stateKey="inventories"
-                      defaultText="Inventories are analysed by category where applicable. Inventories pledged as security and write-downs to net realisable value are disclosed where applicable."
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesTradeReceivables" ? (
-                    <GenericStructuredNote
-                      rows={rows}
-                      edit={false}
-                      stateKey="receivables"
-                      defaultText="The directors consider that the carrying amount of trade and other receivables approximates their fair value."
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesTradePayables" ? (
-                    <GenericStructuredNote
-                      rows={rows}
-                      edit={false}
-                      stateKey="payables"
-                      defaultText="Trade and other payables are payable within normal credit terms unless otherwise disclosed."
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesOtherFinancialLiabilities" ? (
-                    <OtherFinancialLiabilitiesNote
-                      rows={rows}
-                      trialBalanceLines={trialBalanceLines}
-                      edit={false}
-                      state={state}
-                      update={update}
-                    />
-                  ) : section.key === "notesTaxation" ? (
-                    <TaxationNote
-                      rows={rows}
-                      edit={false}
-                      state={state}
-                      update={update}
-                      clientSetup={clientSetup}
-                      cashUsedInOperationsRows={noteData.cashUsedInOperations || []}
-                      currentTaxReceivableRows={noteData.currentTaxReceivable || []}
-                      currentTaxPayableRows={noteData.currentTaxPayable || []}
-                    />
-                  ) : section.key === "notesCurrentTaxReceivable" ? (
-                    <CurrentTaxBalanceNote
-                      rows={rows}
-                      edit={false}
-                      state={state}
-                      update={update}
-                      stateKey="currentTaxReceivable"
-                    />
-                  ) : section.key === "notesCurrentTaxPayable" ? (
-                    <CurrentTaxBalanceNote
-                      rows={rows}
-                      edit={false}
-                      state={state}
-                      update={update}
-                      stateKey="currentTaxPayable"
-                    />
-                  ) : (
-                    <GenericStructuredNote
-                      rows={rows}
-                      edit={false}
-                      stateKey={section.key}
-                      state={state}
-                      update={update}
-                    />
-                  )}
-                </div>
+                {section.key === "notesCashAndCashEquivalents" ? (
+                  <CashNote
+                    rows={rows}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                  />
+                ) : section.key === "notesShareholdersLoans" ? (
+                  <ShareholderLoansNote
+                    rows={rows}
+                    trialBalanceLines={trialBalanceLines}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                  />
+                ) : section.key === "notesCashUsedInOperations" ? (
+                  <CashUsedInOperationsNote
+                    rows={rows}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                  />
+                ) : section.key === "notesShareCapital" ? (
+                  <ShareCapitalNote
+                    rows={rows}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                    clientSetup={clientSetup}
+                  />
+                ) : section.key === "notesInventories" ? (
+                  <GenericStructuredNote
+                    rows={rows}
+                    edit={isEditing}
+                    stateKey="inventories"
+                    defaultText="Inventories are analysed by category where applicable. Inventories pledged as security and write-downs to net realisable value are disclosed where applicable."
+                    state={state}
+                    update={update}
+                  />
+                ) : section.key === "notesTradeReceivables" ? (
+                  <GenericStructuredNote
+                    rows={rows}
+                    edit={isEditing}
+                    stateKey="receivables"
+                    defaultText="The directors consider that the carrying amount of trade and other receivables approximates their fair value."
+                    state={state}
+                    update={update}
+                  />
+                ) : section.key === "notesTradePayables" ? (
+                  <GenericStructuredNote
+                    rows={rows}
+                    edit={isEditing}
+                    stateKey="payables"
+                    defaultText="Trade and other payables are payable within normal credit terms unless otherwise disclosed."
+                    state={state}
+                    update={update}
+                  />
+                ) : section.key === "notesOtherFinancialLiabilities" ? (
+                  <OtherFinancialLiabilitiesNote
+                    rows={rows}
+                    trialBalanceLines={trialBalanceLines}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                  />
+                ) : section.key === "notesTaxation" ? (
+                  <TaxationNote
+                    rows={rows}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                    clientSetup={clientSetup}
+                    cashUsedInOperationsRows={noteData.cashUsedInOperations || []}
+                    currentTaxReceivableRows={noteData.currentTaxReceivable || []}
+                    currentTaxPayableRows={noteData.currentTaxPayable || []}
+                  />
+                ) : section.key === "notesCurrentTaxReceivable" ? (
+                  <CurrentTaxBalanceNote
+                    rows={rows}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                    stateKey="currentTaxReceivable"
+                  />
+                ) : section.key === "notesCurrentTaxPayable" ? (
+                  <CurrentTaxBalanceNote
+                    rows={rows}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                    stateKey="currentTaxPayable"
+                  />
+                ) : (
+                  <GenericStructuredNote
+                    rows={rows}
+                    edit={isEditing}
+                    stateKey={section.key}
+                    state={state}
+                    update={update}
+                  />
+                )}
               </>
             )}
           </section>
@@ -3156,7 +3029,7 @@ const styles: Record<string, any> = {
     paddingBottom: 6,
     borderBottom: "1.5px solid #111827",
     fontSize: 15.5,
-    fontWeight: 850,
+    fontWeight: 700,
   },
   toolbar: {
     position: "fixed",
@@ -3202,11 +3075,11 @@ const styles: Record<string, any> = {
     gap: 10,
     alignItems: "center",
   },
-  noteHeading: { margin: "8px 0 5px", fontSize: 11.7, fontWeight: 850 },
+  noteHeading: { margin: "8px 0 5px", fontSize: 11.7, fontWeight: 700 },
   noteHeadingOff: {
     margin: 0,
     fontSize: 12.8,
-    fontWeight: 900,
+    fontWeight: 700,
     color: "#64748b",
   },
   onToggle: {
@@ -3216,7 +3089,7 @@ const styles: Record<string, any> = {
     borderRadius: 999,
     padding: "2px 8px",
     fontSize: 9.8,
-    fontWeight: 800,
+    fontWeight: 600,
     cursor: "pointer",
   },
   offToggle: {
@@ -3226,7 +3099,7 @@ const styles: Record<string, any> = {
     borderRadius: 999,
     padding: "2px 8px",
     fontSize: 9.8,
-    fontWeight: 800,
+    fontWeight: 600,
     cursor: "pointer",
   },
   inactiveText: { margin: "6px 0 0", fontSize: 10.8, color: "#64748b" },
@@ -3235,7 +3108,7 @@ const styles: Record<string, any> = {
     display: "block",
     fontSize: 9.8,
     color: "#475569",
-    fontWeight: 800,
+    fontWeight: 600,
     marginBottom: 2,
   },
   table: {
@@ -3250,14 +3123,14 @@ const styles: Record<string, any> = {
     textAlign: "left",
     borderBottom: "0",
     padding: "2px 0 3px",
-    fontWeight: 850,
+    fontWeight: 700,
   },
   thRight: {
     textAlign: "right",
     borderBottom: "0",
     padding: "2px 3px 3px",
     width: 72,
-    fontWeight: 850,
+    fontWeight: 700,
     whiteSpace: "nowrap",
   },
   tdLeft: { padding: "2.5px 0", borderBottom: "0", boxShadow: "none" },
@@ -3269,20 +3142,20 @@ const styles: Record<string, any> = {
     boxShadow: "none",
     whiteSpace: "nowrap",
   },
-  totalLabel: { padding: "4px 0 3px", borderTop: "0", fontWeight: 850 },
+  totalLabel: { padding: "4px 0 3px", borderTop: "0", fontWeight: 700 },
   totalAmount: {
     padding: "4px 3px 3px",
     width: 72,
     borderTop: "1px solid #111827",
     borderBottom: "1.5px solid #111827",
     textAlign: "right",
-    fontWeight: 850,
+    fontWeight: 700,
     whiteSpace: "nowrap",
   },
-  subheading: { padding: "6px 0 2px", fontWeight: 850, borderBottom: "0" },
+  subheading: { padding: "6px 0 2px", fontWeight: 700, borderBottom: "0" },
   cashGroupHeading: {
     padding: "7px 0 2px",
-    fontWeight: 900,
+    fontWeight: 700,
     fontSize: 10.6,
     borderBottom: "0",
     color: "#111827",

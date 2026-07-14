@@ -3116,6 +3116,27 @@ export default function AfsPrintStudioPage() {
         ) : null
       }
     >
+      <style>{`
+        body[data-afs-pdf-mode="true"] h1 {
+          font-weight: 700 !important;
+          letter-spacing: -0.01em !important;
+        }
+
+        body[data-afs-pdf-mode="true"] h2 {
+          font-weight: 700 !important;
+        }
+
+        body[data-afs-pdf-mode="true"] h3,
+        body[data-afs-pdf-mode="true"] th {
+          font-weight: 600 !important;
+        }
+
+        body[data-afs-pdf-mode="true"] p,
+        body[data-afs-pdf-mode="true"] td {
+          font-weight: 400;
+        }
+      `}</style>
+
       {loading ? (
         <AfsA4Page>
           <p style={{ fontSize: 12 }}>Loading Print Studio data...</p>
@@ -3621,6 +3642,7 @@ export default function AfsPrintStudioPage() {
                   onStructuredNotesStateChange={
                     saveStructuredNotesStateEverywhere
                   }
+                  forceReviewMode={isPdfExportMode}
                 />
               </AfsA4Page>
             </div>
