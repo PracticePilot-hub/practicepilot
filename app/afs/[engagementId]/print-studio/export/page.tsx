@@ -1454,6 +1454,8 @@ const isDraftPdf =
   );
   const [statementOverrides, setStatementOverrides] =
     useState<AfsStatementOverrides>({});
+  const [structuredNotesState, setStructuredNotesState] =
+    useState<Record<string, any>>({});
   const [printStudioSettingsLoaded, setPrintStudioSettingsLoaded] =
     useState(false);
   const [printStudioSaveStatus, setPrintStudioSaveStatus] = useState<
@@ -1543,6 +1545,10 @@ const isDraftPdf =
           settingsData.accountingPolicyTexts || {};
         const savedNoteTexts = settingsData.noteTexts || {};
         const savedStatementOverrides = settingsData.statementOverrides || {};
+        const savedStructuredNotesState =
+          settingsData.structuredNotesState ||
+          settingsData.structured_notes_state ||
+          {};
         const savedFirmSettings =
           settingsData.firmSettings || settingsData.firm_settings || null;
 
@@ -1630,6 +1636,13 @@ const isDraftPdf =
           Object.keys(savedStatementOverrides).length > 0
         ) {
           setStatementOverrides(savedStatementOverrides);
+        }
+
+        if (
+          savedStructuredNotesState &&
+          typeof savedStructuredNotesState === "object"
+        ) {
+          setStructuredNotesState(savedStructuredNotesState);
         }
       }
     } catch (error) {
@@ -3050,6 +3063,18 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         <tbody>
           {displayLines.flatMap((line, lineIndex) => {
             const rowKey = String(line.id || line.label || lineIndex);
+            const savedShareholder =
+              structuredNotesState.shareholderLoans?.[rowKey] || {};
+            const savedOtherLiability =
+              structuredNotesState.otherFinancialLiabilities?.[rowKey] || {};
+            const savedNoteRow = isShareholdersLoansNote
+              ? savedShareholder
+              : isOtherFinancialLiabilitiesNote
+                ? savedOtherLiability
+                : {};
+            const displayLabel =
+              String(savedNoteRow?.label || "").trim() ||
+              String(line.label || "");
             const rows = [
               <tr key={`${rowKey}-amount`}>
                 <td
@@ -3059,7 +3084,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                     fontWeight: line?.meta?.strong ? 800 : 400,
                   }}
                 >
-                  {String(line.label || "").trim().toLowerCase() === "total" ? "" : line.label}
+                  {displayLabel.trim().toLowerCase() === "total" ? "" : displayLabel}
                 </td>
                 <td
                   style={{
@@ -3091,6 +3116,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               isOtherFinancialLiabilitiesNote
             ) {
               const termsText =
+                savedNoteRow?.terms ||
                 line?.meta?.terms ||
                 line?.meta?.loanTerms ||
                 (isOtherFinancialLiabilitiesNote
@@ -3488,7 +3514,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   fontSize: 11.45,
                   lineHeight: 1.2,
                   margin: "0 0 5px",
-                  fontWeight: 900,
+                  fontWeight: 600,
                 }}
               >
                 {item.number}. {item.title}
@@ -3936,6 +3962,29 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         .afsExportOnlyRoot * {
           font-family: "Inter", Arial, sans-serif !important;
           font-variant-ligatures: none;
+        }
+
+        .afsExportOnlyRoot h1 {
+          font-weight: 700 !important;
+          letter-spacing: -0.01em !important;
+        }
+
+        .afsExportOnlyRoot h2,
+        .afsExportOnlyRoot h3 {
+          font-weight: 600 !important;
+        }
+
+        .afsExportOnlyRoot th {
+          font-weight: 600 !important;
+        }
+
+        .afsExportOnlyRoot p,
+        .afsExportOnlyRoot td {
+          font-weight: 400;
+        }
+
+        .afs-export-notes-page tbody tr:last-child td {
+          font-weight: 600 !important;
         }
 
 .afsExportOnlyRoot article {
