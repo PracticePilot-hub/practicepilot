@@ -1557,6 +1557,10 @@ const isDraftPdf =
         const savedStructuredNotesState =
           settingsData.structuredNotesState ||
           settingsData.structured_notes_state ||
+          settingsData.settings?.structuredNotesState ||
+          settingsData.settings?.structured_notes_state ||
+          settingsData.data?.structuredNotesState ||
+          settingsData.data?.structured_notes_state ||
           {};
         const savedFirmSettings =
           settingsData.firmSettings || settingsData.firm_settings || null;
@@ -2982,6 +2986,139 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   function renderNoteTable(lines: any[], noteKey?: string) {
     if (!lines || lines.length === 0) return null;
 
+    if (noteKey === "notesShareCapital") {
+      const authorisedShares =
+        structuredNotesState.shareCapital?.authorisedShares ||
+        cleanString(clientSetup?.authorised_ordinary_shares) ||
+        "100";
+      const authorisedPar =
+        structuredNotesState.shareCapital?.authorisedPar ||
+        cleanString(clientSetup?.authorised_ordinary_share_par_value) ||
+        "1";
+      const issuedShares =
+        structuredNotesState.shareCapital?.issuedShares ||
+        cleanString(clientSetup?.issued_ordinary_shares) ||
+        "100";
+      const issuedPar =
+        structuredNotesState.shareCapital?.issuedPar ||
+        cleanString(clientSetup?.issued_ordinary_share_par_value) ||
+        "1";
+      const rightsText =
+        structuredNotesState.shareCapital?.rightsText ||
+        "The shares rank equally with regard to voting rights and dividends.";
+
+      const mappedCurrent = lines.reduce(
+        (total, line) => total + Number(line.current || 0),
+        0,
+      );
+      const mappedPrior = lines.reduce(
+        (total, line) => total + Number(line.prior || 0),
+        0,
+      );
+
+      return (
+        <>
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              margin: "4px 0 7px",
+              fontSize: 10.2,
+            }}
+          >
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "2px 0 3px" }}>
+                  Description
+                </th>
+                <th style={{ textAlign: "right", padding: "2px 0 3px", width: 80 }}>
+                  {currentHeading}
+                </th>
+                {!hideComparativeFigures ? (
+                  <th style={{ textAlign: "right", padding: "2px 0 3px", width: 80 }}>
+                    {priorHeading}
+                  </th>
+                ) : null}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td
+                  colSpan={hideComparativeFigures ? 2 : 3}
+                  style={{ padding: "4px 0 2px", fontWeight: 600 }}
+                >
+                  Authorised
+                </td>
+              </tr>
+              <tr>
+                <td style={{ padding: "2px 0" }}>
+                  {authorisedShares} ordinary shares of R{authorisedPar} each
+                </td>
+                <td style={{ padding: "2px 0", textAlign: "right" }}>
+                  {formatNoteAmount(Number(authorisedShares) * Number(authorisedPar))}
+                </td>
+                {!hideComparativeFigures ? (
+                  <td style={{ padding: "2px 0", textAlign: "right" }}>
+                    {formatNoteAmount(Number(authorisedShares) * Number(authorisedPar))}
+                  </td>
+                ) : null}
+              </tr>
+              <tr>
+                <td
+                  colSpan={hideComparativeFigures ? 2 : 3}
+                  style={{ padding: "6px 0 2px", fontWeight: 600 }}
+                >
+                  Issued
+                </td>
+              </tr>
+              <tr>
+                <td style={{ padding: "2px 0" }}>Ordinary shares at end of year</td>
+                <td style={{ padding: "2px 0", textAlign: "right" }}>
+                  {formatNoteAmount(Number(issuedShares) * Number(issuedPar))}
+                </td>
+                {!hideComparativeFigures ? (
+                  <td style={{ padding: "2px 0", textAlign: "right" }}>
+                    {formatNoteAmount(Number(issuedShares) * Number(issuedPar))}
+                  </td>
+                ) : null}
+              </tr>
+              <tr>
+                <td style={{ padding: "3px 0", fontWeight: 600 }}>Share capital</td>
+                <td
+                  style={{
+                    padding: "3px 0",
+                    textAlign: "right",
+                    fontWeight: 600,
+                    borderTop: "0.6px solid #94a3b8",
+                    borderBottom: "0.8px solid #64748b",
+                  }}
+                >
+                  {formatNoteAmount(mappedCurrent)}
+                </td>
+                {!hideComparativeFigures ? (
+                  <td
+                    style={{
+                      padding: "3px 0",
+                      textAlign: "right",
+                      fontWeight: 600,
+                      borderTop: "0.6px solid #94a3b8",
+                      borderBottom: "0.8px solid #64748b",
+                    }}
+                  >
+                    {formatNoteAmount(mappedPrior)}
+                  </td>
+                ) : null}
+              </tr>
+            </tbody>
+          </table>
+
+          <p style={{ margin: "4px 0 8px", fontSize: 10, lineHeight: 1.3 }}>
+            {rightsText}
+          </p>
+        </>
+      );
+    }
+
     const isCashGeneratedNote = noteKey === "notesCashUsedInOperations";
     const isShareholdersLoansNote = noteKey === "notesShareholdersLoans";
     const isOtherFinancialLiabilitiesNote =
@@ -3072,17 +3209,29 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         <tbody>
           {displayLines.flatMap((line, lineIndex) => {
             const rowKey = String(line.id || line.label || lineIndex);
-            const savedNoteRow = isShareholdersLoansNote
-              ? resolveSharedStructuredNoteEntry(
-                  structuredNotesState.shareholderLoans,
-                  line,
-                )
+            const familyState = isShareholdersLoansNote
+              ? structuredNotesState.shareholderLoans
               : isOtherFinancialLiabilitiesNote
-                ? resolveSharedStructuredNoteEntry(
-                    structuredNotesState.otherFinancialLiabilities,
-                    line,
-                  )
-                : {};
+                ? structuredNotesState.otherFinancialLiabilities
+                : undefined;
+
+            const matchedSavedNoteRow =
+              resolveSharedStructuredNoteEntry(familyState, line);
+
+            const orderedSavedRows =
+              familyState && typeof familyState === "object"
+                ? Object.entries(familyState)
+                    .filter(([key, value]) => key !== "extraText" && value && typeof value === "object")
+                    .map(([, value]) => value)
+                : [];
+
+            const savedNoteRow =
+              matchedSavedNoteRow &&
+              typeof matchedSavedNoteRow === "object" &&
+              Object.keys(matchedSavedNoteRow).length > 0
+                ? matchedSavedNoteRow
+                : orderedSavedRows[lineIndex] || {};
+
             const displayLabel =
               String(savedNoteRow?.label || "").trim() ||
               String(line.label || "");
@@ -4049,6 +4198,74 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           box-shadow: none !important;
         }
 
+        /* Running header: quiet, professional and subordinate to the report title. */
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child {
+          border-bottom: 0.45px solid #94a3b8 !important;
+          padding-bottom: 5px !important;
+          margin-bottom: 12px !important;
+          color: #475569 !important;
+        }
+
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child * {
+          font-weight: 400 !important;
+          color: #475569 !important;
+          letter-spacing: 0 !important;
+        }
+
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child > div:first-child {
+          font-weight: 500 !important;
+          color: #334155 !important;
+        }
+
+        /* Directors table: one clean header rule, no ruled-paper rows. */
+        #print-directors-report table tbody td {
+          border-top: 0 !important;
+          border-bottom: 0 !important;
+        }
+
+        #print-directors-report table thead th {
+          border-top: 0 !important;
+          border-bottom: 0.6px solid #94a3b8 !important;
+          font-weight: 500 !important;
+        }
+
+        /* Final statements: body normal, hierarchy medium, not black-marker bold. */
+        #print-sfp table td,
+        #print-soci table td,
+        #print-sce table td,
+        #print-cash-flow table td,
+        #print-detailed-income table td {
+          font-weight: 400 !important;
+        }
+
+        #print-sfp table th,
+        #print-soci table th,
+        #print-sce table th,
+        #print-cash-flow table th,
+        #print-detailed-income table th {
+          font-weight: 500 !important;
+        }
+
+        #print-sfp table tr:has(td[style*="border"]) td,
+        #print-soci table tr:has(td[style*="border"]) td,
+        #print-sce table tr:has(td[style*="border"]) td,
+        #print-cash-flow table tr:has(td[style*="border"]) td,
+        #print-detailed-income table tr:has(td[style*="border"]) td {
+          font-weight: 500 !important;
+        }
+
+        /* General information needs breathing room. */
+        #print-general-info tbody tr td {
+          padding-top: 7px !important;
+          padding-bottom: 7px !important;
+          line-height: 1.42 !important;
+        }
+
+        #print-general-info tbody tr td:first-child {
+          font-weight: 500 !important;
+          color: #334155 !important;
+        }
+
           .afsExportOnlyRoot {
             counter-reset: afs-export-page;
           }
@@ -4171,13 +4388,13 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
           .afs-export-notes-page tbody tr:not(:last-child) td:nth-child(2),
           .afs-export-notes-page tbody tr:not(:last-child) td:nth-child(3) {
-            border-bottom: 0.4px solid #e2e8f0 !important;
+            border-bottom: 0 !important;
           }
 
           .afs-export-notes-page tbody tr:last-child td:nth-child(2),
           .afs-export-notes-page tbody tr:last-child td:nth-child(3) {
-            border-top: 0.6px solid #94a3b8 !important;
-            border-bottom: 0.8px solid #64748b !important;
+            border-top: 0.5px solid #94a3b8 !important;
+            border-bottom: 0.7px solid #64748b !important;
           }
 
           .afs-export-notes-page th:nth-child(2),

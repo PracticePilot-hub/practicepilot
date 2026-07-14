@@ -1850,7 +1850,7 @@ function OtherFinancialLiabilitiesNote({
             const displayLabel = savedLabel || row.label;
             const terms =
               state.otherFinancialLiabilities?.[key]?.terms ||
-              "The liability is unsecured, bears no interest and has no fixed repayment terms unless otherwise disclosed.";
+              "The liability is unsecured, bears no interest and has no fixed repayment terms.";
             const interest = state.otherFinancialLiabilities?.[key]?.interest || "";
             const repayment = state.otherFinancialLiabilities?.[key]?.repayment || "";
             const security = state.otherFinancialLiabilities?.[key]?.security || "";
