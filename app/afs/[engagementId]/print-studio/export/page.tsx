@@ -1316,11 +1316,11 @@ function paragraphStyle() {
 
 function sectionHeadingStyle() {
   return {
-    fontSize: 9.4,
-    lineHeight: 1.18,
-    fontWeight: 700,
-    margin: "8px 0 2px",
-    letterSpacing: "0",
+    fontSize: 11.3,
+    lineHeight: 1.3,
+    fontWeight: 500,
+    margin: "14px 0 5px",
+    letterSpacing: "-0.003em",
   };
 }
 
@@ -1336,14 +1336,14 @@ function subsectionHeadingStyle() {
 
 function pageHeadingStyle() {
   return {
-    fontSize: 15,
-    fontWeight: 700,
-    margin: "0 0 7px",
-    paddingBottom: 3,
-    borderBottom: "1.15px solid #111",
+    fontSize: 13.6,
+    fontWeight: 500,
+    margin: "0 0 14px",
+    paddingBottom: 5,
+    borderBottom: "0.5px solid #94a3b8",
     textTransform: "none" as const,
-    letterSpacing: "0",
-    color: "#111",
+    letterSpacing: "-0.008em",
+    color: "#273449",
   };
 }
 
@@ -4130,232 +4130,72 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         }
 
         .afsExportOnlyRoot {
-          color: #111 !important;
-          font-size: 9.2px !important;
-          line-height: 1.22 !important;
-        }
-
-        .afsExportOnlyRoot,
-        .afsExportOnlyRoot * {
-          font-family: Arial, Helvetica, sans-serif !important;
-          font-variant-ligatures: none;
-          box-sizing: border-box;
-        }
-
-        .afsExportOnlyRoot h1,
-        .afsExportOnlyRoot h2,
-        .afsExportOnlyRoot h3,
-        .afsExportOnlyRoot h4,
-        .afsExportOnlyRoot p,
-        .afsExportOnlyRoot table,
-        .afsExportOnlyRoot ul,
-        .afsExportOnlyRoot ol {
-          margin-top: 0;
+          color: #1f2937 !important;
         }
 
         .afsExportOnlyRoot h1 {
-          font-size: 15px !important;
-          line-height: 1.08 !important;
-          font-weight: 700 !important;
-          letter-spacing: 0 !important;
-          color: #111 !important;
-          margin-bottom: 5px !important;
+          font-weight: 500 !important;
+          letter-spacing: -0.004em !important;
+          color: #334155 !important;
         }
 
         .afsExportOnlyRoot h2 {
-          font-size: 12px !important;
-          line-height: 1.12 !important;
-          font-weight: 700 !important;
-          letter-spacing: 0 !important;
-          color: #111 !important;
-          margin-bottom: 4px !important;
+          font-weight: 500 !important;
+          letter-spacing: -0.003em !important;
+          color: #334155 !important;
         }
 
-        .afsExportOnlyRoot h3,
-        .afsExportOnlyRoot h4 {
-          font-size: 9.4px !important;
-          line-height: 1.18 !important;
-          font-weight: 700 !important;
-          color: #111 !important;
-          margin-bottom: 2px !important;
+        .afsExportOnlyRoot h3 {
+          font-weight: 500 !important;
+          color: #475569 !important;
+        }
+
+        .afsExportOnlyRoot th {
+          font-weight: 500 !important;
+          color: #334155 !important;
         }
 
         .afsExportOnlyRoot p,
         .afsExportOnlyRoot td,
         .afsExportOnlyRoot li,
-        .afsExportOnlyRoot span,
-        .afsExportOnlyRoot div {
-          color: #111 !important;
-        }
-
-        .afsExportOnlyRoot p,
-        .afsExportOnlyRoot td,
-        .afsExportOnlyRoot li {
-          font-size: 9px !important;
-          line-height: 1.22 !important;
-          font-weight: 400 !important;
-        }
-
-        .afsExportOnlyRoot th {
-          font-size: 9px !important;
-          line-height: 1.15 !important;
-          font-weight: 700 !important;
-          color: #111 !important;
+        .afsExportOnlyRoot span {
+          font-weight: 400;
+          color: #1f2937;
         }
 
         .afsExportOnlyRoot strong,
         .afsExportOnlyRoot b {
-          font-weight: 700 !important;
-          color: #111 !important;
+          font-weight: 500 !important;
+          color: #334155 !important;
         }
+
+        .afs-export-notes-page tbody tr:last-child td {
+          font-weight: 600 !important;
+        }
+
+.afsExportOnlyRoot article {
+  position: relative !important;
+}
+
+.afsDraftWatermark {
+  position: absolute;
+  top: 48%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-35deg);
+  z-index: 999999;
+  font-family: "Inter", Arial, sans-serif !important;
+  font-size: 82pt;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: rgba(90, 90, 90, 0.16);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
 
         .afsExportOnlyRoot article {
           box-shadow: none !important;
-        }
-
-        .afsExportOnlyRoot article > div:first-child {
-          margin-bottom: 8px !important;
-          padding-bottom: 4px !important;
-          border-bottom: 0 !important;
-        }
-
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child {
-          margin-bottom: 6px !important;
-          padding-bottom: 0 !important;
-          border-bottom: 0 !important;
-        }
-
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child * {
-          font-size: 8px !important;
-          line-height: 1.08 !important;
-          font-weight: 400 !important;
-          color: #111 !important;
-        }
-
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child > div:first-child {
-          font-size: 10.2px !important;
-          line-height: 1.08 !important;
-          font-weight: 700 !important;
-          color: #111 !important;
-        }
-
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > h1,
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > h2 {
-          border-bottom: 1.15px solid #111 !important;
-          padding-bottom: 3px !important;
-          margin-bottom: 7px !important;
-        }
-
-        .afsExportOnlyRoot table {
-          width: 100% !important;
-          border-collapse: collapse !important;
-        }
-
-        .afsExportOnlyRoot td,
-        .afsExportOnlyRoot th {
-          padding-top: 1px !important;
-          padding-bottom: 1px !important;
-        }
-
-        .afsExportOnlyRoot tr {
-          break-inside: avoid;
-        }
-
-        .afsExportOnlyRoot .afs-export-notes-page h2,
-        .afsExportOnlyRoot .afs-export-notes-page h3 {
-          margin-top: 8px !important;
-          margin-bottom: 3px !important;
-        }
-
-        .afsExportOnlyRoot .afs-export-notes-page thead th {
-          font-weight: 700 !important;
-          border-bottom: 0 !important;
-        }
-
-        .afsExportOnlyRoot .afs-export-notes-page tbody td {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-        }
-
-        .afsExportOnlyRoot .afs-export-notes-page tbody tr:last-child td {
-          font-weight: 700 !important;
-          border-top: 0.9px solid #111 !important;
-          border-bottom: 1.1px solid #111 !important;
-        }
-
-        #print-general-info tbody tr td {
-          padding-top: 3px !important;
-          padding-bottom: 3px !important;
-          line-height: 1.2 !important;
-        }
-
-        #print-general-info tbody tr td:first-child {
-          font-weight: 700 !important;
-          width: 35% !important;
-        }
-
-        #print-directors-report table thead th {
-          border-top: 0 !important;
-          border-bottom: 0.9px solid #111 !important;
-          font-weight: 700 !important;
-        }
-
-        #print-directors-report table tbody td {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-          padding-top: 1px !important;
-          padding-bottom: 1px !important;
-        }
-
-        #print-sfp table td,
-        #print-soci table td,
-        #print-sce table td,
-        #print-cash-flow table td,
-        #print-detailed-income table td {
-          font-weight: 400 !important;
-        }
-
-        #print-sfp table th,
-        #print-soci table th,
-        #print-sce table th,
-        #print-cash-flow table th,
-        #print-detailed-income table th {
-          font-weight: 400 !important;
-        }
-
-        #print-sfp table tr:has(td[style*="border"]) td,
-        #print-soci table tr:has(td[style*="border"]) td,
-        #print-sce table tr:has(td[style*="border"]) td,
-        #print-cash-flow table tr:has(td[style*="border"]) td,
-        #print-detailed-income table tr:has(td[style*="border"]) td {
-          font-weight: 700 !important;
-        }
-
-        #print-policies h3,
-        #print-policies h4 {
-          font-weight: 700 !important;
-        }
-
-        #print-policies p {
-          margin-bottom: 5px !important;
-        }
-
-        @media print {
-          .afsExportOnlyRoot article {
-            padding-top: 12mm !important;
-            padding-right: 14mm !important;
-            padding-bottom: 14mm !important;
-            padding-left: 14mm !important;
-          }
-
-          .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article::after {
-            content: "";
-            position: absolute;
-            left: 14mm;
-            right: 14mm;
-            bottom: 10mm;
-            border-top: 0.8px solid #111;
-          }
         }
 
         /* Running header: quiet, professional and subordinate to the report title. */
@@ -4747,7 +4587,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 >
                   <h1
                     style={{
-                      fontSize: 17,
+                      fontSize: 19,
                       lineHeight: 1.25,
                       fontWeight: 500,
                       margin: "0 0 22px",
@@ -4769,7 +4609,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   >
                     <div
                       style={{
-                        fontSize: 13.2,
+                        fontSize: 14.8,
                         fontWeight: 500,
                         textTransform: "uppercase",
                       }}
