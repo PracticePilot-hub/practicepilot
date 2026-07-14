@@ -2189,8 +2189,7 @@ export default function AfsPrintStudioPage() {
   );
 
   const statementEngine = useMemo(() => {
-    const values =
-      structuredNotesState?.cashGeneratedFromOperations?.values || {};
+    const values = structuredNotesState?.cashGeneratedFromOperations?.values || {};
 
     const hasStoredValue = (key: string, side: "current" | "prior") => {
       const value = values?.[key]?.[side];
@@ -2203,23 +2202,16 @@ export default function AfsPrintStudioPage() {
       fallback: number,
     ) => {
       if (!hasStoredValue(key, side)) return fallback;
-
       const parsed = Number(values[key][side]);
       return Number.isFinite(parsed) ? parsed : fallback;
     };
 
-    const rows = (baseStatementEngine.cashFlowRows || []).map((row: any) => ({
-      ...row,
-    }));
-
-    const findById = (id: string) =>
-      rows.find((row: any) => String(row?.id || "") === id);
-
-    const findByLabel = (terms: string[]) =>
-      rows.find((row: any) => {
-        const label = String(row?.label || "").toLowerCase();
-        return terms.every((term) => label.includes(term));
-      });
+    const rows = (baseStatementEngine.cashFlowRows || []).map((row: any) => ({ ...row }));
+    const findById = (id: string) => rows.find((row: any) => String(row?.id || "") === id);
+    const findByLabel = (terms: string[]) => rows.find((row: any) => {
+      const label = String(row?.label || "").toLowerCase();
+      return terms.every((term) => label.includes(term));
+    });
 
     const adjustmentKeys = [
       "adjustments",
@@ -2241,148 +2233,59 @@ export default function AfsPrintStudioPage() {
       0,
     );
 
-    const profitRow =
-      findById("cfs-profit-before-tax") ||
-      findByLabel(["profit", "before taxation"]);
-    const adjustmentsRow =
-      findById("cfs-adjustments") ||
-      findByLabel(["adjustments", "non-cash"]);
-    const inventoryRow =
-      findById("cfs-inventories") ||
-      findByLabel(["inventor"]);
-    const receivablesRow =
-      findById("cfs-trade-receivables") ||
-      findByLabel(["trade", "receivables"]);
-    const payablesRow =
-      findById("cfs-trade-payables") ||
-      findByLabel(["trade", "payables"]);
-    const generatedRow =
-      findById("cfs-cash-generated-operations") ||
-      findByLabel(["cash generated", "operations"]);
-    const otherOperatingRow =
-      findById("cfs-other-operating") ||
-      findByLabel(["other operating cash flows"]);
-    const netOperatingRow =
-      findById("cfs-net-operating") ||
-      findByLabel(["net cash", "operating activities"]);
-    const netInvestingRow =
-      findById("cfs-net-investing") ||
-      findByLabel(["net cash", "investing activities"]);
-    const netFinancingRow =
-      findById("cfs-net-financing") ||
-      findByLabel(["net cash", "financing activities"]);
-    const netMovementRow =
-      findById("cfs-net-movement") ||
-      findByLabel(["net increase"]);
-    const openingCashRow =
-      findById("cfs-opening-cash") ||
-      findByLabel(["cash and cash equivalents at beginning"]);
-    const closingCashRow =
-      findById("cfs-closing-cash") ||
-      findByLabel(["cash and cash equivalents at end"]);
+    const profitRow = findById("cfs-profit-before-tax") || findByLabel(["profit", "before taxation"]);
+    const adjustmentsRow = findById("cfs-adjustments") || findByLabel(["adjustments", "non-cash"]);
+    const inventoryRow = findById("cfs-inventories") || findByLabel(["inventor"]);
+    const receivablesRow = findById("cfs-trade-receivables") || findByLabel(["trade", "receivables"]);
+    const payablesRow = findById("cfs-trade-payables") || findByLabel(["trade", "payables"]);
+    const generatedRow = findById("cfs-cash-generated-operations") || findByLabel(["cash generated", "operations"]);
+    const otherOperatingRow = findById("cfs-other-operating") || findByLabel(["other operating cash flows"]);
+    const netOperatingRow = findById("cfs-net-operating") || findByLabel(["net cash", "operating activities"]);
+    const netInvestingRow = findById("cfs-net-investing") || findByLabel(["net cash", "investing activities"]);
+    const netFinancingRow = findById("cfs-net-financing") || findByLabel(["net cash", "financing activities"]);
+    const netMovementRow = findById("cfs-net-movement") || findByLabel(["net increase"]);
+    const openingCashRow = findById("cfs-opening-cash") || findByLabel(["cash and cash equivalents at beginning"]);
+    const closingCashRow = findById("cfs-closing-cash") || findByLabel(["cash and cash equivalents at end"]);
 
-    const inventoryCurrent = storedAmount(
-      "inventories",
-      "current",
-      Number(inventoryRow?.current || 0),
-    );
-    const inventoryPrior = storedAmount(
-      "inventories",
-      "prior",
-      Number(inventoryRow?.prior || 0),
-    );
+    const inventoryCurrent = storedAmount("inventories", "current", Number(inventoryRow?.current || 0));
+    const inventoryPrior = storedAmount("inventories", "prior", Number(inventoryRow?.prior || 0));
+    const receivablesCurrent = storedAmount("tradeReceivables", "current", Number(receivablesRow?.current || 0)) + storedAmount("prepayments", "current", 0);
+    const receivablesPrior = storedAmount("tradeReceivables", "prior", Number(receivablesRow?.prior || 0)) + storedAmount("prepayments", "prior", 0);
+    const payablesCurrent = storedAmount("tradePayables", "current", Number(payablesRow?.current || 0)) + storedAmount("deferredIncome", "current", 0);
+    const payablesPrior = storedAmount("tradePayables", "prior", Number(payablesRow?.prior || 0)) + storedAmount("deferredIncome", "prior", 0);
 
-    const receivablesCurrent =
-      storedAmount(
-        "tradeReceivables",
-        "current",
-        Number(receivablesRow?.current || 0),
-      ) + storedAmount("prepayments", "current", 0);
-    const receivablesPrior =
-      storedAmount(
-        "tradeReceivables",
-        "prior",
-        Number(receivablesRow?.prior || 0),
-      ) + storedAmount("prepayments", "prior", 0);
-
-    const payablesCurrent =
-      storedAmount(
-        "tradePayables",
-        "current",
-        Number(payablesRow?.current || 0),
-      ) + storedAmount("deferredIncome", "current", 0);
-    const payablesPrior =
-      storedAmount(
-        "tradePayables",
-        "prior",
-        Number(payablesRow?.prior || 0),
-      ) + storedAmount("deferredIncome", "prior", 0);
-
-    const generatedCurrent =
-      Number(profitRow?.current || 0) +
-      adjustmentsCurrent +
-      inventoryCurrent +
-      receivablesCurrent +
-      payablesCurrent;
-    const generatedPrior =
-      Number(profitRow?.prior || 0) +
-      adjustmentsPrior +
-      inventoryPrior +
-      receivablesPrior +
-      payablesPrior;
+    const generatedCurrent = Number(profitRow?.current || 0) + adjustmentsCurrent + inventoryCurrent + receivablesCurrent + payablesCurrent;
+    const generatedPrior = Number(profitRow?.prior || 0) + adjustmentsPrior + inventoryPrior + receivablesPrior + payablesPrior;
 
     if (adjustmentsRow) {
       adjustmentsRow.current = Math.round(adjustmentsCurrent);
       adjustmentsRow.prior = Math.round(adjustmentsPrior);
     }
-
     if (inventoryRow) {
       inventoryRow.current = Math.round(inventoryCurrent);
       inventoryRow.prior = Math.round(inventoryPrior);
     }
-
     if (receivablesRow) {
       receivablesRow.current = Math.round(receivablesCurrent);
       receivablesRow.prior = Math.round(receivablesPrior);
     }
-
     if (payablesRow) {
       payablesRow.current = Math.round(payablesCurrent);
       payablesRow.prior = Math.round(payablesPrior);
     }
-
     if (generatedRow) {
       generatedRow.current = Math.round(generatedCurrent);
       generatedRow.prior = Math.round(generatedPrior);
     }
 
-    /*
-      Closing cash remains tied to the mapped SFP cash balance.
-      Any small first-year historical difference is placed in Other operating
-      cash flows so the statement balances without changing closing cash.
-    */
-    const requiredMovementCurrent =
-      Number(closingCashRow?.current || 0) -
-      Number(openingCashRow?.current || 0);
-    const requiredMovementPrior =
-      Number(closingCashRow?.prior || 0) -
-      Number(openingCashRow?.prior || 0);
-
-    const investingCurrent = Number(netInvestingRow?.current || 0);
-    const investingPrior = Number(netInvestingRow?.prior || 0);
-    const financingCurrent = Number(netFinancingRow?.current || 0);
-    const financingPrior = Number(netFinancingRow?.prior || 0);
-
     const otherOperatingCurrent =
-      requiredMovementCurrent -
-      investingCurrent -
-      financingCurrent -
-      generatedCurrent;
+      Number(statementOverrides.cashOtherOperatingCurrent || 0) +
+      Number(statementOverrides.cashOtherOperating2Current || 0) +
+      Number(statementOverrides.cashOtherOperating3Current || 0);
     const otherOperatingPrior =
-      requiredMovementPrior -
-      investingPrior -
-      financingPrior -
-      generatedPrior;
+      Number(statementOverrides.cashOtherOperatingPrior || 0) +
+      Number(statementOverrides.cashOtherOperating2Prior || 0) +
+      Number(statementOverrides.cashOtherOperating3Prior || 0);
 
     if (otherOperatingRow) {
       otherOperatingRow.current = Math.round(otherOperatingCurrent);
@@ -2390,33 +2293,70 @@ export default function AfsPrintStudioPage() {
     }
 
     const netOperatingCurrent =
-      generatedCurrent + otherOperatingCurrent;
+      generatedCurrent +
+      Number(statementOverrides.cashInterestReceivedCurrent || 0) +
+      Number(statementOverrides.cashFinanceCostsPaidCurrent || 0) +
+      Number(statementOverrides.cashTaxPaidCurrent || 0) +
+      otherOperatingCurrent;
     const netOperatingPrior =
-      generatedPrior + otherOperatingPrior;
+      generatedPrior +
+      Number(statementOverrides.cashInterestReceivedPrior || 0) +
+      Number(statementOverrides.cashFinanceCostsPaidPrior || 0) +
+      Number(statementOverrides.cashTaxPaidPrior || 0) +
+      otherOperatingPrior;
 
     if (netOperatingRow) {
       netOperatingRow.current = Math.round(netOperatingCurrent);
       netOperatingRow.prior = Math.round(netOperatingPrior);
     }
 
+    const netMovementCurrent = netOperatingCurrent + Number(netInvestingRow?.current || 0) + Number(netFinancingRow?.current || 0);
+    const netMovementPrior = netOperatingPrior + Number(netInvestingRow?.prior || 0) + Number(netFinancingRow?.prior || 0);
+
     if (netMovementRow) {
-      netMovementRow.current = Math.round(requiredMovementCurrent);
-      netMovementRow.prior = Math.round(requiredMovementPrior);
+      netMovementRow.current = Math.round(netMovementCurrent);
+      netMovementRow.prior = Math.round(netMovementPrior);
     }
+
+    const openingCurrent =
+      statementOverrides.cashOpeningBalance !== null &&
+      statementOverrides.cashOpeningBalance !== undefined
+        ? Number(statementOverrides.cashOpeningBalance || 0)
+        : Number(openingCashRow?.current || 0);
+    const openingPrior =
+      statementOverrides.cashPriorOpeningBalance !== null &&
+      statementOverrides.cashPriorOpeningBalance !== undefined
+        ? Number(statementOverrides.cashPriorOpeningBalance || 0)
+        : 0;
+
+    if (openingCashRow) {
+      openingCashRow.current = Math.round(openingCurrent);
+      openingCashRow.prior = Math.round(openingPrior);
+    }
+
+    const calculatedClosingCurrent = openingCurrent + netMovementCurrent;
+    const calculatedClosingPrior = openingPrior + netMovementPrior;
+
+    if (closingCashRow) {
+      closingCashRow.current = Math.round(calculatedClosingCurrent);
+      closingCashRow.prior = Math.round(calculatedClosingPrior);
+    }
+
+    const sfpClosingCurrent = Number(baseStatementEngine.checks.cashClosingFromSfp || 0);
+    const sfpClosingPrior = Number(baseStatementEngine.checks.cashClosingPriorFromSfp || 0);
 
     const checks = {
       ...baseStatementEngine.checks,
-      cashMovementFromCashFlow: Math.round(requiredMovementCurrent),
-      cashClosingFromCashFlow: Math.round(
-        Number(closingCashRow?.current || 0),
+      cashMovementFromCashFlow: Math.round(netMovementCurrent),
+      cashClosingFromCashFlow: Math.round(calculatedClosingCurrent),
+      cashFlowMovementDifference: Math.round(
+        netMovementCurrent - Number(baseStatementEngine.checks.cashMovementFromSfp || 0),
       ),
-      cashFlowMovementDifference: 0,
-      cashFlowClosingDifference: 0,
-      cashMovementPriorFromCashFlow: Math.round(requiredMovementPrior),
-      cashClosingPriorFromCashFlow: Math.round(
-        Number(closingCashRow?.prior || 0),
-      ),
-      cashFlowPriorClosingDifference: 0,
+      cashFlowClosingDifference: Math.round(calculatedClosingCurrent - sfpClosingCurrent),
+      cashOpeningPrior: Math.round(openingPrior),
+      cashMovementPriorFromCashFlow: Math.round(netMovementPrior),
+      cashClosingPriorFromCashFlow: Math.round(calculatedClosingPrior),
+      cashFlowPriorClosingDifference: Math.round(calculatedClosingPrior - sfpClosingPrior),
     };
 
     return {
@@ -2424,7 +2364,7 @@ export default function AfsPrintStudioPage() {
       cashFlowRows: rows,
       checks,
     };
-  }, [baseStatementEngine, structuredNotesState]);
+  }, [baseStatementEngine, structuredNotesState, statementOverrides]);
 
   const flightDeckIssues = useMemo(
     () => buildAfsFlightDeckIssuesFromEngine(statementEngine),
@@ -3532,53 +3472,23 @@ export default function AfsPrintStudioPage() {
                 {activeSectionId === "cash-flow" && cashFlowViewMode === "work" ? (
                   <section style={{ fontSize: 10, color: "#111827" }}>
                     <h1 style={pageHeadingStyle()}>Cash Flow Workbench</h1>
-                    <p style={{ margin: "0 0 10px", color: "#64748b", lineHeight: 1.4 }}>
-                      Complete the current and prior year cash flow fields below. The printable cash flow statement is shown in AFS view.
-                    </p>
-                    <div style={{ marginBottom: 14 }}>
-                      <AfsStatementTable
-                        title="Calculated cash flow pulled to AFS view"
-                        currencyLabel="Figures in Rand"
-                        currentHeading={currentHeading}
-                        priorHeading={priorHeading}
-                        rows={cashFlowRows}
-                      hidePriorYear={hideComparatives}
-                />
-                    </div>
-
-                    <div
+                    <p
                       style={{
-                        marginTop: 12,
-                        paddingTop: 10,
-                        borderTop: "1px solid #cbd5e1",
+                        margin: "0 0 10px",
+                        color: "#64748b",
+                        lineHeight: 1.4,
                       }}
                     >
-                      <h2
-                        style={{
-                          margin: "0 0 6px",
-                          fontSize: 11,
-                          fontWeight: 900,
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        Manual override fields
-                      </h2>
-                      <p
-                        style={{
-                          margin: "0 0 8px",
-                          color: "#64748b",
-                          lineHeight: 1.4,
-                        }}
-                      >
-                        These yellow fields are only for manual override/capture where the calculated cash flow needs adjustment.
-                      </p>
-                      <AfsStatementOverrideSettings
-                        mode="cashFlow"
-                        overrides={statementOverrides}
-                        onChange={updateStatementOverride}
-                        engineChecks={engineChecks}
-                      />
-                    </div>
+                      Capture or override only the cash-flow fields that require
+                      adjustment. The AFS view remains the printable statement.
+                    </p>
+
+                    <AfsStatementOverrideSettings
+                      mode="cashFlow"
+                      overrides={statementOverrides}
+                      onChange={updateStatementOverride}
+                      engineChecks={engineChecks}
+                    />
                   </section>
                 ) : (
                   <AfsStatementTable

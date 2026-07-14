@@ -160,59 +160,6 @@ export default function AfsStatementOverrideSettings({
     Number(engineChecks?.cashFlowPriorClosingDifference || 0)
   );
 
-  function autoBalanceCurrentWorkingCapital() {
-    const targetMovement = Number(engineChecks?.cashMovementFromSfp || 0);
-    const currentKnownMovement =
-      Number(engineChecks?.profitBeforeTax || 0) +
-      Number(overrides.cashAdjustmentsToProfitCurrent || 0) +
-      Number(overrides.cashInterestReceivedCurrent || 0) +
-      Number(overrides.cashFinanceCostsPaidCurrent || 0) +
-      Number(overrides.cashTaxPaidCurrent || 0) +
-      Number(overrides.cashOtherOperatingCurrent || 0) +
-      Number(overrides.cashOtherOperating2Current || 0) +
-      Number(overrides.cashOtherOperating3Current || 0) +
-      Number(overrides.cashPurchaseOfPpeCurrent || 0) +
-      Number(overrides.cashProceedsOnDisposalPpeCurrent || 0) +
-      Number(overrides.cashOtherInvestingCurrent || 0) +
-      Number(overrides.cashOtherInvesting2Current || 0) +
-      Number(overrides.cashOtherInvesting3Current || 0) +
-      Number(overrides.cashLoansRaisedCurrent || 0) +
-      Number(overrides.cashLoansRepaidCurrent || 0) +
-      Number(overrides.cashDividendsPaidCurrent || 0) +
-      Number(overrides.cashOtherFinancingCurrent || 0) +
-      Number(overrides.cashOtherFinancing2Current || 0) +
-      Number(overrides.cashOtherFinancing3Current || 0);
-
-    onChange("cashWorkingCapitalCurrent", Math.round(targetMovement - currentKnownMovement));
-  }
-
-  function autoBalancePriorWorkingCapital() {
-    const targetMovement =
-      Number(engineChecks?.cashClosingPriorFromSfp || 0) -
-      Number(overrides.cashPriorOpeningBalance || 0);
-    const currentKnownMovement =
-      0 +
-      Number(overrides.cashAdjustmentsToProfitPrior || 0) +
-      Number(overrides.cashInterestReceivedPrior || 0) +
-      Number(overrides.cashFinanceCostsPaidPrior || 0) +
-      Number(overrides.cashTaxPaidPrior || 0) +
-      Number(overrides.cashOtherOperatingPrior || 0) +
-      Number(overrides.cashOtherOperating2Prior || 0) +
-      Number(overrides.cashOtherOperating3Prior || 0) +
-      Number(overrides.cashPurchaseOfPpePrior || 0) +
-      Number(overrides.cashProceedsOnDisposalPpePrior || 0) +
-      Number(overrides.cashOtherInvestingPrior || 0) +
-      Number(overrides.cashOtherInvesting2Prior || 0) +
-      Number(overrides.cashOtherInvesting3Prior || 0) +
-      Number(overrides.cashLoansRaisedPrior || 0) +
-      Number(overrides.cashLoansRepaidPrior || 0) +
-      Number(overrides.cashDividendsPaidPrior || 0) +
-      Number(overrides.cashOtherFinancingPrior || 0) +
-      Number(overrides.cashOtherFinancing2Prior || 0) +
-      Number(overrides.cashOtherFinancing3Prior || 0);
-
-    onChange("cashWorkingCapitalPrior", Math.round(targetMovement - currentKnownMovement));
-  }
 
   return (
     <div style={{ display: "grid", gap: 10 }}>
@@ -466,14 +413,14 @@ export default function AfsStatementOverrideSettings({
 
             <div style={sectionTitleStyle()}>Financing activities</div>
             <CashField
-              label="Loans raised / advances received"
+              label="Shareholder loans raised"
               currentKey="cashLoansRaisedCurrent"
               priorKey="cashLoansRaisedPrior"
               overrides={overrides}
               onChange={onChange}
             />
             <CashField
-              label="Loans repaid / advances settled"
+              label="Shareholder loans repaid"
               currentKey="cashLoansRepaidCurrent"
               priorKey="cashLoansRepaidPrior"
               overrides={overrides}
@@ -508,14 +455,6 @@ export default function AfsStatementOverrideSettings({
               onChange={onChange}
             />
 
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <button type="button" onClick={autoBalanceCurrentWorkingCapital} style={buttonStyle()}>
-                Balance current via working capital
-              </button>
-              <button type="button" onClick={autoBalancePriorWorkingCapital} style={buttonStyle()}>
-                Balance prior via working capital
-              </button>
-            </div>
           </div>
 
           <div style={checkStyle(cashMovementDiff)}>
@@ -535,14 +474,3 @@ export default function AfsStatementOverrideSettings({
   );
 }
 
-function buttonStyle() {
-  return {
-    border: "1px solid #111827",
-    background: "#111827",
-    color: "#ffffff",
-    fontSize: 9,
-    fontWeight: 800,
-    padding: "5px 7px",
-    cursor: "pointer",
-  };
-}
