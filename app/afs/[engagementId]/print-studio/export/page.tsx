@@ -700,6 +700,124 @@ function readableLoanAccountLabel(line: TrialBalanceLine) {
     .trim() || String(raw);
 }
 
+function isOtherFinancialLiabilityTrialBalanceLine(line: TrialBalanceLine) {
+  const text = lineSearchText(line);
+
+  if (isShareholderLoanTrialBalanceLine(line)) {
+    return false;
+  }
+
+  if (
+    includesAny(text, [
+      "share capital",
+      "ordinary share",
+      "issued share",
+      "retained",
+      "accumulated",
+      "revenue",
+      "sales",
+      "expense",
+      "asset",
+      "current liability",
+      "trade payable",
+      "creditor",
+    ])
+  ) {
+    return false;
+  }
+
+  return (
+    String(line.mapping_code || "").trim() === "590" ||
+    String(line.lead_schedule_number || "").trim() === "590" ||
+    includesAny(text, [
+      "other financial liabil",
+      "other non-current liabil",
+      "other non current liabil",
+      "non-current financial liabil",
+      "non current financial liabil",
+    ])
+  );
+}
+
+function readableOtherFinancialLiabilityLabel(line: TrialBalanceLine) {
+  const raw =
+    line.account_name ||
+    line.mapping_label ||
+    line.mapping_category ||
+    line.lead_schedule_key ||
+    "Other financial liabilities";
+
+  return String(raw)
+    .replace(/^\s*\d+[\s./-]*/g, "")
+    .replace(
+      /\s*[-–—]\s*(other\s+)?(non[- ]current\s+)?financial\s+liabilit(y|ies)$/i,
+      "",
+    )
+    .replace(
+      /\s*\((other\s+)?(non[- ]current\s+)?financial\s+liabilit(y|ies)\)\s*$/i,
+      "",
+    )
+    .trim() || String(raw);
+}
+
+function buildOtherFinancialLiabilitySplitRows(
+  lines: TrialBalanceLine[],
+  fallbackRows: any[],
+) {
+  const grouped = new Map<string, NoteAmountLine>();
+
+  (lines || [])
+    .filter(isOtherFinancialLiabilityTrialBalanceLine)
+    .forEach((line) => {
+      const label = readableOtherFinancialLiabilityLabel(line);
+      const key =
+        line.id ||
+        line.account_code ||
+        label.toLowerCase().replace(/[^a-z0-9]+/g, "-") ||
+        "other-financial-liability";
+
+      const current = normaliseAmount(line, rawCurrent(line));
+      const prior = normaliseAmount(line, rawPrior(line));
+
+      if (!grouped.has(label)) {
+        grouped.set(label, {
+          id: String(key),
+          label,
+          current: 0,
+          prior: 0,
+          meta: {
+            source: "trial-balance-split",
+            accountCode: line.account_code,
+            terms:
+              "The liability is unsecured, bears no interest and has no fixed repayment terms unless otherwise disclosed.",
+          },
+        });
+      }
+
+      const row = grouped.get(label);
+      if (!row) return;
+
+      row.current += current;
+      row.prior += prior;
+    });
+
+  const splitRows = Array.from(grouped.values())
+    .filter(
+      (row) =>
+        Math.round(row.current || 0) !== 0 ||
+        Math.round(row.prior || 0) !== 0,
+    )
+    .sort((a, b) => String(a.label).localeCompare(String(b.label)));
+
+  const fallbackVisible = (fallbackRows || []).filter(
+    (row) =>
+      Math.round(Number(row?.current || 0)) !== 0 ||
+      Math.round(Number(row?.prior || 0)) !== 0,
+  );
+
+  return splitRows.length > 0 ? splitRows : fallbackVisible;
+}
+
 function buildShareholderLoanSplitRows(
   lines: TrialBalanceLine[],
   fallbackRows: any[],
@@ -2464,10 +2582,18 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
   const noteDataForPrintStudio = useMemo(() => {
     const base: Record<string, any[]> = { ...(noteData as any) };
+
     base.shareholdersLoans = buildShareholderLoanSplitRows(
       trialBalanceLines,
       base.shareholdersLoans || [],
     );
+
+    base.otherFinancialLiabilities =
+      buildOtherFinancialLiabilitySplitRows(
+        trialBalanceLines,
+        base.otherFinancialLiabilities || [],
+      );
+
     return base;
   }, [noteData, trialBalanceLines]);
 
@@ -2836,7 +2962,11 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
     const isCashGeneratedNote = noteKey === "notesCashUsedInOperations";
     const isShareholdersLoansNote = noteKey === "notesShareholdersLoans";
-    const displaySourceLines = isCashGeneratedNote ? cashGeneratedNoteRows(lines) : lines;
+    const isOtherFinancialLiabilitiesNote =
+      noteKey === "notesOtherFinancialLiabilities";
+    const displaySourceLines = isCashGeneratedNote
+      ? cashGeneratedNoteRows(lines)
+      : lines;
 
     const displayLines =
       displaySourceLines.length === 1
@@ -2956,11 +3086,16 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               </tr>,
             ];
 
-            if (isShareholdersLoansNote) {
+            if (
+              isShareholdersLoansNote ||
+              isOtherFinancialLiabilitiesNote
+            ) {
               const termsText =
                 line?.meta?.terms ||
                 line?.meta?.loanTerms ||
-                "The loan is unsecured, bears no interest and has no fixed repayment terms.";
+                (isOtherFinancialLiabilitiesNote
+                  ? "The liability is unsecured, bears no interest and has no fixed repayment terms unless otherwise disclosed."
+                  : "The loan is unsecured, bears no interest and has no fixed repayment terms.");
 
               rows.push(
                 <tr key={`${rowKey}-terms`}>
