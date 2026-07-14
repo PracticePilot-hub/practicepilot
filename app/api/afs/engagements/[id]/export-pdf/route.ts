@@ -46,7 +46,6 @@ function cleanTitle(value: string) {
 
 function getOrigin(request: NextRequest) {
   const url = new URL(request.url);
-
   const forwardedHost = request.headers.get("x-forwarded-host");
   const forwardedProto = request.headers.get("x-forwarded-proto");
 
@@ -69,24 +68,18 @@ function getLocalChromePath() {
   const chromePath =
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
-  if (existsSync(chromePath)) {
-    return chromePath;
-  }
+  if (existsSync(chromePath)) return chromePath;
 
   const chromeCanaryPath =
     "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary";
 
-  if (existsSync(chromeCanaryPath)) {
-    return chromeCanaryPath;
-  }
+  if (existsSync(chromeCanaryPath)) return chromeCanaryPath;
 
   return null;
 }
 
 async function getVercelChromiumPath() {
-  if (cachedExecutablePath) {
-    return cachedExecutablePath;
-  }
+  if (cachedExecutablePath) return cachedExecutablePath;
 
   if (!chromiumDownloadPromise) {
     chromiumDownloadPromise = import("@sparticuz/chromium-min")
@@ -122,7 +115,14 @@ export async function GET(request: NextRequest, context: RouteContext) {
       request.nextUrl.searchParams.get("draft") === "1" ||
       request.nextUrl.searchParams.get("draft") === "true";
 
-    const exportUrl = new URL(`${origin}/afs/${id}/print-studio/export`);
+    /*
+      IMPORTANT:
+      Export the real Print Studio page directly.
+      Do not route through /print-studio/export, because that page duplicated
+      the statement engine, cash-flow logic, note renderer and typography.
+    */
+    const exportUrl = new URL(`${origin}/afs/${id}/print-studio`);
+    exportUrl.searchParams.set("pdf", "1");
     exportUrl.searchParams.set("serverPdf", "1");
 
     if (isDraft) {
@@ -164,16 +164,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
 
     const page = await browser.newPage();
-
     page.setDefaultNavigationTimeout(60_000);
     page.setDefaultTimeout(60_000);
 
     const cookieHeader = request.headers.get("cookie") || "";
 
     if (cookieHeader) {
-      await page.setExtraHTTPHeaders({
-        cookie: cookieHeader,
-      });
+      await page.setExtraHTTPHeaders({ cookie: cookieHeader });
     }
 
     await page.goto(exportUrl.toString(), {
@@ -184,17 +181,16 @@ export async function GET(request: NextRequest, context: RouteContext) {
     await page.waitForFunction(
       () => {
         const bodyText = document.body?.innerText || "";
-        const lowerText = bodyText.toLowerCase();
-        const stillLoading = /loading print studio data/i.test(bodyText);
+        const ready =
+          document.body?.getAttribute("data-afs-pdf-ready") === "true";
 
         return (
-          !stillLoading &&
-          Boolean(document.querySelector(".afsExportOnlyRoot")) &&
+          ready &&
           Boolean(document.getElementById("print-cover-page")) &&
           Boolean(document.getElementById("print-index")) &&
           Boolean(document.getElementById("print-sfp")) &&
-          lowerText.includes("annual financial statements") &&
-          lowerText.includes("statement of financial position")
+          bodyText.toLowerCase().includes("annual financial statements") &&
+          bodyText.toLowerCase().includes("statement of financial position")
         );
       },
       { timeout: 60_000 },
@@ -202,21 +198,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     const exportInfo = await page.evaluate(async () => {
       await new Promise<void>((resolve) => {
-        if (document.fonts && document.fonts.ready) {
+        if (document.fonts?.ready) {
           document.fonts.ready.then(() => resolve()).catch(() => resolve());
         } else {
           resolve();
         }
       });
-
-      document.documentElement.classList.add("afs-export-route-html");
-      document.body.classList.add("afs-export-route-body");
-
-      window.dispatchEvent(
-        new CustomEvent("afs-print-export-mode", {
-          detail: true,
-        }),
-      );
 
       const bodyText = document.body?.innerText || "";
       const lines = bodyText
@@ -231,8 +218,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
       const yearEndMatch = bodyText.match(/year ended\s+(\d{4}-\d{2}-\d{2})/i);
       const yearEnd = yearEndMatch?.[1] || "";
-
       const title = [entityLine, "AFS", yearEnd].filter(Boolean).join(" - ");
+
       document.title = title;
 
       return {
@@ -242,27 +229,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
       };
     });
 
-    await page.waitForFunction(
-      () => document.body.classList.contains("afs-export-route-body"),
-      { timeout: 10_000 },
-    );
-
-    /*
-      IMPORTANT:
-      The export renderer is built for print CSS.
-      Using screen media only prints the visible cover page.
-    */
     await page.emulateMediaType("print");
-
-    await page.waitForFunction(
-      () => {
-        const style = window.getComputedStyle(document.body);
-        return style.display !== "none" && style.visibility !== "hidden";
-      },
-      { timeout: 10_000 },
-    );
-
-    await sleep(500);
+    await sleep(700);
 
     const pdfBytes = await page.pdf({
       format: "A4",
@@ -300,8 +268,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
       { status: 500 },
     );
   } finally {
-    if (browser) {
-      await browser.close();
-    }
+    if (browser) await browser.close();
   }
 }
