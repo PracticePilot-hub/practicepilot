@@ -4406,6 +4406,202 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             white-space: nowrap !important;
           }
 
+
+        /* FINAL CASEWARE-CALIBRATED OVERRIDES
+           Applied last so older inline/global rules cannot re-darken the export. */
+        .afsExportOnlyRoot,
+        .afsExportOnlyRoot * {
+          font-family: Arial, Helvetica, sans-serif !important;
+          letter-spacing: 0 !important;
+        }
+
+        .afsExportOnlyRoot {
+          color: #111 !important;
+        }
+
+        /* Running header */
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child {
+          margin-bottom: 8px !important;
+          padding-bottom: 4px !important;
+          border-bottom: 0 !important;
+        }
+
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child * {
+          color: #111 !important;
+          font-size: 9.1px !important;
+          line-height: 1.15 !important;
+          font-weight: 400 !important;
+        }
+
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child > div:first-child {
+          font-size: 12px !important;
+          line-height: 1.1 !important;
+          font-weight: 700 !important;
+        }
+
+        /* Main page titles */
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > h1,
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > h2 {
+          color: #111 !important;
+          font-size: 16px !important;
+          line-height: 1.1 !important;
+          font-weight: 700 !important;
+          margin: 0 0 8px !important;
+          padding: 0 0 4px !important;
+          border-bottom: 1.1px solid #111 !important;
+        }
+
+        /* Body text remains readable - do not globally shrink the report. */
+        .afsExportOnlyRoot p,
+        .afsExportOnlyRoot td,
+        .afsExportOnlyRoot li {
+          color: #111 !important;
+          font-size: 10.2px !important;
+          line-height: 1.32 !important;
+          font-weight: 400 !important;
+        }
+
+        .afsExportOnlyRoot th {
+          color: #111 !important;
+          font-size: 10px !important;
+          line-height: 1.2 !important;
+          font-weight: 600 !important;
+        }
+
+        .afsExportOnlyRoot strong,
+        .afsExportOnlyRoot b {
+          color: #111 !important;
+          font-weight: 600 !important;
+        }
+
+        /* General Information */
+        #print-general-info tbody tr td {
+          padding-top: 4px !important;
+          padding-bottom: 4px !important;
+          line-height: 1.32 !important;
+        }
+
+        #print-general-info tbody tr td:first-child {
+          width: 34% !important;
+          color: #111 !important;
+          font-weight: 600 !important;
+        }
+
+        /* Directors table: one header rule only. */
+        #print-directors-report table thead th {
+          color: #111 !important;
+          font-weight: 600 !important;
+          border-top: 0 !important;
+          border-bottom: 0.8px solid #111 !important;
+          padding-top: 2px !important;
+          padding-bottom: 3px !important;
+        }
+
+        #print-directors-report table tbody td {
+          border: 0 !important;
+          padding-top: 2px !important;
+          padding-bottom: 2px !important;
+        }
+
+        /* Statements */
+        #print-sfp table td,
+        #print-soci table td,
+        #print-sce table td,
+        #print-cash-flow table td,
+        #print-detailed-income table td {
+          font-size: 10px !important;
+          line-height: 1.2 !important;
+          font-weight: 400 !important;
+          padding-top: 1.5px !important;
+          padding-bottom: 1.5px !important;
+        }
+
+        #print-sfp table th,
+        #print-soci table th,
+        #print-sce table th,
+        #print-cash-flow table th,
+        #print-detailed-income table th {
+          font-size: 9.8px !important;
+          font-weight: 400 !important;
+        }
+
+        #print-sfp table tr:has(td[style*="border"]) td,
+        #print-soci table tr:has(td[style*="border"]) td,
+        #print-sce table tr:has(td[style*="border"]) td,
+        #print-cash-flow table tr:has(td[style*="border"]) td,
+        #print-detailed-income table tr:has(td[style*="border"]) td {
+          font-weight: 600 !important;
+        }
+
+        /* Accounting policies */
+        #print-policies h3,
+        #print-policies h4 {
+          color: #111 !important;
+          font-size: 10.5px !important;
+          line-height: 1.2 !important;
+          font-weight: 600 !important;
+          margin-top: 8px !important;
+          margin-bottom: 3px !important;
+        }
+
+        #print-policies p {
+          margin-bottom: 6px !important;
+        }
+
+        /* Notes - CaseWare rhythm, no marker effect. */
+        .afs-export-notes-page .afs-export-note-item,
+        .afs-export-notes-page section {
+          margin-bottom: 9px !important;
+        }
+
+        .afs-export-notes-page h2,
+        .afs-export-notes-page h3 {
+          color: #111 !important;
+          font-size: 10.8px !important;
+          line-height: 1.2 !important;
+          font-weight: 600 !important;
+          margin-top: 8px !important;
+          margin-bottom: 3px !important;
+        }
+
+        .afs-export-notes-page table {
+          margin-top: 1px !important;
+          margin-bottom: 6px !important;
+        }
+
+        .afs-export-notes-page th,
+        .afs-export-notes-page td {
+          font-size: 10px !important;
+          line-height: 1.2 !important;
+          padding-top: 1px !important;
+          padding-bottom: 1px !important;
+          border-top: 0 !important;
+          border-bottom: 0 !important;
+        }
+
+        .afs-export-notes-page thead th {
+          color: #111 !important;
+          font-weight: 600 !important;
+        }
+
+        .afs-export-notes-page tbody tr:last-child td {
+          font-weight: 600 !important;
+        }
+
+        .afs-export-notes-page tbody tr:last-child td:nth-child(2),
+        .afs-export-notes-page tbody tr:last-child td:nth-child(3) {
+          border-top: 0.7px solid #111 !important;
+          border-bottom: 0.9px solid #111 !important;
+        }
+
+        .afs-export-notes-page th:nth-child(2),
+        .afs-export-notes-page th:nth-child(3),
+        .afs-export-notes-page td:nth-child(2),
+        .afs-export-notes-page td:nth-child(3) {
+          width: 24mm !important;
+          max-width: 24mm !important;
+        }
+
         @media screen {
           body.afs-export-route-body {
             background: #ffffff !important;
