@@ -1290,7 +1290,7 @@ function renderInfoRow(label: string, value: unknown) {
         style={{
           width: "36%",
           padding: "6px 0 7px",
-          fontWeight: 800,
+          fontWeight: 500,
           verticalAlign: "top",
           lineHeight: 1.35,
         }}
@@ -1316,30 +1316,33 @@ function paragraphStyle() {
 
 function sectionHeadingStyle() {
   return {
-    fontSize: 12,
+    fontSize: 11.6,
     lineHeight: 1.3,
-    fontWeight: 800,
-    margin: "16px 0 6px",
+    fontWeight: 600,
+    margin: "15px 0 5px",
+    letterSpacing: "-0.005em",
   };
 }
 
 function subsectionHeadingStyle() {
   return {
-    fontSize: 11,
+    fontSize: 10.6,
     lineHeight: 1.3,
-    fontWeight: 800,
-    margin: "10px 0 4px",
+    fontWeight: 500,
+    margin: "9px 0 3px",
   };
 }
 
 function pageHeadingStyle() {
   return {
-    fontSize: 15.4,
-    fontWeight: 800,
-    margin: "0 0 16px",
-    paddingBottom: 7,
-    borderBottom: "1.25px solid #111827",
+    fontSize: 14.2,
+    fontWeight: 600,
+    margin: "0 0 15px",
+    paddingBottom: 6,
+    borderBottom: "0.8px solid #334155",
     textTransform: "none" as const,
+    letterSpacing: "-0.012em",
+    color: "#1f2937",
   };
 }
 
@@ -3035,7 +3038,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             <th
               style={{
                 textAlign: "left",
-                borderBottom: "1.5px solid #111827",
+                borderBottom: "0.8px solid #64748b",
                 padding: "2px 0 3px",
               }}
             >
@@ -3044,7 +3047,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             <th
               style={{
                 textAlign: "right",
-                borderBottom: "1.5px solid #111827",
+                borderBottom: "0.8px solid #64748b",
                 padding: "2px 0 3px",
                 width: 80,
               }}
@@ -3055,7 +3058,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               <th
                 style={{
                   textAlign: "right",
-                  borderBottom: "1.5px solid #111827",
+                  borderBottom: "0.8px solid #64748b",
                   padding: "2px 0 3px",
                   width: 80,
                 }}
@@ -3154,8 +3157,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               <td
                 style={{
                   padding: "3px 0",
-                  borderTop: "1px solid #111827",
-                  fontWeight: 800,
+                  borderTop: "0.8px solid #64748b",
+                  fontWeight: 600,
                 }}
               >
                 &nbsp;
@@ -3163,8 +3166,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               <td
                 style={{
                   padding: "3px 0",
-                  borderTop: "1px solid #111827",
-                  fontWeight: 800,
+                  borderTop: "0.8px solid #64748b",
+                  fontWeight: 600,
                   textAlign: "right",
                 }}
               >
@@ -3174,8 +3177,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 <td
                   style={{
                     padding: "3px 0",
-                    borderTop: "1px solid #111827",
-                    fontWeight: 800,
+                    borderTop: "0.8px solid #64748b",
+                    fontWeight: 600,
                     textAlign: "right",
                   }}
                 >
@@ -3321,7 +3324,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               <th
                 style={{
                   textAlign: "left",
-                  borderBottom: "1px solid #111827",
+                  borderBottom: "0.8px solid #64748b",
                   padding: "3px 0",
                 }}
               >
@@ -3330,7 +3333,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               <th
                 style={{
                   textAlign: "right",
-                  borderBottom: "1px solid #111827",
+                  borderBottom: "0.8px solid #64748b",
                   padding: "3px 0",
                   width: 90,
                 }}
@@ -3340,7 +3343,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               <th
                 style={{
                   textAlign: "right",
-                  borderBottom: "1px solid #111827",
+                  borderBottom: "0.8px solid #64748b",
                   padding: "3px 0",
                   width: 110,
                 }}
@@ -3350,7 +3353,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               <th
                 style={{
                   textAlign: "right",
-                  borderBottom: "1px solid #111827",
+                  borderBottom: "0.8px solid #64748b",
                   padding: "3px 0",
                   width: 90,
                 }}
@@ -3518,10 +3521,11 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             >
               <h2
                 style={{
-                  fontSize: 11.45,
-                  lineHeight: 1.2,
+                  fontSize: 11.1,
+                  lineHeight: 1.25,
                   margin: "0 0 5px",
                   fontWeight: 600,
+                  color: "#273449",
                 }}
               >
                 {item.number}. {item.title}
@@ -3776,7 +3780,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   color: cashFlowViewMode === "afs" ? "#ffffff" : "#111827",
                   padding: "7px 8px",
                   fontSize: 11,
-                  fontWeight: 900,
+                  fontWeight: 600,
                   cursor: "pointer",
                 }}
               >
@@ -3792,7 +3796,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   color: cashFlowViewMode === "work" ? "#ffffff" : "#111827",
                   padding: "7px 8px",
                   fontSize: 11,
-                  fontWeight: 900,
+                  fontWeight: 600,
                   cursor: "pointer",
                 }}
               >
@@ -3971,23 +3975,43 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           font-variant-ligatures: none;
         }
 
-        .afsExportOnlyRoot h1 {
-          font-weight: 700 !important;
-          letter-spacing: -0.01em !important;
+        .afsExportOnlyRoot {
+          color: #1f2937 !important;
         }
 
-        .afsExportOnlyRoot h2,
-        .afsExportOnlyRoot h3 {
+        .afsExportOnlyRoot h1 {
           font-weight: 600 !important;
+          letter-spacing: -0.012em !important;
+          color: #1f2937 !important;
+        }
+
+        .afsExportOnlyRoot h2 {
+          font-weight: 600 !important;
+          letter-spacing: -0.006em !important;
+          color: #273449 !important;
+        }
+
+        .afsExportOnlyRoot h3 {
+          font-weight: 500 !important;
+          color: #334155 !important;
         }
 
         .afsExportOnlyRoot th {
           font-weight: 600 !important;
+          color: #273449 !important;
         }
 
         .afsExportOnlyRoot p,
-        .afsExportOnlyRoot td {
+        .afsExportOnlyRoot td,
+        .afsExportOnlyRoot li,
+        .afsExportOnlyRoot span {
           font-weight: 400;
+          color: #1f2937;
+        }
+
+        .afsExportOnlyRoot strong,
+        .afsExportOnlyRoot b {
+          font-weight: 600 !important;
         }
 
         .afs-export-notes-page tbody tr:last-child td {
@@ -4139,13 +4163,13 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
           .afs-export-notes-page tbody tr:not(:last-child) td:nth-child(2),
           .afs-export-notes-page tbody tr:not(:last-child) td:nth-child(3) {
-            border-bottom: 1px solid #9ca3af !important;
+            border-bottom: 0.6px solid #cbd5e1 !important;
           }
 
           .afs-export-notes-page tbody tr:last-child td:nth-child(2),
           .afs-export-notes-page tbody tr:last-child td:nth-child(3) {
-            border-top: 1px solid #111827 !important;
-            border-bottom: 1.25px solid #111827 !important;
+            border-top: 0.8px solid #64748b !important;
+            border-bottom: 1px solid #475569 !important;
           }
 
           .afs-export-notes-page th:nth-child(2),
@@ -4338,9 +4362,9 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 >
                   <h1
                     style={{
-                      fontSize: 22,
+                      fontSize: 20,
                       lineHeight: 1.25,
-                      fontWeight: 800,
+                      fontWeight: 600,
                       margin: "0 0 22px",
                       textTransform: "uppercase",
                       letterSpacing: "-0.01em",
@@ -4360,8 +4384,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   >
                     <div
                       style={{
-                        fontSize: 17,
-                        fontWeight: 900,
+                        fontSize: 15.5,
+                        fontWeight: 600,
                         textTransform: "uppercase",
                       }}
                     >
@@ -5061,7 +5085,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                               <th
                                 style={{
                                   textAlign: "left",
-                                  borderBottom: "1.5px solid #111827",
+                                  borderBottom: "0.8px solid #64748b",
                                   padding: "3px 0",
                                 }}
                               >
@@ -5070,7 +5094,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                               <th
                                 style={{
                                   textAlign: "right",
-                                  borderBottom: "1.5px solid #111827",
+                                  borderBottom: "0.8px solid #64748b",
                                   padding: "3px 0",
                                   width: 110,
                                 }}
