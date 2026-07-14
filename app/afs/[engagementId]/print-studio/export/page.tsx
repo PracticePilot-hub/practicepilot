@@ -1316,11 +1316,11 @@ function paragraphStyle() {
 
 function sectionHeadingStyle() {
   return {
-    fontSize: 11.6,
+    fontSize: 11.3,
     lineHeight: 1.3,
-    fontWeight: 600,
-    margin: "15px 0 5px",
-    letterSpacing: "-0.005em",
+    fontWeight: 500,
+    margin: "14px 0 5px",
+    letterSpacing: "-0.003em",
   };
 }
 
@@ -1335,14 +1335,14 @@ function subsectionHeadingStyle() {
 
 function pageHeadingStyle() {
   return {
-    fontSize: 14.2,
-    fontWeight: 600,
-    margin: "0 0 15px",
-    paddingBottom: 6,
-    borderBottom: "0.8px solid #334155",
+    fontSize: 13.6,
+    fontWeight: 500,
+    margin: "0 0 14px",
+    paddingBottom: 5,
+    borderBottom: "0.6px solid #64748b",
     textTransform: "none" as const,
-    letterSpacing: "-0.012em",
-    color: "#1f2937",
+    letterSpacing: "-0.008em",
+    color: "#273449",
   };
 }
 
@@ -3521,11 +3521,11 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             >
               <h2
                 style={{
-                  fontSize: 11.1,
+                  fontSize: 10.9,
                   lineHeight: 1.25,
                   margin: "0 0 5px",
-                  fontWeight: 600,
-                  color: "#273449",
+                  fontWeight: 500,
+                  color: "#334155",
                 }}
               >
                 {item.number}. {item.title}
@@ -3980,25 +3980,25 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         }
 
         .afsExportOnlyRoot h1 {
-          font-weight: 600 !important;
-          letter-spacing: -0.012em !important;
-          color: #1f2937 !important;
+          font-weight: 500 !important;
+          letter-spacing: -0.008em !important;
+          color: #273449 !important;
         }
 
         .afsExportOnlyRoot h2 {
-          font-weight: 600 !important;
-          letter-spacing: -0.006em !important;
-          color: #273449 !important;
+          font-weight: 500 !important;
+          letter-spacing: -0.003em !important;
+          color: #334155 !important;
         }
 
         .afsExportOnlyRoot h3 {
           font-weight: 500 !important;
-          color: #334155 !important;
+          color: #475569 !important;
         }
 
         .afsExportOnlyRoot th {
-          font-weight: 600 !important;
-          color: #273449 !important;
+          font-weight: 500 !important;
+          color: #334155 !important;
         }
 
         .afsExportOnlyRoot p,
@@ -4011,7 +4011,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
         .afsExportOnlyRoot strong,
         .afsExportOnlyRoot b {
-          font-weight: 600 !important;
+          font-weight: 500 !important;
         }
 
         .afs-export-notes-page tbody tr:last-child td {
@@ -4362,9 +4362,9 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 >
                   <h1
                     style={{
-                      fontSize: 20,
+                      fontSize: 19,
                       lineHeight: 1.25,
-                      fontWeight: 600,
+                      fontWeight: 500,
                       margin: "0 0 22px",
                       textTransform: "uppercase",
                       letterSpacing: "-0.01em",
@@ -4384,8 +4384,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   >
                     <div
                       style={{
-                        fontSize: 15.5,
-                        fontWeight: 600,
+                        fontSize: 14.8,
+                        fontWeight: 500,
                         textTransform: "uppercase",
                       }}
                     >
