@@ -1,0 +1,434 @@
+/* PracticePilot AFS report — single export stylesheet.
+   Do not add typography overrides inside export/page.tsx. */
+
+@page {
+  size: A4 portrait;
+  margin: 0;
+}
+
+html.afs-export-route-html,
+body.afs-export-route-body {
+  width: 210mm;
+  min-width: 210mm;
+  max-width: 210mm;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  background: #fff !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  color: #000 !important;
+}
+
+body.afs-export-route-body * {
+  box-sizing: border-box;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-variant-ligatures: none;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  text-rendering: optimizeLegibility;
+}
+
+.afsExportOnlyRoot {
+  counter-reset: afs-page;
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  width: 100vw;
+  min-height: 100vh;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: auto;
+  background: #fff;
+  color: #000;
+}
+
+.afsExportOnlyRoot article {
+  position: relative !important;
+  box-shadow: none !important;
+  counter-increment: afs-page;
+}
+
+.afsExportOnlyRoot article::after {
+  content: counter(afs-page);
+  position: absolute;
+  left: 50%;
+  bottom: 7mm;
+  transform: translateX(-50%);
+  font-size: 8.5pt;
+  line-height: 1;
+  font-weight: 400;
+  color: #000;
+}
+
+.afsExportOnlyRoot.afsDraftExport article::before {
+  content: "DRAFT";
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  z-index: 999998;
+  transform: translate(-50%, -50%) rotate(-35deg);
+  font-size: 78pt;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  color: rgba(80, 80, 80, 0.14);
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Core type scale */
+.afsExportOnlyRoot p,
+.afsExportOnlyRoot td,
+.afsExportOnlyRoot li {
+  color: #000 !important;
+  font-size: 10pt !important;
+  line-height: 1.28 !important;
+  font-weight: 400 !important;
+}
+
+.afsExportOnlyRoot th {
+  color: #000 !important;
+  font-size: 9.8pt !important;
+  line-height: 1.18 !important;
+  font-weight: 600 !important;
+}
+
+.afsExportOnlyRoot strong,
+.afsExportOnlyRoot b {
+  color: #000 !important;
+  font-weight: 600 !important;
+}
+
+.afsExportOnlyRoot h1 {
+  margin: 0 0 7px !important;
+  color: #000 !important;
+  font-size: 15.5pt !important;
+  line-height: 1.08 !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+}
+
+.afsExportOnlyRoot h2 {
+  margin: 0 0 6px !important;
+  color: #000 !important;
+  font-size: 12.5pt !important;
+  line-height: 1.12 !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+}
+
+.afsExportOnlyRoot h3,
+.afsExportOnlyRoot h4 {
+  margin: 8px 0 3px !important;
+  color: #000 !important;
+  font-size: 10.2pt !important;
+  line-height: 1.18 !important;
+  font-weight: 600 !important;
+}
+
+/* Running header: compact, dark and clearly secondary */
+.afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child {
+  margin-bottom: 8px !important;
+  padding-bottom: 4px !important;
+  border-bottom: 0 !important;
+}
+
+.afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child * {
+  color: #000 !important;
+  font-size: 8.5pt !important;
+  line-height: 1.1 !important;
+  font-weight: 400 !important;
+}
+
+.afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child > div:first-child {
+  font-size: 10.5pt !important;
+  font-weight: 600 !important;
+}
+
+/* Main report title */
+.afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > h1,
+.afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > h2 {
+  margin-bottom: 8px !important;
+  padding-bottom: 4px !important;
+  border-bottom: 1px solid #000 !important;
+}
+
+/* General information */
+#print-general-info table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+}
+
+#print-general-info tbody tr td {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+  vertical-align: top !important;
+  line-height: 1.3 !important;
+}
+
+#print-general-info tbody tr td:first-child {
+  width: 35% !important;
+  font-weight: 600 !important;
+}
+
+/* Directors */
+#print-directors-report table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+}
+
+#print-directors-report table thead th {
+  padding: 2px 4px 3px 0 !important;
+  border: 0 !important;
+  border-bottom: 0.8px solid #000 !important;
+  text-align: left !important;
+  font-weight: 600 !important;
+}
+
+#print-directors-report table tbody td {
+  padding: 2px 4px 2px 0 !important;
+  border: 0 !important;
+}
+
+/* Statement tables */
+#print-sfp table,
+#print-soci table,
+#print-sce table,
+#print-cash-flow table,
+#print-detailed-income table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  table-layout: fixed !important;
+}
+
+#print-sfp table td,
+#print-soci table td,
+#print-sce table td,
+#print-cash-flow table td,
+#print-detailed-income table td {
+  padding-top: 1.5px !important;
+  padding-bottom: 1.5px !important;
+  color: #000 !important;
+  font-size: 9.8pt !important;
+  line-height: 1.18 !important;
+  font-weight: 400 !important;
+}
+
+#print-sfp table th,
+#print-soci table th,
+#print-sce table th,
+#print-cash-flow table th,
+#print-detailed-income table th {
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+  color: #000 !important;
+  font-size: 9.6pt !important;
+  font-weight: 500 !important;
+}
+
+#print-sfp table tr:has(td[style*="border"]) td,
+#print-soci table tr:has(td[style*="border"]) td,
+#print-sce table tr:has(td[style*="border"]) td,
+#print-cash-flow table tr:has(td[style*="border"]) td,
+#print-detailed-income table tr:has(td[style*="border"]) td {
+  font-weight: 600 !important;
+}
+
+/* Policies */
+#print-policies h3,
+#print-policies h4 {
+  margin: 8px 0 3px !important;
+  font-size: 10.2pt !important;
+  font-weight: 600 !important;
+}
+
+#print-policies p {
+  margin-bottom: 6px !important;
+}
+
+/* Notes */
+.afs-export-notes-page section,
+.afs-export-notes-page .afs-export-note-item {
+  margin-bottom: 10px !important;
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
+}
+
+.afs-export-notes-page h2,
+.afs-export-notes-page h3 {
+  margin: 8px 0 3px !important;
+  font-size: 10.5pt !important;
+  font-weight: 600 !important;
+}
+
+.afs-export-notes-page table {
+  width: 100% !important;
+  margin: 1px 0 6px !important;
+  border-collapse: collapse !important;
+  table-layout: fixed !important;
+}
+
+.afs-export-notes-page th,
+.afs-export-notes-page td {
+  padding-top: 1px !important;
+  padding-bottom: 1px !important;
+  border: 0 !important;
+  color: #000 !important;
+  font-size: 9.8pt !important;
+  line-height: 1.18 !important;
+}
+
+.afs-export-notes-page thead th {
+  font-weight: 600 !important;
+}
+
+.afs-export-notes-page th:nth-child(2),
+.afs-export-notes-page th:nth-child(3),
+.afs-export-notes-page td:nth-child(2),
+.afs-export-notes-page td:nth-child(3) {
+  width: 24mm !important;
+  max-width: 24mm !important;
+  white-space: nowrap !important;
+}
+
+.afs-export-notes-page tbody tr:last-child td {
+  font-weight: 600 !important;
+}
+
+.afs-export-notes-page tbody tr:last-child td:nth-child(2),
+.afs-export-notes-page tbody tr:last-child td:nth-child(3) {
+  border-top: 0.7px solid #000 !important;
+  border-bottom: 0.9px solid #000 !important;
+}
+
+/* Page-control rules */
+.afs-export-note-item,
+.afs-directors-report-authorisation-page,
+.afs-directors-report-authorisation-page section {
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
+}
+
+.afsExportOnlyRoot h2,
+.afsExportOnlyRoot h3 {
+  break-after: avoid !important;
+  page-break-after: avoid !important;
+}
+
+.afsExportOnlyRoot p {
+  orphans: 3;
+  widows: 3;
+}
+
+@media screen {
+  body.afs-export-route-body {
+    background: #fff !important;
+  }
+
+  .afsExportOnlyRoot {
+    display: grid;
+    justify-content: center;
+    align-content: start;
+  }
+}
+
+@media print {
+  body.afs-export-route-body * {
+    visibility: hidden !important;
+  }
+
+  body.afs-export-route-body .afsExportOnlyRoot,
+  body.afs-export-route-body .afsExportOnlyRoot * {
+    visibility: visible !important;
+  }
+
+  .afsExportOnlyRoot {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 210mm !important;
+    min-width: 210mm !important;
+    max-width: 210mm !important;
+    min-height: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+    background: #fff !important;
+  }
+
+  .afsExportOnlyRoot > div,
+  .afsExportOnlyRoot [id^="print-"] {
+    width: 210mm !important;
+    min-width: 210mm !important;
+    max-width: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: block !important;
+    break-before: auto !important;
+    break-after: auto !important;
+    page-break-before: auto !important;
+    page-break-after: auto !important;
+  }
+
+  .afsExportOnlyRoot button,
+  .afsExportOnlyRoot input,
+  .afsExportOnlyRoot select,
+  .afsExportOnlyRoot textarea,
+  .afsExportOnlyRoot [data-work-only="true"],
+  .afsExportOnlyRoot [data-editable="true"],
+  .afsExportOnlyRoot [data-note-off="true"] {
+    display: none !important;
+  }
+
+  .afsExportOnlyRoot article {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    height: 297mm !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    break-after: page !important;
+    page-break-after: always !important;
+  }
+
+  .afsExportOnlyRoot article:last-of-type {
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
+
+  .afsExportOnlyRoot [id^="print-"] {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+
+  .afsExportOnlyRoot #print-cover-page {
+    break-before: auto !important;
+    page-break-before: auto !important;
+  }
+
+  .afsExportOnlyRoot #print-notes,
+  .afsExportOnlyRoot #print-notes > div {
+    break-before: auto !important;
+    page-break-before: auto !important;
+  }
+
+  .afsExportOnlyRoot #print-notes > div + div {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+
+  .afs-export-compiler-page {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+
+  .afs-export-compiler-page article {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    height: 297mm !important;
+    overflow: hidden !important;
+    break-after: page !important;
+    page-break-after: always !important;
+  }
+}
