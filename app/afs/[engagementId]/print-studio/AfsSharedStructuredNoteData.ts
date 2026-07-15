@@ -154,24 +154,85 @@ function normalise(value: unknown) {
   return clean(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+function collectSavedEntries(value: unknown): any[] {
+  if (!value) return [];
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => collectSavedEntries(entry));
+  }
+
+  if (typeof value !== "object") return [];
+
+  const objectValue = value as Record<string, any>;
+  const looksLikeEntry =
+    "label" in objectValue ||
+    "terms" in objectValue ||
+    "loanTerms" in objectValue ||
+    "accountCode" in objectValue ||
+    "id" in objectValue;
+
+  const ownEntry = looksLikeEntry ? [objectValue] : [];
+
+  return [
+    ...ownEntry,
+    ...Object.values(objectValue).flatMap((entry) =>
+      collectSavedEntries(entry),
+    ),
+  ];
+}
+
 export function resolveSharedStructuredNoteEntry(
-  familyState: Record<string, any> | undefined,
+  familyState: Record<string, any> | any[] | undefined,
   row: SharedNoteAmountLine,
+  rowIndex?: number,
 ) {
   if (!familyState || typeof familyState !== "object") return {};
 
   const direct = clean(row.id || row.label);
-  if (direct && familyState[direct]) return familyState[direct];
+
+  if (
+    !Array.isArray(familyState) &&
+    direct &&
+    (familyState as Record<string, any>)[direct]
+  ) {
+    return (familyState as Record<string, any>)[direct];
+  }
 
   const candidates = [
     row.id,
     row.meta?.accountCode,
     row.meta?.sourceLabel,
     row.label,
-  ].map(normalise).filter(Boolean);
+  ]
+    .map(normalise)
+    .filter(Boolean);
 
-  for (const [key, value] of Object.entries(familyState)) {
-    if (candidates.includes(normalise(key))) return value || {};
+  const entries = collectSavedEntries(familyState);
+
+  for (const entry of entries) {
+    const entryCandidates = [
+      entry?.id,
+      entry?.key,
+      entry?.accountCode,
+      entry?.account_code,
+      entry?.sourceLabel,
+      entry?.label,
+      entry?.name,
+    ]
+      .map(normalise)
+      .filter(Boolean);
+
+    if (entryCandidates.some((value) => candidates.includes(value))) {
+      return entry || {};
+    }
+  }
+
+  if (
+    typeof rowIndex === "number" &&
+    rowIndex >= 0 &&
+    entries[rowIndex]
+  ) {
+    return entries[rowIndex];
   }
 
   return {};
