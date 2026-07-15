@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import "../afs-report.css";
 import { createClient } from "@supabase/supabase-js";
 import type {
   AfsReportOption,
@@ -4092,7 +4091,677 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   className={`afsExportOnlyRoot ${isDraftPdf ? "afsDraftExport" : ""}`}
 >
   
+  <style jsx global>{`
+        @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
 
+        html.afs-export-route-html,
+        body.afs-export-route-body {
+          font-family: "Inter", Arial, sans-serif !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          overflow: auto !important;
+        }
+
+        body.afs-export-route-body * {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .afsExportOnlyRoot {
+  font-family: "Inter", Arial, sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+          position: fixed;
+          inset: 0;
+          z-index: 2147483647;
+          width: 100vw;
+          min-height: 100vh;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: auto;
+          background: #ffffff;
+        }
+
+        .afsExportOnlyRoot,
+        .afsExportOnlyRoot * {
+          font-family: "Inter", Arial, sans-serif !important;
+          font-variant-ligatures: none;
+        }
+
+        .afsExportOnlyRoot {
+          color: #1f2937 !important;
+        }
+
+        .afsExportOnlyRoot h1 {
+          font-weight: 500 !important;
+          letter-spacing: -0.004em !important;
+          color: #334155 !important;
+        }
+
+        .afsExportOnlyRoot h2 {
+          font-weight: 500 !important;
+          letter-spacing: -0.003em !important;
+          color: #334155 !important;
+        }
+
+        .afsExportOnlyRoot h3 {
+          font-weight: 500 !important;
+          color: #475569 !important;
+        }
+
+        .afsExportOnlyRoot th {
+          font-weight: 500 !important;
+          color: #334155 !important;
+        }
+
+        .afsExportOnlyRoot p,
+        .afsExportOnlyRoot td,
+        .afsExportOnlyRoot li,
+        .afsExportOnlyRoot span {
+          font-weight: 400;
+          color: #1f2937;
+        }
+
+        .afsExportOnlyRoot strong,
+        .afsExportOnlyRoot b {
+          font-weight: 500 !important;
+          color: #334155 !important;
+        }
+
+        .afs-export-notes-page tbody tr:last-child td {
+          font-weight: 600 !important;
+        }
+
+.afsExportOnlyRoot article {
+  position: relative !important;
+}
+
+.afsDraftWatermark {
+  position: absolute;
+  top: 48%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-35deg);
+  z-index: 999999;
+  font-family: "Inter", Arial, sans-serif !important;
+  font-size: 82pt;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: rgba(90, 90, 90, 0.16);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+        .afsExportOnlyRoot article {
+          box-shadow: none !important;
+        }
+
+        /* Running header: quiet, professional and subordinate to the report title. */
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child {
+          border-bottom: 0.45px solid #94a3b8 !important;
+          padding-bottom: 5px !important;
+          margin-bottom: 12px !important;
+          color: #475569 !important;
+        }
+
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child * {
+          font-weight: 400 !important;
+          color: #475569 !important;
+          letter-spacing: 0 !important;
+        }
+
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child > div:first-child {
+          font-weight: 500 !important;
+          color: #334155 !important;
+        }
+
+        /* Directors table: one clean header rule, no ruled-paper rows. */
+        #print-directors-report table tbody td {
+          border-top: 0 !important;
+          border-bottom: 0 !important;
+        }
+
+        #print-directors-report table thead th {
+          border-top: 0 !important;
+          border-bottom: 0.6px solid #94a3b8 !important;
+          font-weight: 500 !important;
+        }
+
+        /* Final statements: body normal, hierarchy medium, not black-marker bold. */
+        #print-sfp table td,
+        #print-soci table td,
+        #print-sce table td,
+        #print-cash-flow table td,
+        #print-detailed-income table td {
+          font-weight: 400 !important;
+        }
+
+        #print-sfp table th,
+        #print-soci table th,
+        #print-sce table th,
+        #print-cash-flow table th,
+        #print-detailed-income table th {
+          font-weight: 500 !important;
+        }
+
+        #print-sfp table tr:has(td[style*="border"]) td,
+        #print-soci table tr:has(td[style*="border"]) td,
+        #print-sce table tr:has(td[style*="border"]) td,
+        #print-cash-flow table tr:has(td[style*="border"]) td,
+        #print-detailed-income table tr:has(td[style*="border"]) td {
+          font-weight: 500 !important;
+        }
+
+        /* General information needs breathing room. */
+        #print-general-info tbody tr td {
+          padding-top: 7px !important;
+          padding-bottom: 7px !important;
+          line-height: 1.42 !important;
+        }
+
+        #print-general-info tbody tr td:first-child {
+          font-weight: 500 !important;
+          color: #334155 !important;
+        }
+
+          .afsExportOnlyRoot {
+            counter-reset: afs-export-page;
+          }
+
+          .afsExportOnlyRoot article {
+            position: relative !important;
+            counter-increment: afs-export-page;
+          }
+
+          .afsExportOnlyRoot article::after {
+            content: counter(afs-export-page);
+            position: absolute;
+            right: 17mm;
+            bottom: 8mm;
+            font-family: "Inter", Arial, sans-serif !important;
+            font-size: 9.5px;
+            line-height: 1;
+            color: #475569;
+          }
+
+          .afsExportOnlyRoot.afsDraftExport article::before {
+  content: "DRAFT";
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-35deg);
+  z-index: 999998;
+  font-family: "Inter", Arial, sans-serif !important;
+  font-size: 84pt;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: rgba(100, 100, 100, 0.18);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+          .afs-export-controlled-page,
+          .afsExportOnlyRoot [id^="print-"] {
+            break-before: page;
+            page-break-before: always;
+          }
+
+          .afsExportOnlyRoot [id="print-cover-page"] {
+            break-before: auto;
+            page-break-before: auto;
+          }
+
+          .afs-export-note-item {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .afs-directors-report-authorisation-page,
+          .afs-directors-report-authorisation-page section {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          .afsExportOnlyRoot h2,
+          .afsExportOnlyRoot h3 {
+            break-after: avoid !important;
+            page-break-after: avoid !important;
+          }
+
+          .afsExportOnlyRoot p {
+            orphans: 3;
+            widows: 3;
+          }
+
+          .afs-export-notes-page section,
+          .afs-export-notes-page .afs-export-note-item {
+            margin-bottom: 11px !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          .afs-export-notes-page h2,
+          .afs-export-notes-page h3 {
+            margin-top: 12px !important;
+            margin-bottom: 6px !important;
+            font-weight: 500 !important;
+            color: #334155 !important;
+          }
+
+          .afs-export-notes-page table {
+            border-collapse: collapse !important;
+            width: 100% !important;
+            table-layout: fixed !important;
+            margin: 3px 0 10px !important;
+          }
+
+          .afs-export-notes-page th,
+          .afs-export-notes-page td {
+            border-top: 0 !important;
+            border-bottom: 0 !important;
+            padding-top: 1.5px !important;
+            padding-bottom: 1.5px !important;
+            line-height: 1.22 !important;
+          }
+
+          .afs-export-notes-page thead th {
+            border-bottom: 0 !important;
+            font-weight: 800 !important;
+          }
+
+          .afs-export-notes-page tbody tr:last-child td {
+            border-top: 0 !important;
+            border-bottom: 0 !important;
+            font-weight: 800 !important;
+          }
+
+          .afs-export-notes-page th:nth-child(2),
+          .afs-export-notes-page th:nth-child(3),
+          .afs-export-notes-page td:nth-child(2),
+          .afs-export-notes-page td:nth-child(3) {
+            border-bottom: 1px solid transparent !important;
+          }
+
+          .afs-export-notes-page tbody tr:not(:last-child) td:nth-child(2),
+          .afs-export-notes-page tbody tr:not(:last-child) td:nth-child(3) {
+            border-bottom: 0 !important;
+          }
+
+          .afs-export-notes-page tbody tr:last-child td:nth-child(2),
+          .afs-export-notes-page tbody tr:last-child td:nth-child(3) {
+            border-top: 0.5px solid #94a3b8 !important;
+            border-bottom: 0.7px solid #64748b !important;
+          }
+
+          .afs-export-notes-page th:nth-child(2),
+          .afs-export-notes-page th:nth-child(3),
+          .afs-export-notes-page td:nth-child(2),
+          .afs-export-notes-page td:nth-child(3) {
+            width: 20mm !important;
+            max-width: 20mm !important;
+            white-space: nowrap !important;
+          }
+
+
+        /* FINAL CASEWARE-CALIBRATED OVERRIDES
+           Applied last so older inline/global rules cannot re-darken the export. */
+        .afsExportOnlyRoot,
+        .afsExportOnlyRoot * {
+          font-family: Arial, Helvetica, sans-serif !important;
+          letter-spacing: 0 !important;
+        }
+
+        .afsExportOnlyRoot {
+          color: #111 !important;
+        }
+
+        /* Running header */
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child {
+          margin-bottom: 8px !important;
+          padding-bottom: 4px !important;
+          border-bottom: 0 !important;
+        }
+
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child * {
+          color: #111 !important;
+          font-size: 9.1px !important;
+          line-height: 1.15 !important;
+          font-weight: 400 !important;
+        }
+
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child > div:first-child {
+          font-size: 12px !important;
+          line-height: 1.1 !important;
+          font-weight: 700 !important;
+        }
+
+        /* Main page titles */
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > h1,
+        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > h2 {
+          color: #111 !important;
+          font-size: 16px !important;
+          line-height: 1.1 !important;
+          font-weight: 700 !important;
+          margin: 0 0 8px !important;
+          padding: 0 0 4px !important;
+          border-bottom: 1.1px solid #111 !important;
+        }
+
+        /* Body text remains readable - do not globally shrink the report. */
+        .afsExportOnlyRoot p,
+        .afsExportOnlyRoot td,
+        .afsExportOnlyRoot li {
+          color: #111 !important;
+          font-size: 10.2px !important;
+          line-height: 1.32 !important;
+          font-weight: 400 !important;
+        }
+
+        .afsExportOnlyRoot th {
+          color: #111 !important;
+          font-size: 10px !important;
+          line-height: 1.2 !important;
+          font-weight: 600 !important;
+        }
+
+        .afsExportOnlyRoot strong,
+        .afsExportOnlyRoot b {
+          color: #111 !important;
+          font-weight: 600 !important;
+        }
+
+        /* General Information */
+        #print-general-info tbody tr td {
+          padding-top: 4px !important;
+          padding-bottom: 4px !important;
+          line-height: 1.32 !important;
+        }
+
+        #print-general-info tbody tr td:first-child {
+          width: 34% !important;
+          color: #111 !important;
+          font-weight: 600 !important;
+        }
+
+        /* Directors table: one header rule only. */
+        #print-directors-report table thead th {
+          color: #111 !important;
+          font-weight: 600 !important;
+          border-top: 0 !important;
+          border-bottom: 0.8px solid #111 !important;
+          padding-top: 2px !important;
+          padding-bottom: 3px !important;
+        }
+
+        #print-directors-report table tbody td {
+          border: 0 !important;
+          padding-top: 2px !important;
+          padding-bottom: 2px !important;
+        }
+
+        /* Statements */
+        #print-sfp table td,
+        #print-soci table td,
+        #print-sce table td,
+        #print-cash-flow table td,
+        #print-detailed-income table td {
+          font-size: 10px !important;
+          line-height: 1.2 !important;
+          font-weight: 400 !important;
+          padding-top: 1.5px !important;
+          padding-bottom: 1.5px !important;
+        }
+
+        #print-sfp table th,
+        #print-soci table th,
+        #print-sce table th,
+        #print-cash-flow table th,
+        #print-detailed-income table th {
+          font-size: 9.8px !important;
+          font-weight: 400 !important;
+        }
+
+        #print-sfp table tr:has(td[style*="border"]) td,
+        #print-soci table tr:has(td[style*="border"]) td,
+        #print-sce table tr:has(td[style*="border"]) td,
+        #print-cash-flow table tr:has(td[style*="border"]) td,
+        #print-detailed-income table tr:has(td[style*="border"]) td {
+          font-weight: 600 !important;
+        }
+
+        /* Accounting policies */
+        #print-policies h3,
+        #print-policies h4 {
+          color: #111 !important;
+          font-size: 10.5px !important;
+          line-height: 1.2 !important;
+          font-weight: 600 !important;
+          margin-top: 8px !important;
+          margin-bottom: 3px !important;
+        }
+
+        #print-policies p {
+          margin-bottom: 6px !important;
+        }
+
+        /* Notes - CaseWare rhythm, no marker effect. */
+        .afs-export-notes-page .afs-export-note-item,
+        .afs-export-notes-page section {
+          margin-bottom: 9px !important;
+        }
+
+        .afs-export-notes-page h2,
+        .afs-export-notes-page h3 {
+          color: #111 !important;
+          font-size: 10.8px !important;
+          line-height: 1.2 !important;
+          font-weight: 600 !important;
+          margin-top: 8px !important;
+          margin-bottom: 3px !important;
+        }
+
+        .afs-export-notes-page table {
+          margin-top: 1px !important;
+          margin-bottom: 6px !important;
+        }
+
+        .afs-export-notes-page th,
+        .afs-export-notes-page td {
+          font-size: 10px !important;
+          line-height: 1.2 !important;
+          padding-top: 1px !important;
+          padding-bottom: 1px !important;
+          border-top: 0 !important;
+          border-bottom: 0 !important;
+        }
+
+        .afs-export-notes-page thead th {
+          color: #111 !important;
+          font-weight: 600 !important;
+        }
+
+        .afs-export-notes-page tbody tr:last-child td {
+          font-weight: 600 !important;
+        }
+
+        .afs-export-notes-page tbody tr:last-child td:nth-child(2),
+        .afs-export-notes-page tbody tr:last-child td:nth-child(3) {
+          border-top: 0.7px solid #111 !important;
+          border-bottom: 0.9px solid #111 !important;
+        }
+
+        .afs-export-notes-page th:nth-child(2),
+        .afs-export-notes-page th:nth-child(3),
+        .afs-export-notes-page td:nth-child(2),
+        .afs-export-notes-page td:nth-child(3) {
+          width: 24mm !important;
+          max-width: 24mm !important;
+        }
+
+        @media screen {
+          body.afs-export-route-body {
+            background: #ffffff !important;
+          }
+
+          body.afs-export-route-body > *:not(script):not(style) {
+            background: #ffffff !important;
+          }
+
+          .afsExportOnlyRoot {
+            display: grid;
+            justify-content: center;
+            align-content: start;
+          }
+        }
+
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 0;
+          }
+
+          html.afs-export-route-html,
+          body.afs-export-route-body {
+            width: 210mm !important;
+            min-width: 210mm !important;
+            max-width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            overflow: visible !important;
+          }
+
+          body.afs-export-route-body * {
+            visibility: hidden !important;
+          }
+
+          body.afs-export-route-body .afsExportOnlyRoot,
+          body.afs-export-route-body .afsExportOnlyRoot * {
+            visibility: visible !important;
+          }
+
+          .afsExportOnlyRoot {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            right: auto !important;
+            bottom: auto !important;
+            z-index: 2147483647 !important;
+            width: 210mm !important;
+            min-width: 210mm !important;
+            max-width: 210mm !important;
+            min-height: auto !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            background: #ffffff !important;
+            display: block !important;
+          }
+
+          .afsExportOnlyRoot > div,
+          .afsExportOnlyRoot [id^="print-"] {
+            width: 210mm !important;
+            min-width: 210mm !important;
+            max-width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            display: block !important;
+            page-break-after: auto !important;
+            break-after: auto !important;
+            page-break-before: auto !important;
+            break-before: auto !important;
+          }
+
+          .afsExportOnlyRoot table {
+            width: 100% !important;
+            table-layout: fixed;
+          }
+
+          .afsExportOnlyRoot tr,
+          .afsExportOnlyRoot thead,
+          .afsExportOnlyRoot tbody {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .afsExportOnlyRoot button,
+          .afsExportOnlyRoot input,
+          .afsExportOnlyRoot select,
+          .afsExportOnlyRoot textarea,
+          .afsExportOnlyRoot [data-work-only="true"],
+          .afsExportOnlyRoot [data-editable="true"],
+          .afsExportOnlyRoot [data-note-off="true"] {
+            display: none !important;
+          }
+
+
+          .afsExportOnlyRoot article {
+  width: 210mm !important;
+  min-height: 297mm !important;
+  height: 297mm !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  page-break-after: always !important;
+  break-after: page !important;
+}
+
+          .afsExportOnlyRoot article:last-of-type {
+            page-break-after: auto !important;
+            break-after: auto !important;
+          }
+
+          .afsExportOnlyRoot [id^="print-"] {
+            page-break-before: always !important;
+            break-before: page !important;
+          }
+
+          .afsExportOnlyRoot [id="print-cover-page"] {
+            page-break-before: auto !important;
+            break-before: auto !important;
+          }
+
+          .afsExportOnlyRoot #print-notes,
+          .afsExportOnlyRoot #print-notes > div {
+            page-break-before: auto !important;
+            break-before: auto !important;
+          }
+
+          .afsExportOnlyRoot #print-notes > div + div {
+            page-break-before: always !important;
+            break-before: page !important;
+          }
+
+          .afs-export-note-item {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          .afs-export-compiler-page {
+            page-break-before: always !important;
+            break-before: page !important;
+          }
+
+          .afs-export-compiler-page article {
+            width: 210mm !important;
+            min-height: 297mm !important;
+            height: 297mm !important;
+            overflow: hidden !important;
+            page-break-after: always !important;
+            break-after: page !important;
+          }
+
+          .afs-export-compiler-page article::after {
+            content: counter(afs-export-page);
+          }
+
+
+        }
+      `}</style>
       {loading ? (
         <AfsA4Page>
           <p style={{ fontSize: 12 }}>Loading Print Studio data...</p>
