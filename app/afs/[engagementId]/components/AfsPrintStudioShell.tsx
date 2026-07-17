@@ -138,6 +138,26 @@ export default function AfsPrintStudioShell({
 
     try {
       const draftQuery = exportAsDraft ? "?draft=1" : "";
+      const authStorage: Record<string, string> = {};
+
+      for (let index = 0; index < window.localStorage.length; index += 1) {
+        const key = window.localStorage.key(index);
+
+        if (!key) continue;
+
+        if (key.startsWith("sb-") || key.includes("auth-token")) {
+          const storedValue = window.localStorage.getItem(key);
+
+          if (storedValue !== null) {
+            authStorage[key] = storedValue;
+          }
+        }
+      }
+
+      const encodedAuthStorage = window.btoa(
+        unescape(encodeURIComponent(JSON.stringify(authStorage))),
+      );
+
       const response = await fetch(
         `/api/afs/engagements/${encodeURIComponent(
           engagementId,
@@ -145,6 +165,9 @@ export default function AfsPrintStudioShell({
         {
           method: "GET",
           cache: "no-store",
+          headers: {
+            "X-AFS-Auth-Storage": encodedAuthStorage,
+          },
         },
       );
 

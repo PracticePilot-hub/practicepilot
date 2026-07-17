@@ -359,11 +359,77 @@
   color: #4b5563;
 }
 
+/*
+  PDF MODE
+  --------
+  This is intentionally tied to the real Print Studio's data attribute.
+  It removes all working-screen chrome before Puppeteer prints the page.
+*/
+:global(body[data-afs-pdf-mode="true"]) {
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #ffffff !important;
+  overflow: visible !important;
+}
+
+:global(body[data-afs-pdf-mode="true"] > header),
+:global(body[data-afs-pdf-mode="true"] > nav),
+:global(body[data-afs-pdf-mode="true"] > div > header),
+:global(body[data-afs-pdf-mode="true"] > div > nav) {
+  display: none !important;
+}
+
+:global(body[data-afs-pdf-mode="true"]) .leftRail,
+:global(body[data-afs-pdf-mode="true"]) .headerBar,
+:global(body[data-afs-pdf-mode="true"]) .quickBar,
+:global(body[data-afs-pdf-mode="true"]) .optionsPanel,
+:global(body[data-afs-pdf-mode="true"]) .canvasToolbar,
+:global(body[data-afs-pdf-mode="true"]) .footer {
+  display: none !important;
+}
+
+:global(body[data-afs-pdf-mode="true"]) .shell,
+:global(body[data-afs-pdf-mode="true"]) .mainArea,
+:global(body[data-afs-pdf-mode="true"]) .workspace,
+:global(body[data-afs-pdf-mode="true"]) .workspaceNoOptions,
+:global(body[data-afs-pdf-mode="true"]) .canvasHost,
+:global(body[data-afs-pdf-mode="true"]) .scrollArea {
+  display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #ffffff !important;
+}
+
+:global(body[data-afs-pdf-mode="true"]) .pageStackFit,
+:global(body[data-afs-pdf-mode="true"]) .pageStack100,
+:global(body[data-afs-pdf-mode="true"]) .pageStack110 {
+  width: 210mm !important;
+  margin: 0 !important;
+  transform: none !important;
+}
+
+:global(body[data-afs-pdf-mode="true"]) button,
+:global(body[data-afs-pdf-mode="true"]) select,
+:global(body[data-afs-pdf-mode="true"]) input[type="checkbox"] {
+  display: none !important;
+}
+
 @media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
   .shell {
     display: block;
+    width: 100%;
     height: auto;
     min-height: 0;
+    margin: 0;
     background: #ffffff;
     overflow: visible;
   }
@@ -383,8 +449,11 @@
   .canvasHost,
   .scrollArea {
     display: block;
+    width: 100%;
     height: auto;
+    min-height: 0;
     overflow: visible;
+    margin: 0;
     padding: 0;
     background: #ffffff;
   }

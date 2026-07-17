@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import AfsPrintStudioShell, {
@@ -23,6 +23,7 @@ import {
   DirectorsReportBlock,
   CompilationReportBlock,
   buildDefaultDirectorsReportTexts,
+  getActiveDirectorsReportSectionKeys,
 } from "../components/AfsNarrativeBlocks";
 
 import type {
@@ -1030,12 +1031,15 @@ function subsectionHeadingStyle() {
 
 function pageHeadingStyle() {
   return {
+    fontFamily: "Arial, Helvetica, sans-serif",
     fontSize: 16,
-    fontWeight: 800,
-    margin: "0 0 18px",
-    paddingBottom: 7,
-    borderBottom: "1.5px solid #111827",
-    textTransform: "uppercase" as const,
+    lineHeight: 1.12,
+    fontWeight: 600,
+    margin: "0 0 12px",
+    paddingBottom: 6,
+    borderBottom: "1px solid #000000",
+    letterSpacing: 0,
+    textTransform: "none" as const,
   };
 }
 
@@ -2335,28 +2339,87 @@ export default function AfsPrintStudioPage() {
     }
 
     const calculatedClosingCurrent = openingCurrent + netMovementCurrent;
-    const calculatedClosingPrior = openingPrior + netMovementPrior;
+const calculatedClosingPrior = openingPrior + netMovementPrior;
 
-    if (closingCashRow) {
-      closingCashRow.current = Math.round(calculatedClosingCurrent);
-      closingCashRow.prior = Math.round(calculatedClosingPrior);
-    }
+const sfpClosingCurrent = Number(
+  baseStatementEngine.checks.cashClosingFromSfp || 0,
+);
+const sfpClosingPrior = Number(
+  baseStatementEngine.checks.cashClosingPriorFromSfp || 0,
+);
 
-    const sfpClosingCurrent = Number(baseStatementEngine.checks.cashClosingFromSfp || 0);
-    const sfpClosingPrior = Number(baseStatementEngine.checks.cashClosingPriorFromSfp || 0);
+const rawRoundingCurrent =
+  Math.round(sfpClosingCurrent) - Math.round(calculatedClosingCurrent);
+
+const rawRoundingPrior =
+  Math.round(sfpClosingPrior) - Math.round(calculatedClosingPrior);
+
+const roundingCurrent =
+  Math.abs(rawRoundingCurrent) <= 1 ? rawRoundingCurrent : 0;
+
+const roundingPrior =
+  Math.abs(rawRoundingPrior) <= 1 ? rawRoundingPrior : 0;
+
+const closingRowIndex = rows.findIndex((row: any) => {
+  const id = String(row?.id || "").toLowerCase();
+  const label = String(row?.label || "").toLowerCase();
+
+  return (
+    id === "cfs-closing-cash" ||
+    label.includes("cash and cash equivalents at end of year")
+  );
+});
+
+const existingRoundingRow = rows.find(
+  (row: any) => String(row?.id || "") === "cfs-rounding-adjustment",
+);
+
+if (existingRoundingRow) {
+  existingRoundingRow.current = roundingCurrent;
+  existingRoundingRow.prior = roundingPrior;
+} else if (
+  closingRowIndex >= 0 &&
+  (roundingCurrent !== 0 || roundingPrior !== 0)
+) {
+  rows.splice(closingRowIndex, 0, {
+    id: "cfs-rounding-adjustment",
+    label: "Rounding adjustment",
+    note: "",
+    current: roundingCurrent,
+    prior: roundingPrior,
+    type: "line",
+    kind: "line",
+    indent: 0,
+  });
+}
+
+const finalClosingCurrent =
+  calculatedClosingCurrent + roundingCurrent;
+
+const finalClosingPrior =
+  calculatedClosingPrior + roundingPrior;
+
+if (closingCashRow) {
+  closingCashRow.current = Math.round(finalClosingCurrent);
+  closingCashRow.prior = Math.round(finalClosingPrior);
+}
 
     const checks = {
       ...baseStatementEngine.checks,
       cashMovementFromCashFlow: Math.round(netMovementCurrent),
-      cashClosingFromCashFlow: Math.round(calculatedClosingCurrent),
+      cashClosingFromCashFlow: Math.round(finalClosingCurrent),
       cashFlowMovementDifference: Math.round(
         netMovementCurrent - Number(baseStatementEngine.checks.cashMovementFromSfp || 0),
       ),
-      cashFlowClosingDifference: Math.round(calculatedClosingCurrent - sfpClosingCurrent),
+      cashFlowClosingDifference: Math.round(
+  finalClosingCurrent - sfpClosingCurrent,
+),
       cashOpeningPrior: Math.round(openingPrior),
       cashMovementPriorFromCashFlow: Math.round(netMovementPrior),
-      cashClosingPriorFromCashFlow: Math.round(calculatedClosingPrior),
-      cashFlowPriorClosingDifference: Math.round(calculatedClosingPrior - sfpClosingPrior),
+      cashClosingPriorFromCashFlow: Math.round(finalClosingPrior),
+      cashFlowPriorClosingDifference: Math.round(
+  finalClosingPrior - sfpClosingPrior,
+),
     };
 
     return {
@@ -2685,14 +2748,18 @@ export default function AfsPrintStudioPage() {
 
   function renderSceCustomTable() {
         const openingShare = sceValue("sce-share-opening");
-    const openingRetained = sceValue("sce-retained-opening");
-    const priorProfit = sceValue("sce-prior-profit");
-    const priorOther = sceValue("sce-prior-other-movement");
-    const priorClosingRetained = sceValue("sce-prior-closing-retained");
-    const currentProfit = sceValue("sce-current-profit");
-    const currentOther = sceValue("sce-current-other-movement");
-    const currentClosingRetained = sceValue("sce-retained-closing");
-    const closingShare = sceValue("sce-share-closing");
+const openingRetained = sceValue("sce-retained-opening");
+const priorProfit = sceValue("sce-prior-profit");
+const priorClosingRetained = sceValue("sce-prior-closing-retained");
+const currentProfit = sceValue("sce-current-profit");
+const currentClosingRetained = sceValue("sce-retained-closing");
+const closingShare = sceValue("sce-share-closing");
+
+const priorOther =
+  priorClosingRetained - openingRetained - priorProfit;
+
+const currentOther =
+  currentClosingRetained - priorClosingRetained - currentProfit;
 
     const priorShareMovement = 0;
     const priorClosingShare = openingShare + priorShareMovement;
@@ -3076,7 +3143,282 @@ export default function AfsPrintStudioPage() {
     };
   }
 
+function paginateMeasuredItems<T>(
+  items: T[],
+  heights: Map<T, number>,
+  capacity: number,
+) {
+  const pages: T[][] = [];
+  let currentPage: T[] = [];
+  let currentHeight = 0;
+
+  items.forEach((item) => {
+    const itemHeight = Math.max(1, heights.get(item) || 1);
+
+    if (
+      currentPage.length > 0 &&
+      currentHeight + itemHeight > capacity
+    ) {
+      pages.push(currentPage);
+      currentPage = [];
+      currentHeight = 0;
+    }
+
+    currentPage.push(item);
+    currentHeight += itemHeight;
+  });
+
+  if (currentPage.length > 0) {
+    pages.push(currentPage);
+  }
+
+  return pages.length > 0 ? pages : [[]];
+}
+
+function elementOuterHeight(element: HTMLElement | null) {
+  if (!element) return 0;
+
+  const style = window.getComputedStyle(element);
+  return (
+    element.getBoundingClientRect().height +
+    Number.parseFloat(style.marginTop || "0") +
+    Number.parseFloat(style.marginBottom || "0")
+  );
+}
+
   const currentContextualOptions = contextualOptions();
+
+  const activeDirectorsReportKeys =
+    getActiveDirectorsReportSectionKeys(narrativeContext);
+
+  const activeNoteSectionKeys = noteSections
+    .filter((section: any) =>
+      Boolean(reportOptions[section.optionKey as keyof ReportOptions]),
+    )
+    .map((section: any) => section.key);
+
+  const directorsPaginationSignature = [
+    activeDirectorsReportKeys.join("|"),
+    directorsForDisplay.length,
+    JSON.stringify(activeDirectorsReportTexts),
+  ].join("::");
+
+  const notesPaginationSignature = [
+    activeNoteSectionKeys.join("|"),
+    currentHeading,
+    priorHeading,
+    hideComparatives ? "1" : "0",
+    JSON.stringify(structuredNotesState),
+    JSON.stringify(noteData),
+  ].join("::");
+
+  const paginationMeasureRef = useRef<HTMLDivElement | null>(null);
+
+  const [measuredDirectorsPagination, setMeasuredDirectorsPagination] =
+    useState<{
+      signature: string;
+      pages: DirectorsReportSectionKey[][];
+    }>({
+      signature: "",
+      pages: [],
+    });
+
+  const [measuredNotesPagination, setMeasuredNotesPagination] = useState<{
+    signature: string;
+    pages: string[][];
+  }>({
+    signature: "",
+    pages: [],
+  });
+
+  const directorsReportPageGroups =
+    measuredDirectorsPagination.signature === directorsPaginationSignature
+      ? measuredDirectorsPagination.pages
+      : [activeDirectorsReportKeys];
+
+      const balancedDirectorsReportPageGroups = (() => {
+  const pages = directorsReportPageGroups.map((page) => [...page]);
+
+  if (pages.length < 2) {
+    return pages;
+  }
+
+  const lastPage = pages[pages.length - 1];
+  const previousPage = pages[pages.length - 2];
+
+  if (lastPage.length === 1 && previousPage.length > 1) {
+    const sectionToMove = previousPage.pop();
+
+    if (sectionToMove) {
+      lastPage.unshift(sectionToMove);
+    }
+  }
+
+  return pages;
+})();
+
+  const notesPageGroups =
+    measuredNotesPagination.signature === notesPaginationSignature
+      ? measuredNotesPagination.pages
+      : [activeNoteSectionKeys];
+
+  const reportPageNumberMap = useMemo(() => {
+    const pageMap: Record<string, number> = {};
+    let physicalPage = 1;
+
+    const addSection = (id: string, enabled: boolean, pageCount = 1) => {
+      if (!enabled) return;
+      pageMap[id] = physicalPage;
+      physicalPage += Math.max(1, pageCount);
+    };
+
+    addSection("cover-page", reportOptions.coverPage);
+    addSection("index", reportOptions.index);
+    addSection("general-info", reportOptions.generalInformation);
+    addSection(
+      "directors-responsibilities",
+      reportOptions.directorsResponsibilities,
+    );
+    addSection(
+      "directors-report",
+      reportOptions.directorsReport,
+      balancedDirectorsReportPageGroups.length,
+    );
+    addSection("compiler-report", reportOptions.compilerReport);
+    addSection("sfp", reportOptions.sfp);
+    addSection("soci", reportOptions.soci);
+    addSection("sce", reportOptions.sce);
+    addSection("cash-flow", reportOptions.cashFlow);
+    addSection("accounting-policies", reportOptions.accountingPolicies);
+    addSection("notes", reportOptions.notes, notesPageGroups.length);
+    addSection(
+      "detailed-income",
+      reportOptions.detailedIncomeStatement,
+    );
+    addSection("tax-computation", reportOptions.taxComputation);
+
+    return pageMap;
+  }, [
+    reportOptions,
+    balancedDirectorsReportPageGroups.length,
+    notesPageGroups.length,
+  ]);
+
+  const paginationReady =
+    measuredDirectorsPagination.signature === directorsPaginationSignature &&
+    measuredNotesPagination.signature === notesPaginationSignature;
+
+  useLayoutEffect(() => {
+    if (loading) return;
+
+    let cancelled = false;
+
+    const measure = async () => {
+      try {
+        if (document.fonts?.ready) {
+          await document.fonts.ready;
+        }
+      } catch {
+        // Continue with available fonts.
+      }
+
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+
+      if (cancelled || !paginationMeasureRef.current) return;
+
+      const root = paginationMeasureRef.current;
+
+      const readCapacity = (kind: "directors" | "notes") => {
+        const page = root.querySelector<HTMLElement>(
+          `[data-measure-page="${kind}"]`,
+        );
+        const content = page?.querySelector<HTMLElement>(
+          '[data-afs-a4-content="true"]',
+        );
+
+        if (!content) return 900;
+
+        const contentStyle = window.getComputedStyle(content);
+        const innerHeight =
+          content.getBoundingClientRect().height -
+          Number.parseFloat(contentStyle.paddingTop || "0") -
+          Number.parseFloat(contentStyle.paddingBottom || "0");
+
+        const reportHeader = content.querySelector<HTMLElement>(
+          '[data-afs-report-header="true"]',
+        );
+        const heading = content.querySelector<HTMLElement>(
+          '[data-measure-page-heading="true"]',
+        );
+
+        const printSafetyReserve = kind === "directors" ? 110 : 12;
+
+return Math.max(
+  200,
+  innerHeight -
+    elementOuterHeight(reportHeader) -
+    elementOuterHeight(heading) -
+    printSafetyReserve,
+);
+      };
+
+      const directorsHeights = new Map<DirectorsReportSectionKey, number>();
+      root
+        .querySelectorAll<HTMLElement>("[data-measure-director-key]")
+        .forEach((element) => {
+          const key = element.dataset
+            .measureDirectorKey as DirectorsReportSectionKey;
+          directorsHeights.set(key, element.getBoundingClientRect().height);
+        });
+
+      const noteHeights = new Map<string, number>();
+      root
+        .querySelectorAll<HTMLElement>("[data-measure-note-key]")
+        .forEach((element) => {
+          const key = element.dataset.measureNoteKey || "";
+          noteHeights.set(key, element.getBoundingClientRect().height);
+        });
+
+      const nextDirectorsPages = paginateMeasuredItems(
+        activeDirectorsReportKeys,
+        directorsHeights,
+        readCapacity("directors"),
+      );
+
+      const nextNotesPages = paginateMeasuredItems(
+        activeNoteSectionKeys,
+        noteHeights,
+        readCapacity("notes"),
+      );
+
+      if (cancelled) return;
+
+      setMeasuredDirectorsPagination({
+        signature: directorsPaginationSignature,
+        pages: nextDirectorsPages,
+      });
+      setMeasuredNotesPagination({
+        signature: notesPaginationSignature,
+        pages: nextNotesPages,
+      });
+    };
+
+    void measure();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    loading,
+    directorsPaginationSignature,
+    notesPaginationSignature,
+    activeDirectorsReportKeys,
+    activeNoteSectionKeys,
+  ]);
 
   return (
     <AfsPrintStudioShell
@@ -3136,6 +3478,114 @@ export default function AfsPrintStudioPage() {
           font-weight: 400;
         }
       `}</style>
+
+      {!loading ? (
+        <div
+          ref={paginationMeasureRef}
+          data-afs-pagination-measure="true"
+          aria-hidden="true"
+          style={{
+            position: "fixed",
+            left: "-100000px",
+            top: 0,
+            width: "210mm",
+            height: 0,
+            overflow: "visible",
+            visibility: "hidden",
+            pointerEvents: "none",
+            zIndex: -1,
+          }}
+        >
+          <div data-measure-page="directors">
+            <AfsA4Page {...reportHeaderProps}>
+              <section
+                style={{
+                  fontSize: 11,
+                  lineHeight: 1.45,
+                  color: "#111827",
+                }}
+              >
+                <h1
+                  data-measure-page-heading="true"
+                  style={pageHeadingStyle()}
+                >
+                  {reportTitle(entityType)} — continued
+                </h1>
+              </section>
+            </AfsA4Page>
+          </div>
+
+          <div data-measure-page="notes">
+            <AfsA4Page {...reportHeaderProps}>
+              <h1
+                data-measure-page-heading="true"
+                style={pageHeadingStyle()}
+              >
+                Notes to the Financial Statements — continued
+              </h1>
+            </AfsA4Page>
+          </div>
+
+          <div
+            style={{
+              width: "178mm",
+              fontFamily: "Arial, Helvetica, sans-serif",
+              fontSize: 11,
+              lineHeight: 1.45,
+            }}
+          >
+            {activeDirectorsReportKeys.map((key, index) => (
+              <div
+                key={`measure-director-${key}`}
+                data-measure-director-key={key}
+              >
+                <DirectorsReportBlock
+                  context={narrativeContext}
+                  sectionKeys={[key]}
+                  startNumber={index}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div style={{ width: "178mm" }}>
+            {activeNoteSectionKeys.map((key) => (
+              <div
+                key={`measure-note-${key}`}
+                data-measure-note-key={key}
+              >
+                <AfsStructuredNotesPanel
+                  engagementId={engagementId}
+                  noteSections={noteSections}
+                  reportOptions={reportOptions as any}
+                  toggleReportOption={() => undefined}
+                  noteData={noteData as any}
+                  trialBalanceLines={trialBalanceLines}
+                  clientSetup={clientSetup}
+                  currentHeading={currentHeading}
+                  priorHeading={priorHeading}
+                  activeNoteTexts={activeNoteTexts}
+                  defaultNoteTexts={defaultNoteTexts}
+                  disclosureTokens={disclosureTokens}
+                  hideComparatives={hideComparatives}
+                  structuredNotesState={structuredNotesState}
+                  onStructuredNotesStateChange={() => undefined}
+                  forceReviewMode={true}
+                  sectionKeys={[key]}
+                  headingMode="none"
+                  rootId={`measure-note-${key}`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        id="afs-pagination-ready"
+        data-ready={paginationReady ? "true" : "false"}
+        style={{ display: "none" }}
+      />
 
       {loading ? (
         <AfsA4Page>
@@ -3240,7 +3690,7 @@ export default function AfsPrintStudioPage() {
                                 fontVariantNumeric: "tabular-nums",
                               }}
                             >
-                              {index + 1}
+                              {reportPageNumberMap[section.id] ?? "–"}
                             </td>
                           </tr>
                         ))}
@@ -3416,18 +3866,41 @@ export default function AfsPrintStudioPage() {
           ) : null}
 
           {reportOptions.directorsReport ? (
-            <div id="print-directors-report">
-              <AfsA4Page {...reportHeaderProps}>
-                <section
-                  style={{ fontSize: 11, lineHeight: 1.45, color: "#111827" }}
-                >
-                  <h1 style={pageHeadingStyle()}>{reportTitle(entityType)}</h1>
+  <div id="print-directors-report">
+    {balancedDirectorsReportPageGroups.map((sectionKeys, pageIndex) => {
+      const previousSectionCount = balancedDirectorsReportPageGroups
+        .slice(0, pageIndex)
+        .reduce((total, page) => total + page.length, 0);
 
-                  <DirectorsReportBlock context={narrativeContext} />
-                </section>
-              </AfsA4Page>
-            </div>
-          ) : null}
+      return (
+        <AfsA4Page
+          key={`directors-report-page-${pageIndex}`}
+          {...reportHeaderProps}
+        >
+          <section
+            style={{
+              fontSize: 11,
+              lineHeight: 1.45,
+              color: "#111827",
+            }}
+          >
+            <h1 style={pageHeadingStyle()}>
+              {pageIndex === 0
+                ? reportTitle(entityType)
+                : `${reportTitle(entityType)} — continued`}
+            </h1>
+
+            <DirectorsReportBlock
+              context={narrativeContext}
+              sectionKeys={sectionKeys}
+              startNumber={previousSectionCount}
+            />
+          </section>
+        </AfsA4Page>
+      );
+    })}
+  </div>
+) : null}
 
           {reportOptions.compilerReport ? (
             <div id="print-compiler-report">
@@ -3565,9 +4038,12 @@ export default function AfsPrintStudioPage() {
 
                             return (
                               <div key={section.key}>
-                                <h3 style={subsectionHeadingStyle()}>
-                                  {shortTitle}
-                                </h3>
+                                {shortTitle.trim().toLowerCase() !==
+item.groupLabel.trim().toLowerCase() ? (
+  <h3 style={subsectionHeadingStyle()}>
+    {shortTitle}
+  </h3>
+) : null}
 
                                 {renderDisclosureText(
                                   current.text,
@@ -3621,30 +4097,41 @@ export default function AfsPrintStudioPage() {
 
           {reportOptions.notes ? (
             <div id="print-notes">
-              <AfsA4Page {...reportHeaderProps}>
-                <AfsStructuredNotesPanel
-                  engagementId={engagementId}
-                  noteSections={noteSections}
-                  reportOptions={reportOptions as any}
-                  toggleReportOption={(key: string, checked: boolean) =>
-                    toggleReportOption(key as keyof ReportOptions, checked)
-                  }
-                  noteData={noteData as any}
-                  trialBalanceLines={trialBalanceLines}
-                  clientSetup={clientSetup}
-                  currentHeading={currentHeading}
-                  priorHeading={priorHeading}
-                  activeNoteTexts={activeNoteTexts}
-                  defaultNoteTexts={defaultNoteTexts}
-                  disclosureTokens={disclosureTokens}
-                  hideComparatives={hideComparatives}
-                  structuredNotesState={structuredNotesState}
-                  onStructuredNotesStateChange={
-                    saveStructuredNotesStateEverywhere
-                  }
-                  forceReviewMode={isPdfExportMode}
-                />
-              </AfsA4Page>
+              {notesPageGroups.map((sectionKeys, pageIndex) => (
+                <AfsA4Page
+                  key={`notes-page-${pageIndex}`}
+                  {...reportHeaderProps}
+                >
+                  <AfsStructuredNotesPanel
+                    engagementId={engagementId}
+                    noteSections={noteSections}
+                    reportOptions={reportOptions as any}
+                    toggleReportOption={(key: string, checked: boolean) =>
+                      toggleReportOption(
+                        key as keyof ReportOptions,
+                        checked,
+                      )
+                    }
+                    noteData={noteData as any}
+                    trialBalanceLines={trialBalanceLines}
+                    clientSetup={clientSetup}
+                    currentHeading={currentHeading}
+                    priorHeading={priorHeading}
+                    activeNoteTexts={activeNoteTexts}
+                    defaultNoteTexts={defaultNoteTexts}
+                    disclosureTokens={disclosureTokens}
+                    hideComparatives={hideComparatives}
+                    structuredNotesState={structuredNotesState}
+                    onStructuredNotesStateChange={
+                      saveStructuredNotesStateEverywhere
+                    }
+                    forceReviewMode={isPdfExportMode}
+                    sectionKeys={sectionKeys}
+                    headingMode={pageIndex === 0 ? "main" : "continued"}
+                    rootId={`print-notes-page-${pageIndex + 1}`}
+                  />
+                </AfsA4Page>
+              ))}
             </div>
           ) : null}
 

@@ -330,12 +330,31 @@ const directorsReportOrder: Array<{
   { key: "other10", option: "directorsReportOther10" },
 ];
 
+export function getActiveDirectorsReportSectionKeys(
+  context: NarrativeContext,
+): DirectorsReportSectionKey[] {
+  return directorsReportOrder
+    .filter(({ key, option }) => {
+      if (!context?.[option]) return false;
+
+      const defaults = buildDefaultDirectorsReportTexts(context || {});
+      const texts = { ...defaults, ...(context?.directorsReportTexts || {}) };
+      const item = texts[key] || defaults[key];
+      const text = item?.text || "";
+
+      return !(!text.trim() && key.toString().startsWith("other"));
+    })
+    .map(({ key }) => key);
+}
+
 export function DirectorsReportBlock({
   context,
   startNumber = 0,
+  sectionKeys,
 }: {
   context: NarrativeContext;
   startNumber?: number;
+  sectionKeys?: DirectorsReportSectionKey[];
 }) {
   const defaults = buildDefaultDirectorsReportTexts(context || {});
   const texts = { ...defaults, ...(context?.directorsReportTexts || {}) };
@@ -345,6 +364,7 @@ export function DirectorsReportBlock({
     <div>
       {directorsReportOrder.map(({ key, option }) => {
         if (!context?.[option]) return null;
+        if (sectionKeys && !sectionKeys.includes(key)) return null;
 
         const item = texts[key] || defaults[key];
         const text = item?.text || "";
@@ -772,7 +792,7 @@ const styles: Record<string, React.CSSProperties> = {
   paragraph: {
     margin: "0 0 7px",
     fontFamily: "inherit",
-    fontSize: 10.1,
+    fontSize: 12.5,
     lineHeight: 1.34,
   },
   reportSection: {

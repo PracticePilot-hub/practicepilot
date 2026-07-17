@@ -31,6 +31,9 @@ type Props = {
   disclosureTokens?: Record<string, any>;
   hideComparatives?: boolean;
   forceReviewMode?: boolean;
+  sectionKeys?: string[];
+  headingMode?: "main" | "continued" | "none";
+  rootId?: string;
 };
 
 
@@ -2692,6 +2695,9 @@ export default function AfsStructuredNotesPanel({
   structuredNotesState = {},
   onStructuredNotesStateChange,
   forceReviewMode = false,
+  sectionKeys,
+  headingMode = "main",
+  rootId,
 }: Props) {
   const [mode, setMode] = useState<"review" | "edit">("review");
   const notesRootRef = useRef<HTMLElement | null>(null);
@@ -2729,9 +2735,12 @@ export default function AfsStructuredNotesPanel({
   const isEditing = mode === "edit" && !forceReviewMode;
   const ppeRows = buildPpeRows(trialBalanceLines, state.ppeRows || []);
 
+  const sectionKeySignature = (sectionKeys || []).join("|");
+
   const sectionsWithNumbers = useMemo(() => {
     let noteNumber = 0;
-    return noteSections
+
+    const numberedSections = noteSections
       .map((section) => {
         const active = Boolean(reportOptions[section.optionKey]);
         const dataKey = NOTE_KEY_MAP[section.key];
@@ -2756,7 +2765,20 @@ export default function AfsStructuredNotesPanel({
       noteNumber: number | null;
       rows: AmountLine[];
     }[];
-  }, [isEditing, noteSections, reportOptions, noteData]);
+
+    if (!sectionKeys || sectionKeys.length === 0) {
+      return numberedSections;
+    }
+
+    const allowed = new Set(sectionKeys);
+    return numberedSections.filter(({ section }) => allowed.has(section.key));
+  }, [
+    isEditing,
+    noteSections,
+    reportOptions,
+    noteData,
+    sectionKeySignature,
+  ]);
 
   return (
     <NotesDisplayContext.Provider
@@ -2767,18 +2789,19 @@ export default function AfsStructuredNotesPanel({
       }}
     >
       <section
-      id="print-notes"
+      id={rootId || (headingMode === "continued" ? "print-notes-continued" : "print-notes")}
+      data-afs-notes-root="true"
       data-hide-comparatives={hideComparatives ? "true" : "false"}
       ref={notesRootRef}
       style={{ fontSize: 11.7, lineHeight: 1.45, color: "#111827" }}
     >
       <style>{`
-        #print-notes table {
+        [data-afs-notes-root="true"] table {
           border-collapse: separate !important;
           border-spacing: 0 !important;
         }
-        #print-notes tbody tr,
-        #print-notes tbody td {
+        [data-afs-notes-root="true"] tbody tr,
+        [data-afs-notes-root="true"] tbody td {
           border-bottom: 0 !important;
           box-shadow: none !important;
           background-image: none !important;
@@ -2786,50 +2809,56 @@ export default function AfsStructuredNotesPanel({
         }
         /* Notes must not draw one long CaseWare-unfriendly line across the full page.
            Only amount cells on total rows get rules. */
-        #print-notes thead th {
+        [data-afs-notes-root="true"] thead th {
           border-bottom: 0 !important;
         }
-        #print-notes [data-total-label="true"] {
+        [data-afs-notes-root="true"] [data-total-label="true"] {
           border-top: 0 !important;
           border-bottom: 0 !important;
         }
-        #print-notes [data-total-amount="true"] {
+        [data-afs-notes-root="true"] [data-total-amount="true"] {
           border-top: 1px solid #111827 !important;
           border-bottom: 1.5px solid #111827 !important;
         }
         @media print {
-          #print-notes {
+          [data-afs-notes-root="true"] {
             font-size: 10.45px !important;
             line-height: 1.34 !important;
           }
-          #print-notes [data-note-active="false"],
-          #print-notes .afs-screen-only {
+          [data-afs-notes-root="true"] [data-note-active="false"],
+          [data-afs-notes-root="true"] .afs-screen-only {
             display: none !important;
           }
-          #print-notes input,
-          #print-notes textarea,
-          #print-notes button,
-          #print-notes [data-work-only="true"] {
+          [data-afs-notes-root="true"] input,
+          [data-afs-notes-root="true"] textarea,
+          [data-afs-notes-root="true"] button,
+          [data-afs-notes-root="true"] [data-work-only="true"] {
             display: none !important;
           }
-          #print-notes table {
+          [data-afs-notes-root="true"] table {
             table-layout: fixed !important;
             width: 100% !important;
             max-width: 100% !important;
             border-collapse: separate !important;
             border-spacing: 0 !important;
           }
-          #print-notes th:first-child,
-          #print-notes td:first-child {
+          [data-afs-notes-root="true"] th:first-child,
+          [data-afs-notes-root="true"] td:first-child {
             width: auto !important;
           }
-          #print-notes th:not(:first-child),
-          #print-notes td:not(:first-child) {
+          [data-afs-notes-root="true"] th:not(:first-child),
+          [data-afs-notes-root="true"] td:not(:first-child) {
             width: 68px !important;
           }
         }
       `}</style>
-      <h1 style={styles.pageHeading}>Notes to the Financial Statements</h1>
+      {headingMode !== "none" ? (
+        <h1 style={styles.pageHeading}>
+          {headingMode === "continued"
+            ? "Notes to the Financial Statements — continued"
+            : "Notes to the Financial Statements"}
+        </h1>
+      ) : null}
 
       {sectionsWithNumbers.map(({ section, active, noteNumber, rows }) => {
         const title = noteTitle(section, activeNoteTexts, defaultNoteTexts);

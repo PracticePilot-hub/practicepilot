@@ -46,7 +46,6 @@ function cleanTitle(value: string) {
 
 function getOrigin(request: NextRequest) {
   const url = new URL(request.url);
-
   const forwardedHost = request.headers.get("x-forwarded-host");
   const forwardedProto = request.headers.get("x-forwarded-proto");
 
@@ -122,8 +121,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
       request.nextUrl.searchParams.get("draft") === "1" ||
       request.nextUrl.searchParams.get("draft") === "true";
 
-    const exportUrl = new URL(`${origin}/afs/${id}/print-studio/export`);
-    exportUrl.searchParams.set("serverPdf", "1");
+    /*
+      IMPORTANT:
+      Export the actual Print Studio page.
+      There is no separate export renderer and no duplicated AFS data.
+    */
+    const exportUrl = new URL(`${origin}/afs/${id}/print-studio`);
+    exportUrl.searchParams.set("pdf", "1");
 
     if (isDraft) {
       exportUrl.searchParams.set("draft", "1");
@@ -176,47 +180,64 @@ export async function GET(request: NextRequest, context: RouteContext) {
       });
     }
 
+    const encodedAuthStorage =
+      request.headers.get("x-afs-auth-storage") || "";
+
+    if (encodedAuthStorage) {
+      let authStorage: Record<string, string> = {};
+
+      try {
+        const decoded = Buffer.from(encodedAuthStorage, "base64").toString("utf8");
+        const parsed = JSON.parse(decoded);
+
+        if (parsed && typeof parsed === "object") {
+          authStorage = parsed;
+        }
+      } catch {
+        authStorage = {};
+      }
+
+      await page.evaluateOnNewDocument((entries) => {
+        try {
+          Object.entries(entries || {}).forEach(([key, value]) => {
+            window.localStorage.setItem(key, String(value));
+          });
+        } catch {
+          // The Print Studio page still loads without saved browser auth.
+        }
+      }, authStorage);
+    }
+
     await page.goto(exportUrl.toString(), {
       waitUntil: "domcontentloaded",
       timeout: 60_000,
     });
 
+    /*
+      The real Print Studio page sets this attribute only after all live
+      engagement, TB, settings, notes and overrides have finished loading.
+    */
     await page.waitForFunction(
-      () => {
-        const bodyText = document.body?.innerText || "";
-        const lowerText = bodyText.toLowerCase();
-        const stillLoading = /loading print studio data/i.test(bodyText);
-
-        return (
-          !stillLoading &&
-          Boolean(document.querySelector(".afsExportOnlyRoot")) &&
-          Boolean(document.getElementById("print-cover-page")) &&
-          Boolean(document.getElementById("print-index")) &&
-          Boolean(document.getElementById("print-sfp")) &&
-          lowerText.includes("annual financial statements") &&
-          lowerText.includes("statement of financial position")
-        );
-      },
+      () =>
+        document.body?.getAttribute("data-afs-pdf-ready") === "true" &&
+        document
+          .getElementById("afs-pagination-ready")
+          ?.getAttribute("data-ready") === "true" &&
+        !/loading print studio data/i.test(document.body?.innerText || ""),
       { timeout: 60_000 },
     );
 
+    await page.waitForSelector("#print-sfp", {
+      visible: true,
+      timeout: 60_000,
+    });
+
+    await page.emulateMediaType("print");
+
     const exportInfo = await page.evaluate(async () => {
-      await new Promise<void>((resolve) => {
-        if (document.fonts && document.fonts.ready) {
-          document.fonts.ready.then(() => resolve()).catch(() => resolve());
-        } else {
-          resolve();
-        }
-      });
-
-      document.documentElement.classList.add("afs-export-route-html");
-      document.body.classList.add("afs-export-route-body");
-
-      window.dispatchEvent(
-        new CustomEvent("afs-print-export-mode", {
-          detail: true,
-        }),
-      );
+      if (document.fonts?.ready) {
+        await document.fonts.ready.catch(() => undefined);
+      }
 
       const bodyText = document.body?.innerText || "";
       const lines = bodyText
@@ -226,13 +247,105 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
       const entityLine =
         lines.find((line) => /\(PTY\)\s+LTD/i.test(line)) ||
-        lines.find((line) => /LTD/i.test(line)) ||
+        lines.find((line) => /\bLTD\b/i.test(line)) ||
         "annual-financial-statements";
 
-      const yearEndMatch = bodyText.match(/year ended\s+(\d{4}-\d{2}-\d{2})/i);
-      const yearEnd = yearEndMatch?.[1] || "";
+      const yearEndMatch =
+        bodyText.match(/financial year end\s+([^\n]+)/i) ||
+        bodyText.match(/year ended\s+([^\n]+)/i);
 
+      const yearEnd = String(yearEndMatch?.[1] || "").trim();
       const title = [entityLine, "AFS", yearEnd].filter(Boolean).join(" - ");
+
+      /*
+        Keep the exact rendered Print Studio report pages, but physically remove
+        the entire PracticePilot application shell before Chromium prints.
+        Existing stylesheets remain in <head>, so the cloned report retains its
+        real Print Studio appearance and live content.
+      */
+      const sfpPage = document.getElementById("print-sfp");
+
+      if (!sfpPage) {
+        throw new Error("The rendered Statement of Financial Position was not found.");
+      }
+
+      /*
+        Start at the real SFP node and walk upward until we reach the common
+        container that also holds the other rendered report sections.
+        This avoids relying on CSS-module class names.
+      */
+      let pageStack: HTMLElement | null = sfpPage.parentElement;
+
+      while (
+        pageStack?.parentElement &&
+        !pageStack.querySelector("#print-cover-page") &&
+        !pageStack.querySelector("#print-index") &&
+        !pageStack.querySelector("#print-general-info")
+      ) {
+        pageStack = pageStack.parentElement;
+      }
+
+      if (!pageStack) {
+        throw new Error("The rendered Print Studio report container was not found.");
+      }
+
+      const reportClone = pageStack.cloneNode(true) as HTMLElement;
+
+      document.body.replaceChildren(reportClone);
+      document.body.setAttribute("data-afs-pdf-mode", "true");
+
+      Object.assign(document.documentElement.style, {
+        margin: "0",
+        padding: "0",
+        width: "210mm",
+        background: "#ffffff",
+      });
+
+      Object.assign(document.body.style, {
+        margin: "0",
+        padding: "0",
+        width: "210mm",
+        minWidth: "210mm",
+        background: "#ffffff",
+        overflow: "visible",
+      });
+
+      Object.assign(reportClone.style, {
+        width: "210mm",
+        margin: "0",
+        padding: "0",
+        transform: "none",
+        transformOrigin: "top left",
+      });
+
+      /*
+        Pagination and continuation headings are owned by the React Print Studio.
+        The export route must not insert, split or move report content.
+      */
+
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+
+      const images = Array.from(document.images);
+
+      await Promise.all(
+        images.map(
+          (image) =>
+            new Promise<void>((resolve) => {
+              if (image.complete) {
+                resolve();
+                return;
+              }
+
+              image.addEventListener("load", () => resolve(), { once: true });
+              image.addEventListener("error", () => resolve(), { once: true });
+            }),
+        ),
+      );
+
       document.title = title;
 
       return {
@@ -243,13 +356,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
     });
 
     await page.waitForFunction(
-      () => document.body.classList.contains("afs-export-route-body"),
-      { timeout: 10_000 },
-    );
-
-    await page.emulateMediaType("print");
-
-    await page.waitForFunction(
       () => {
         const style = window.getComputedStyle(document.body);
         return style.display !== "none" && style.visibility !== "hidden";
@@ -257,7 +363,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       { timeout: 10_000 },
     );
 
-    await sleep(500);
+    await sleep(900);
 
     const pdfBytes = await page.pdf({
       format: "A4",
@@ -280,6 +386,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
+        "Content-Length": String(pdfBuffer.byteLength),
         "Content-Disposition": `attachment; filename="${finalFilename}"`,
         "Cache-Control": "no-store, max-age=0",
         "X-AFS-PDF-Title": finalTitle,

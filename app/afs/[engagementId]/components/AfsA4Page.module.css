@@ -1,4 +1,6 @@
 .page {
+  position: relative;
+  counter-increment: afs-page;
   width: 210mm;
   min-height: 297mm;
   box-sizing: border-box;
@@ -263,6 +265,36 @@
 .content :global(table tr) {
   break-inside: avoid;
   page-break-inside: avoid;
+}
+
+
+/* Automatic physical page numbering */
+:global(body) {
+  counter-reset: afs-page;
+}
+
+.page::after {
+  content: counter(afs-page);
+  position: absolute;
+  right: 16mm;
+  bottom: 7mm;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 400;
+  color: #000000;
+}
+
+:global([data-afs-pagination-measure="true"]) .page {
+  counter-increment: none;
+}
+
+:global([data-afs-pagination-measure="true"]) .page::after {
+  content: none;
+}
+
+:global(#print-cover-page) .page::after {
+  content: "";
 }
 
 @media print {
