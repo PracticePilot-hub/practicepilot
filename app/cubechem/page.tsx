@@ -47,6 +47,24 @@ type GroupedRows = {
   rows: ComparisonRow[];
 };
 
+
+type SalesPartner = {
+  id: string;
+  partner_type: "AGENT" | "ALLIANCE_PARTNER";
+  name: string;
+  telephone: string | null;
+  purchase_markup_percent: number | null;
+  public_price_list_enabled: boolean;
+  is_active: boolean;
+  cubechem_partner_products?: { id: string; item_code: string }[];
+};
+
+type PartnerProductOption = {
+  itemCode: string;
+  description: string;
+  supplierExVat: number;
+};
+
 const franchiseOptions = [
   { code: "pretoria", label: "Pretoria" },
   { code: "carletonville", label: "Carletonville / Potchefstroom" },
@@ -122,9 +140,38 @@ export default function CubeChemPage() {
 
   const [comparison, setComparison] = useState<ComparisonRow[]>([]);
 
+  const [partners, setPartners] = useState<SalesPartner[]>([]);
+  const [partnersLoading, setPartnersLoading] = useState(false);
+  const [partnerSaving, setPartnerSaving] = useState(false);
+  const [selectedPartnerId, setSelectedPartnerId] = useState("");
+  const [partnerType, setPartnerType] = useState<"AGENT" | "ALLIANCE_PARTNER">(
+    "ALLIANCE_PARTNER"
+  );
+  const [partnerName, setPartnerName] = useState("");
+  const [partnerTelephone, setPartnerTelephone] = useState("");
+  const [partnerMarkup, setPartnerMarkup] = useState("20");
+  const [partnerActive, setPartnerActive] = useState(true);
+  const [partnerPublicEnabled, setPartnerPublicEnabled] = useState(true);
+
+  const [partnerExportMonth, setPartnerExportMonth] = useState("2026-06");
+  const [partnerProducts, setPartnerProducts] = useState<PartnerProductOption[]>([]);
+  const [selectedPartnerCodes, setSelectedPartnerCodes] = useState<string[]>([]);
+  const [partnerProductSearch, setPartnerProductSearch] = useState("");
+  const [partnerProductsLoading, setPartnerProductsLoading] = useState(false);
+  const [partnerProductsSaving, setPartnerProductsSaving] = useState(false);
+  const [partnerExportLoading, setPartnerExportLoading] = useState<
+    "purchase" | "public" | ""
+  >("");
+
   useEffect(() => {
     checkPageAccess();
   }, []);
+
+  useEffect(() => {
+    if (accessAllowed && currentUserEmail) {
+      loadPartners();
+    }
+  }, [accessAllowed, currentUserEmail]);
 
   async function checkPageAccess() {
     setAccessLoading(true);
@@ -178,6 +225,25 @@ export default function CubeChemPage() {
   const selectedFranchiseLabel =
     franchiseOptions.find((item) => item.code === franchiseCode)?.label ||
     "Pretoria";
+
+  const selectedPartner =
+    partners.find((partner) => partner.id === selectedPartnerId) || null;
+
+  const alliancePartners = partners.filter(
+    (partner) => partner.partner_type === "ALLIANCE_PARTNER"
+  );
+
+  const filteredPartnerProducts = useMemo(() => {
+    const search = partnerProductSearch.trim().toLowerCase();
+
+    if (!search) return partnerProducts;
+
+    return partnerProducts.filter(
+      (product) =>
+        product.itemCode.toLowerCase().includes(search) ||
+        product.description.toLowerCase().includes(search)
+    );
+  }, [partnerProducts, partnerProductSearch]);
 
   const validComparisonRows = useMemo(
     () =>
@@ -820,6 +886,366 @@ export default function CubeChemPage() {
     }
   }
 
+  async function loadPartners() {
+    setPartnersLoading(true);
+
+    try {
+      const res = await fetch("/api/cubechem/partners", {
+        method: "GET",
+        headers: {
+          "x-practicepilot-user-email": currentUserEmail,
+        },
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Could not load partners.");
+      }
+
+      const rows = (data.partners || []) as SalesPartner[];
+      setPartners(rows);
+
+      if (
+        selectedPartnerId &&
+        !rows.some((partner) => partner.id === selectedPartnerId)
+      ) {
+        setSelectedPartnerId("");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load partners.");
+    } finally {
+      setPartnersLoading(false);
+    }
+  }
+
+  function clearPartnerForm() {
+    setSelectedPartnerId("");
+    setPartnerType("ALLIANCE_PARTNER");
+    setPartnerName("");
+    setPartnerTelephone("");
+    setPartnerMarkup("20");
+    setPartnerActive(true);
+    setPartnerPublicEnabled(true);
+    setPartnerProducts([]);
+    setSelectedPartnerCodes([]);
+    setPartnerProductSearch("");
+  }
+
+  function editPartner(partner: SalesPartner) {
+    setSelectedPartnerId(partner.id);
+    setPartnerType(partner.partner_type);
+    setPartnerName(partner.name);
+    setPartnerTelephone(partner.telephone || "");
+    setPartnerMarkup(
+      partner.purchase_markup_percent === null
+        ? ""
+        : String(partner.purchase_markup_percent)
+    );
+    setPartnerActive(partner.is_active);
+    setPartnerPublicEnabled(partner.public_price_list_enabled);
+    setPartnerProducts([]);
+    setSelectedPartnerCodes(
+      (partner.cubechem_partner_products || []).map((item) => item.item_code)
+    );
+    setPartnerProductSearch("");
+  }
+
+  async function savePartner() {
+    setMessage("");
+    setError("");
+
+    if (!partnerName.trim()) {
+      setError("Please enter the partner name.");
+      return;
+    }
+
+    setPartnerSaving(true);
+
+    try {
+      const isEditing = Boolean(selectedPartnerId);
+
+      const res = await fetch("/api/cubechem/partners", {
+        method: isEditing ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-practicepilot-user-email": currentUserEmail,
+        },
+        body: JSON.stringify({
+          id: selectedPartnerId || undefined,
+          partnerType,
+          name: partnerName,
+          telephone: partnerTelephone,
+          purchaseMarkupPercent:
+            partnerType === "ALLIANCE_PARTNER" ? partnerMarkup : null,
+          publicPriceListEnabled: partnerPublicEnabled,
+          isActive: partnerActive,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Could not save partner.");
+      }
+
+      setMessage(data.message || "Partner saved successfully.");
+      await loadPartners();
+
+      if (!isEditing && data.partner?.id) {
+        setSelectedPartnerId(data.partner.id);
+        setPartnerProducts([]);
+        setSelectedPartnerCodes([]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save partner.");
+    } finally {
+      setPartnerSaving(false);
+    }
+  }
+
+  async function deletePartner(partner: SalesPartner) {
+    const confirmed = window.confirm(
+      `Delete ${partner.name}? This will also remove the saved product selection.`
+    );
+
+    if (!confirmed) return;
+
+    setMessage("");
+    setError("");
+
+    try {
+      const res = await fetch("/api/cubechem/partners", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "x-practicepilot-user-email": currentUserEmail,
+        },
+        body: JSON.stringify({ id: partner.id }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Could not delete partner.");
+      }
+
+      if (selectedPartnerId === partner.id) {
+        clearPartnerForm();
+      }
+
+      setMessage(data.message || "Partner deleted successfully.");
+      await loadPartners();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete partner.");
+    }
+  }
+
+  async function loadPartnerProducts() {
+    if (!selectedPartnerId) {
+      setError("Please save or select an Alliance Partner first.");
+      return;
+    }
+
+    if (selectedPartner?.partner_type !== "ALLIANCE_PARTNER") {
+      setError("Product selection applies only to Alliance Partners.");
+      return;
+    }
+
+    setMessage("");
+    setError("");
+    setPartnerProductsLoading(true);
+
+    try {
+      const [optionsRes, selectedRes] = await Promise.all([
+        fetch(
+          `/api/cubechem/partner-product-options?priceMonth=${encodeURIComponent(
+            partnerExportMonth
+          )}`,
+          {
+            headers: {
+              "x-practicepilot-user-email": currentUserEmail,
+            },
+          }
+        ),
+        fetch(
+          `/api/cubechem/partner-products?partnerId=${encodeURIComponent(
+            selectedPartnerId
+          )}`,
+          {
+            headers: {
+              "x-practicepilot-user-email": currentUserEmail,
+            },
+          }
+        ),
+      ]);
+
+      const optionsData = await optionsRes.json();
+      const selectedData = await selectedRes.json();
+
+      if (!optionsRes.ok) {
+        throw new Error(optionsData.error || "Could not load product options.");
+      }
+
+      if (!selectedRes.ok) {
+        throw new Error(selectedData.error || "Could not load selected products.");
+      }
+
+      setPartnerProducts(optionsData.products || []);
+      setSelectedPartnerCodes(
+        (selectedData.itemCodes || []).map((code: string) =>
+          String(code).toUpperCase()
+        )
+      );
+      setMessage(
+        `${optionsData.productCount || 0} products loaded for ${formatMonth(
+          partnerExportMonth
+        )}.`
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not load partner products."
+      );
+    } finally {
+      setPartnerProductsLoading(false);
+    }
+  }
+
+  function togglePartnerProduct(itemCode: string) {
+    setSelectedPartnerCodes((current) =>
+      current.includes(itemCode)
+        ? current.filter((code) => code !== itemCode)
+        : [...current, itemCode]
+    );
+  }
+
+  function selectAllFilteredPartnerProducts() {
+    const visibleCodes = filteredPartnerProducts.map((product) => product.itemCode);
+
+    setSelectedPartnerCodes((current) =>
+      Array.from(new Set([...current, ...visibleCodes]))
+    );
+  }
+
+  function clearFilteredPartnerProducts() {
+    const visibleCodes = new Set(
+      filteredPartnerProducts.map((product) => product.itemCode)
+    );
+
+    setSelectedPartnerCodes((current) =>
+      current.filter((code) => !visibleCodes.has(code))
+    );
+  }
+
+  async function savePartnerProducts() {
+    if (!selectedPartnerId) {
+      setError("Please select an Alliance Partner first.");
+      return;
+    }
+
+    setMessage("");
+    setError("");
+    setPartnerProductsSaving(true);
+
+    try {
+      const res = await fetch("/api/cubechem/partner-products", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-practicepilot-user-email": currentUserEmail,
+        },
+        body: JSON.stringify({
+          partnerId: selectedPartnerId,
+          itemCodes: selectedPartnerCodes,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Could not save partner products.");
+      }
+
+      setMessage(data.message || "Partner products saved successfully.");
+      await loadPartners();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not save partner products."
+      );
+    } finally {
+      setPartnerProductsSaving(false);
+    }
+  }
+
+  async function exportAlliancePdf(type: "purchase" | "public") {
+    if (!selectedPartnerId) {
+      setError("Please select an Alliance Partner first.");
+      return;
+    }
+
+    if (selectedPartner?.partner_type !== "ALLIANCE_PARTNER") {
+      setError("Please select an Alliance Partner.");
+      return;
+    }
+
+    setMessage("");
+    setError("");
+    setPartnerExportLoading(type);
+
+    try {
+      const endpoint =
+        type === "purchase"
+          ? "/api/cubechem/export-alliance-purchase-pdf"
+          : "/api/cubechem/export-alliance-public-pdf";
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-practicepilot-user-email": currentUserEmail,
+        },
+        body: JSON.stringify({
+          exportMonth: partnerExportMonth,
+          partnerId: selectedPartnerId,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Alliance Partner export failed.");
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const fileNameMatch = disposition.match(/filename="([^"]+)"/i);
+
+      link.href = url;
+      link.download =
+        fileNameMatch?.[1] ||
+        `CCD_ALLIANCE_${type.toUpperCase()}_${partnerExportMonth}.pdf`;
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      setMessage(
+        `${formatMonth(partnerExportMonth)} Alliance Partner ${
+          type === "purchase" ? "purchase prices" : "public price list"
+        } exported successfully.`
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Alliance Partner export failed."
+      );
+    } finally {
+      setPartnerExportLoading("");
+    }
+  }
+
   function renderColumnHeaderRow() {
     return (
       <tr>
@@ -1055,6 +1481,345 @@ export default function CubeChemPage() {
               </button>
             </div>
           </div>
+        </section>
+
+        <section style={{ ...cardStyle, marginTop: "22px" }}>
+          <div style={partnerSectionHeaderStyle}>
+            <div>
+              <h2 style={sectionTitleStyle}>Agents and Alliance Partners</h2>
+              <p style={smallTextStyle}>
+                Capture contact details, choose Alliance Partner bulk products,
+                and export monthly purchase and public price lists.
+              </p>
+            </div>
+
+            <button
+              onClick={clearPartnerForm}
+              style={{
+                ...buttonStyle,
+                marginTop: 0,
+                background: "#64748b",
+              }}
+            >
+              New Partner
+            </button>
+          </div>
+
+          <div style={partnerLayoutStyle}>
+            <div>
+              <h3 style={subSectionTitleStyle}>Partner Details</h3>
+
+              <div style={twoColumnStyle}>
+                <label style={labelStyle}>
+                  Partner Type
+                  <select
+                    value={partnerType}
+                    onChange={(e) => {
+                      const nextType = e.target.value as
+                        | "AGENT"
+                        | "ALLIANCE_PARTNER";
+                      setPartnerType(nextType);
+
+                      if (nextType === "ALLIANCE_PARTNER" && !partnerMarkup) {
+                        setPartnerMarkup("20");
+                      }
+                    }}
+                    style={inputStyle}
+                  >
+                    <option value="AGENT">Agent</option>
+                    <option value="ALLIANCE_PARTNER">Alliance Partner</option>
+                  </select>
+                </label>
+
+                <label style={labelStyle}>
+                  Telephone
+                  <input
+                    value={partnerTelephone}
+                    onChange={(e) => setPartnerTelephone(e.target.value)}
+                    placeholder="Telephone / WhatsApp"
+                    style={inputStyle}
+                  />
+                </label>
+              </div>
+
+              <label style={{ ...labelStyle, marginTop: "12px" }}>
+                Name
+                <input
+                  value={partnerName}
+                  onChange={(e) => setPartnerName(e.target.value)}
+                  placeholder="Partner name"
+                  style={inputStyle}
+                />
+              </label>
+
+              {partnerType === "ALLIANCE_PARTNER" && (
+                <label style={{ ...labelStyle, marginTop: "12px" }}>
+                  Purchase Markup %
+                  <input
+                    type="number"
+                    value={partnerMarkup}
+                    onChange={(e) => setPartnerMarkup(e.target.value)}
+                    style={inputStyle}
+                  />
+                </label>
+              )}
+
+              <div style={partnerCheckboxRowStyle}>
+                <label style={inlineCheckStyle}>
+                  <input
+                    type="checkbox"
+                    checked={partnerActive}
+                    onChange={(e) => setPartnerActive(e.target.checked)}
+                  />
+                  Active
+                </label>
+
+                <label style={inlineCheckStyle}>
+                  <input
+                    type="checkbox"
+                    checked={partnerPublicEnabled}
+                    onChange={(e) => setPartnerPublicEnabled(e.target.checked)}
+                  />
+                  Public price-list export enabled
+                </label>
+              </div>
+
+              <button
+                onClick={savePartner}
+                disabled={partnerSaving}
+                style={{
+                  ...buttonStyle,
+                  background: "#0f766e",
+                  opacity: partnerSaving ? 0.7 : 1,
+                }}
+              >
+                {partnerSaving
+                  ? "Saving..."
+                  : selectedPartnerId
+                  ? "Update Partner"
+                  : "Add Partner"}
+              </button>
+            </div>
+
+            <div>
+              <h3 style={subSectionTitleStyle}>
+                Existing Partners {partnersLoading ? "(Loading...)" : ""}
+              </h3>
+
+              <div style={partnerListStyle}>
+                {partners.length === 0 && !partnersLoading ? (
+                  <p style={smallTextStyle}>No partners loaded yet.</p>
+                ) : (
+                  partners.map((partner) => (
+                    <div
+                      key={partner.id}
+                      style={{
+                        ...partnerRowStyle,
+                        background:
+                          partner.id === selectedPartnerId
+                            ? "#ecfdf5"
+                            : "#ffffff",
+                      }}
+                    >
+                      <button
+                        onClick={() => editPartner(partner)}
+                        style={partnerSelectButtonStyle}
+                      >
+                        <strong>{partner.name}</strong>
+                        <span>
+                          {partner.partner_type === "ALLIANCE_PARTNER"
+                            ? "Alliance Partner"
+                            : "Agent"}
+                          {partner.telephone ? ` • ${partner.telephone}` : ""}
+                          {!partner.is_active ? " • Inactive" : ""}
+                        </span>
+                      </button>
+
+                      <button
+                        onClick={() => deletePartner(partner)}
+                        style={deleteButtonStyle}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div style={partnerDividerStyle} />
+
+          <div style={partnerSectionHeaderStyle}>
+            <div>
+              <h3 style={subSectionTitleStyle}>Alliance Partner Price Lists</h3>
+              <p style={smallTextStyle}>
+                Select an Alliance Partner, load the month’s Abyx products, and
+                tick only the bulk products they may purchase.
+              </p>
+            </div>
+
+            <span style={selectedPartnerBadgeStyle}>
+              {selectedPartner
+                ? selectedPartner.name
+                : alliancePartners.length > 0
+                ? "Select an Alliance Partner"
+                : "No Alliance Partners loaded"}
+            </span>
+          </div>
+
+          <div style={partnerControlsStyle}>
+            <label style={labelStyle}>
+              Alliance Partner
+              <select
+                value={
+                  selectedPartner?.partner_type === "ALLIANCE_PARTNER"
+                    ? selectedPartnerId
+                    : ""
+                }
+                onChange={(e) => {
+                  const partner = partners.find(
+                    (item) => item.id === e.target.value
+                  );
+
+                  if (partner) editPartner(partner);
+                }}
+                style={inputStyle}
+              >
+                <option value="">Select Alliance Partner</option>
+                {alliancePartners.map((partner) => (
+                  <option key={partner.id} value={partner.id}>
+                    {partner.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label style={labelStyle}>
+              Price Month
+              <input
+                type="month"
+                value={partnerExportMonth}
+                onChange={(e) => {
+                  setPartnerExportMonth(e.target.value);
+                  setPartnerProducts([]);
+                }}
+                style={inputStyle}
+              />
+            </label>
+
+            <button
+              onClick={loadPartnerProducts}
+              disabled={partnerProductsLoading}
+              style={{
+                ...buttonStyle,
+                marginTop: "22px",
+                background: "#2563eb",
+                opacity: partnerProductsLoading ? 0.7 : 1,
+              }}
+            >
+              {partnerProductsLoading ? "Loading..." : "Load Bulk Products"}
+            </button>
+
+            <button
+              onClick={() => exportAlliancePdf("purchase")}
+              disabled={partnerExportLoading !== ""}
+              style={{
+                ...buttonStyle,
+                marginTop: "22px",
+                background: "#0f766e",
+                opacity: partnerExportLoading ? 0.7 : 1,
+              }}
+            >
+              {partnerExportLoading === "purchase"
+                ? "Exporting..."
+                : "Purchase Price PDF"}
+            </button>
+
+            <button
+              onClick={() => exportAlliancePdf("public")}
+              disabled={partnerExportLoading !== ""}
+              style={{
+                ...buttonStyle,
+                marginTop: "22px",
+                background: "#7c3aed",
+                opacity: partnerExportLoading ? 0.7 : 1,
+              }}
+            >
+              {partnerExportLoading === "public"
+                ? "Exporting..."
+                : "Full Public Price PDF"}
+            </button>
+          </div>
+
+          {partnerProducts.length > 0 && (
+            <div style={{ marginTop: "18px" }}>
+              <div style={partnerProductToolbarStyle}>
+                <input
+                  value={partnerProductSearch}
+                  onChange={(e) => setPartnerProductSearch(e.target.value)}
+                  placeholder="Search code or product description"
+                  style={{ ...inputStyle, maxWidth: "420px" }}
+                />
+
+                <strong>{selectedPartnerCodes.length} selected</strong>
+
+                <button
+                  onClick={selectAllFilteredPartnerProducts}
+                  style={smallActionButtonStyle}
+                >
+                  Select Visible
+                </button>
+
+                <button
+                  onClick={clearFilteredPartnerProducts}
+                  style={smallActionButtonStyle}
+                >
+                  Clear Visible
+                </button>
+
+                <button
+                  onClick={savePartnerProducts}
+                  disabled={partnerProductsSaving}
+                  style={{
+                    ...smallActionButtonStyle,
+                    background: "#0f766e",
+                    color: "#ffffff",
+                    opacity: partnerProductsSaving ? 0.7 : 1,
+                  }}
+                >
+                  {partnerProductsSaving
+                    ? "Saving..."
+                    : "Save Product Selection"}
+                </button>
+              </div>
+
+              <div style={partnerProductGridStyle}>
+                {filteredPartnerProducts.map((product) => (
+                  <label
+                    key={product.itemCode}
+                    style={{
+                      ...partnerProductItemStyle,
+                      background: selectedPartnerCodes.includes(product.itemCode)
+                        ? "#ecfdf5"
+                        : "#ffffff",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedPartnerCodes.includes(product.itemCode)}
+                      onChange={() => togglePartnerProduct(product.itemCode)}
+                    />
+
+                    <span>
+                      <strong>{product.itemCode}</strong>
+                      <small>{product.description}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         {message && <div style={successStyle}>{message}</div>}
@@ -1324,6 +2089,143 @@ export default function CubeChemPage() {
     </main>
   );
 }
+
+const partnerSectionHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "16px",
+  marginBottom: "18px",
+};
+
+const partnerLayoutStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(320px, 0.8fr) minmax(420px, 1.2fr)",
+  gap: "28px",
+};
+
+const subSectionTitleStyle: React.CSSProperties = {
+  margin: "0 0 12px",
+  fontSize: "17px",
+  fontWeight: 900,
+  color: "#0f172a",
+};
+
+const partnerCheckboxRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "18px",
+  flexWrap: "wrap",
+  marginTop: "14px",
+};
+
+const inlineCheckStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "7px",
+  fontSize: "13px",
+  fontWeight: 800,
+  color: "#334155",
+};
+
+const partnerListStyle: React.CSSProperties = {
+  border: "1px solid #cbd5e1",
+  maxHeight: "300px",
+  overflowY: "auto",
+};
+
+const partnerRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  borderBottom: "1px solid #e2e8f0",
+  padding: "8px 10px",
+};
+
+const partnerSelectButtonStyle: React.CSSProperties = {
+  flex: 1,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: "3px",
+  border: "none",
+  background: "transparent",
+  cursor: "pointer",
+  textAlign: "left",
+  color: "#0f172a",
+};
+
+const deleteButtonStyle: React.CSSProperties = {
+  border: "1px solid #fecaca",
+  background: "#fff1f2",
+  color: "#991b1b",
+  padding: "7px 10px",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const partnerDividerStyle: React.CSSProperties = {
+  height: "1px",
+  background: "#cbd5e1",
+  margin: "26px 0",
+};
+
+const selectedPartnerBadgeStyle: React.CSSProperties = {
+  border: "1px solid #a7f3d0",
+  background: "#ecfdf5",
+  color: "#065f46",
+  padding: "8px 12px",
+  fontSize: "13px",
+  fontWeight: 900,
+};
+
+const partnerControlsStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns:
+    "minmax(220px, 1.4fr) minmax(160px, 0.8fr) auto auto auto",
+  gap: "12px",
+  alignItems: "end",
+};
+
+const partnerProductToolbarStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  flexWrap: "wrap",
+  background: "#f8fafc",
+  border: "1px solid #cbd5e1",
+  padding: "10px",
+  marginBottom: "10px",
+};
+
+const smallActionButtonStyle: React.CSSProperties = {
+  border: "1px solid #94a3b8",
+  background: "#ffffff",
+  color: "#0f172a",
+  padding: "8px 11px",
+  fontSize: "12px",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const partnerProductGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+  borderTop: "1px solid #cbd5e1",
+  borderLeft: "1px solid #cbd5e1",
+  maxHeight: "520px",
+  overflowY: "auto",
+};
+
+const partnerProductItemStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: "9px",
+  padding: "10px",
+  borderRight: "1px solid #cbd5e1",
+  borderBottom: "1px solid #cbd5e1",
+  cursor: "pointer",
+  color: "#0f172a",
+};
 
 function statusStyle(status: string): React.CSSProperties {
   const base: React.CSSProperties = {
