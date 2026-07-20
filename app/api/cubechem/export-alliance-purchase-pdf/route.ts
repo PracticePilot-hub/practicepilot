@@ -228,10 +228,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const uploadResult = await supabase
+   const uploadResult = await supabase
   .from("cubechem_price_uploads")
-  .select("id, price_month, file_name")
+  .select("id, price_month, file_name, created_at")
   .eq("price_month", monthDate)
+  .order("created_at", { ascending: false })
   .limit(1)
   .maybeSingle();
 
@@ -268,8 +269,10 @@ export async function POST(req: NextRequest) {
       )
       .map((row) => {
         const supplierPrice = Number(row.supplier_ex_vat);
-        const calculatedPrice =
-          supplierPrice * (1 + Number(markupPercent) / 100);
+        const supplierPriceInclVat = supplierPrice * 1.15;
+
+const calculatedPrice =
+  supplierPriceInclVat * (1 + Number(markupPercent) / 100);
 
         const roundedPrice = Math.round(calculatedPrice);
 
