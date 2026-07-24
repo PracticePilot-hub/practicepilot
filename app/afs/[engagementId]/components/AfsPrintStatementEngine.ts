@@ -916,11 +916,23 @@ export function buildAfsPrintStatementEngine(
       ? Number(overrides.sceOpeningShareCapital)
       : shareCapitalTotal.prior;
 
-  const rawOpeningRetainedInput =
-    overrides.sceOpeningRetainedIncome !== null &&
-    overrides.sceOpeningRetainedIncome !== undefined
-      ? Number(overrides.sceOpeningRetainedIncome)
-      : retainedIncomeTotal.prior;
+  /*
+    Opening retained income must come from the mapped prior-year retained
+    income balance wherever that balance exists. A manual override is only
+    used for genuinely incomplete first-year or legacy files.
+
+    This prevents an old saved override from surviving a Next Flight refresh
+    and incorrectly replacing the rolled-forward comparative balance.
+  */
+  const hasMappedPriorRetainedIncome =
+    Math.abs(retainedIncomeTotal.prior) >= 0.005;
+
+  const rawOpeningRetainedInput = hasMappedPriorRetainedIncome
+    ? retainedIncomeTotal.prior
+    : overrides.sceOpeningRetainedIncome !== null &&
+      overrides.sceOpeningRetainedIncome !== undefined
+    ? Number(overrides.sceOpeningRetainedIncome)
+    : 0;
 
   const retainedMappingIndicatesLoss =
     retainedIncomeTotal.current < 0 || retainedIncomeTotal.prior < 0;

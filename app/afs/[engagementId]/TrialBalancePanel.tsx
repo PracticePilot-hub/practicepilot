@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 
 type TrialBalanceLine = {
@@ -40,6 +40,22 @@ amount_layout?: string | null;
 
   mapping_category: string | null;
   note_number: string | null;
+};
+
+type TrialBalanceHistoryLine = {
+  id?: string;
+  financial_year_end: string;
+  account_code: string;
+  account_name: string;
+  closing_balance: number;
+  mapping_code?: string | null;
+  mapping_label?: string | null;
+  mapping_statement?: string | null;
+  mapping_section?: string | null;
+  mapping_path?: string | null;
+  mapping_leaf_id?: string | null;
+  lead_schedule_number?: string | null;
+  lead_schedule_key?: string | null;
 };
 
 type Props = {
@@ -89,12 +105,160 @@ export default function TrialBalancePanel({
   const [priorYearColumn, setPriorYearColumn] = useState(2);
   const [closingBalancePeriod, setClosingBalancePeriod] = useState(12);
   const [savingLineId, setSavingLineId] = useState<string | null>(null);
+  const [showAddAccount, setShowAddAccount] = useState(false);
+  const [creatingAccount, setCreatingAccount] = useState(false);
+  const [newAccountCode, setNewAccountCode] = useState("");
+  const [newAccountName, setNewAccountName] = useState("");
+  const [newCurrentYearBalance, setNewCurrentYearBalance] = useState("");
+  const [newPriorYearBalance, setNewPriorYearBalance] = useState("");
+
+  const [viewMode, setViewMode] = useState<"current" | "history">("current");
+  const [historyLines, setHistoryLines] = useState<TrialBalanceHistoryLine[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
 
   const [periodColumns, setPeriodColumns] = useState<number[]>([
     2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
   ]);
 
   const activeLines = previewLines.length > 0 ? previewLines : trialBalanceLines;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHistory() {
+      if (!engagementId) return;
+
+      setHistoryLoading(true);
+      setHistoryError("");
+
+      try {
+        const response = await fetch(`/api/afs/engagements/${engagementId}`, {
+          cache: "no-store",
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to load trial balance history.");
+        }
+
+        if (cancelled) return;
+
+        const nextHistory =
+          data.trialBalanceHistory ||
+          data.trial_balance_history ||
+          [];
+
+        setHistoryLines(nextHistory);
+      } catch (error: any) {
+        if (!cancelled) {
+          setHistoryError(
+            error.message || "Failed to load trial balance history."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setHistoryLoading(false);
+        }
+      }
+    }
+
+    loadHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [engagementId]);
+
+  const historyYears = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          historyLines
+            .map((line) => String(line.financial_year_end || "").slice(0, 4))
+            .filter(Boolean)
+        )
+      )
+        .sort((a, b) => b.localeCompare(a))
+        .slice(0, 4),
+    [historyLines]
+  );
+
+  const historyTableRows = useMemo(() => {
+    const byAccount = new Map<
+      string,
+      {
+        accountCode: string;
+        accountName: string;
+        mappingCode: string;
+        mappingLabel: string;
+        leadSchedule: string;
+        balances: Record<string, number>;
+        chosenDates: Record<string, string>;
+      }
+    >();
+
+    historyLines.forEach((line) => {
+      const year = String(line.financial_year_end || "").slice(0, 4);
+      const accountCode = String(line.account_code || "").trim();
+
+      if (!year || !accountCode || !historyYears.includes(year)) return;
+
+      if (!byAccount.has(accountCode)) {
+        byAccount.set(accountCode, {
+          accountCode,
+          accountName: String(line.account_name || ""),
+          mappingCode: String(line.mapping_code || ""),
+          mappingLabel: String(line.mapping_label || ""),
+          leadSchedule: String(
+            line.lead_schedule_number || line.lead_schedule_key || ""
+          ),
+          balances: {},
+          chosenDates: {},
+        });
+      }
+
+      const row = byAccount.get(accountCode);
+      if (!row) return;
+
+      const sourceDate = String(line.financial_year_end || "");
+      const existingDate = row.chosenDates[year] || "";
+
+      /*
+        A leap-year rollover may temporarily leave both 2024-02-28 and
+        2024-02-29 history rows. For display, use the later valid year-end.
+      */
+      if (!existingDate || sourceDate > existingDate) {
+        row.balances[year] = Number(line.closing_balance || 0);
+        row.chosenDates[year] = sourceDate;
+        row.accountName = String(line.account_name || row.accountName);
+        row.mappingCode = String(line.mapping_code || row.mappingCode);
+        row.mappingLabel = String(line.mapping_label || row.mappingLabel);
+        row.leadSchedule = String(
+          line.lead_schedule_number ||
+            line.lead_schedule_key ||
+            row.leadSchedule
+        );
+      }
+    });
+
+    return Array.from(byAccount.values()).sort((a, b) =>
+      a.accountCode.localeCompare(b.accountCode, undefined, { numeric: true })
+    );
+  }, [historyLines, historyYears]);
+
+  const historyTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+
+    historyYears.forEach((year) => {
+      totals[year] = historyTableRows.reduce(
+        (sum, row) => sum + Number(row.balances[year] || 0),
+        0
+      );
+    });
+
+    return totals;
+  }, [historyTableRows, historyYears]);
 
   const totalSourceBalance = activeLines.reduce(
     (sum, line) => sum + getSourceBalance(line),
@@ -435,6 +599,74 @@ export default function TrialBalancePanel({
     }
   }
 
+  function resetAddAccountForm() {
+    setNewAccountCode("");
+    setNewAccountName("");
+    setNewCurrentYearBalance("");
+    setNewPriorYearBalance("");
+  }
+
+  function closeAddAccount() {
+    if (creatingAccount) return;
+
+    resetAddAccountForm();
+    setShowAddAccount(false);
+  }
+
+  async function createAccount() {
+    const accountCode = String(newAccountCode || "").trim();
+    const accountName = String(newAccountName || "").trim();
+
+    if (!accountCode || !accountName) {
+      alert("Account code and account name are required.");
+      return;
+    }
+
+    setCreatingAccount(true);
+
+    try {
+      const res = await fetch(
+        `/api/afs/engagements/${engagementId}/journal-account`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            accountCode,
+            accountName,
+            currentYearBalance: numberOrZero(newCurrentYearBalance),
+            priorYearBalance: numberOrZero(newPriorYearBalance),
+          }),
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to create trial balance account.");
+      }
+
+      const createdLine = data.line as TrialBalanceLine;
+
+      const nextLines = [...trialBalanceLines, createdLine].sort((a, b) =>
+        String(a.account_code || "").localeCompare(
+          String(b.account_code || ""),
+          undefined,
+          { numeric: true }
+        )
+      );
+
+      onImported(nextLines);
+      resetAddAccountForm();
+      setShowAddAccount(false);
+    } catch (error: any) {
+      alert(error.message || "Failed to create trial balance account.");
+    } finally {
+      setCreatingAccount(false);
+    }
+  }
+
   const columnOptions = getColumnOptions(rawRows);
 
   return (
@@ -449,17 +681,67 @@ export default function TrialBalancePanel({
         </div>
 
         <div style={styles.actions}>
-          <label style={styles.fileButton}>
-            Choose Excel file
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              onChange={handleFileUpload}
-              style={{ display: "none" }}
-            />
-          </label>
+          <button
+            type="button"
+            style={
+              viewMode === "current"
+                ? styles.viewButtonActive
+                : styles.viewButton
+            }
+            onClick={() => setViewMode("current")}
+          >
+            Current TB
+          </button>
 
-          {previewLines.length > 0 && (
+          <button
+            type="button"
+            style={
+              viewMode === "history"
+                ? styles.viewButtonActive
+                : styles.viewButton
+            }
+            onClick={() => setViewMode("history")}
+          >
+            TB History
+          </button>
+
+          {viewMode === "current" ? (
+            <>
+              <button
+                type="button"
+                style={styles.addAccountButton}
+                onClick={() => setShowAddAccount(true)}
+                disabled={previewLines.length > 0}
+                title={
+                  previewLines.length > 0
+                    ? "Finish or clear the import preview before adding an account."
+                    : "Add a new account directly to this trial balance."
+                }
+              >
+                Add Account
+              </button>
+
+              <label style={styles.fileButton}>
+                Choose Excel file
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleFileUpload}
+                  style={{ display: "none" }}
+                />
+              </label>
+            </>
+          ) : (
+            <div style={styles.historyYearsLabel}>
+              {historyYears.length > 0
+                ? `${historyYears.length} historical year${
+                    historyYears.length === 1 ? "" : "s"
+                  }`
+                : "No history available"}
+            </div>
+          )}
+
+          {viewMode === "current" && previewLines.length > 0 && (
             <>
               <button style={styles.secondaryButton} onClick={clearPreview}>
                 Clear preview
@@ -477,22 +759,84 @@ export default function TrialBalancePanel({
         </div>
       </div>
 
-      <div style={styles.summaryGrid}>
-        <Summary label="Imported Balance" value={formatMoney(totalSourceBalance)} />
-        <Summary label="Manual Adj." value={formatMoney(totalManualAdjustments)} />
-        <Summary label="Journal Adj." value={formatMoney(totalJournalAdjustments)} />
-        <Summary label="Final AFS Balance" value={formatMoney(totalFinalBalance)} />
-        <Summary label="Prior Year" value={formatMoney(totalPriorYear)} />
-        <Summary label="Lines" value={String(activeLines.length)} />
-      </div>
+      {viewMode === "current" ? (
+  <div style={styles.summaryGrid}>
+    <Summary label="Imported Balance" value={formatMoney(totalSourceBalance)} />
+    <Summary label="Manual Adj." value={formatMoney(totalManualAdjustments)} />
+    <Summary label="Journal Adj." value={formatMoney(totalJournalAdjustments)} />
+    <Summary label="Final AFS Balance" value={formatMoney(totalFinalBalance)} />
+    <Summary label="Prior Year" value={formatMoney(totalPriorYear)} />
+    <Summary label="Lines" value={String(activeLines.length)} />
+  </div>
+) : null}
 
-      {previewLines.length > 0 && (
+      {viewMode === "current" && previewLines.length > 0 && (
         <div style={styles.previewBanner}>
           Preview mode — review the lines below, then click Confirm import.
         </div>
       )}
 
-      {activeLines.length === 0 ? (
+      {viewMode === "history" ? (
+        historyLoading ? (
+          <p style={styles.emptyText}>Loading trial balance history...</p>
+        ) : historyError ? (
+          <div style={styles.errorBanner}>{historyError}</div>
+        ) : historyTableRows.length === 0 ? (
+          <p style={styles.emptyText}>
+            No historical trial balance rows are stored for this engagement yet.
+          </p>
+        ) : (
+          <div style={styles.tableWrap}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Account</th>
+                  <th style={styles.th}>Description</th>
+                  {historyYears.map((year) => (
+                    <th key={year} style={styles.thRight}>
+                      {year}
+                    </th>
+                  ))}
+                  <th style={styles.th}>Mapping</th>
+                  <th style={styles.th}>Lead sheet</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyTableRows.map((row) => (
+                  <tr key={row.accountCode}>
+                    <td style={styles.td}>{row.accountCode}</td>
+                    <td style={styles.td}>{row.accountName}</td>
+                    {historyYears.map((year) => (
+                      <td key={year} style={styles.tdRight}>
+                        {formatMoney(Number(row.balances[year] || 0))}
+                      </td>
+                    ))}
+                    <td style={styles.td}>
+                      {row.mappingCode
+                        ? `${row.mappingCode} · ${row.mappingLabel}`
+                        : row.mappingLabel}
+                    </td>
+                    <td style={styles.td}>{row.leadSchedule}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td style={styles.totalCell} colSpan={2}>
+                    Totals
+                  </td>
+                  {historyYears.map((year) => (
+                    <td key={year} style={styles.totalRight}>
+                      {formatMoney(historyTotals[year] || 0)}
+                    </td>
+                  ))}
+                  <td style={styles.totalCell} colSpan={2}></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )
+      ) : activeLines.length === 0 ? (
         <p style={styles.emptyText}>No trial balance imported yet.</p>
       ) : (
         <div style={styles.tableWrap}>
@@ -572,7 +916,109 @@ export default function TrialBalancePanel({
         </div>
       )}
 
-      {showMapping && (
+      {viewMode === "current" && showAddAccount && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.addAccountModal}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h3 style={styles.modalTitle}>Add Trial Balance Account</h3>
+                <p style={styles.text}>
+                  Create a new account directly in this engagement without using a journal.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                style={styles.closeButton}
+                onClick={closeAddAccount}
+                disabled={creatingAccount}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.addAccountGrid}>
+              <label style={styles.label}>
+                Account code
+                <input
+                  style={styles.input}
+                  value={newAccountCode}
+                  onChange={(event) => setNewAccountCode(event.target.value)}
+                  placeholder="Example: 210-000"
+                  disabled={creatingAccount}
+                  autoFocus
+                />
+              </label>
+
+              <label style={styles.label}>
+                Account name
+                <input
+                  style={styles.input}
+                  value={newAccountName}
+                  onChange={(event) => setNewAccountName(event.target.value)}
+                  placeholder="Example: Audit Fees"
+                  disabled={creatingAccount}
+                />
+              </label>
+
+              <label style={styles.label}>
+                Current-year balance
+                <input
+                  style={styles.input}
+                  value={newCurrentYearBalance}
+                  onChange={(event) =>
+                    setNewCurrentYearBalance(event.target.value)
+                  }
+                  placeholder="0.00"
+                  inputMode="decimal"
+                  disabled={creatingAccount}
+                />
+              </label>
+
+              <label style={styles.label}>
+                Prior-year balance
+                <input
+                  style={styles.input}
+                  value={newPriorYearBalance}
+                  onChange={(event) =>
+                    setNewPriorYearBalance(event.target.value)
+                  }
+                  placeholder="0.00"
+                  inputMode="decimal"
+                  disabled={creatingAccount}
+                />
+              </label>
+            </div>
+
+            <div style={styles.addAccountNotice}>
+              Negative amounts may be entered with a minus sign or in brackets.
+              Mapping can be completed afterwards in the Mapping section.
+            </div>
+
+            <div style={styles.modalActions}>
+              <button
+                type="button"
+                style={styles.secondaryButton}
+                onClick={closeAddAccount}
+                disabled={creatingAccount}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                style={styles.primaryButton}
+                onClick={createAccount}
+                disabled={creatingAccount}
+              >
+                {creatingAccount ? "Creating..." : "Create Account"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewMode === "current" && showMapping && (
         <div style={styles.modalOverlay}>
           <div style={styles.modal}>
             <div style={styles.modalHeader}>
@@ -966,10 +1412,10 @@ function formatMoney(value: number) {
 const styles: Record<string, React.CSSProperties> = {
   card: {
     background: "white",
-    border: "1px solid #dbe3ef",
-    borderRadius: "16px",
-    padding: "18px",
-    boxShadow: "0 8px 22px rgba(15, 23, 42, 0.05)",
+    border: "1px solid #cbd5e1",
+    borderRadius: "0px",
+    padding: "14px",
+    boxShadow: "none",
   },
   header: {
     display: "flex",
@@ -1000,14 +1446,56 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: "wrap",
     justifyContent: "flex-end",
   },
+  viewButton: {
+    border: "1px solid #94a3b8",
+    borderRadius: "0px",
+    padding: "8px 12px",
+    background: "#ffffff",
+    color: "#334155",
+    fontWeight: 800,
+    fontSize: "12px",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  viewButtonActive: {
+    border: "1px solid #0f172a",
+    borderRadius: "0px",
+    padding: "8px 12px",
+    background: "#0f172a",
+    color: "#ffffff",
+    fontWeight: 800,
+    fontSize: "12px",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  historyYearsLabel: {
+    border: "1px solid #cbd5e1",
+    padding: "8px 10px",
+    background: "#f8fafc",
+    color: "#334155",
+    fontSize: "12px",
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+  },
+  addAccountButton: {
+    border: "1px solid #94a3b8",
+    borderRadius: "0px",
+    padding: "9px 13px",
+    background: "#ffffff",
+    color: "#0f172a",
+    fontWeight: 800,
+    fontSize: "13px",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
   fileButton: {
-    border: "none",
-    borderRadius: "12px",
-    padding: "10px 14px",
+    border: "1px solid #1d4ed8",
+    borderRadius: "0px",
+    padding: "9px 13px",
     background: "#2563eb",
     color: "white",
     fontWeight: 800,
-    fontSize: "14px",
+    fontSize: "13px",
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
@@ -1040,11 +1528,34 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: "16px",
   },
   summaryCard: {
-    border: "1px solid #e5e7eb",
-    borderRadius: "12px",
-    padding: "12px",
+    border: "1px solid #dbe3ef",
+    borderRadius: "0px",
+    padding: "10px",
     display: "grid",
     gap: "5px",
+    background: "#ffffff",
+  },
+  historySummaryBar: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    borderTop: "1px solid #cbd5e1",
+    borderBottom: "1px solid #cbd5e1",
+    marginBottom: "14px",
+    background: "#f8fafc",
+  },
+  historySummaryLabel: {
+    display: "block",
+    color: "#64748b",
+    fontSize: "11px",
+    marginBottom: "4px",
+  },
+  errorBanner: {
+    border: "1px solid #dc2626",
+    background: "#fef2f2",
+    color: "#991b1b",
+    padding: "10px 12px",
+    fontSize: "13px",
+    fontWeight: 700,
   },
   previewBanner: {
     background: "#fffbeb",
@@ -1147,6 +1658,28 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "center",
     zIndex: 9999,
     padding: "24px",
+  },
+  addAccountModal: {
+    width: "min(640px, 100%)",
+    background: "white",
+    borderRadius: "0px",
+    padding: "18px",
+    boxShadow: "0 24px 60px rgba(15, 23, 42, 0.25)",
+  },
+  addAccountGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1.5fr",
+    gap: "12px",
+    marginBottom: "14px",
+  },
+  addAccountNotice: {
+    borderLeft: "3px solid #0891b2",
+    background: "#ecfeff",
+    color: "#155e75",
+    padding: "9px 11px",
+    fontSize: "12px",
+    lineHeight: 1.4,
+    marginBottom: "16px",
   },
   modal: {
     width: "min(1050px, 100%)",

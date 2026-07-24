@@ -35,6 +35,39 @@ function toNumber(value: unknown) {
   return negative ? -Math.abs(parsed) : parsed;
 }
 
+
+type JournalPeriod =
+  | "current_year"
+  | "prior_year"
+  | "opening_balance";
+
+function normaliseJournalPeriod(value: unknown): JournalPeriod {
+  const period = clean(value);
+
+  if (period === "prior_year") return "prior_year";
+  if (period === "opening_balance") return "opening_balance";
+  return "current_year";
+}
+
+function priorFinancialYearEnd(value: unknown) {
+  const raw = clean(value);
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) {
+    throw new Error("The engagement financial year end is invalid.");
+  }
+
+  const year = Number(match[1]) - 1;
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(
+    2,
+    "0",
+  )}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+}
+
 function firstNumber(line: any, keys: string[]) {
   for (const key of keys) {
     const value = line?.[key];
@@ -161,6 +194,218 @@ async function updateLineByCode(
   throw lastError || new Error(`Failed to update account ${accountCode}.`);
 }
 
+
+async function getEngagementFinancialYearEnd(
+  supabase: any,
+  engagementId: string,
+) {
+  const { data, error } = await supabase
+    .from("afs_engagements")
+    .select("financial_year_end")
+    .eq("id", engagementId)
+    .single();
+
+  if (error) throw error;
+
+  if (!data?.financial_year_end) {
+    throw new Error("The engagement financial year end is missing.");
+  }
+
+  return String(data.financial_year_end);
+}
+
+async function updatePriorYearByCode(
+  supabase: any,
+  engagementId: string,
+  accountCode: string,
+  movement: number,
+) {
+  const { data: existingLines, error: selectError } = await supabase
+    .from("afs_trial_balance_lines")
+    .select("*")
+    .eq("engagement_id", engagementId)
+    .eq("account_code", accountCode)
+    .limit(1);
+
+  if (selectError) throw selectError;
+
+  const existing = existingLines?.[0];
+
+  if (!existing) {
+    throw new Error(
+      `Account ${accountCode} was not found in the trial balance lines.`,
+    );
+  }
+
+  const nextPrior =
+    firstNumber(existing, ["prior_year_balance", "credit"]) + movement;
+
+  const { data: updatedLines, error: updateError } = await supabase
+    .from("afs_trial_balance_lines")
+    .update({
+      prior_year_balance: nextPrior,
+      credit: nextPrior,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("engagement_id", engagementId)
+    .eq("account_code", accountCode)
+    .select("*");
+
+  if (updateError) throw updateError;
+
+  const financialYearEnd = await getEngagementFinancialYearEnd(
+    supabase,
+    engagementId,
+  );
+  const historyYearEnd = priorFinancialYearEnd(financialYearEnd);
+  const historyYear = historyYearEnd.slice(0, 4);
+
+  const { data: existingHistory, error: historySelectError } = await supabase
+    .from("afs_trial_balance_history")
+    .select("*")
+    .eq("engagement_id", engagementId)
+    .eq("account_code", accountCode)
+    .gte("financial_year_end", `${historyYear}-01-01`)
+    .lte("financial_year_end", `${historyYear}-12-31`)
+    .order("financial_year_end", { ascending: false })
+    .limit(1);
+
+  if (historySelectError) throw historySelectError;
+
+  const historyRow = existingHistory?.[0];
+
+  if (historyRow) {
+    const { error: historyUpdateError } = await supabase
+      .from("afs_trial_balance_history")
+      .update({
+        closing_balance:
+          firstNumber(historyRow, ["closing_balance"]) + movement,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", historyRow.id);
+
+    if (historyUpdateError) throw historyUpdateError;
+  } else {
+    const { error: historyInsertError } = await supabase
+      .from("afs_trial_balance_history")
+      .insert({
+        organisation_id: existing.organisation_id || null,
+        engagement_id: engagementId,
+        source_engagement_id: engagementId,
+        trial_balance_line_id: existing.id || null,
+        financial_year_end: historyYearEnd,
+        account_code: accountCode,
+        account_name: clean(existing.account_name),
+        closing_balance: nextPrior,
+        mapping_code: clean(existing.mapping_code) || null,
+        mapping_label: clean(existing.mapping_label) || null,
+        mapping_statement: clean(existing.mapping_statement) || null,
+        mapping_section: clean(existing.mapping_section) || null,
+        mapping_path: clean(existing.mapping_path) || null,
+        lead_schedule_number:
+          clean(existing.lead_schedule_number) || null,
+        lead_schedule_key: clean(existing.lead_schedule_key) || null,
+        updated_at: new Date().toISOString(),
+      });
+
+    if (historyInsertError) throw historyInsertError;
+  }
+
+  return updatedLines?.[0] || null;
+}
+
+async function updateOpeningBalanceByCode(
+  supabase: any,
+  engagementId: string,
+  accountCode: string,
+  movement: number,
+) {
+  const { data: existingLines, error: selectError } = await supabase
+    .from("afs_trial_balance_lines")
+    .select("*")
+    .eq("engagement_id", engagementId)
+    .eq("account_code", accountCode)
+    .limit(1);
+
+  if (selectError) throw selectError;
+
+  const existing = existingLines?.[0];
+
+  if (!existing) {
+    throw new Error(
+      `Account ${accountCode} was not found in the trial balance lines.`,
+    );
+  }
+
+  const existingOpening = firstNumber(existing, ["opening_balance"]);
+  const existingSource = firstNumber(existing, [
+    "source_balance",
+    "source_current_balance",
+    "imported_balance",
+    "current_year_balance",
+    "debit",
+  ]);
+  const existingFinal = firstNumber(existing, [
+    "final_balance",
+    "current_year_balance",
+  ]);
+
+  const nextOpening = existingOpening + movement;
+  const nextSource = existingSource + movement;
+  const nextFinal = existingFinal + movement;
+
+  const { data, error } = await supabase
+    .from("afs_trial_balance_lines")
+    .update({
+      opening_balance: nextOpening,
+      source_balance: nextSource,
+      final_balance: nextFinal,
+      current_year_balance: nextFinal,
+      debit: nextFinal,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("engagement_id", engagementId)
+    .eq("account_code", accountCode)
+    .select("*");
+
+  if (error) throw error;
+
+  return data?.[0] || null;
+}
+
+async function applyMovementByPeriod(
+  supabase: any,
+  engagementId: string,
+  accountCode: string,
+  movement: number,
+  journalPeriod: JournalPeriod,
+) {
+  if (journalPeriod === "prior_year") {
+    return updatePriorYearByCode(
+      supabase,
+      engagementId,
+      accountCode,
+      movement,
+    );
+  }
+
+  if (journalPeriod === "opening_balance") {
+    return updateOpeningBalanceByCode(
+      supabase,
+      engagementId,
+      accountCode,
+      movement,
+    );
+  }
+
+  return updateLineByCode(
+    supabase,
+    engagementId,
+    accountCode,
+    movement,
+  );
+}
+
 async function getNextJournalNumber(supabase: any, engagementId: string) {
   const { data, error } = await supabase
     .from("afs_adjusting_journals")
@@ -206,6 +451,7 @@ async function saveJournalHistory({
   engagementId,
   journalReference,
   description,
+  journalPeriod,
   rawLines,
   debitTotal,
   creditTotal,
@@ -216,6 +462,7 @@ async function saveJournalHistory({
   engagementId: string;
   journalReference: string;
   description: string;
+  journalPeriod: JournalPeriod;
   rawLines: any[];
   debitTotal: number;
   creditTotal: number;
@@ -235,6 +482,7 @@ async function saveJournalHistory({
     journal_number: journalNumber,
     journal_reference: finalJournalReference,
     description,
+    journal_period: journalPeriod,
     status: balanced ? "Balanced" : "Unbalanced",
     debit_total: debitTotal,
     credit_total: creditTotal,
@@ -336,6 +584,7 @@ async function reverseJournalMovements(
   supabase: any,
   engagementId: string,
   journalId: string,
+  journalPeriod: JournalPeriod,
 ) {
   const { data: journalLines, error: linesError } = await supabase
     .from("afs_adjusting_journal_lines")
@@ -364,11 +613,12 @@ async function reverseJournalMovements(
   for (const [accountCode, reverseMovement] of movements.entries()) {
     if (Math.abs(reverseMovement) < 0.005) continue;
 
-    const updated = await updateLineByCode(
+    const updated = await applyMovementByPeriod(
       supabase,
       engagementId,
       accountCode,
       reverseMovement,
+      journalPeriod,
     );
 
     if (updated) updatedLines.push(updated);
@@ -381,6 +631,7 @@ async function applyRawJournalMovements(
   supabase: any,
   engagementId: string,
   rawLines: any[],
+  journalPeriod: JournalPeriod,
 ) {
   const movements = new Map<string, number>();
 
@@ -400,11 +651,12 @@ async function applyRawJournalMovements(
   for (const [accountCode, movement] of movements.entries()) {
     if (Math.abs(movement) < 0.005) continue;
 
-    const updated = await updateLineByCode(
+    const updated = await applyMovementByPeriod(
       supabase,
       engagementId,
       accountCode,
       movement,
+      journalPeriod,
     );
 
     if (updated) updatedLines.push(updated);
@@ -441,6 +693,9 @@ export async function PUT(req: NextRequest, context: any) {
     const journalId = clean(body?.journalId ?? body?.id);
     const description = clean(body?.description);
     const journalReference = clean(body?.journal_reference ?? body?.journalReference);
+    const journalPeriod = normaliseJournalPeriod(
+      body?.journal_period ?? body?.journalPeriod,
+    );
     const rawLines = Array.isArray(body?.lines) ? body.lines : [];
 
     if (!journalId) {
@@ -501,16 +756,22 @@ export async function PUT(req: NextRequest, context: any) {
       throw new Error(`Journal reference ${finalJournalReference} already exists for this AFS file.`);
     }
 
+    const existingJournalPeriod = normaliseJournalPeriod(
+      existingJournal.journal_period,
+    );
+
     const reversedLines = await reverseJournalMovements(
       supabase,
       engagementId,
       journalId,
+      existingJournalPeriod,
     );
 
     const appliedLines = await applyRawJournalMovements(
       supabase,
       engagementId,
       rawLines,
+      journalPeriod,
     );
 
     const { data: journal, error: updateError } = await supabase
@@ -518,6 +779,7 @@ export async function PUT(req: NextRequest, context: any) {
       .update({
         journal_reference: finalJournalReference,
         description,
+        journal_period: journalPeriod,
         status: balanced ? "Balanced" : "Unbalanced",
         debit_total: debitTotal,
         credit_total: creditTotal,
@@ -620,11 +882,12 @@ export async function DELETE(req: NextRequest, context: any) {
     for (const [accountCode, reverseMovement] of movements.entries()) {
       if (Math.abs(reverseMovement) < 0.005) continue;
 
-      const updated = await updateLineByCode(
+      const updated = await applyMovementByPeriod(
         supabase,
         engagementId,
         accountCode,
         reverseMovement,
+        normaliseJournalPeriod(journal.journal_period),
       );
 
       if (updated) updatedLines.push(updated);
@@ -660,6 +923,9 @@ export async function POST(req: NextRequest, context: any) {
 
     const description = clean(body?.description);
     const journalReference = clean(body?.journal_reference ?? body?.journalReference);
+    const journalPeriod = normaliseJournalPeriod(
+      body?.journal_period ?? body?.journalPeriod,
+    );
 
     if (!description) {
       return NextResponse.json(
@@ -714,6 +980,7 @@ export async function POST(req: NextRequest, context: any) {
       engagementId,
       journalReference,
       description,
+      journalPeriod,
       rawLines,
       debitTotal,
       creditTotal,
@@ -726,11 +993,12 @@ export async function POST(req: NextRequest, context: any) {
     for (const [accountCode, movement] of movements.entries()) {
       if (Math.abs(movement) < 0.005) continue;
 
-      const updated = await updateLineByCode(
+      const updated = await applyMovementByPeriod(
         supabase,
         engagementId,
         accountCode,
         movement,
+        journalPeriod,
       );
 
       if (updated) updatedLines.push(updated);

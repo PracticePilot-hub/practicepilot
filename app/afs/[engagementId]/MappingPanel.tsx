@@ -1100,8 +1100,8 @@ function formatMoney(value: number) {
 const styles: Record<string, CSSProperties> = {
   wrapper: {
   background: "#ffffff",
-  border: "1px solid #dbe3ef",
-  borderRadius: "8px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "0px",
   padding: "8px",
   boxShadow: "none",
   position: "relative",
@@ -1143,8 +1143,8 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: "flex-end",
   },
   statBox: {
-    border: "1px solid #dbe3ef",
-    borderRadius: "7px",
+    border: "1px solid #cbd5e1",
+    borderRadius: "0px",
     background: "#f8fafc",
     padding: "5px 7px",
     display: "grid",
@@ -1154,7 +1154,7 @@ const styles: Record<string, CSSProperties> = {
   },
   actionBand: {
     border: "1px solid #bfdbfe",
-    borderRadius: "8px",
+    borderRadius: "0px",
     background: "#eff6ff",
     padding: "6px 8px",
     display: "flex",
@@ -1164,9 +1164,9 @@ const styles: Record<string, CSSProperties> = {
     marginBottom: "7px",
   },
   primaryButton: {
-    border: "0",
-    borderRadius: "7px",
-    background: "#2563eb",
+    border: "1px solid #0f172a",
+    borderRadius: "0px",
+    background: "#0f172a",
     color: "#ffffff",
     padding: "6px 9px",
     fontWeight: 850,
@@ -1186,8 +1186,8 @@ const styles: Record<string, CSSProperties> = {
     overflow: "hidden",
   },
   leftPane: {
-    border: "1px solid #dbe3ef",
-    borderRadius: "8px",
+    border: "1px solid #cbd5e1",
+    borderRadius: "0px",
     background: "#ffffff",
     overflow: "hidden",
     minHeight: 0,
@@ -1195,8 +1195,8 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateRows: "auto auto minmax(0, 1fr)",
   },
   rightPane: {
-    border: "1px solid #dbe3ef",
-    borderRadius: "8px",
+    border: "1px solid #cbd5e1",
+    borderRadius: "0px",
     background: "#ffffff",
     overflow: "hidden",
     minHeight: 0,
@@ -1224,7 +1224,7 @@ const styles: Record<string, CSSProperties> = {
   },
   select: {
     border: "1px solid #cbd5e1",
-    borderRadius: "6px",
+    borderRadius: "0px",
     padding: "4px 6px",
     background: "#ffffff",
     fontSize: "11px",
@@ -1236,7 +1236,7 @@ const styles: Record<string, CSSProperties> = {
   searchInput: {
     width: "100%",
     border: "1px solid #cbd5e1",
-    borderRadius: "7px",
+    borderRadius: "0px",
     padding: "6px 7px",
     fontSize: "11.5px",
     outline: "none",
@@ -1308,7 +1308,7 @@ const styles: Record<string, CSSProperties> = {
   },
   confidencePill: {
     display: "inline-block",
-    borderRadius: "999px",
+    borderRadius: "0px",
     padding: "2px 6px",
     fontWeight: 850,
     fontSize: "10px",
@@ -1349,7 +1349,7 @@ const styles: Record<string, CSSProperties> = {
   treeFolderButton: {
     width: "100%",
     border: "1px solid transparent",
-    borderRadius: "5px",
+    borderRadius: "0px",
     background: "transparent",
     color: "#0f172a",
     padding: "5px 6px",
@@ -1375,7 +1375,7 @@ const styles: Record<string, CSSProperties> = {
   treeLeaf: {
     width: "100%",
     border: "1px solid transparent",
-    borderRadius: "5px",
+    borderRadius: "0px",
     background: "transparent",
     color: "#334155",
     padding: "4px 6px",
@@ -1426,9 +1426,9 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "12px",
   },
   assignButton: {
-    border: "0",
-    borderRadius: "7px",
-    background: "#2563eb",
+    border: "1px solid #0f172a",
+    borderRadius: "0px",
+    background: "#0f172a",
     color: "#ffffff",
     padding: "8px 14px",
     fontWeight: 850,
@@ -1448,9 +1448,9 @@ headerRight: {
 },
 
 compactPrimaryButton: {
-  border: "0",
-  borderRadius: "7px",
-  background: "#2563eb",
+  border: "1px solid #0f172a",
+  borderRadius: "0px",
+  background: "#0f172a",
   color: "#ffffff",
   padding: "7px 9px",
   fontWeight: 850,

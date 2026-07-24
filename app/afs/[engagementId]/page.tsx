@@ -361,6 +361,9 @@ export default function AFSEngagementPage() {
 
   const [loading, setLoading] = useState(true);
 
+  const [savingFinalisation, setSavingFinalisation] = useState(false);
+const [reopenReason, setReopenReason] = useState("");
+
   const [subordinationSelections, setSubordinationSelections] = useState<
     Record<string, SubordinationSelection>
   >({});
@@ -420,6 +423,14 @@ export default function AFSEngagementPage() {
     key: string,
     patch: Partial<SubordinationSelection>
   ) {
+    if (
+      String(engagement?.status || "")
+        .trim()
+        .toLowerCase() === "final"
+    ) {
+      return;
+    }
+
     setSubordinationSelections((current) => ({
       ...current,
       [key]: {
@@ -431,6 +442,15 @@ export default function AFSEngagementPage() {
 
   async function saveSubordinationSelection(line: any, index: number) {
     if (!engagement?.id) return;
+
+    if (
+      String(engagement.status || "")
+        .trim()
+        .toLowerCase() === "final"
+    ) {
+      alert("This flight is Final and cannot be changed. Reopen it before making changes.");
+      return;
+    }
 
     const key = subordinationLineId(line, index);
     const current = subordinationSelections[key] || {};
@@ -579,6 +599,95 @@ export default function AFSEngagementPage() {
     setActiveLeadSubPage(subPage);
   }
 
+  async function signOffFlight() {
+  if (!engagement?.id) return;
+
+  const confirmed = confirm(
+    `Sign off the AFS flight for ${displayClientName}?\n\nThis will mark the engagement as Final.`
+  );
+
+  if (!confirmed) return;
+
+  setSavingFinalisation(true);
+
+  try {
+    const response = await fetch(
+      `/api/afs/engagements/${engagement.id}`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "sign-off",
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to sign off the flight.");
+    }
+
+    setEngagement(data.engagement);
+    alert("Flight signed off successfully.");
+  } catch (error: any) {
+    alert(error.message || "Failed to sign off the flight.");
+  } finally {
+    setSavingFinalisation(false);
+  }
+}
+
+async function reopenFlight() {
+  if (!engagement?.id) return;
+
+  const reason = reopenReason.trim();
+
+  if (!reason) {
+    alert("Please enter a reason for reopening the flight.");
+    return;
+  }
+
+  const confirmed = confirm(
+    `Reopen the signed-off AFS flight for ${displayClientName}?`
+  );
+
+  if (!confirmed) return;
+
+  setSavingFinalisation(true);
+
+  try {
+    const response = await fetch(
+      `/api/afs/engagements/${engagement.id}`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "reopen",
+          reason,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to reopen the flight.");
+    }
+
+    setEngagement(data.engagement);
+    setReopenReason("");
+    alert("Flight reopened successfully.");
+  } catch (error: any) {
+    alert(error.message || "Failed to reopen the flight.");
+  } finally {
+    setSavingFinalisation(false);
+  }
+}
+
   function handleClientSetupSaved(payload: {
     setup: any;
     engagement?: {
@@ -649,6 +758,25 @@ export default function AFSEngagementPage() {
   const displayYearEnd = engagement.financial_year_end;
   const isMappingMode = activeSection === "mapping";
 
+  const isFinalEngagement =
+    String(engagement.status || "")
+      .trim()
+      .toLowerCase() === "final";
+
+  const isLockedWorkingSection =
+    isFinalEngagement &&
+    activeSection !== "finalisation" &&
+    activeSection !== "export-print" &&
+    activeSection !== "review" &&
+    activeSection !== "financial-statements";
+
+  function blockLockedInteraction(event: any) {
+    if (!isLockedWorkingSection) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   const financialStatementQuickButtons = [
     { label: "Index", targetId: "afs-index" },
     { label: "Cover page", targetId: "afs-cover" },
@@ -707,6 +835,15 @@ export default function AFSEngagementPage() {
 
           <span style={styles.status}>{engagement.status || "Draft"}</span>
         </section>
+
+      {isFinalEngagement ? (
+        <div style={styles.finalLockBanner}>
+          <strong>Final flight — read only</strong>
+          <span>
+            This engagement is locked. Reopen the flight under Finalisation before making changes.
+          </span>
+        </div>
+      ) : null}
 
       {activeSection === "financial-statements" && (
         <div style={styles.financialQuickNavShell}>
@@ -899,7 +1036,18 @@ export default function AFSEngagementPage() {
           style={{
             ...styles.workArea,
             ...(isMappingMode ? styles.workAreaMapping : {}),
+            ...(isLockedWorkingSection ? styles.lockedWorkArea : {}),
           }}
+          aria-disabled={isLockedWorkingSection}
+          onClickCapture={blockLockedInteraction}
+          onDoubleClickCapture={blockLockedInteraction}
+          onPointerDownCapture={blockLockedInteraction}
+          onChangeCapture={blockLockedInteraction}
+          onInputCapture={blockLockedInteraction}
+          onSubmitCapture={blockLockedInteraction}
+          onKeyDownCapture={blockLockedInteraction}
+          onDragStartCapture={blockLockedInteraction}
+          onDropCapture={blockLockedInteraction}
         >
           {!isMappingMode && (
             <div style={styles.workHeader}>
@@ -907,6 +1055,15 @@ export default function AFSEngagementPage() {
               <p style={styles.subtitle}>{selectedSection?.description}</p>
             </div>
           )}
+
+          {isLockedWorkingSection ? (
+            <div style={styles.lockedSectionNotice}>
+              <strong>Read-only section</strong>
+              <span>
+                This flight has been signed off as Final. Reopen it under Finalisation to edit this section.
+              </span>
+            </div>
+          ) : null}
 
           {activeSection === "client-setup" && (
             <ClientSetupPanel
@@ -1021,11 +1178,73 @@ export default function AFSEngagementPage() {
           )}
 
           {activeSection === "finalisation" && (
-            <PlaceholderCard
-              title="Finalisation"
-              text="Final checks, sign-off, lock file and export history will be managed here."
-            />
-          )}
+  <section style={styles.finalisationPanel}>
+    <div style={styles.finalisationHeader}>
+      <div>
+        <h3 style={styles.finalisationTitle}>Flight Finalisation</h3>
+        <p style={styles.finalisationText}>
+          Complete the current AFS flight before launching the next financial year.
+        </p>
+      </div>
+
+      <span style={styles.finalisationStatus}>
+        {engagement.status || "Draft"}
+      </span>
+    </div>
+
+    {engagement.status === "Final" ? (
+      <div style={styles.finalisationSection}>
+        <strong style={styles.finalisationSectionTitle}>
+          Flight signed off
+        </strong>
+
+        <p style={styles.finalisationText}>
+          This engagement is marked as Final. It may be deliberately reopened
+          where corrections are required.
+        </p>
+
+        <label style={styles.finalisationLabel}>
+          Reason for reopening
+          <textarea
+            style={styles.finalisationTextarea}
+            value={reopenReason}
+            onChange={(event) => setReopenReason(event.target.value)}
+            placeholder="Explain why this completed flight must be reopened."
+          />
+        </label>
+
+        <button
+          type="button"
+          style={styles.reopenFlightButton}
+          onClick={reopenFlight}
+          disabled={savingFinalisation}
+        >
+          {savingFinalisation ? "Reopening..." : "Reopen Flight"}
+        </button>
+      </div>
+    ) : (
+      <div style={styles.finalisationSection}>
+        <strong style={styles.finalisationSectionTitle}>
+          Ready for sign-off
+        </strong>
+
+        <p style={styles.finalisationText}>
+          Signing off marks this engagement as Final and enables Next Flight.
+          The engagement can still be reopened later through a controlled action.
+        </p>
+
+        <button
+          type="button"
+          style={styles.signOffFlightButton}
+          onClick={signOffFlight}
+          disabled={savingFinalisation}
+        >
+          {savingFinalisation ? "Signing off..." : "Sign Off Flight"}
+        </button>
+      </div>
+    )}
+  </section>
+)}
         </section>
       </section>
     </main>
@@ -1276,11 +1495,24 @@ function finalTrialBalanceAmount(line: TrialBalanceLine) {
 function preliminaryTrialBalanceAmount(line: TrialBalanceLine) {
   const anyLine = line as any;
 
-  if (anyLine.current_year_balance !== undefined && anyLine.current_year_balance !== null) {
-    return safeNumber(anyLine.current_year_balance);
+  /*
+    The imported balance must come from the locked source/imported balance.
+    current_year_balance may already include opening or adjusted values after
+    rollover, which caused journals and manual adjustments to be counted twice.
+  */
+  if (anyLine.source_balance !== undefined && anyLine.source_balance !== null) {
+    return safeNumber(anyLine.source_balance);
   }
 
-  return safeNumber(line.debit) - safeNumber(line.credit);
+  if (anyLine.imported_balance !== undefined && anyLine.imported_balance !== null) {
+    return safeNumber(anyLine.imported_balance);
+  }
+
+  if (anyLine.opening_balance !== undefined && anyLine.opening_balance !== null) {
+    return safeNumber(anyLine.opening_balance);
+  }
+
+  return safeNumber(line.debit);
 }
 
 function manualAdjustmentAmount(line: TrialBalanceLine) {
@@ -2468,6 +2700,19 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     whiteSpace: "nowrap",
   },
+  finalLockBanner: {
+    border: "1px solid #f59e0b",
+    borderLeft: "4px solid #d97706",
+    background: "#fffbeb",
+    color: "#78350f",
+    padding: "8px 10px",
+    marginBottom: "8px",
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    fontSize: "11px",
+  },
+
   fileLayout: {
     display: "grid",
     gridTemplateColumns: "190px minmax(0, 1fr)",
@@ -2632,6 +2877,22 @@ const styles: Record<string, CSSProperties> = {
   workAreaMapping: {
     gap: "0px",
   },
+
+  lockedWorkArea: {
+    position: "relative",
+  },
+
+  lockedSectionNotice: {
+    border: "1px solid #f59e0b",
+    background: "#fff7ed",
+    color: "#9a3412",
+    padding: "8px 10px",
+    display: "grid",
+    gap: "3px",
+    fontSize: "11px",
+    lineHeight: 1.35,
+  },
+
   workHeader: {
     background: "#ffffff",
     border: "1px solid #dbe3ef",
@@ -2716,8 +2977,8 @@ const styles: Record<string, CSSProperties> = {
   },
   exportToolbar: {
     background: "#ffffff",
-    border: "1px solid #dbe3ef",
-    borderRadius: "8px",
+    border: "1px solid #cbd5e1",
+    borderRadius: "0px",
     padding: "10px",
     display: "flex",
     alignItems: "center",
@@ -2736,14 +2997,14 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "11px",
   },
   exportPrimaryButton: {
-    border: "1px solid #111827",
-    background: "#111827",
+    border: "1px solid #0f172a",
+    background: "#0f172a",
     color: "#ffffff",
-    padding: "7px 12px",
+    padding: "9px 13px",
     fontSize: "12px",
     fontWeight: 850,
     cursor: "pointer",
-    borderRadius: "6px",
+    borderRadius: "0px",
     whiteSpace: "nowrap",
   },
   exportToolbarActions: {
@@ -2752,19 +3013,21 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
   },
   exportSecondaryButton: {
-    border: "1px solid #cbd5e1",
+    border: "1px solid #94a3b8",
     background: "#ffffff",
     color: "#0f172a",
     padding: "9px 13px",
-    fontSize: "13px",
+    fontSize: "12px",
     fontWeight: 900,
     cursor: "pointer",
+    borderRadius: "0px",
   },
   exportDisabledButton: {
     background: "#e5e7eb",
-    borderColor: "#d1d5db",
+    border: "1px solid #d1d5db",
     color: "#9ca3af",
     cursor: "not-allowed",
+    borderRadius: "0px",
   },
   exportJournalList: {
     display: "grid",
@@ -2803,9 +3066,9 @@ const styles: Record<string, CSSProperties> = {
     gap: "8px",
   },
   exportDocumentButton: {
-    border: "1px solid #dbe3ef",
+    border: "1px solid #cbd5e1",
     background: "#ffffff",
-    borderRadius: "8px",
+    borderRadius: "0px",
     padding: "9px",
     textAlign: "left",
     cursor: "pointer",
@@ -2814,16 +3077,17 @@ const styles: Record<string, CSSProperties> = {
     color: "#0f172a",
   },
   exportDocumentButtonActive: {
-    borderColor: "#1464b3",
-    background: "#eff6ff",
+    borderColor: "#0f172a",
+    background: "#f8fafc",
+    boxShadow: "inset 3px 0 0 #0f172a",
   },
   exportPreviewPage: {
     width: "100%",
     maxWidth: "1180px",
     minHeight: "auto",
     background: "#ffffff",
-    border: "1px solid #dbe3ef",
-    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
+    border: "1px solid #cbd5e1",
+    boxShadow: "none",
     padding: "28px 36px",
     boxSizing: "border-box",
     color: "#0f172a",
@@ -2932,6 +3196,101 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "12px",
     margin: "0",
   },
+
+finalisationPanel: {
+  background: "#ffffff",
+  border: "1px solid #dbe3ef",
+  padding: "14px",
+  display: "grid",
+  gap: "14px",
+},
+
+finalisationHeader: {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "12px",
+  borderBottom: "1px solid #dbe3ef",
+  paddingBottom: "10px",
+},
+
+finalisationTitle: {
+  margin: 0,
+  fontSize: "16px",
+  fontWeight: 900,
+  color: "#0f172a",
+},
+
+finalisationText: {
+  margin: "5px 0 0",
+  color: "#475569",
+  fontSize: "12px",
+  lineHeight: 1.4,
+},
+
+finalisationStatus: {
+  border: "1px solid #bfdbfe",
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  padding: "5px 9px",
+  fontSize: "11px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+},
+
+finalisationSection: {
+  display: "grid",
+  gap: "10px",
+  maxWidth: "720px",
+},
+
+finalisationSectionTitle: {
+  color: "#0f172a",
+  fontSize: "13px",
+  fontWeight: 900,
+},
+
+finalisationLabel: {
+  display: "grid",
+  gap: "6px",
+  color: "#334155",
+  fontSize: "12px",
+  fontWeight: 900,
+},
+
+finalisationTextarea: {
+  width: "100%",
+  minHeight: "90px",
+  border: "1px solid #cbd5e1",
+  padding: "9px",
+  fontSize: "12px",
+  color: "#0f172a",
+  resize: "vertical",
+  boxSizing: "border-box",
+  borderRadius: 0,
+},
+
+signOffFlightButton: {
+  width: "fit-content",
+  border: "1px solid #166534",
+  background: "#166534",
+  color: "#ffffff",
+  padding: "8px 14px",
+  fontSize: "12px",
+  fontWeight: 900,
+  cursor: "pointer",
+},
+
+reopenFlightButton: {
+  width: "fit-content",
+  border: "1px solid #b45309",
+  background: "#fff7ed",
+  color: "#9a3412",
+  padding: "8px 14px",
+  fontSize: "12px",
+  fontWeight: 900,
+  cursor: "pointer",
+},
 
   secondaryButton: {
     border: "1px solid #d1d5db",

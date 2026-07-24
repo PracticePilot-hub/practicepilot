@@ -18,11 +18,17 @@ type JournalLine = {
   note: string;
 };
 
+type JournalPeriod =
+  | "current_year"
+  | "prior_year"
+  | "opening_balance";
+
 type PostedJournal = {
   id: string;
   number: number;
   reference: string;
   description: string;
+  journalPeriod: JournalPeriod;
   status: "Balanced" | "Unbalanced";
   lines: JournalLine[];
   debitTotal: number;
@@ -98,6 +104,14 @@ function mapDatabaseJournal(rawJournal: any): PostedJournal {
       clean(rawJournal?.journal_reference ?? rawJournal?.journalReference) ||
       `AJ${String(Number(rawJournal?.journal_number ?? rawJournal?.number ?? 0) || 0).padStart(3, "0")}`,
     description: clean(rawJournal?.description),
+    journalPeriod:
+      clean(rawJournal?.journal_period ?? rawJournal?.journalPeriod) ===
+      "prior_year"
+        ? "prior_year"
+        : clean(rawJournal?.journal_period ?? rawJournal?.journalPeriod) ===
+            "opening_balance"
+          ? "opening_balance"
+          : "current_year",
     status:
       clean(rawJournal?.status).toLowerCase() === "unbalanced"
         ? "Unbalanced"
@@ -139,6 +153,8 @@ export default function AdjustingJournalsPanel({
 }) {
   const [journalReference, setJournalReference] = useState("");
   const [editingJournalId, setEditingJournalId] = useState<string | null>(null);
+  const [journalPeriod, setJournalPeriod] =
+    useState<JournalPeriod>("current_year");
   const [description, setDescription] = useState("");
   const [lines, setLines] = useState<JournalLine[]>([emptyLine(), emptyLine()]);
   const [posted, setPosted] = useState<PostedJournal[]>([]);
@@ -404,6 +420,7 @@ export default function AdjustingJournalsPanel({
   function clearDraft() {
     setEditingJournalId(null);
     setJournalReference("");
+    setJournalPeriod("current_year");
     setDescription("");
     setLines([emptyLine(), emptyLine()]);
   }
@@ -411,6 +428,7 @@ export default function AdjustingJournalsPanel({
   function startEditJournal(journal: PostedJournal) {
     setEditingJournalId(journal.id);
     setJournalReference(journal.reference || "");
+    setJournalPeriod(journal.journalPeriod || "current_year");
     setDescription(journal.description);
 
     setLines(
@@ -530,6 +548,7 @@ export default function AdjustingJournalsPanel({
           body: JSON.stringify({
             journalId: editingJournalId,
             journal_reference: clean(journalReference),
+            journal_period: journalPeriod,
             description: clean(description),
             lines: resolvedLines.map((line) => ({
               account_code: line.accountCode,
@@ -557,6 +576,7 @@ export default function AdjustingJournalsPanel({
             number: posted.length + 1,
             reference: clean(journalReference) || `AJ${String(posted.length + 1).padStart(3, "0")}`,
             description: clean(description),
+            journalPeriod,
             status: balancedNext ? "Balanced" : "Unbalanced",
             lines: resolvedLines.map((line) => ({
               id: line.id,
@@ -612,6 +632,25 @@ export default function AdjustingJournalsPanel({
             placeholder="Journal reference"
             style={styles.input}
           />
+
+          <label style={styles.label}>Journal period</label>
+          <select
+            value={journalPeriod}
+            onChange={(event) =>
+              setJournalPeriod(event.target.value as JournalPeriod)
+            }
+            style={styles.input}
+          >
+            <option value="current_year">Current year</option>
+            <option value="prior_year">Prior-year comparative</option>
+            <option value="opening_balance">Opening balance adjustment</option>
+          </select>
+
+          <p style={styles.periodHelp}>
+            Current-year journals affect the active TB. Prior-year journals
+            adjust the comparative year. Opening balance journals correct the
+            brought-forward opening position.
+          </p>
 
           <label style={styles.label}>Description</label>
           <input
@@ -701,8 +740,29 @@ export default function AdjustingJournalsPanel({
               {posted.map((journal) => (
                 <article key={journal.id} style={styles.postedCard}>
                   <div style={styles.postedHeader}>
-                    <strong>{journal.reference || `AJ${String(journal.number).padStart(3, "0")}`} · {journal.description}</strong>
-                    <span style={journal.status === "Balanced" ? styles.statusOk : styles.statusBad}>{journal.status}</span>
+                    <div>
+                      <strong>
+                        {journal.reference ||
+                          `AJ${String(journal.number).padStart(3, "0")}`}{" "}
+                        · {journal.description}
+                      </strong>
+                      <div style={styles.periodBadge}>
+                        {journal.journalPeriod === "prior_year"
+                          ? "Prior-year comparative"
+                          : journal.journalPeriod === "opening_balance"
+                            ? "Opening balance adjustment"
+                            : "Current year"}
+                      </div>
+                    </div>
+                    <span
+                      style={
+                        journal.status === "Balanced"
+                          ? styles.statusOk
+                          : styles.statusBad
+                      }
+                    >
+                      {journal.status}
+                    </span>
                   </div>
                   <table style={styles.postedTable}>
                     <tbody>
@@ -831,6 +891,8 @@ const styles: Record<string, CSSProperties> = {
   eyebrow: { color: "#2563eb", fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.12em" },
   title: { margin: "2px 0", fontSize: "20px", fontWeight: 900 },
   muted: { margin: 0, color: "#475569", fontSize: "14px", lineHeight: 1.35 },
+  periodHelp: { margin: "5px 0 10px", color: "#64748b", fontSize: "12px", lineHeight: 1.35 },
+  periodBadge: { marginTop: "4px", display: "inline-block", border: "1px solid #cbd5e1", background: "#ffffff", color: "#334155", padding: "2px 6px", fontSize: "11px", fontWeight: 800 },
   errorText: { margin: "0 0 10px", color: "#b91c1c", fontSize: "13px", fontWeight: 800 },
   grid: { display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(360px, 0.9fr)", gap: "10px" },
   panel: { border: "1px solid #cbd5e1", background: "#fff", padding: "12px" },
@@ -849,7 +911,7 @@ const styles: Record<string, CSSProperties> = {
   td: { padding: "6px 4px", borderBottom: "1px solid #eef2f7", verticalAlign: "top" },
   tdAction: { padding: "6px 4px", borderBottom: "1px solid #eef2f7", textAlign: "right" },
   actionsRow: { display: "flex", justifyContent: "flex-end", gap: "7px", marginTop: "10px" },
-  primaryButton: { border: "1px solid #2563eb", background: "#2563eb", color: "#fff", padding: "8px 12px", fontSize: "13px", fontWeight: 900, cursor: "pointer" },
+  primaryButton: { border: "1px solid #0f172a", background: "#0f172a", color: "#fff", padding: "8px 12px", fontSize: "13px", fontWeight: 900, cursor: "pointer" },
   primaryButtonDisabled: { border: "1px solid #93c5fd", background: "#93c5fd", color: "#fff", padding: "8px 12px", fontSize: "13px", fontWeight: 900, cursor: "not-allowed" },
   secondaryButton: { border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", padding: "8px 12px", fontSize: "13px", fontWeight: 850, cursor: "pointer" },
   secondaryButtonSmall: { border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", padding: "5px 8px", fontSize: "12px", fontWeight: 850, cursor: "pointer" },

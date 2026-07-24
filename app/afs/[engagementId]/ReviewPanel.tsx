@@ -126,25 +126,159 @@ export default function ReviewPanel() {
 }
 
 const styles: Record<string, CSSProperties> = {
-  wrapper: { display: "grid", gap: "8px", fontSize: "12px", color: "#0f172a" },
-  headerRow: { display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid #dbe3ef", borderRadius: "8px", background: "#ffffff", padding: "10px" },
-  kicker: { margin: 0, color: "#2563eb", fontSize: "10px", fontWeight: 900, letterSpacing: "0.1em" },
-  title: { margin: "2px 0", fontSize: "16px", lineHeight: 1.1 },
-  subtitle: { margin: 0, color: "#334155", fontSize: "11.5px" },
-  gridTwo: { display: "grid", gridTemplateColumns: "minmax(0, 0.8fr) minmax(0, 1.2fr)", gap: "8px" },
-  panel: { border: "1px solid #dbe3ef", borderRadius: "8px", background: "#ffffff", overflow: "hidden" },
-  panelHeader: { padding: "8px 10px", borderBottom: "1px solid #e2e8f0", background: "#f8fafc", fontWeight: 900 },
-  formGrid: { display: "grid", gridTemplateColumns: "90px minmax(0, 1fr)", gap: "7px", padding: "10px" },
-  label: { fontSize: "11px", color: "#334155", fontWeight: 800, alignSelf: "center" },
-  input: { border: "1px solid #cbd5e1", borderRadius: "6px", padding: "6px 8px", fontSize: "12px" },
-  textarea: { border: "1px solid #cbd5e1", borderRadius: "6px", padding: "6px 8px", fontSize: "12px", minHeight: "70px", resize: "vertical" },
-  buttonRow: { display: "flex", justifyContent: "flex-end", padding: "0 10px 10px" },
-  primaryButton: { border: "0", borderRadius: "7px", background: "#2563eb", color: "#fff", padding: "7px 10px", fontSize: "11.5px", fontWeight: 900, cursor: "pointer" },
-  secondaryButton: { border: "1px solid #cbd5e1", borderRadius: "7px", background: "#fff", color: "#0f172a", padding: "7px 10px", fontSize: "11.5px", fontWeight: 850, cursor: "pointer" },
-  table: { width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: "11.5px" },
-  th: { textAlign: "left", padding: "7px 9px", borderBottom: "1px solid #e2e8f0", color: "#334155" },
-  td: { padding: "7px 9px", borderBottom: "1px solid #edf2f7", overflow: "hidden", textOverflow: "ellipsis" },
-  tdCode: { padding: "7px 9px", borderBottom: "1px solid #edf2f7", fontWeight: 900 },
-  emptyCell: { padding: "10px", color: "#64748b" },
-  message: { border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1d4ed8", borderRadius: "8px", padding: "8px 10px", fontWeight: 800 },
+  wrapper: {
+    display: "grid",
+    gap: "8px",
+    fontSize: "12px",
+    color: "#0f172a",
+  },
+
+  headerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    border: "1px solid #cbd5e1",
+    borderRadius: "0px",
+    background: "#ffffff",
+    padding: "10px",
+  },
+
+  kicker: {
+    margin: 0,
+    color: "#2563eb",
+    fontSize: "10px",
+    fontWeight: 900,
+    letterSpacing: "0.1em",
+  },
+
+  title: {
+    margin: "2px 0",
+    fontSize: "16px",
+    lineHeight: 1.1,
+  },
+
+  subtitle: {
+    margin: 0,
+    color: "#334155",
+    fontSize: "11.5px",
+  },
+
+  gridTwo: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 0.8fr) minmax(0, 1.2fr)",
+    gap: "8px",
+  },
+
+  panel: {
+    border: "1px solid #cbd5e1",
+    borderRadius: "0px",
+    background: "#ffffff",
+    overflow: "hidden",
+  },
+
+  panelHeader: {
+    padding: "8px 10px",
+    borderBottom: "1px solid #e2e8f0",
+    background: "#f8fafc",
+    fontWeight: 900,
+  },
+
+  formGrid: {
+    display: "grid",
+    gridTemplateColumns: "90px minmax(0, 1fr)",
+    gap: "7px",
+    padding: "10px",
+  },
+
+  label: {
+    fontSize: "11px",
+    color: "#334155",
+    fontWeight: 800,
+    alignSelf: "center",
+  },
+
+  input: {
+    border: "1px solid #cbd5e1",
+    borderRadius: "0px",
+    padding: "6px 8px",
+    fontSize: "12px",
+  },
+
+  textarea: {
+    border: "1px solid #cbd5e1",
+    borderRadius: "0px",
+    padding: "6px 8px",
+    fontSize: "12px",
+    minHeight: "70px",
+    resize: "vertical",
+  },
+
+  buttonRow: {
+    display: "flex",
+    justifyContent: "flex-end",
+    padding: "0 10px 10px",
+  },
+
+  primaryButton: {
+    border: "1px solid #0f172a",
+    borderRadius: "0px",
+    background: "#0f172a",
+    color: "#ffffff",
+    padding: "7px 10px",
+    fontSize: "11.5px",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+
+  secondaryButton: {
+    border: "1px solid #94a3b8",
+    borderRadius: "0px",
+    background: "#ffffff",
+    color: "#0f172a",
+    padding: "7px 10px",
+    fontSize: "11.5px",
+    fontWeight: 850,
+    cursor: "pointer",
+  },
+
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    tableLayout: "fixed",
+    fontSize: "11.5px",
+  },
+
+  th: {
+    textAlign: "left",
+    padding: "7px 9px",
+    borderBottom: "1px solid #e2e8f0",
+    color: "#334155",
+  },
+
+  td: {
+    padding: "7px 9px",
+    borderBottom: "1px solid #edf2f7",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+
+  tdCode: {
+    padding: "7px 9px",
+    borderBottom: "1px solid #edf2f7",
+    fontWeight: 900,
+  },
+
+  emptyCell: {
+    padding: "10px",
+    color: "#64748b",
+  },
+
+  message: {
+    border: "1px solid #bfdbfe",
+    background: "#eff6ff",
+    color: "#1d4ed8",
+    borderRadius: "0px",
+    padding: "8px 10px",
+    fontWeight: 800,
+  },
 };

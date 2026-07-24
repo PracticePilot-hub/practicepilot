@@ -470,17 +470,17 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 10.5,
   },
   issueCritical: {
-    borderColor: "#fca5a5",
-    background: "#fff1f2",
-  },
-  issueCaution: {
-    borderColor: "#fcd34d",
-    background: "#fffbeb",
-  },
-  issueInfo: {
-    borderColor: "#bfdbfe",
-    background: "#eff6ff",
-  },
+  border: "1px solid #fca5a5",
+  background: "#fff1f2",
+},
+issueCaution: {
+  border: "1px solid #fcd34d",
+  background: "#fffbeb",
+},
+issueInfo: {
+  border: "1px solid #bfdbfe",
+  background: "#eff6ff",
+},
   issueTopLine: {
     display: "flex",
     justifyContent: "space-between",

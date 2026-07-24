@@ -38,6 +38,10 @@ type Organisation = {
   access_enabled: boolean | null;
 };
 
+type NextFlightFileType =
+  | "Annual Financial Statements"
+  | "Management Accounts";
+
 type UserProfile = {
   id: string;
   user_id: string;
@@ -69,6 +73,26 @@ function normaliseStatus(status: string | null | undefined) {
   return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
 }
 
+function calculateDefaultNextPeriodEnd(financialYearEnd: string) {
+  const match = String(financialYearEnd || "").match(
+    /^(\d{4})-(\d{2})-(\d{2})$/,
+  );
+
+  if (!match) return "";
+
+  const year = Number(match[1]) + 1;
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const lastDayOfMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const safeDay = Math.min(day, lastDayOfMonth);
+
+  return [
+    String(year).padStart(4, "0"),
+    String(month).padStart(2, "0"),
+    String(safeDay).padStart(2, "0"),
+  ].join("-");
+}
+
 export default function AFSPage() {
   const router = useRouter();
 
@@ -79,6 +103,19 @@ export default function AFSPage() {
   const [selectedOrganisationId, setSelectedOrganisationId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const [rollingOverEngagementId, setRollingOverEngagementId] = useState<
+    string | null
+  >(null);
+
+  const [rolloverMessage, setRolloverMessage] = useState("");
+  const [nextFlightEngagement, setNextFlightEngagement] =
+    useState<AFSEngagement | null>(null);
+  const [nextFlightPeriodEnd, setNextFlightPeriodEnd] = useState("");
+  const [nextFlightRefreshReason, setNextFlightRefreshReason] = useState("");
+
+  const [nextFlightFileType, setNextFlightFileType] =
+    useState<NextFlightFileType>("Annual Financial Statements");
 
   const [clientName, setClientName] = useState("");
   const [entityType, setEntityType] = useState("Company");
@@ -94,8 +131,27 @@ export default function AFSPage() {
   const internalUser = isInternalRole(profile?.role || "");
 
   const selectedOrganisation = useMemo(() => {
-    return organisations.find((organisation) => organisation.id === selectedOrganisationId) || null;
+    return (
+      organisations.find(
+        (organisation) => organisation.id === selectedOrganisationId,
+      ) || null
+    );
   }, [organisations, selectedOrganisationId]);
+
+  const existingNextFlightEngagement = useMemo(() => {
+    if (!nextFlightEngagement || !nextFlightPeriodEnd) return null;
+
+    return (
+      engagements.find(
+        (engagement) =>
+          engagement.id !== nextFlightEngagement.id &&
+          engagement.organisation_id ===
+            nextFlightEngagement.organisation_id &&
+          engagement.client_name === nextFlightEngagement.client_name &&
+          engagement.financial_year_end === nextFlightPeriodEnd,
+      ) || null
+    );
+  }, [engagements, nextFlightEngagement, nextFlightPeriodEnd]);
 
   const visibleEngagements = useMemo(() => {
     let rows = [...engagements];
@@ -104,10 +160,16 @@ export default function AFSPage() {
       if (internalUser) {
         if (!selectedOrganisationId) rows = [];
         else if (selectedOrganisationId !== "all") {
-          rows = rows.filter((engagement) => engagement.organisation_id === selectedOrganisationId);
+          rows = rows.filter(
+            (engagement) =>
+              engagement.organisation_id === selectedOrganisationId,
+          );
         }
       } else {
-        rows = rows.filter((engagement) => engagement.organisation_id === profile.organisation_id);
+        rows = rows.filter(
+          (engagement) =>
+            engagement.organisation_id === profile.organisation_id,
+        );
       }
     }
 
@@ -116,39 +178,77 @@ export default function AFSPage() {
     if (search) {
       rows = rows.filter((engagement) => {
         const firmClient = engagement.firm_client_name || "";
+
         return (
           engagement.client_name.toLowerCase().includes(search) ||
-          String(engagement.entity_type || "").toLowerCase().includes(search) ||
-          String(engagement.financial_year_end || "").toLowerCase().includes(search) ||
+          String(engagement.entity_type || "")
+            .toLowerCase()
+            .includes(search) ||
+          String(engagement.financial_year_end || "")
+            .toLowerCase()
+            .includes(search) ||
           firmClient.toLowerCase().includes(search)
         );
       });
     }
 
     if (statusFilter !== "All") {
-      rows = rows.filter((engagement) => normaliseStatus(engagement.status) === statusFilter);
+      rows = rows.filter(
+        (engagement) =>
+          normaliseStatus(engagement.status) === statusFilter,
+      );
     }
 
     rows.sort((a, b) => {
-      if (sortBy === "Entity A-Z") return a.client_name.localeCompare(b.client_name);
-      if (sortBy === "Entity Z-A") return b.client_name.localeCompare(a.client_name);
+      if (sortBy === "Entity A-Z") {
+        return a.client_name.localeCompare(b.client_name);
+      }
+
+      if (sortBy === "Entity Z-A") {
+        return b.client_name.localeCompare(a.client_name);
+      }
+
       if (sortBy === "Year end newest") {
-        return new Date(b.financial_year_end).getTime() - new Date(a.financial_year_end).getTime();
+        return (
+          new Date(b.financial_year_end).getTime() -
+          new Date(a.financial_year_end).getTime()
+        );
       }
+
       if (sortBy === "Year end oldest") {
-        return new Date(a.financial_year_end).getTime() - new Date(b.financial_year_end).getTime();
+        return (
+          new Date(a.financial_year_end).getTime() -
+          new Date(b.financial_year_end).getTime()
+        );
       }
+
       if (sortBy === "Newest created") {
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        return (
+          new Date(b.created_at).getTime() -
+          new Date(a.created_at).getTime()
+        );
       }
+
       if (sortBy === "Oldest created") {
-        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        return (
+          new Date(a.created_at).getTime() -
+          new Date(b.created_at).getTime()
+        );
       }
+
       return 0;
     });
 
     return rows;
-  }, [engagements, selectedOrganisationId, profile, internalUser, searchText, statusFilter, sortBy]);
+  }, [
+    engagements,
+    selectedOrganisationId,
+    profile,
+    internalUser,
+    searchText,
+    statusFilter,
+    sortBy,
+  ]);
 
   async function loadPage() {
     setLoading(true);
@@ -186,34 +286,49 @@ export default function AFSPage() {
 
       const internal = isInternalRole(profileData.role || "");
 
-      const organisationsResponse = await fetch("/api/organisations", { cache: "no-store" });
+      const organisationsResponse = await fetch("/api/organisations", {
+        cache: "no-store",
+      });
+
       const organisationsData = await organisationsResponse.json();
 
       if (!organisationsResponse.ok) {
-        throw new Error(organisationsData.error || "Could not load firms/clients.");
+        throw new Error(
+          organisationsData.error || "Could not load firms/clients.",
+        );
       }
 
-      const loadedOrganisations: Organisation[] = organisationsData.organisations || [];
+      const loadedOrganisations: Organisation[] =
+        organisationsData.organisations || [];
+
       setOrganisations(loadedOrganisations);
 
-      const engagementsResponse = await fetch("/api/afs/engagements", { cache: "no-store" });
+      const engagementsResponse = await fetch("/api/afs/engagements", {
+        cache: "no-store",
+      });
+
       const engagementsData = await engagementsResponse.json();
 
       if (!engagementsResponse.ok) {
-        throw new Error(engagementsData.error || "Could not load AFS engagements.");
+        throw new Error(
+          engagementsData.error || "Could not load AFS engagements.",
+        );
       }
 
       setEngagements(engagementsData.engagements || []);
 
       if (internal) {
         const bizzacc = loadedOrganisations.find((organisation) =>
-          organisation.name.toLowerCase().includes("bizzacc menlyn")
+          organisation.name.toLowerCase().includes("bizzacc menlyn"),
         );
-        setSelectedOrganisationId(bizzacc?.id || loadedOrganisations[0]?.id || "");
+
+        setSelectedOrganisationId(
+          bizzacc?.id || loadedOrganisations[0]?.id || "",
+        );
       } else {
         setSelectedOrganisationId(profileData.organisation_id || "");
       }
-       } catch (error: any) {
+    } catch (error: any) {
       alert(error.message || "Failed to load AFS engagements.");
     } finally {
       setLoading(false);
@@ -224,7 +339,9 @@ export default function AFSPage() {
     void loadPage();
   }, []);
 
-  async function createEngagement(e: React.FormEvent<HTMLFormElement>) {
+  async function createEngagement(
+    e: React.FormEvent<HTMLFormElement>,
+  ) {
     e.preventDefault();
 
     if (!selectedOrganisationId || selectedOrganisationId === "all") {
@@ -245,7 +362,11 @@ export default function AFSPage() {
     setSaving(true);
 
     try {
-      const firmClient = organisations.find((organisation) => organisation.id === selectedOrganisationId) || null;
+      const firmClient =
+        organisations.find(
+          (organisation) =>
+            organisation.id === selectedOrganisationId,
+        ) || null;
 
       const res = await fetch("/api/afs/engagements", {
         method: "POST",
@@ -267,7 +388,9 @@ export default function AFSPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Failed to create AFS engagement.");
+        throw new Error(
+          data.error || "Failed to create AFS engagement.",
+        );
       }
 
       setClientName("");
@@ -285,6 +408,109 @@ export default function AFSPage() {
     }
   }
 
+  function launchNextFlight(engagement: AFSEngagement) {
+    setNextFlightEngagement(engagement);
+    setNextFlightPeriodEnd(
+      calculateDefaultNextPeriodEnd(engagement.financial_year_end),
+    );
+    setNextFlightFileType("Annual Financial Statements");
+    setNextFlightRefreshReason("");
+    setRolloverMessage("");
+  }
+
+  function closeNextFlightPanel() {
+    if (rollingOverEngagementId) return;
+
+    setNextFlightEngagement(null);
+    setNextFlightPeriodEnd("");
+    setNextFlightFileType("Annual Financial Statements");
+    setNextFlightRefreshReason("");
+    setRolloverMessage("");
+  }
+
+  async function createNextFlight() {
+    if (!nextFlightEngagement) return;
+
+    if (!nextFlightPeriodEnd) {
+      alert("Please choose the target period end.");
+      return;
+    }
+
+    if (
+      existingNextFlightEngagement &&
+      !nextFlightRefreshReason.trim()
+    ) {
+      alert(
+        "Please enter a reason for refreshing the existing Next Flight.",
+      );
+      return;
+    }
+
+    setRollingOverEngagementId(nextFlightEngagement.id);
+
+    setRolloverMessage(
+      existingNextFlightEngagement
+        ? "Refreshing existing file..."
+        : "Creating file...",
+    );
+
+    try {
+      const response = await fetch(
+        `/api/afs/engagements/${nextFlightEngagement.id}/rollover`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            financialYearEnd: nextFlightPeriodEnd,
+            fileType: nextFlightFileType,
+            refreshReason: nextFlightRefreshReason.trim() || null,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data.existingEngagementId) {
+          setRolloverMessage(
+            "A file already exists for this exact period end.",
+          );
+
+          const openExisting = confirm(
+            `${data.error}\n\nOpen the existing engagement?`,
+          );
+
+          if (openExisting) {
+            router.push(`/afs/${data.existingEngagementId}`);
+          }
+
+          return;
+        }
+
+        throw new Error(
+          data.error || "Next Flight rollover failed.",
+        );
+      }
+
+      setRolloverMessage(
+        data.refreshed
+          ? "Existing file refreshed successfully."
+          : "File created successfully.",
+      );
+
+      setTimeout(() => {
+        router.push(`/afs/${data.engagement.id}`);
+      }, 850);
+    } catch (error: any) {
+      setRolloverMessage("");
+      alert(error.message || "Next Flight rollover failed.");
+    } finally {
+      setRollingOverEngagementId(null);
+    }
+  }
+
   function clearFilters() {
     setSearchText("");
     setStatusFilter("All");
@@ -294,7 +520,9 @@ export default function AFSPage() {
   if (loading) {
     return (
       <main style={styles.page}>
-        <div style={styles.emptyState}>Loading AFS engagements...</div>
+        <div style={styles.emptyState}>
+          Loading AFS engagements...
+        </div>
       </main>
     );
   }
@@ -308,7 +536,8 @@ export default function AFSPage() {
         </div>
 
         <p style={styles.heroText}>
-          Create and manage AFS engagements, trial balances, lead schedules, statements and final file packs.
+          Create and manage AFS engagements, trial balances, lead
+          schedules, statements and final file packs.
         </p>
       </section>
 
@@ -318,6 +547,7 @@ export default function AFSPage() {
 
           <div style={styles.fieldGroup}>
             <label style={styles.label}>Working firm / client</label>
+
             {internalUser ? (
               <select
                 style={styles.input}
@@ -329,16 +559,24 @@ export default function AFSPage() {
               >
                 <option value="">Choose firm/client</option>
                 <option value="all">All firms / clients</option>
+
                 {organisations.map((organisation) => (
-                  <option key={organisation.id} value={organisation.id}>
+                  <option
+                    key={organisation.id}
+                    value={organisation.id}
+                  >
                     {organisation.name}
-                    {organisation.access_enabled === false ? " - Suspended" : ""}
+                    {organisation.access_enabled === false
+                      ? " - Suspended"
+                      : ""}
                   </option>
                 ))}
               </select>
             ) : (
               <div style={styles.lockedClientBox}>
-                {selectedOrganisation?.name || profile?.organisation_id || "Client"}
+                {selectedOrganisation?.name ||
+                  profile?.organisation_id ||
+                  "Client"}
               </div>
             )}
           </div>
@@ -354,7 +592,9 @@ export default function AFSPage() {
                 <strong>{selectedOrganisation.name}</strong>
                 <span>
                   {selectedOrganisation.status || "Active"} ·{" "}
-                  {selectedOrganisation.access_enabled === false ? "Access blocked" : "Access enabled"}
+                  {selectedOrganisation.access_enabled === false
+                    ? "Access blocked"
+                    : "Access enabled"}
                 </span>
               </>
             ) : (
@@ -386,11 +626,17 @@ export default function AFSPage() {
                 onChange={(e) => setEntityType(e.target.value)}
               >
                 <option value="Company">Company</option>
-                <option value="Close Corporation">Close Corporation</option>
+                <option value="Close Corporation">
+                  Close Corporation
+                </option>
                 <option value="Trust">Trust</option>
-                <option value="Sole Proprietor">Sole Proprietor</option>
+                <option value="Sole Proprietor">
+                  Sole Proprietor
+                </option>
                 <option value="Partnership">Partnership</option>
-                <option value="Non-Profit Company">Non-Profit Company</option>
+                <option value="Non-Profit Company">
+                  Non-Profit Company
+                </option>
               </select>
             </label>
 
@@ -400,7 +646,9 @@ export default function AFSPage() {
                 style={styles.input}
                 type="date"
                 value={financialYearEnd}
-                onChange={(e) => setFinancialYearEnd(e.target.value)}
+                onChange={(e) =>
+                  setFinancialYearEnd(e.target.value)
+                }
               />
             </label>
 
@@ -427,14 +675,23 @@ export default function AFSPage() {
             <label style={styles.labelBlock}>
               Notes
               <textarea
-                style={{ ...styles.input, height: 58, paddingTop: 7, resize: "vertical" }}
+                style={{
+                  ...styles.input,
+                  height: 58,
+                  paddingTop: 7,
+                  resize: "vertical",
+                }}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional internal notes"
               />
             </label>
 
-            <button type="submit" style={styles.primaryButtonFull} disabled={saving}>
+            <button
+              type="submit"
+              style={styles.primaryButtonFull}
+              disabled={saving}
+            >
               {saving ? "Creating..." : "Create AFS engagement"}
             </button>
           </form>
@@ -446,12 +703,21 @@ export default function AFSPage() {
               <h2 style={styles.panelTitle}>
                 {selectedOrganisationId === "all"
                   ? "All AFS engagements"
-                  : `${selectedOrganisation?.name || "AFS"} AFS engagements`}
+                  : `${
+                      selectedOrganisation?.name || "AFS"
+                    } AFS engagements`}
               </h2>
-              <p style={styles.resultText}>Showing {visibleEngagements.length} of {engagements.length} engagement(s)</p>
+
+              <p style={styles.resultText}>
+                Showing {visibleEngagements.length} of{" "}
+                {engagements.length} engagement(s)
+              </p>
             </div>
 
-            <button style={styles.clearButton} onClick={clearFilters}>
+            <button
+              style={styles.clearButton}
+              onClick={clearFilters}
+            >
               Clear filters
             </button>
           </div>
@@ -459,6 +725,7 @@ export default function AFSPage() {
           <div style={styles.filtersGrid}>
             <div style={styles.fieldGroupCompact}>
               <label style={styles.label}>Entity / year end</label>
+
               <input
                 style={styles.input}
                 value={searchText}
@@ -469,29 +736,50 @@ export default function AFSPage() {
 
             <div style={styles.fieldGroupCompact}>
               <label style={styles.label}>Status</label>
-              <select style={styles.input} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+
+              <select
+                style={styles.input}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
                 <option value="All">All</option>
                 <option value="Draft">Draft</option>
                 <option value="Final">Final</option>
+                <option value="Reopened">Reopened</option>
                 <option value="Archived">Archived</option>
               </select>
             </div>
 
             <div style={styles.fieldGroupCompact}>
               <label style={styles.label}>Sort by</label>
-              <select style={styles.input} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+
+              <select
+                style={styles.input}
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+              >
                 <option value="Entity A-Z">Entity A-Z</option>
                 <option value="Entity Z-A">Entity Z-A</option>
-                <option value="Year end newest">Year end newest</option>
-                <option value="Year end oldest">Year end oldest</option>
-                <option value="Newest created">Newest created</option>
-                <option value="Oldest created">Oldest created</option>
+                <option value="Year end newest">
+                  Year end newest
+                </option>
+                <option value="Year end oldest">
+                  Year end oldest
+                </option>
+                <option value="Newest created">
+                  Newest created
+                </option>
+                <option value="Oldest created">
+                  Oldest created
+                </option>
               </select>
             </div>
           </div>
 
           {visibleEngagements.length === 0 ? (
-            <div style={styles.emptyState}>No AFS engagements found for the current selection.</div>
+            <div style={styles.emptyState}>
+              No AFS engagements found for the current selection.
+            </div>
           ) : (
             <div style={styles.tableWrap}>
               <table style={styles.table}>
@@ -504,26 +792,85 @@ export default function AFSPage() {
                     <th style={styles.th}>Prepared</th>
                     <th style={styles.th}>Reviewed</th>
                     <th style={styles.th}>Status</th>
-                    <th style={{ ...styles.th, textAlign: "right" }}>Action</th>
+                    <th
+                      style={{
+                        ...styles.th,
+                        textAlign: "right",
+                      }}
+                    >
+                      Action
+                    </th>
                   </tr>
                 </thead>
 
                 <tbody>
                   {visibleEngagements.map((engagement) => (
                     <tr key={engagement.id}>
-                      <td style={styles.tdStrong}>{engagement.client_name}</td>
-                      <td style={styles.td}>{engagement.entity_type || "Entity"}</td>
-                      <td style={styles.td}>{formatDate(engagement.financial_year_end)}</td>
-                      <td style={styles.td}>{engagement.firm_client_name || "Not allocated"}</td>
-                      <td style={styles.td}>{engagement.prepared_by || "-"}</td>
-                      <td style={styles.td}>{engagement.reviewed_by || "-"}</td>
-                      <td style={styles.td}>
-                        <span style={styles.statusBadge}>{normaliseStatus(engagement.status)}</span>
+                      <td style={styles.tdStrong}>
+                        {engagement.client_name}
                       </td>
-                      <td style={{ ...styles.td, textAlign: "right" }}>
-                        <button style={styles.openButton} onClick={() => router.push(`/afs/${engagement.id}`)}>
-                          Open
-                        </button>
+
+                      <td style={styles.td}>
+                        {engagement.entity_type || "Entity"}
+                      </td>
+
+                      <td style={styles.td}>
+                        {formatDate(
+                          engagement.financial_year_end,
+                        )}
+                      </td>
+
+                      <td style={styles.td}>
+                        {engagement.firm_client_name ||
+                          "Not allocated"}
+                      </td>
+
+                      <td style={styles.td}>
+                        {engagement.prepared_by || "-"}
+                      </td>
+
+                      <td style={styles.td}>
+                        {engagement.reviewed_by || "-"}
+                      </td>
+
+                      <td style={styles.td}>
+                        <span style={styles.statusBadge}>
+                          {normaliseStatus(engagement.status)}
+                        </span>
+                      </td>
+
+                      <td
+                        style={{
+                          ...styles.td,
+                          textAlign: "right",
+                        }}
+                      >
+                        <div style={styles.actionButtons}>
+                          {normaliseStatus(engagement.status) ===
+                          "Final" ? (
+                            <button
+                              type="button"
+                              style={styles.nextFlightButton}
+                              onClick={() =>
+                                launchNextFlight(engagement)
+                              }
+                            >
+                              Next Flight
+                            </button>
+                          ) : null}
+
+                          <button
+                            type="button"
+                            style={styles.openButton}
+                            onClick={() =>
+                              router.push(
+                                `/afs/${engagement.id}`,
+                              )
+                            }
+                          >
+                            Open
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -533,6 +880,183 @@ export default function AFSPage() {
           )}
         </section>
       </div>
+
+      {nextFlightEngagement ? (
+        <div style={styles.modalOverlay}>
+          <section style={styles.nextFlightModal}>
+            <div style={styles.nextFlightModalHeader}>
+              <div>
+                <div style={styles.nextFlightKicker}>
+                  PracticePilot
+                </div>
+
+                <h2 style={styles.nextFlightTitle}>
+                  Prepare Next Flight
+                </h2>
+
+                <p style={styles.nextFlightSubtitle}>
+                  Create the next working file for{" "}
+                  <strong>
+                    {nextFlightEngagement.client_name}
+                  </strong>
+                  .
+                </p>
+              </div>
+
+              <button
+                type="button"
+                style={styles.modalCloseButton}
+                onClick={closeNextFlightPanel}
+                disabled={Boolean(rollingOverEngagementId)}
+                aria-label="Close Next Flight panel"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.nextFlightDetails}>
+              <div style={styles.nextFlightSourceBox}>
+                <span>Source flight</span>
+                <strong>
+                  {formatDate(
+                    nextFlightEngagement.financial_year_end,
+                  )}
+                </strong>
+                <small>
+                  {normaliseStatus(nextFlightEngagement.status)}
+                </small>
+              </div>
+
+              <label style={styles.nextFlightLabel}>
+                File type
+                <select
+                  style={styles.nextFlightInput}
+                  value={nextFlightFileType}
+                  onChange={(event) =>
+                    setNextFlightFileType(
+                      event.target
+                        .value as NextFlightFileType,
+                    )
+                  }
+                  disabled={Boolean(rollingOverEngagementId)}
+                >
+                  <option value="Annual Financial Statements">
+                    Annual Financial Statements
+                  </option>
+                  <option value="Management Accounts">
+                    Management Accounts
+                  </option>
+                </select>
+              </label>
+
+              <label style={styles.nextFlightLabel}>
+                Target period end
+                <input
+                  style={styles.nextFlightInput}
+                  type="date"
+                  value={nextFlightPeriodEnd}
+                  onChange={(event) => {
+                    setNextFlightPeriodEnd(event.target.value);
+                    setNextFlightRefreshReason("");
+                    setRolloverMessage("");
+                  }}
+                  disabled={Boolean(rollingOverEngagementId)}
+                />
+              </label>
+            </div>
+
+            <div style={styles.nextFlightNotice}>
+              PracticePilot will carry forward the client setup,
+              people, mappings, note settings and prior-period
+              balances. Current-period journals and adjustments start
+              clean.
+            </div>
+
+            {existingNextFlightEngagement ? (
+              <div style={styles.refreshWarningBox}>
+                <strong>Existing Next Flight found</strong>
+
+                <span>
+                  A file already exists for the year ended{" "}
+                  {formatDate(nextFlightPeriodEnd)}. Continuing will
+                  refresh its opening balances, comparative history
+                  and rolled Print Studio data. Current-year journals
+                  and adjustments will remain intact.
+                </span>
+
+                <label style={styles.nextFlightLabel}>
+                  Refresh reason
+                  <textarea
+                    style={styles.refreshReasonInput}
+                    value={nextFlightRefreshReason}
+                    onChange={(event) =>
+                      setNextFlightRefreshReason(
+                        event.target.value,
+                      )
+                    }
+                    placeholder="Explain why this existing Next Flight must be refreshed"
+                    disabled={Boolean(
+                      rollingOverEngagementId,
+                    )}
+                  />
+                </label>
+              </div>
+            ) : null}
+
+            {rolloverMessage ? (
+              <div
+                style={{
+                  ...styles.rolloverStatusBox,
+                  ...(rolloverMessage.includes("successfully")
+                    ? styles.rolloverStatusSuccess
+                    : {}),
+                }}
+              >
+                {rolloverMessage === "Creating file..." ||
+                rolloverMessage ===
+                  "Refreshing existing file..." ? (
+                  <span style={styles.rolloverSpinner} />
+                ) : null}
+
+                <strong>{rolloverMessage}</strong>
+              </div>
+            ) : null}
+
+            <div style={styles.nextFlightActions}>
+              <button
+                type="button"
+                style={styles.modalSecondaryButton}
+                onClick={closeNextFlightPanel}
+                disabled={Boolean(rollingOverEngagementId)}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                style={styles.modalPrimaryButton}
+                onClick={createNextFlight}
+                disabled={
+                  Boolean(rollingOverEngagementId) ||
+                  !nextFlightPeriodEnd ||
+                  Boolean(
+                    existingNextFlightEngagement &&
+                      !nextFlightRefreshReason.trim(),
+                  )
+                }
+              >
+                {rollingOverEngagementId
+                  ? existingNextFlightEngagement
+                    ? "Refreshing file..."
+                    : "Creating file..."
+                  : existingNextFlightEngagement
+                    ? "Refresh Existing Flight"
+                    : "Create Next Flight"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -544,6 +1068,7 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: "100vh",
     color: "#12304a",
   },
+
   heroPanel: {
     display: "grid",
     gridTemplateColumns: "1fr 1.5fr",
@@ -554,6 +1079,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "14px 18px",
     marginBottom: "10px",
   },
+
   kicker: {
     color: "#0b63ff",
     fontSize: "12px",
@@ -562,61 +1088,72 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: "0.12em",
     marginBottom: "6px",
   },
+
   title: {
     fontSize: "24px",
     fontWeight: 900,
     margin: 0,
     color: "#0f2742",
   },
+
   heroText: {
     margin: 0,
     color: "#56657a",
     fontSize: "13px",
     lineHeight: 1.45,
   },
+
   layoutGrid: {
     display: "grid",
     gridTemplateColumns: "300px 1fr",
     gap: "10px",
     alignItems: "start",
   },
+
   leftPanel: {
     background: "#ffffff",
     border: "1px solid #d8e2ef",
     padding: "8px",
   },
+
   rightPanel: {
     background: "#ffffff",
     border: "1px solid #d8e2ef",
     padding: "8px",
     minWidth: 0,
   },
+
   panelTitle: {
     fontSize: "16px",
     margin: "0 0 7px 0",
     color: "#0f2742",
     fontWeight: 900,
   },
+
   resultText: {
     margin: 0,
     color: "#64748b",
     fontSize: "12px",
     fontWeight: 700,
   },
+
   fieldGroup: {
     display: "grid",
     gap: "5px",
     marginBottom: "8px",
   },
+
   fieldGroupCompact: {
     display: "grid",
     gap: "5px",
   },
+
   label: {
     fontSize: "12px",
     fontWeight: 900,
     color: "#334155",
   },
+
   labelBlock: {
     display: "grid",
     gap: "5px",
@@ -625,6 +1162,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 900,
     color: "#334155",
   },
+
   input: {
     width: "100%",
     height: "34px",
@@ -637,6 +1175,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 0,
     boxSizing: "border-box",
   },
+
   lockedClientBox: {
     minHeight: "34px",
     border: "1px solid #cbd5e1",
@@ -647,6 +1186,7 @@ const styles: Record<string, React.CSSProperties> = {
     boxSizing: "border-box",
     fontWeight: 800,
   },
+
   infoBox: {
     display: "grid",
     gap: "4px",
@@ -657,10 +1197,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "12px",
     color: "#12304a",
   },
+
   createForm: {
     borderTop: "2px solid #0f2742",
     paddingTop: "10px",
   },
+
   primaryButtonFull: {
     width: "100%",
     background: "#0b5cab",
@@ -672,6 +1214,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     borderRadius: 0,
   },
+
   tableHeaderRow: {
     display: "flex",
     justifyContent: "space-between",
@@ -679,6 +1222,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: "12px",
     marginBottom: "8px",
   },
+
   clearButton: {
     background: "#ffffff",
     color: "#12304a",
@@ -689,21 +1233,25 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     borderRadius: 0,
   },
+
   filtersGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 150px 170px",
     gap: "8px",
     marginBottom: "8px",
   },
+
   tableWrap: {
     border: "1px solid #d8e2ef",
     overflowX: "auto",
   },
+
   table: {
     width: "100%",
     borderCollapse: "collapse",
     fontSize: "13px",
   },
+
   th: {
     background: "#eef3f8",
     color: "#334155",
@@ -714,6 +1262,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 900,
     whiteSpace: "nowrap",
   },
+
   td: {
     padding: "8px 7px",
     borderBottom: "1px solid #e5edf6",
@@ -721,6 +1270,7 @@ const styles: Record<string, React.CSSProperties> = {
     verticalAlign: "middle",
     whiteSpace: "nowrap",
   },
+
   tdStrong: {
     padding: "8px 7px",
     borderBottom: "1px solid #e5edf6",
@@ -729,6 +1279,7 @@ const styles: Record<string, React.CSSProperties> = {
     verticalAlign: "middle",
     whiteSpace: "nowrap",
   },
+
   statusBadge: {
     display: "inline-block",
     padding: "3px 8px",
@@ -738,6 +1289,219 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "12px",
     fontWeight: 900,
   },
+
+  actionButtons: {
+    display: "flex",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: "18px",
+    whiteSpace: "nowrap",
+  },
+
+  nextFlightButton: {
+    border: "1px solid #0891b2",
+    background: "#ecfeff",
+    color: "#0e7490",
+    fontWeight: 900,
+    cursor: "pointer",
+    padding: "3px 8px",
+    fontSize: "12px",
+    lineHeight: 1.2,
+  },
+
+  modalOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 9999,
+    background: "rgba(15, 39, 66, 0.58)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "20px",
+  },
+
+  nextFlightModal: {
+    width: "min(620px, 100%)",
+    background: "#ffffff",
+    border: "1px solid #b9c9dc",
+    boxShadow: "0 24px 70px rgba(15, 39, 66, 0.28)",
+    padding: "18px",
+    display: "grid",
+    gap: "16px",
+  },
+
+  nextFlightModalHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "16px",
+    borderBottom: "1px solid #d8e2ef",
+    paddingBottom: "12px",
+  },
+
+  nextFlightKicker: {
+    color: "#0891b2",
+    fontSize: "10px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.13em",
+    marginBottom: "5px",
+  },
+
+  nextFlightTitle: {
+    margin: 0,
+    color: "#0f2742",
+    fontSize: "21px",
+    fontWeight: 900,
+  },
+
+  nextFlightSubtitle: {
+    margin: "5px 0 0",
+    color: "#56657a",
+    fontSize: "13px",
+    lineHeight: 1.4,
+  },
+
+  modalCloseButton: {
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#334155",
+    width: "32px",
+    height: "32px",
+    fontSize: "20px",
+    lineHeight: 1,
+    cursor: "pointer",
+  },
+
+  nextFlightDetails: {
+    display: "grid",
+    gridTemplateColumns: "150px 1fr 1fr",
+    gap: "10px",
+    alignItems: "end",
+  },
+
+  nextFlightSourceBox: {
+    minHeight: "62px",
+    border: "1px solid #d8e2ef",
+    background: "#f8fafc",
+    padding: "8px",
+    display: "grid",
+    alignContent: "center",
+    gap: "3px",
+    fontSize: "11px",
+    color: "#64748b",
+  },
+
+  nextFlightLabel: {
+    display: "grid",
+    gap: "6px",
+    color: "#334155",
+    fontSize: "12px",
+    fontWeight: 900,
+  },
+
+  nextFlightInput: {
+    width: "100%",
+    height: "36px",
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#12304a",
+    padding: "0 9px",
+    fontSize: "13px",
+    boxSizing: "border-box",
+    borderRadius: 0,
+  },
+
+  nextFlightNotice: {
+    borderLeft: "3px solid #0891b2",
+    background: "#ecfeff",
+    color: "#155e75",
+    padding: "10px 12px",
+    fontSize: "12px",
+    lineHeight: 1.45,
+  },
+
+  refreshWarningBox: {
+    border: "1px solid #f59e0b",
+    background: "#fffbeb",
+    color: "#78350f",
+    padding: "10px 12px",
+    display: "grid",
+    gap: "8px",
+    fontSize: "12px",
+    lineHeight: 1.45,
+  },
+
+  refreshReasonInput: {
+    width: "100%",
+    minHeight: "76px",
+    border: "1px solid #d97706",
+    background: "#ffffff",
+    color: "#12304a",
+    padding: "8px 9px",
+    fontSize: "13px",
+    fontFamily: "inherit",
+    resize: "vertical",
+    boxSizing: "border-box",
+    borderRadius: 0,
+  },
+
+  rolloverStatusBox: {
+    minHeight: "42px",
+    border: "1px solid #bae6fd",
+    background: "#f0f9ff",
+    color: "#075985",
+    padding: "10px 12px",
+    display: "flex",
+    alignItems: "center",
+    gap: "9px",
+    fontSize: "12px",
+  },
+
+  rolloverStatusSuccess: {
+    border: "1px solid #a7f3d0",
+    background: "#ecfdf5",
+    color: "#166534",
+  },
+
+  rolloverSpinner: {
+    width: "15px",
+    height: "15px",
+    border: "2px solid #bae6fd",
+    borderTopColor: "#0891b2",
+    borderRadius: "50%",
+    display: "inline-block",
+  },
+
+  nextFlightActions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: "10px",
+    borderTop: "1px solid #d8e2ef",
+    paddingTop: "12px",
+  },
+
+  modalSecondaryButton: {
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#334155",
+    padding: "8px 13px",
+    fontSize: "12px",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+
+  modalPrimaryButton: {
+    border: "1px solid #0891b2",
+    background: "#0891b2",
+    color: "#ffffff",
+    padding: "8px 14px",
+    fontSize: "12px",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+
   openButton: {
     border: 0,
     background: "transparent",
@@ -748,6 +1512,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 0,
     fontSize: "13px",
   },
+
   emptyState: {
     padding: "28px",
     textAlign: "center",

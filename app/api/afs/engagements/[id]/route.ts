@@ -12,6 +12,11 @@ async function getIdFromContext(context: any) {
   return id;
 }
 
+function cleanText(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text || null;
+}
+
 export async function GET(req: NextRequest, context: any) {
   try {
     const id = await getIdFromContext(context);
@@ -27,41 +32,60 @@ export async function GET(req: NextRequest, context: any) {
       throw engagementError;
     }
 
-    const { data: trialBalanceLines, error: tbError } = await supabase
-      .from("afs_trial_balance_lines")
-      .select("*")
-      .eq("engagement_id", id)
-      .order("account_code", { ascending: true });
+    const [
+      trialBalanceResult,
+      trialBalanceHistoryResult,
+      notesResult,
+      workingPapersResult,
+    ] = await Promise.all([
+      supabase
+        .from("afs_trial_balance_lines")
+        .select("*")
+        .eq("engagement_id", id)
+        .order("account_code", { ascending: true }),
 
-    if (tbError) {
-      throw tbError;
+      supabase
+        .from("afs_trial_balance_history")
+        .select("*")
+        .eq("engagement_id", id)
+        .order("financial_year_end", { ascending: true })
+        .order("account_code", { ascending: true }),
+
+      supabase
+        .from("afs_notes")
+        .select("*")
+        .eq("engagement_id", id)
+        .order("sort_order", { ascending: true }),
+
+      supabase
+        .from("afs_working_papers")
+        .select("*")
+        .eq("engagement_id", id)
+        .order("created_at", { ascending: true }),
+    ]);
+
+    if (trialBalanceResult.error) {
+      throw trialBalanceResult.error;
     }
 
-    const { data: notes, error: notesError } = await supabase
-      .from("afs_notes")
-      .select("*")
-      .eq("engagement_id", id)
-      .order("sort_order", { ascending: true });
-
-    if (notesError) {
-      throw notesError;
+    if (trialBalanceHistoryResult.error) {
+      throw trialBalanceHistoryResult.error;
     }
 
-    const { data: workingPapers, error: wpError } = await supabase
-      .from("afs_working_papers")
-      .select("*")
-      .eq("engagement_id", id)
-      .order("created_at", { ascending: true });
+    if (notesResult.error) {
+      throw notesResult.error;
+    }
 
-    if (wpError) {
-      throw wpError;
+    if (workingPapersResult.error) {
+      throw workingPapersResult.error;
     }
 
     return NextResponse.json({
       engagement,
-      trialBalanceLines: trialBalanceLines || [],
-      notes: notes || [],
-      workingPapers: workingPapers || [],
+      trialBalanceLines: trialBalanceResult.data || [],
+      trialBalanceHistory: trialBalanceHistoryResult.data || [],
+      notes: notesResult.data || [],
+      workingPapers: workingPapersResult.data || [],
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -75,17 +99,89 @@ export async function PATCH(req: NextRequest, context: any) {
   try {
     const id = await getIdFromContext(context);
     const body = await req.json();
-
     const supabase = getSupabaseServer();
 
+    const action = cleanText(body.action);
+
+    if (action === "sign-off") {
+      const { data, error } = await supabase
+        .from("afs_engagements")
+        .update({
+          status: "Final",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .select("*")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return NextResponse.json({
+        success: true,
+        engagement: data,
+        message: "Flight signed off successfully.",
+      });
+    }
+
+    if (action === "reopen") {
+      const reason = cleanText(body.reason);
+
+      if (!reason) {
+        return NextResponse.json(
+          { error: "A reason is required before reopening the flight." },
+          { status: 400 }
+        );
+      }
+
+      const { data: existing, error: existingError } = await supabase
+        .from("afs_engagements")
+        .select("notes")
+        .eq("id", id)
+        .single();
+
+      if (existingError) {
+        throw existingError;
+      }
+
+      const reopenedEntry = [
+        existing?.notes || "",
+        `Reopened: ${new Date().toISOString()} — ${reason}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const { data, error } = await supabase
+        .from("afs_engagements")
+        .update({
+          status: "Reopened",
+          notes: reopenedEntry,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .select("*")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return NextResponse.json({
+        success: true,
+        engagement: data,
+        message: "Flight reopened successfully.",
+      });
+    }
+
     const updateData = {
-      client_name: String(body.clientName || "").trim(),
-      entity_type: String(body.entityType || "").trim() || null,
-      financial_year_end: String(body.financialYearEnd || "").trim(),
-      status: String(body.status || "Draft").trim(),
-      prepared_by: String(body.preparedBy || "").trim() || null,
-      reviewed_by: String(body.reviewedBy || "").trim() || null,
-      notes: String(body.notes || "").trim() || null,
+      client_name: cleanText(body.clientName),
+      entity_type: cleanText(body.entityType),
+      financial_year_end: cleanText(body.financialYearEnd),
+      status: cleanText(body.status) || "Draft",
+      prepared_by: cleanText(body.preparedBy),
+      reviewed_by: cleanText(body.reviewedBy),
+      notes: cleanText(body.notes),
       updated_at: new Date().toISOString(),
     };
 

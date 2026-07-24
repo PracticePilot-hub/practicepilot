@@ -110,6 +110,22 @@ type TrialBalanceLine = {
   lead_schedule_key?: string | null;
 };
 
+type TrialBalanceHistoryLine = {
+  id?: string;
+  financial_year_end: string;
+  account_code: string;
+  account_name: string;
+  closing_balance: number;
+  mapping_code?: string | null;
+  mapping_leaf_id?: string | null;
+  mapping_label?: string | null;
+  mapping_statement?: string | null;
+  mapping_section?: string | null;
+  mapping_path?: string | null;
+  lead_schedule_number?: string | null;
+  lead_schedule_key?: string | null;
+};
+
 type PersonData = {
   id?: string;
   name?: string | null;
@@ -1170,6 +1186,202 @@ function alignDetailedIncomeRowsToSoci(
   });
 }
 
+
+function normaliseMappingIdentifier(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function mappingIdentifierStartsWith(value: unknown, prefixes: string[]) {
+  const identifier = normaliseMappingIdentifier(value);
+
+  return prefixes.some((prefix) => {
+    const cleanPrefix = normaliseMappingIdentifier(prefix);
+
+    return (
+      identifier === cleanPrefix ||
+      identifier.startsWith(`${cleanPrefix}.`) ||
+      identifier.startsWith(`${cleanPrefix}-`)
+    );
+  });
+}
+
+function historyCategory(line: TrialBalanceHistoryLine) {
+  const mappingCode = normaliseMappingIdentifier(line.mapping_code);
+  const mappingLeafId = normaliseMappingIdentifier(line.mapping_leaf_id);
+  const leadScheduleNumber = normaliseMappingIdentifier(
+    line.lead_schedule_number,
+  );
+  const leadScheduleKey = normaliseMappingIdentifier(line.lead_schedule_key);
+
+  /*
+    Historical cash-flow classification is mapping-driven only.
+    Account names and mapping labels are never used.
+  */
+  if (
+    mappingCode === "420.10" ||
+    mappingLeafId.startsWith("420-10-") ||
+    leadScheduleKey === "cash"
+  ) {
+    return "cash";
+  }
+
+  if (
+    mappingIdentifierStartsWith(mappingCode, ["410"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["410"]) ||
+    leadScheduleKey === "inventories"
+  ) {
+    return "inventories";
+  }
+
+  if (
+    leadScheduleKey === "trade-receivables" ||
+    leadScheduleKey === "trade-and-other-receivables"
+  ) {
+    return "tradeReceivables";
+  }
+
+  if (
+    leadScheduleKey === "trade-payables" ||
+    leadScheduleKey === "trade-and-other-payables"
+  ) {
+    return "tradePayables";
+  }
+
+  if (
+    mappingIdentifierStartsWith(mappingCode, ["500"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["500"]) ||
+    leadScheduleKey === "share-capital"
+  ) {
+    return "shareCapital";
+  }
+
+  if (
+    mappingIdentifierStartsWith(mappingCode, ["548", "500.548"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["548", "500-548"]) ||
+    leadScheduleKey === "shareholders-loans" ||
+    leadScheduleKey === "shareholder-loans"
+  ) {
+    return "shareholderLoans";
+  }
+
+  if (
+    mappingIdentifierStartsWith(mappingCode, ["590", "500.590"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["590", "500-590"]) ||
+    leadScheduleKey === "other-financial-liabilities" ||
+    leadScheduleKey === "other-non-current-liabilities"
+  ) {
+    return "otherFinancialLiabilities";
+  }
+
+  return "other";
+}
+
+function historyPresentedBalance(line: TrialBalanceHistoryLine) {
+  const category = historyCategory(line);
+  const raw = safeNumber(line.closing_balance);
+
+  if (
+    category === "tradePayables" ||
+    category === "shareCapital" ||
+    category === "shareholderLoans" ||
+    category === "otherFinancialLiabilities"
+  ) {
+    return -raw;
+  }
+
+  return raw;
+}
+
+type HistoricalCashFlowData = {
+  overrides: Partial<AfsStatementOverrides>;
+  inventoryPrior: number;
+  receivablesPrior: number;
+  payablesPrior: number;
+};
+
+function buildHistoricalCashFlowData(
+  history: TrialBalanceHistoryLine[],
+): HistoricalCashFlowData {
+  const years = Array.from(
+    new Set(
+      (history || [])
+        .map((line) => String(line.financial_year_end || "").trim())
+        .filter(Boolean),
+    ),
+  ).sort();
+
+  if (years.length < 2) {
+    return {
+      overrides: {},
+      inventoryPrior: 0,
+      receivablesPrior: 0,
+      payablesPrior: 0,
+    };
+  }
+
+  const openingYear = years[years.length - 2];
+  const closingYear = years[years.length - 1];
+
+  const totalFor = (year: string, category: string) =>
+    (history || [])
+      .filter(
+        (line) =>
+          String(line.financial_year_end || "").trim() === year &&
+          historyCategory(line) === category,
+      )
+      .reduce((sum, line) => sum + historyPresentedBalance(line), 0);
+
+  const openingCash = totalFor(openingYear, "cash");
+  const closingCash = totalFor(closingYear, "cash");
+
+  const openingInventory = totalFor(openingYear, "inventories");
+  const closingInventory = totalFor(closingYear, "inventories");
+
+  const openingReceivables = totalFor(openingYear, "tradeReceivables");
+  const closingReceivables = totalFor(closingYear, "tradeReceivables");
+
+  const openingPayables = totalFor(openingYear, "tradePayables");
+  const closingPayables = totalFor(closingYear, "tradePayables");
+
+  const openingShareCapital = totalFor(openingYear, "shareCapital");
+  const closingShareCapital = totalFor(closingYear, "shareCapital");
+
+  const openingShareholderLoans = totalFor(openingYear, "shareholderLoans");
+  const closingShareholderLoans = totalFor(closingYear, "shareholderLoans");
+
+  const openingOtherFinancialLiabilities = totalFor(
+    openingYear,
+    "otherFinancialLiabilities",
+  );
+  const closingOtherFinancialLiabilities = totalFor(
+    closingYear,
+    "otherFinancialLiabilities",
+  );
+
+  const inventoryPrior = openingInventory - closingInventory;
+  const receivablesPrior = openingReceivables - closingReceivables;
+  const payablesPrior = closingPayables - openingPayables;
+
+  return {
+    overrides: {
+      cashPriorOpeningBalance: openingCash,
+      cashWorkingCapitalPrior:
+        inventoryPrior + receivablesPrior + payablesPrior,
+      cashLoansRaisedPrior:
+        closingShareholderLoans - openingShareholderLoans,
+      cashOtherFinancingPrior:
+        closingShareCapital -
+        openingShareCapital +
+        closingOtherFinancialLiabilities -
+        openingOtherFinancialLiabilities,
+      cashPriorMovement: closingCash - openingCash,
+    },
+    inventoryPrior,
+    receivablesPrior,
+    payablesPrior,
+  };
+}
+
 export default function AfsPrintStudioPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -1249,6 +1461,9 @@ export default function AfsPrintStudioPage() {
   const [trialBalanceLines, setTrialBalanceLines] = useState<TrialBalanceLine[]>(
     []
   );
+  const [trialBalanceHistory, setTrialBalanceHistory] = useState<
+    TrialBalanceHistoryLine[]
+  >([]);
   const [clientPeople, setClientPeople] = useState<PersonData[]>([]);
   const [reportOptions, setReportOptions] =
     useState<ReportOptions>(defaultReportOptions);
@@ -1304,6 +1519,11 @@ export default function AfsPrintStudioPage() {
           engagementData.trialBalanceLines ||
             engagementData.trial_balance_lines ||
             engagementData.lines ||
+            []
+        );
+        setTrialBalanceHistory(
+          engagementData.trialBalanceHistory ||
+            engagementData.trial_balance_history ||
             []
         );
       }
@@ -2182,14 +2402,27 @@ export default function AfsPrintStudioPage() {
     return map;
   }, [reportOptions]);
 
+  const historicalCashFlowData = useMemo(
+    () => buildHistoricalCashFlowData(trialBalanceHistory),
+    [trialBalanceHistory],
+  );
+
+  const effectiveStatementOverrides = useMemo(
+    () => ({
+      ...statementOverrides,
+      ...historicalCashFlowData.overrides,
+    }),
+    [statementOverrides, historicalCashFlowData],
+  );
+
   const baseStatementEngine = useMemo(
     () =>
       buildAfsPrintStatementEngine(
         trialBalanceLines,
-        statementOverrides,
+        effectiveStatementOverrides,
         noteNumberMap
       ),
-    [trialBalanceLines, statementOverrides, noteNumberMap]
+    [trialBalanceLines, effectiveStatementOverrides, noteNumberMap]
   );
 
   const statementEngine = useMemo(() => {
@@ -2252,11 +2485,20 @@ export default function AfsPrintStudioPage() {
     const closingCashRow = findById("cfs-closing-cash") || findByLabel(["cash and cash equivalents at end"]);
 
     const inventoryCurrent = storedAmount("inventories", "current", Number(inventoryRow?.current || 0));
-    const inventoryPrior = storedAmount("inventories", "prior", Number(inventoryRow?.prior || 0));
+    const inventoryPrior =
+      trialBalanceHistory.length >= 2
+        ? historicalCashFlowData.inventoryPrior
+        : storedAmount("inventories", "prior", Number(inventoryRow?.prior || 0));
     const receivablesCurrent = storedAmount("tradeReceivables", "current", Number(receivablesRow?.current || 0)) + storedAmount("prepayments", "current", 0);
-    const receivablesPrior = storedAmount("tradeReceivables", "prior", Number(receivablesRow?.prior || 0)) + storedAmount("prepayments", "prior", 0);
+    const receivablesPrior =
+      trialBalanceHistory.length >= 2
+        ? historicalCashFlowData.receivablesPrior
+        : storedAmount("tradeReceivables", "prior", Number(receivablesRow?.prior || 0)) + storedAmount("prepayments", "prior", 0);
     const payablesCurrent = storedAmount("tradePayables", "current", Number(payablesRow?.current || 0)) + storedAmount("deferredIncome", "current", 0);
-    const payablesPrior = storedAmount("tradePayables", "prior", Number(payablesRow?.prior || 0)) + storedAmount("deferredIncome", "prior", 0);
+    const payablesPrior =
+      trialBalanceHistory.length >= 2
+        ? historicalCashFlowData.payablesPrior
+        : storedAmount("tradePayables", "prior", Number(payablesRow?.prior || 0)) + storedAmount("deferredIncome", "prior", 0);
 
     const generatedCurrent = Number(profitRow?.current || 0) + adjustmentsCurrent + inventoryCurrent + receivablesCurrent + payablesCurrent;
     const generatedPrior = Number(profitRow?.prior || 0) + adjustmentsPrior + inventoryPrior + receivablesPrior + payablesPrior;
@@ -2283,13 +2525,13 @@ export default function AfsPrintStudioPage() {
     }
 
     const otherOperatingCurrent =
-      Number(statementOverrides.cashOtherOperatingCurrent || 0) +
-      Number(statementOverrides.cashOtherOperating2Current || 0) +
-      Number(statementOverrides.cashOtherOperating3Current || 0);
+      Number(effectiveStatementOverrides.cashOtherOperatingCurrent || 0) +
+      Number(effectiveStatementOverrides.cashOtherOperating2Current || 0) +
+      Number(effectiveStatementOverrides.cashOtherOperating3Current || 0);
     const otherOperatingPrior =
-      Number(statementOverrides.cashOtherOperatingPrior || 0) +
-      Number(statementOverrides.cashOtherOperating2Prior || 0) +
-      Number(statementOverrides.cashOtherOperating3Prior || 0);
+      Number(effectiveStatementOverrides.cashOtherOperatingPrior || 0) +
+      Number(effectiveStatementOverrides.cashOtherOperating2Prior || 0) +
+      Number(effectiveStatementOverrides.cashOtherOperating3Prior || 0);
 
     if (otherOperatingRow) {
       otherOperatingRow.current = Math.round(otherOperatingCurrent);
@@ -2298,15 +2540,15 @@ export default function AfsPrintStudioPage() {
 
     const netOperatingCurrent =
       generatedCurrent +
-      Number(statementOverrides.cashInterestReceivedCurrent || 0) +
-      Number(statementOverrides.cashFinanceCostsPaidCurrent || 0) +
-      Number(statementOverrides.cashTaxPaidCurrent || 0) +
+      Number(effectiveStatementOverrides.cashInterestReceivedCurrent || 0) +
+      Number(effectiveStatementOverrides.cashFinanceCostsPaidCurrent || 0) +
+      Number(effectiveStatementOverrides.cashTaxPaidCurrent || 0) +
       otherOperatingCurrent;
     const netOperatingPrior =
       generatedPrior +
-      Number(statementOverrides.cashInterestReceivedPrior || 0) +
-      Number(statementOverrides.cashFinanceCostsPaidPrior || 0) +
-      Number(statementOverrides.cashTaxPaidPrior || 0) +
+      Number(effectiveStatementOverrides.cashInterestReceivedPrior || 0) +
+      Number(effectiveStatementOverrides.cashFinanceCostsPaidPrior || 0) +
+      Number(effectiveStatementOverrides.cashTaxPaidPrior || 0) +
       otherOperatingPrior;
 
     if (netOperatingRow) {
@@ -2323,14 +2565,14 @@ export default function AfsPrintStudioPage() {
     }
 
     const openingCurrent =
-      statementOverrides.cashOpeningBalance !== null &&
-      statementOverrides.cashOpeningBalance !== undefined
-        ? Number(statementOverrides.cashOpeningBalance || 0)
+      effectiveStatementOverrides.cashOpeningBalance !== null &&
+      effectiveStatementOverrides.cashOpeningBalance !== undefined
+        ? Number(effectiveStatementOverrides.cashOpeningBalance || 0)
         : Number(openingCashRow?.current || 0);
     const openingPrior =
-      statementOverrides.cashPriorOpeningBalance !== null &&
-      statementOverrides.cashPriorOpeningBalance !== undefined
-        ? Number(statementOverrides.cashPriorOpeningBalance || 0)
+      effectiveStatementOverrides.cashPriorOpeningBalance !== null &&
+      effectiveStatementOverrides.cashPriorOpeningBalance !== undefined
+        ? Number(effectiveStatementOverrides.cashPriorOpeningBalance || 0)
         : 0;
 
     if (openingCashRow) {
@@ -2427,7 +2669,13 @@ if (closingCashRow) {
       cashFlowRows: rows,
       checks,
     };
-  }, [baseStatementEngine, structuredNotesState, statementOverrides]);
+  }, [
+    baseStatementEngine,
+    structuredNotesState,
+    effectiveStatementOverrides,
+    trialBalanceHistory,
+    historicalCashFlowData,
+  ]);
 
   const flightDeckIssues = useMemo(
     () => buildAfsFlightDeckIssuesFromEngine(statementEngine),
@@ -3979,7 +4227,7 @@ return Math.max(
 
                     <AfsStatementOverrideSettings
                       mode="cashFlow"
-                      overrides={statementOverrides}
+                      overrides={effectiveStatementOverrides}
                       onChange={updateStatementOverride}
                       engineChecks={engineChecks}
                     />
