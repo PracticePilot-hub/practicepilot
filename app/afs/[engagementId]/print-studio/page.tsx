@@ -2697,26 +2697,72 @@ if (closingCashRow) {
       effectiveStatementOverrides.cashFlowMethod || "indirect";
 
     if (cashFlowMethod === "direct") {
-      const directReceiptsCurrent = Number(
-        effectiveStatementOverrides.cashReceiptsCustomersCurrent || 0,
-      );
-      const directReceiptsPrior = Number(
-        effectiveStatementOverrides.cashReceiptsCustomersPrior || 0,
-      );
-
-      const directPaymentsCurrent = Number(
-        effectiveStatementOverrides.cashPaymentsSuppliersEmployeesCurrent || 0,
-      );
-      const directPaymentsPrior = Number(
-        effectiveStatementOverrides.cashPaymentsSuppliersEmployeesPrior || 0,
+      const revenueCurrent = (
+        baseStatementEngine.noteData.revenue || []
+      ).reduce(
+        (sum: number, line: any) =>
+          sum + Number(line.current || 0),
+        0,
       );
 
-      const directOtherOperatingCurrent = Number(
-        effectiveStatementOverrides.cashOtherDirectOperatingCurrent || 0,
+      const revenuePrior = (
+        baseStatementEngine.noteData.revenue || []
+      ).reduce(
+        (sum: number, line: any) =>
+          sum + Number(line.prior || 0),
+        0,
       );
-      const directOtherOperatingPrior = Number(
-        effectiveStatementOverrides.cashOtherDirectOperatingPrior || 0,
+
+      const otherIncomeCurrent = (
+        baseStatementEngine.noteData.otherIncome || []
+      ).reduce(
+        (sum: number, line: any) =>
+          sum + Number(line.current || 0),
+        0,
       );
+
+      const otherIncomePrior = (
+        baseStatementEngine.noteData.otherIncome || []
+      ).reduce(
+        (sum: number, line: any) =>
+          sum + Number(line.prior || 0),
+        0,
+      );
+
+      /*
+        Direct method derived from the mapped TB:
+
+        Cash receipts from customers =
+          revenue + decrease / (increase) in receivables.
+
+        Other operating receipts =
+          mapped other income.
+
+        Cash paid to suppliers and employees is the balancing
+        operating cash amount required to agree to the indirect
+        cash-generated-from-operations calculation.
+      */
+      const directReceiptsCurrent =
+        revenueCurrent + receivablesCurrent;
+
+      const directReceiptsPrior =
+        revenuePrior + receivablesPrior;
+
+      const directOtherOperatingCurrent =
+        otherIncomeCurrent;
+
+      const directOtherOperatingPrior =
+        otherIncomePrior;
+
+      const directPaymentsCurrent =
+        generatedCurrent -
+        directReceiptsCurrent -
+        directOtherOperatingCurrent;
+
+      const directPaymentsPrior =
+        generatedPrior -
+        directReceiptsPrior -
+        directOtherOperatingPrior;
 
       const directNetOperatingCurrent =
         directReceiptsCurrent +

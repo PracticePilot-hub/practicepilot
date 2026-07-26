@@ -394,31 +394,24 @@ export default function AfsStatementOverrideSettings({
                 />
               </>
             ) : (
-              <>
-                <CashField
-                  label="Cash receipts from customers"
-                  currentKey="cashReceiptsCustomersCurrent"
-                  priorKey="cashReceiptsCustomersPrior"
-                  overrides={overrides}
-                  onChange={onChange}
-                />
-
-                <CashField
-                  label="Cash paid to suppliers and employees"
-                  currentKey="cashPaymentsSuppliersEmployeesCurrent"
-                  priorKey="cashPaymentsSuppliersEmployeesPrior"
-                  overrides={overrides}
-                  onChange={onChange}
-                />
-
-                <CashField
-                  label="Other direct operating cash flows"
-                  currentKey="cashOtherDirectOperatingCurrent"
-                  priorKey="cashOtherDirectOperatingPrior"
-                  overrides={overrides}
-                  onChange={onChange}
-                />
-              </>
+              <div
+                style={{
+                  border: "1px solid #bfdbfe",
+                  background: "#eff6ff",
+                  color: "#1e3a8a",
+                  padding: "8px",
+                  fontSize: 9,
+                  lineHeight: 1.4,
+                }}
+              >
+                <strong>Direct method calculated automatically</strong>
+                <div style={{ marginTop: 4 }}>
+                  Cash receipts, cash paid to suppliers and employees,
+                  and other operating receipts are derived from the mapped
+                  trial balance, working-capital movements and the Cash
+                  generated from operations note.
+                </div>
+              </div>
             )}
             <CashField
               label="Interest received"
