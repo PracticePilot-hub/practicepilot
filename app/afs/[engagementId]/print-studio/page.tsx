@@ -2503,8 +2503,53 @@ export default function AfsPrintStudioPage() {
     const generatedRow = findById("cfs-cash-generated-operations") || findByLabel(["cash generated", "operations"]);
     const otherOperatingRow = findById("cfs-other-operating") || findByLabel(["other operating cash flows"]);
     const netOperatingRow = findById("cfs-net-operating") || findByLabel(["net cash", "operating activities"]);
-    const netInvestingRow = findById("cfs-net-investing") || findByLabel(["net cash", "investing activities"]);
-    const netFinancingRow = findById("cfs-net-financing") || findByLabel(["net cash", "financing activities"]);
+    const purchasePpeRow =
+      findById("cfs-purchase-ppe") ||
+      findByLabel(["purchase", "property", "plant", "equipment"]);
+
+    const disposalPpeRow =
+      findById("cfs-disposal-ppe") ||
+      findByLabel(["proceeds", "disposal", "property", "plant", "equipment"]);
+
+    const otherInvestingRow =
+      findById("cfs-other-investing") ||
+      findByLabel(["other investing cash flows"]);
+
+    const netInvestingRow =
+      findById("cfs-net-investing") ||
+      findByLabel(["net cash", "investing activities"]);
+
+    const netFinancingRow =
+      findById("cfs-net-financing") ||
+      findByLabel(["net cash", "financing activities"]);
+
+    const ppeAdditionsFromNote = (side: "current" | "prior") => {
+      const ppeInputs = structuredNotesState?.ppeInputs || {};
+
+      return Object.values(ppeInputs).reduce(
+        (sum: number, item: any) =>
+          sum + Number(item?.[side]?.additions || 0),
+        0,
+      );
+    };
+
+    const ppeAdditionsCurrent = ppeAdditionsFromNote("current");
+    const ppeAdditionsPrior = ppeAdditionsFromNote("prior");
+
+    const purchasePpeCurrent =
+      ppeAdditionsCurrent !== 0
+        ? -Math.abs(ppeAdditionsCurrent)
+        : Number(purchasePpeRow?.current || 0);
+
+    const purchasePpePrior =
+      ppeAdditionsPrior !== 0
+        ? -Math.abs(ppeAdditionsPrior)
+        : Number(purchasePpeRow?.prior || 0);
+
+    if (purchasePpeRow) {
+      purchasePpeRow.current = Math.round(purchasePpeCurrent);
+      purchasePpeRow.prior = Math.round(purchasePpePrior);
+    }
     const netMovementRow = findById("cfs-net-movement") || findByLabel(["net increase"]);
     const openingCashRow = findById("cfs-opening-cash") || findByLabel(["cash and cash equivalents at beginning"]);
     const closingCashRow = findById("cfs-closing-cash") || findByLabel(["cash and cash equivalents at end"]);
@@ -2610,8 +2655,30 @@ export default function AfsPrintStudioPage() {
       netOperatingRow.prior = Math.round(netOperatingPrior);
     }
 
-    const netMovementCurrent = netOperatingCurrent + Number(netInvestingRow?.current || 0) + Number(netFinancingRow?.current || 0);
-    const netMovementPrior = netOperatingPrior + Number(netInvestingRow?.prior || 0) + Number(netFinancingRow?.prior || 0);
+    const netInvestingCurrent =
+      purchasePpeCurrent +
+      Number(disposalPpeRow?.current || 0) +
+      Number(otherInvestingRow?.current || 0);
+
+    const netInvestingPrior =
+      purchasePpePrior +
+      Number(disposalPpeRow?.prior || 0) +
+      Number(otherInvestingRow?.prior || 0);
+
+    if (netInvestingRow) {
+      netInvestingRow.current = Math.round(netInvestingCurrent);
+      netInvestingRow.prior = Math.round(netInvestingPrior);
+    }
+
+    const netMovementCurrent =
+      netOperatingCurrent +
+      netInvestingCurrent +
+      Number(netFinancingRow?.current || 0);
+
+    const netMovementPrior =
+      netOperatingPrior +
+      netInvestingPrior +
+      Number(netFinancingRow?.prior || 0);
 
     if (netMovementRow) {
       netMovementRow.current = Math.round(netMovementCurrent);

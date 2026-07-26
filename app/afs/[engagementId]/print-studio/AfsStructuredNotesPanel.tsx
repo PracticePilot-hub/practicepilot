@@ -939,6 +939,7 @@ function PpeStructuredNote({
   update: (path: string[], value: any) => void;
 }) {
   const [tab, setTab] = useState<PpeTab>("summary");
+  const { currentHeading, priorHeading } = useNotesDisplay();
   const workingRows = resolvedPpeRows(rows, state);
   const populatedRows = workingRows.filter(
     (row) =>
@@ -988,25 +989,25 @@ function PpeStructuredNote({
               active={tab === "current-cost"}
               onClick={() => setTab("current-cost")}
             >
-              2024 cost
+              {currentHeading} cost
             </TabButton>
             <TabButton
               active={tab === "current-dep"}
               onClick={() => setTab("current-dep")}
             >
-              2024 dep.
+              {currentHeading} dep.
             </TabButton>
             <TabButton
               active={tab === "prior-cost"}
               onClick={() => setTab("prior-cost")}
             >
-              2023 cost
+              {priorHeading} cost
             </TabButton>
             <TabButton
               active={tab === "prior-dep"}
               onClick={() => setTab("prior-dep")}
             >
-              2023 dep.
+              {priorHeading} dep.
             </TabButton>
             <TabButton
               active={tab === "disclosures"}
@@ -1024,7 +1025,7 @@ function PpeStructuredNote({
               movements={COST_MOVEMENTS}
               state={state}
               update={update}
-              title="Cost / valuation reconciliation - 2024"
+              title={`Cost / valuation reconciliation - ${currentHeading}`}
               totalGetter={closingCost}
             />
           ) : null}
@@ -1035,7 +1036,7 @@ function PpeStructuredNote({
               movements={ACC_DEP_MOVEMENTS}
               state={state}
               update={update}
-              title="Accumulated depreciation / impairment - 2024"
+              title={`Accumulated depreciation / impairment - ${currentHeading}`}
               totalGetter={closingAccumulatedDepreciation}
             />
           ) : null}
@@ -1046,7 +1047,7 @@ function PpeStructuredNote({
               movements={COST_MOVEMENTS}
               state={state}
               update={update}
-              title="Cost / valuation reconciliation - 2023"
+              title={`Cost / valuation reconciliation - ${priorHeading}`}
               totalGetter={closingCost}
             />
           ) : null}
@@ -1057,7 +1058,7 @@ function PpeStructuredNote({
               movements={ACC_DEP_MOVEMENTS}
               state={state}
               update={update}
-              title="Accumulated depreciation / impairment - 2023"
+              title={`Accumulated depreciation / impairment - ${priorHeading}`}
               totalGetter={closingAccumulatedDepreciation}
             />
           ) : null}
@@ -1094,12 +1095,12 @@ function PpeStructuredNote({
           <PpeFinancialMovementTable
             rows={populatedRows}
             year="current"
-            title="Reconciliation of property, plant and equipment - 2024"
+            title={`Reconciliation of property, plant and equipment - ${currentHeading}`}
           />
           <PpeFinancialMovementTable
             rows={populatedRows}
             year="prior"
-            title="Reconciliation of property, plant and equipment - 2023"
+            title={`Reconciliation of property, plant and equipment - ${priorHeading}`}
           />
           <EditableTextBlock
             label="Pledged as security"
@@ -1146,22 +1147,35 @@ function TabButton({
 }
 
 function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
+  const { currentHeading, priorHeading } = useNotesDisplay();
+
   return (
-    <table style={styles.table}>
+    <div style={styles.matrixScroll}>
+      <table
+        style={{
+          ...styles.table,
+          minWidth: 760,
+          tableLayout: "fixed",
+        }}
+      >
       <colgroup>
-        <col style={{ width: "auto" }} />
-        <col style={{ width: 76 }} />
-        <col style={{ width: 76 }} />
+        <col style={{ width: 190 }} />
+        <col style={{ width: 82 }} />
+        <col style={{ width: 88 }} />
+        <col style={{ width: 88 }} />
+        <col style={{ width: 82 }} />
+        <col style={{ width: 88 }} />
+        <col style={{ width: 88 }} />
       </colgroup>
       <thead>
         <tr>
           <th style={styles.thLeft}>Class</th>
-          <th style={styles.thRight}>2024 cost</th>
-          <th style={styles.thRight}>2024 acc. dep</th>
-          <th style={styles.thRight}>2024 carrying</th>
-          <th style={styles.thRight}>2023 cost</th>
-          <th style={styles.thRight}>2023 acc. dep</th>
-          <th style={styles.thRight}>2023 carrying</th>
+          <th style={styles.thRight}>{currentHeading} cost</th>
+          <th style={styles.thRight}>{currentHeading} acc. dep.</th>
+          <th style={styles.thRight}>{currentHeading} carrying</th>
+          <th style={styles.thRight}>{priorHeading} cost</th>
+          <th style={styles.thRight}>{priorHeading} acc. dep.</th>
+          <th style={styles.thRight}>{priorHeading} carrying</th>
         </tr>
       </thead>
       <tbody>
@@ -1208,7 +1222,8 @@ function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
           </td>
         </tr>
       </tbody>
-    </table>
+      </table>
+    </div>
   );
 }
 
@@ -1231,7 +1246,13 @@ function PpeMovementEditor({
 }) {
   return (
     <div style={styles.matrixScroll}>
-      <table style={styles.table}>
+      <table
+        style={{
+          ...styles.table,
+          minWidth: 860,
+          tableLayout: "fixed",
+        }}
+      >
         <thead>
           <tr>
             <th style={styles.thLeft}>{title}</th>
@@ -1246,7 +1267,19 @@ function PpeMovementEditor({
         <tbody>
           {rows.map((row) => (
             <tr key={`${year}-${row.key}`}>
-              <td style={styles.tdLeft}>{displayNoteLineLabel(row.label)}</td>
+              <td
+                style={{
+                  ...styles.tdLeft,
+                  width: 190,
+                  minWidth: 190,
+                  whiteSpace: "normal",
+                  wordBreak: "normal",
+                  overflowWrap: "normal",
+                  lineHeight: 1.2,
+                }}
+              >
+                {displayNoteLineLabel(row.label)}
+              </td>
               {movements.map((movement) => (
                 <PpeInput
                   key={movement.key}
