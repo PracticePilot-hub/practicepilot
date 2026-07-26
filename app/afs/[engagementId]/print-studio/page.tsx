@@ -1638,13 +1638,38 @@ export default function AfsPrintStudioPage() {
           }
         }
 
-        if (
-          savedStatementOverrides &&
-          typeof savedStatementOverrides === "object" &&
-          Object.keys(savedStatementOverrides).length > 0
-        ) {
-          setStatementOverrides(savedStatementOverrides);
+        const localStatementOverridesKey =
+          `practicepilot-afs-print-studio:${engagementId}:statement-overrides`;
+
+        let localStatementOverrides: Record<string, any> = {};
+
+        try {
+          const rawLocalStatementOverrides =
+            window.localStorage.getItem(localStatementOverridesKey);
+
+          localStatementOverrides = rawLocalStatementOverrides
+            ? JSON.parse(rawLocalStatementOverrides)
+            : {};
+        } catch {
+          localStatementOverrides = {};
         }
+
+        const mergedStatementOverrides = {
+          ...(savedStatementOverrides &&
+          typeof savedStatementOverrides === "object"
+            ? savedStatementOverrides
+            : {}),
+          ...localStatementOverrides,
+        };
+
+        if (
+          mergedStatementOverrides.cashFlowMethod !== "direct" &&
+          mergedStatementOverrides.cashFlowMethod !== "indirect"
+        ) {
+          mergedStatementOverrides.cashFlowMethod = "indirect";
+        }
+
+        setStatementOverrides(mergedStatementOverrides);
 
         if (
           savedStructuredNotesState &&
@@ -2697,78 +2722,103 @@ if (closingCashRow) {
       effectiveStatementOverrides.cashFlowMethod || "indirect";
 
     if (cashFlowMethod === "direct") {
-      const detailedAmount = (
-        id: string,
+      const noteTotal = (
+        lines: any[] | undefined,
         side: "current" | "prior",
-      ) => {
-        const row = (
-          baseStatementEngine.detailedIncomeRows || []
-        ).find(
-          (item: any) => String(item?.id || "") === id,
+      ) =>
+        (lines || []).reduce(
+          (sum: number, line: any) =>
+            sum + Number(line?.[side] || 0),
+          0,
         );
 
-        return Number(row?.[side] || 0);
-      };
+      const mappedRawTotal = (
+        requiredTerms: string[],
+        side: "current" | "prior",
+      ) =>
+        (trialBalanceLines || [])
+          .filter((line) => {
+            const mappingText = lineSearchText(line);
 
-      const revenueCurrent = detailedAmount(
-        "revenue-total",
+            return requiredTerms.every((term) =>
+              mappingText.includes(term),
+            );
+          })
+          .reduce(
+            (sum, line) =>
+              sum +
+              (side === "current"
+                ? rawCurrent(line)
+                : rawPrior(line)),
+            0,
+          );
+
+      const revenueCurrent = noteTotal(
+        baseStatementEngine.noteData.revenue,
         "current",
       );
-      const revenuePrior = detailedAmount(
-        "revenue-total",
+
+      const revenuePrior = noteTotal(
+        baseStatementEngine.noteData.revenue,
         "prior",
       );
 
-      const costOfSalesCurrent = detailedAmount(
-        "cost-of-sales-total",
+      const otherIncomeCurrent = noteTotal(
+        baseStatementEngine.noteData.otherIncome,
         "current",
       );
-      const costOfSalesPrior = detailedAmount(
-        "cost-of-sales-total",
+
+      const otherIncomePrior = noteTotal(
+        baseStatementEngine.noteData.otherIncome,
         "prior",
       );
 
-      const operatingExpensesCurrent = detailedAmount(
-        "operating-expenses-total",
-        "current",
-      );
-      const operatingExpensesPrior = detailedAmount(
-        "operating-expenses-total",
-        "prior",
+      const financeCostsCurrent = Math.abs(
+        noteTotal(
+          baseStatementEngine.noteData.financeCosts,
+          "current",
+        ),
       );
 
-      const otherIncomeCurrent = detailedAmount(
-        "other-income-total",
-        "current",
-      );
-      const otherIncomePrior = detailedAmount(
-        "other-income-total",
-        "prior",
+      const financeCostsPrior = Math.abs(
+        noteTotal(
+          baseStatementEngine.noteData.financeCosts,
+          "prior",
+        ),
       );
 
-      const financeCostsCurrent = detailedAmount(
-        "finance-costs-total",
-        "current",
-      );
-      const financeCostsPrior = detailedAmount(
-        "finance-costs-total",
-        "prior",
-      );
+      const profitBeforeTaxCurrent =
+        Number(profitRow?.current || 0);
+
+      const profitBeforeTaxPrior =
+        Number(profitRow?.prior || 0);
 
       /*
-        DIRECT METHOD
+        Profit before tax =
+          revenue
+          + other income
+          - cost of sales
+          - operating expenses
+          - finance costs
 
-        Cash receipts from customers:
-        Revenue plus the decrease / increase in trade receivables.
-
-        Cash paid to suppliers and employees:
-        Cost of sales and operating expenses, adjusted for inventory,
-        trade payables and operating non-cash expenses.
-
-        Other direct operating cash flows:
-        Other income and finance costs remaining after the corresponding
-        indirect-method reclassification adjustments.
+        Therefore cost of sales plus operating expenses =
+          profit before tax
+          - revenue
+          - other income
+          + finance costs
       */
+      const tradingAndOperatingExpensesCurrent =
+        profitBeforeTaxCurrent -
+        revenueCurrent -
+        otherIncomeCurrent +
+        financeCostsCurrent;
+
+      const tradingAndOperatingExpensesPrior =
+        profitBeforeTaxPrior -
+        revenuePrior -
+        otherIncomePrior +
+        financeCostsPrior;
+
       const operatingNonCashAdjustmentCurrent =
         storedAmount("adjustments", "current", 0) +
         storedAmount(
@@ -2809,6 +2859,18 @@ if (closingCashRow) {
         storedAmount("movementProvisions", "prior", 0) +
         storedAmount("otherNonCash1", "prior", 0);
 
+      /*
+        Direct Method:
+
+        Cash receipts from customers
+        = revenue + decrease / (increase) in receivables
+
+        Cash paid to suppliers and employees
+        = cost of sales and operating expenses
+          + non-cash adjustments
+          + inventory movement
+          + payables movement
+      */
       const directReceiptsCurrent =
         revenueCurrent + receivablesCurrent;
 
@@ -2816,37 +2878,99 @@ if (closingCashRow) {
         revenuePrior + receivablesPrior;
 
       const directPaymentsCurrent =
-        costOfSalesCurrent +
-        operatingExpensesCurrent +
+        tradingAndOperatingExpensesCurrent +
+        operatingNonCashAdjustmentCurrent +
         inventoryCurrent +
-        payablesCurrent +
-        operatingNonCashAdjustmentCurrent;
+        payablesCurrent;
 
       const directPaymentsPrior =
-        costOfSalesPrior +
-        operatingExpensesPrior +
+        tradingAndOperatingExpensesPrior +
+        operatingNonCashAdjustmentPrior +
         inventoryPrior +
-        payablesPrior +
-        operatingNonCashAdjustmentPrior;
+        payablesPrior;
+
+      const mappedInterestReceivedCurrent =
+        -mappedRawTotal(
+          ["interest received"],
+          "current",
+        );
+
+      const mappedInterestReceivedPrior =
+        -mappedRawTotal(
+          ["interest received"],
+          "prior",
+        );
+
+      const mappedFinanceCostsPaidCurrent =
+        -Math.abs(
+          mappedRawTotal(
+            ["interest paid"],
+            "current",
+          ),
+        );
+
+      const mappedFinanceCostsPaidPrior =
+        -Math.abs(
+          mappedRawTotal(
+            ["interest paid"],
+            "prior",
+          ),
+        );
+
+      const directInterestReceivedCurrent =
+        effectiveStatementOverrides.cashInterestReceivedCurrent !==
+          null &&
+        effectiveStatementOverrides.cashInterestReceivedCurrent !==
+          undefined
+          ? Number(
+              effectiveStatementOverrides.cashInterestReceivedCurrent,
+            )
+          : mappedInterestReceivedCurrent;
+
+      const directInterestReceivedPrior =
+        effectiveStatementOverrides.cashInterestReceivedPrior !==
+          null &&
+        effectiveStatementOverrides.cashInterestReceivedPrior !==
+          undefined
+          ? Number(
+              effectiveStatementOverrides.cashInterestReceivedPrior,
+            )
+          : mappedInterestReceivedPrior;
+
+      const directFinanceCostsPaidCurrent =
+        effectiveStatementOverrides.cashFinanceCostsPaidCurrent !==
+          null &&
+        effectiveStatementOverrides.cashFinanceCostsPaidCurrent !==
+          undefined
+          ? Number(
+              effectiveStatementOverrides.cashFinanceCostsPaidCurrent,
+            )
+          : mappedFinanceCostsPaidCurrent;
+
+      const directFinanceCostsPaidPrior =
+        effectiveStatementOverrides.cashFinanceCostsPaidPrior !==
+          null &&
+        effectiveStatementOverrides.cashFinanceCostsPaidPrior !==
+          undefined
+          ? Number(
+              effectiveStatementOverrides.cashFinanceCostsPaidPrior,
+            )
+          : mappedFinanceCostsPaidPrior;
 
       const directOtherOperatingCurrent =
-        otherIncomeCurrent +
-        storedAmount("investmentIncome", "current", 0) +
-        financeCostsCurrent +
-        storedAmount("financeCosts", "current", 0);
+        otherIncomeCurrent -
+        directInterestReceivedCurrent;
 
       const directOtherOperatingPrior =
-        otherIncomePrior +
-        storedAmount("investmentIncome", "prior", 0) +
-        financeCostsPrior +
-        storedAmount("financeCosts", "prior", 0);
+        otherIncomePrior -
+        directInterestReceivedPrior;
 
       const directNetOperatingCurrent =
         directReceiptsCurrent +
         directPaymentsCurrent +
         directOtherOperatingCurrent +
-        Number(effectiveStatementOverrides.cashInterestReceivedCurrent || 0) +
-        Number(effectiveStatementOverrides.cashFinanceCostsPaidCurrent || 0) +
+        directInterestReceivedCurrent +
+        directFinanceCostsPaidCurrent +
         Number(effectiveStatementOverrides.cashTaxPaidCurrent || 0) +
         otherOperatingCurrent;
 
@@ -2854,8 +2978,8 @@ if (closingCashRow) {
         directReceiptsPrior +
         directPaymentsPrior +
         directOtherOperatingPrior +
-        Number(effectiveStatementOverrides.cashInterestReceivedPrior || 0) +
-        Number(effectiveStatementOverrides.cashFinanceCostsPaidPrior || 0) +
+        directInterestReceivedPrior +
+        directFinanceCostsPaidPrior +
         Number(effectiveStatementOverrides.cashTaxPaidPrior || 0) +
         otherOperatingPrior;
 
@@ -2915,6 +3039,34 @@ if (closingCashRow) {
           type: "line",
         },
       );
+
+      const directInterestReceivedRow = directRows.find(
+        (row: any) =>
+          String(row?.id || "") === "cfs-interest-received",
+      );
+
+      const directFinanceCostsPaidRow = directRows.find(
+        (row: any) =>
+          String(row?.id || "") === "cfs-finance-costs-paid",
+      );
+
+      if (directInterestReceivedRow) {
+        directInterestReceivedRow.current = Math.round(
+          directInterestReceivedCurrent,
+        );
+        directInterestReceivedRow.prior = Math.round(
+          directInterestReceivedPrior,
+        );
+      }
+
+      if (directFinanceCostsPaidRow) {
+        directFinanceCostsPaidRow.current = Math.round(
+          directFinanceCostsPaidCurrent,
+        );
+        directFinanceCostsPaidRow.prior = Math.round(
+          directFinanceCostsPaidPrior,
+        );
+      }
 
       const directNetOperatingRow = directRows.find(
         (row: any) => String(row?.id || "") === "cfs-net-operating",
