@@ -379,6 +379,21 @@ function canonicalFromMapping(line: AfsEngineTrialBalanceLine): CanonicalBucket 
   */
 
   if (mappingStartsWith(line, ["700"])) {
+    const currentAmount = rawCurrent(line);
+    const priorAmount = rawPrior(line);
+
+    const isDebitNatureRevenueAccount =
+      currentAmount > 0.005 ||
+      (Math.abs(currentAmount) < 0.005 && priorAmount > 0.005);
+
+    if (isDebitNatureRevenueAccount) {
+      return {
+        statement: "profitLoss",
+        noteKey: "operatingExpenses",
+        plGroup: "operatingExpenses",
+      };
+    }
+
     return {
       statement: "profitLoss",
       noteKey: "revenue",
