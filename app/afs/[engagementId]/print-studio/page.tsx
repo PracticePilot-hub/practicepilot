@@ -2897,11 +2897,15 @@ if (closingCashRow) {
       const directReceivablesMovementPrior =
         historicalCashFlowData.receivablesPrior;
 
+      /*
+        Customer receipts use the working-capital movement already
+        controlled by the Cash generated from operations note.
+      */
       const directReceiptsCurrent =
-        revenueCurrent + directReceivablesMovementCurrent;
+        revenueCurrent + receivablesCurrent;
 
       const directReceiptsPrior =
-        revenuePrior + directReceivablesMovementPrior;
+        revenuePrior + receivablesPrior;
 
       /*
         Cash paid to suppliers and employees is derived from the completed
@@ -2917,87 +2921,39 @@ if (closingCashRow) {
       const directPaymentsPrior =
         generatedPrior - directReceiptsPrior;
 
-      const mappedInterestReceivedCurrent =
-        -mappedRawTotal(
-          ["interest received"],
-          "current",
-        );
-
-      const mappedInterestReceivedPrior =
-        -mappedRawTotal(
-          ["interest received"],
-          "prior",
-        );
-
-      const mappedFinanceCostsPaidCurrent =
-        -Math.abs(
-          mappedRawTotal(
-            ["interest paid"],
-            "current",
-          ),
-        );
-
-      const mappedFinanceCostsPaidPrior =
-        -Math.abs(
-          mappedRawTotal(
-            ["interest paid"],
-            "prior",
-          ),
-        );
-
-      const directInterestReceivedCurrent =
-        effectiveStatementOverrides.cashInterestReceivedCurrent !==
-          null &&
-        effectiveStatementOverrides.cashInterestReceivedCurrent !==
-          undefined
-          ? Number(
-              effectiveStatementOverrides.cashInterestReceivedCurrent,
-            )
-          : mappedInterestReceivedCurrent;
-
-      const directInterestReceivedPrior =
-        effectiveStatementOverrides.cashInterestReceivedPrior !==
-          null &&
-        effectiveStatementOverrides.cashInterestReceivedPrior !==
-          undefined
-          ? Number(
-              effectiveStatementOverrides.cashInterestReceivedPrior,
-            )
-          : mappedInterestReceivedPrior;
+      /*
+        The signed AFS presents net finance costs as Interest paid.
+        Interest received is therefore not shown separately in the
+        direct-method cash flow.
+      */
+      const directInterestReceivedCurrent = 0;
+      const directInterestReceivedPrior = 0;
 
       const directFinanceCostsPaidCurrent =
-        effectiveStatementOverrides.cashFinanceCostsPaidCurrent !==
-          null &&
-        effectiveStatementOverrides.cashFinanceCostsPaidCurrent !==
-          undefined
-          ? Number(
-              effectiveStatementOverrides.cashFinanceCostsPaidCurrent,
-            )
-          : mappedFinanceCostsPaidCurrent;
+        -Math.abs(
+          storedAmount(
+            "financeCosts",
+            "current",
+            financeCostsCurrent,
+          ),
+        );
 
       const directFinanceCostsPaidPrior =
-        effectiveStatementOverrides.cashFinanceCostsPaidPrior !==
-          null &&
-        effectiveStatementOverrides.cashFinanceCostsPaidPrior !==
-          undefined
-          ? Number(
-              effectiveStatementOverrides.cashFinanceCostsPaidPrior,
-            )
-          : mappedFinanceCostsPaidPrior;
+        -Math.abs(
+          storedAmount(
+            "financeCosts",
+            "prior",
+            financeCostsPrior,
+          ),
+        );
 
-      const directOtherOperatingCurrent =
-        otherIncomeCurrent -
-        directInterestReceivedCurrent;
-
-      const directOtherOperatingPrior =
-        otherIncomePrior -
-        directInterestReceivedPrior;
+      const directOtherOperatingCurrent = 0;
+      const directOtherOperatingPrior = 0;
 
       const directNetOperatingCurrent =
         directReceiptsCurrent +
         directPaymentsCurrent +
         directOtherOperatingCurrent +
-        directInterestReceivedCurrent +
         directFinanceCostsPaidCurrent +
         Number(effectiveStatementOverrides.cashTaxPaidCurrent || 0) +
         otherOperatingCurrent;
@@ -3006,7 +2962,6 @@ if (closingCashRow) {
         directReceiptsPrior +
         directPaymentsPrior +
         directOtherOperatingPrior +
-        directInterestReceivedPrior +
         directFinanceCostsPaidPrior +
         Number(effectiveStatementOverrides.cashTaxPaidPrior || 0) +
         otherOperatingPrior;
