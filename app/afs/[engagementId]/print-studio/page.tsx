@@ -2697,72 +2697,149 @@ if (closingCashRow) {
       effectiveStatementOverrides.cashFlowMethod || "indirect";
 
     if (cashFlowMethod === "direct") {
-      const revenueCurrent = (
-        baseStatementEngine.noteData.revenue || []
-      ).reduce(
-        (sum: number, line: any) =>
-          sum + Number(line.current || 0),
-        0,
+      const detailedAmount = (
+        id: string,
+        side: "current" | "prior",
+      ) => {
+        const row = (
+          baseStatementEngine.detailedIncomeRows || []
+        ).find(
+          (item: any) => String(item?.id || "") === id,
+        );
+
+        return Number(row?.[side] || 0);
+      };
+
+      const revenueCurrent = detailedAmount(
+        "revenue-total",
+        "current",
+      );
+      const revenuePrior = detailedAmount(
+        "revenue-total",
+        "prior",
       );
 
-      const revenuePrior = (
-        baseStatementEngine.noteData.revenue || []
-      ).reduce(
-        (sum: number, line: any) =>
-          sum + Number(line.prior || 0),
-        0,
+      const costOfSalesCurrent = detailedAmount(
+        "cost-of-sales-total",
+        "current",
+      );
+      const costOfSalesPrior = detailedAmount(
+        "cost-of-sales-total",
+        "prior",
       );
 
-      const otherIncomeCurrent = (
-        baseStatementEngine.noteData.otherIncome || []
-      ).reduce(
-        (sum: number, line: any) =>
-          sum + Number(line.current || 0),
-        0,
+      const operatingExpensesCurrent = detailedAmount(
+        "operating-expenses-total",
+        "current",
+      );
+      const operatingExpensesPrior = detailedAmount(
+        "operating-expenses-total",
+        "prior",
       );
 
-      const otherIncomePrior = (
-        baseStatementEngine.noteData.otherIncome || []
-      ).reduce(
-        (sum: number, line: any) =>
-          sum + Number(line.prior || 0),
-        0,
+      const otherIncomeCurrent = detailedAmount(
+        "other-income-total",
+        "current",
+      );
+      const otherIncomePrior = detailedAmount(
+        "other-income-total",
+        "prior",
+      );
+
+      const financeCostsCurrent = detailedAmount(
+        "finance-costs-total",
+        "current",
+      );
+      const financeCostsPrior = detailedAmount(
+        "finance-costs-total",
+        "prior",
       );
 
       /*
-        Direct method derived from the mapped TB:
+        DIRECT METHOD
 
-        Cash receipts from customers =
-          revenue + decrease / (increase) in receivables.
+        Cash receipts from customers:
+        Revenue plus the decrease / increase in trade receivables.
 
-        Other operating receipts =
-          mapped other income.
+        Cash paid to suppliers and employees:
+        Cost of sales and operating expenses, adjusted for inventory,
+        trade payables and operating non-cash expenses.
 
-        Cash paid to suppliers and employees is the balancing
-        operating cash amount required to agree to the indirect
-        cash-generated-from-operations calculation.
+        Other direct operating cash flows:
+        Other income and finance costs remaining after the corresponding
+        indirect-method reclassification adjustments.
       */
+      const operatingNonCashAdjustmentCurrent =
+        storedAmount("adjustments", "current", 0) +
+        storedAmount(
+          "depreciationAmortisationImpairment",
+          "current",
+          0,
+        ) +
+        storedAmount(
+          "lossOnSaleAssetsLiabilities",
+          "current",
+          0,
+        ) +
+        storedAmount(
+          "fairValueGainsLosses",
+          "current",
+          0,
+        ) +
+        storedAmount("movementProvisions", "current", 0) +
+        storedAmount("otherNonCash1", "current", 0);
+
+      const operatingNonCashAdjustmentPrior =
+        storedAmount("adjustments", "prior", 0) +
+        storedAmount(
+          "depreciationAmortisationImpairment",
+          "prior",
+          0,
+        ) +
+        storedAmount(
+          "lossOnSaleAssetsLiabilities",
+          "prior",
+          0,
+        ) +
+        storedAmount(
+          "fairValueGainsLosses",
+          "prior",
+          0,
+        ) +
+        storedAmount("movementProvisions", "prior", 0) +
+        storedAmount("otherNonCash1", "prior", 0);
+
       const directReceiptsCurrent =
         revenueCurrent + receivablesCurrent;
 
       const directReceiptsPrior =
         revenuePrior + receivablesPrior;
 
-      const directOtherOperatingCurrent =
-        otherIncomeCurrent;
-
-      const directOtherOperatingPrior =
-        otherIncomePrior;
-
       const directPaymentsCurrent =
-        generatedCurrent -
-        directReceiptsCurrent -
-        directOtherOperatingCurrent;
+        costOfSalesCurrent +
+        operatingExpensesCurrent +
+        inventoryCurrent +
+        payablesCurrent +
+        operatingNonCashAdjustmentCurrent;
 
       const directPaymentsPrior =
-        generatedPrior -
-        directReceiptsPrior -
-        directOtherOperatingPrior;
+        costOfSalesPrior +
+        operatingExpensesPrior +
+        inventoryPrior +
+        payablesPrior +
+        operatingNonCashAdjustmentPrior;
+
+      const directOtherOperatingCurrent =
+        otherIncomeCurrent +
+        storedAmount("investmentIncome", "current", 0) +
+        financeCostsCurrent +
+        storedAmount("financeCosts", "current", 0);
+
+      const directOtherOperatingPrior =
+        otherIncomePrior +
+        storedAmount("investmentIncome", "prior", 0) +
+        financeCostsPrior +
+        storedAmount("financeCosts", "prior", 0);
 
       const directNetOperatingCurrent =
         directReceiptsCurrent +
