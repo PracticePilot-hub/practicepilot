@@ -672,6 +672,245 @@ function addToBucket(
   bucket.prior += normaliseAmount(line, rawPrior(line), canonical);
 }
 
+function addPeriodAmountToBucket(
+  buckets: Map<string, StatementBucket>,
+  key: string,
+  label: string,
+  note: string | number | null,
+  side: "current" | "prior",
+  amount: number
+) {
+  if (Math.abs(amount) < 0.005) return;
+
+  if (!buckets.has(key)) {
+    buckets.set(key, {
+      key,
+      label,
+      note,
+      current: 0,
+      prior: 0,
+    });
+  }
+
+  const bucket = buckets.get(key);
+  if (!bucket) return;
+
+  bucket[side] += amount;
+}
+
+function isCashOrBankLine(line: AfsEngineTrialBalanceLine) {
+  return (
+    mappingStartsWith(line, ["420", "620"]) ||
+    includesAny(mappingText(line), [
+      "cash and cash equivalents",
+      "cash equivalents",
+      "bank overdraft",
+      "bank overdrafts",
+      "bank and cash",
+    ])
+  );
+}
+
+function isShareholderLoanLine(line: AfsEngineTrialBalanceLine) {
+  return (
+    mappingStartsWith(line, ["548", "500.548"]) ||
+    includesAny(mappingText(line), [
+      "shareholder loan",
+      "shareholders loan",
+      "shareholders' loan",
+      "loan from shareholder",
+      "loans from shareholders",
+      "director loan",
+      "member loan",
+    ])
+  );
+}
+
+function isPayrollStatutoryLine(line: AfsEngineTrialBalanceLine) {
+  return includesAny(mappingText(line), [
+    "paye",
+    "uif",
+    "sdl",
+    "payroll tax",
+    "statutory payable",
+    "statutory receivable",
+  ]);
+}
+
+function addBalanceSheetLineByPeriod(
+  buckets: {
+    nonCurrentAssets: Map<string, StatementBucket>;
+    currentAssets: Map<string, StatementBucket>;
+    nonCurrentLiabilities: Map<string, StatementBucket>;
+    currentLiabilities: Map<string, StatementBucket>;
+  },
+  line: AfsEngineTrialBalanceLine,
+  canonical: CanonicalBucket,
+  noteNumbers: Partial<Record<AfsNoteKey, string | number>>
+) {
+  const cashOrBank = isCashOrBankLine(line);
+  const shareholderLoan = isShareholderLoanLine(line);
+  const payrollStatutory = isPayrollStatutoryLine(line);
+
+  const baseKey = String(bucketKey(line, canonical));
+
+  function addSide(side: "current" | "prior", rawAmount: number) {
+    if (Math.abs(rawAmount) < 0.005) return;
+
+    /*
+      Cash and bank accounts are split by sign for each reporting period.
+
+      Debit balance  -> Cash and cash equivalents
+      Credit balance -> Bank overdrafts
+    */
+    if (cashOrBank) {
+      if (rawAmount >= 0) {
+        addPeriodAmountToBucket(
+          buckets.currentAssets,
+          "cash-and-cash-equivalents",
+          "Cash and cash equivalents",
+          noteNumbers.cashAndCashEquivalents || null,
+          side,
+          rawAmount
+        );
+      } else {
+        addPeriodAmountToBucket(
+          buckets.currentLiabilities,
+          "bank-overdrafts",
+          "Bank overdrafts",
+          null,
+          side,
+          Math.abs(rawAmount)
+        );
+      }
+
+      return;
+    }
+
+    /*
+      Asset-mapped accounts with credit balances move to liabilities for
+      that reporting period.
+    */
+    if (
+      canonical.statement === "nonCurrentAsset" ||
+      canonical.statement === "currentAsset"
+    ) {
+      if (rawAmount >= 0) {
+        const target =
+          canonical.statement === "nonCurrentAsset"
+            ? buckets.nonCurrentAssets
+            : buckets.currentAssets;
+
+        addPeriodAmountToBucket(
+          target,
+          `${baseKey}:${canonical.statement}`,
+          bucketLabel(line, canonical),
+          canonical.noteKey
+            ? noteNumbers[canonical.noteKey] || null
+            : null,
+          side,
+          rawAmount
+        );
+      } else {
+        const target =
+          canonical.statement === "nonCurrentAsset"
+            ? buckets.nonCurrentLiabilities
+            : buckets.currentLiabilities;
+
+        addPeriodAmountToBucket(
+          target,
+          `${baseKey}:reclassified-liability`,
+          bucketLabel(line, canonical),
+          canonical.noteKey
+            ? noteNumbers[canonical.noteKey] || null
+            : null,
+          side,
+          Math.abs(rawAmount)
+        );
+      }
+
+      return;
+    }
+
+    /*
+      Liability-mapped accounts with debit balances move to assets for
+      that reporting period.
+    */
+    if (
+      canonical.statement === "nonCurrentLiability" ||
+      canonical.statement === "currentLiability"
+    ) {
+      if (rawAmount <= 0) {
+        const target =
+          canonical.statement === "nonCurrentLiability"
+            ? buckets.nonCurrentLiabilities
+            : buckets.currentLiabilities;
+
+        addPeriodAmountToBucket(
+          target,
+          `${baseKey}:${canonical.statement}`,
+          bucketLabel(line, canonical),
+          canonical.noteKey
+            ? noteNumbers[canonical.noteKey] || null
+            : null,
+          side,
+          Math.abs(rawAmount)
+        );
+
+        return;
+      }
+
+      if (shareholderLoan) {
+        addPeriodAmountToBucket(
+          buckets.nonCurrentAssets,
+          "shareholders-loans-receivable",
+          "Shareholders' loans",
+          noteNumbers.loansReceivable || null,
+          side,
+          rawAmount
+        );
+
+        return;
+      }
+
+      if (payrollStatutory) {
+        addPeriodAmountToBucket(
+          buckets.currentAssets,
+          "payroll-statutory-receivable",
+          "PAYE / UIF / SDL receivable",
+          noteNumbers.currentTaxReceivable || null,
+          side,
+          rawAmount
+        );
+
+        return;
+      }
+
+      const target =
+        canonical.statement === "nonCurrentLiability"
+          ? buckets.nonCurrentAssets
+          : buckets.currentAssets;
+
+      addPeriodAmountToBucket(
+        target,
+        `${baseKey}:reclassified-asset`,
+        bucketLabel(line, canonical)
+          .replace(/Payable/gi, "Receivable")
+          .replace(/Liabilities/gi, "Assets")
+          .replace(/Liability/gi, "Asset"),
+        canonical.statement === "nonCurrentLiability"
+          ? noteNumbers.loansReceivable || null
+          : noteNumbers.currentTaxReceivable || null,
+        side,
+        rawAmount
+      );
+    }
+  }
+
+  addSide("current", rawCurrent(line));
+  addSide("prior", rawPrior(line));
+}
+
 function visibleBuckets(map: Map<string, StatementBucket>) {
   return Array.from(map.values())
     .filter(
@@ -937,28 +1176,23 @@ export function buildAfsPrintStatementEngine(
 
     if (canonical.statement === "unmapped") return;
 
-    if (canonical.statement === "nonCurrentAsset") {
-      addToBucket(buckets.nonCurrentAssets, line, canonical, noteNumbers);
-      return;
-    }
-
-    if (canonical.statement === "currentAsset") {
-      addToBucket(buckets.currentAssets, line, canonical, noteNumbers);
+    if (
+      canonical.statement === "nonCurrentAsset" ||
+      canonical.statement === "currentAsset" ||
+      canonical.statement === "nonCurrentLiability" ||
+      canonical.statement === "currentLiability"
+    ) {
+      addBalanceSheetLineByPeriod(
+        buckets,
+        line,
+        canonical,
+        noteNumbers
+      );
       return;
     }
 
     if (canonical.statement === "equity") {
       addToBucket(buckets.equity, line, canonical, noteNumbers);
-      return;
-    }
-
-    if (canonical.statement === "nonCurrentLiability") {
-      addToBucket(buckets.nonCurrentLiabilities, line, canonical, noteNumbers);
-      return;
-    }
-
-    if (canonical.statement === "currentLiability") {
-      addToBucket(buckets.currentLiabilities, line, canonical, noteNumbers);
       return;
     }
 
