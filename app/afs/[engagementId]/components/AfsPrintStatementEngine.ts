@@ -753,15 +753,20 @@ function addBalanceSheetLineByPeriod(
   const payrollStatutory = isPayrollStatutoryLine(line);
 
   const baseKey = String(bucketKey(line, canonical));
+  const baseLabel = bucketLabel(line, canonical);
+  const baseNote = canonical.noteKey
+    ? noteNumbers[canonical.noteKey] || null
+    : null;
 
-  function addSide(side: "current" | "prior", rawAmount: number) {
+  function addMappedSide(
+    side: "current" | "prior",
+    rawAmount: number
+  ) {
     if (Math.abs(rawAmount) < 0.005) return;
 
     /*
-      Cash and bank accounts are split by sign for each reporting period.
-
-      Debit balance  -> Cash and cash equivalents
-      Credit balance -> Bank overdrafts
+      Cash is the only general balance-sheet class that must be split
+      by sign for each reporting period.
     */
     if (cashOrBank) {
       if (rawAmount >= 0) {
@@ -788,42 +793,25 @@ function addBalanceSheetLineByPeriod(
     }
 
     /*
-      Asset-mapped accounts with credit balances move to liabilities for
-      that reporting period.
+      Shareholder/director/member loans may genuinely be receivable
+      in one period and payable in another.
     */
-    if (
-      canonical.statement === "nonCurrentAsset" ||
-      canonical.statement === "currentAsset"
-    ) {
+    if (shareholderLoan) {
       if (rawAmount >= 0) {
-        const target =
-          canonical.statement === "nonCurrentAsset"
-            ? buckets.nonCurrentAssets
-            : buckets.currentAssets;
-
         addPeriodAmountToBucket(
-          target,
-          `${baseKey}:${canonical.statement}`,
-          bucketLabel(line, canonical),
-          canonical.noteKey
-            ? noteNumbers[canonical.noteKey] || null
-            : null,
+          buckets.nonCurrentAssets,
+          "shareholders-loans-receivable",
+          "Shareholders' loans receivable",
+          noteNumbers.loansReceivable || null,
           side,
           rawAmount
         );
       } else {
-        const target =
-          canonical.statement === "nonCurrentAsset"
-            ? buckets.nonCurrentLiabilities
-            : buckets.currentLiabilities;
-
         addPeriodAmountToBucket(
-          target,
-          `${baseKey}:reclassified-liability`,
-          bucketLabel(line, canonical),
-          canonical.noteKey
-            ? noteNumbers[canonical.noteKey] || null
-            : null,
+          buckets.nonCurrentLiabilities,
+          "shareholders-loans-payable",
+          "Shareholders' loans",
+          noteNumbers.shareholdersLoans || null,
           side,
           Math.abs(rawAmount)
         );
@@ -833,47 +821,11 @@ function addBalanceSheetLineByPeriod(
     }
 
     /*
-      Liability-mapped accounts with debit balances move to assets for
-      that reporting period.
+      Payroll statutory controls may also switch between receivable
+      and payable by reporting period.
     */
-    if (
-      canonical.statement === "nonCurrentLiability" ||
-      canonical.statement === "currentLiability"
-    ) {
-      if (rawAmount <= 0) {
-        const target =
-          canonical.statement === "nonCurrentLiability"
-            ? buckets.nonCurrentLiabilities
-            : buckets.currentLiabilities;
-
-        addPeriodAmountToBucket(
-          target,
-          `${baseKey}:${canonical.statement}`,
-          bucketLabel(line, canonical),
-          canonical.noteKey
-            ? noteNumbers[canonical.noteKey] || null
-            : null,
-          side,
-          Math.abs(rawAmount)
-        );
-
-        return;
-      }
-
-      if (shareholderLoan) {
-        addPeriodAmountToBucket(
-          buckets.nonCurrentAssets,
-          "shareholders-loans-receivable",
-          "Shareholders' loans",
-          noteNumbers.loansReceivable || null,
-          side,
-          rawAmount
-        );
-
-        return;
-      }
-
-      if (payrollStatutory) {
+    if (payrollStatutory) {
+      if (rawAmount >= 0) {
         addPeriodAmountToBucket(
           buckets.currentAssets,
           "payroll-statutory-receivable",
@@ -882,33 +834,78 @@ function addBalanceSheetLineByPeriod(
           side,
           rawAmount
         );
-
-        return;
+      } else {
+        addPeriodAmountToBucket(
+          buckets.currentLiabilities,
+          "payroll-statutory-payable",
+          "PAYE / UIF / SDL payable",
+          noteNumbers.currentTaxPayable || null,
+          side,
+          Math.abs(rawAmount)
+        );
       }
 
-      const target =
-        canonical.statement === "nonCurrentLiability"
-          ? buckets.nonCurrentAssets
-          : buckets.currentAssets;
+      return;
+    }
 
+    /*
+      Every other balance-sheet account stays in the section selected
+      by its mapping.
+
+      This is essential for contra-asset balances such as accumulated
+      depreciation. A negative PPE component must reduce PPE; it must
+      never be moved to liabilities.
+    */
+    if (canonical.statement === "nonCurrentAsset") {
       addPeriodAmountToBucket(
-        target,
-        `${baseKey}:reclassified-asset`,
-        bucketLabel(line, canonical)
-          .replace(/Payable/gi, "Receivable")
-          .replace(/Liabilities/gi, "Assets")
-          .replace(/Liability/gi, "Asset"),
-        canonical.statement === "nonCurrentLiability"
-          ? noteNumbers.loansReceivable || null
-          : noteNumbers.currentTaxReceivable || null,
+        buckets.nonCurrentAssets,
+        `${baseKey}:non-current-asset`,
+        baseLabel,
+        baseNote,
         side,
         rawAmount
+      );
+      return;
+    }
+
+    if (canonical.statement === "currentAsset") {
+      addPeriodAmountToBucket(
+        buckets.currentAssets,
+        `${baseKey}:current-asset`,
+        baseLabel,
+        baseNote,
+        side,
+        rawAmount
+      );
+      return;
+    }
+
+    if (canonical.statement === "nonCurrentLiability") {
+      addPeriodAmountToBucket(
+        buckets.nonCurrentLiabilities,
+        `${baseKey}:non-current-liability`,
+        baseLabel,
+        baseNote,
+        side,
+        -rawAmount
+      );
+      return;
+    }
+
+    if (canonical.statement === "currentLiability") {
+      addPeriodAmountToBucket(
+        buckets.currentLiabilities,
+        `${baseKey}:current-liability`,
+        baseLabel,
+        baseNote,
+        side,
+        -rawAmount
       );
     }
   }
 
-  addSide("current", rawCurrent(line));
-  addSide("prior", rawPrior(line));
+  addMappedSide("current", rawCurrent(line));
+  addMappedSide("prior", rawPrior(line));
 }
 
 function visibleBuckets(map: Map<string, StatementBucket>) {
