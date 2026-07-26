@@ -365,7 +365,78 @@ function canonicalFromMapping(line: AfsEngineTrialBalanceLine): CanonicalBucket 
     This must not be decided from account names or label wording.
   */
   if (mappingStartsWith(line, ["590", "500.590"])) {
-    return { statement: "nonCurrentLiability", noteKey: "otherFinancialLiabilities" };
+    return {
+      statement: "nonCurrentLiability",
+      noteKey: "otherFinancialLiabilities",
+    };
+  }
+
+  /*
+    Statement of Financial Position mapping codes are authoritative.
+
+    Non-current liability mappings must never be changed to current merely
+    because a parent mapping path contains the words "current liabilities".
+  */
+  if (
+    mappingStartsWith(line, [
+      "515",
+      "500.515",
+      "531",
+      "500.531",
+      "547",
+      "500.547",
+      "548",
+      "500.548",
+      "550",
+      "500.550",
+      "551",
+      "500.551",
+      "555",
+      "500.555",
+      "590",
+      "500.590",
+      "595",
+      "500.595",
+    ])
+  ) {
+    return {
+      statement: "nonCurrentLiability",
+      noteKey:
+        mappingStartsWith(line, ["548", "500.548"])
+          ? "shareholdersLoans"
+          : "otherFinancialLiabilities",
+    };
+  }
+
+  if (
+    mappingStartsWith(line, [
+      "620",
+      "600.620",
+      "630",
+      "600.630",
+      "650",
+      "600.650",
+      "660",
+      "600.660",
+      "688",
+      "600.688",
+      "690",
+      "600.690",
+      "695",
+      "600.695",
+      "699",
+      "600.699",
+    ])
+  ) {
+    return {
+      statement: "currentLiability",
+      noteKey:
+        mappingStartsWith(line, ["630", "600.630"])
+          ? "tradePayables"
+          : mappingStartsWith(line, ["695", "600.695"])
+          ? "currentTaxPayable"
+          : undefined,
+    };
   }
 
   if (!text.trim()) return { statement: "unmapped" };
