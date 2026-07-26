@@ -1073,8 +1073,23 @@ export function buildAfsPrintStatementEngine(
       ? Number(overrides.sceOtherMovements)
       : 0;
 
+  /*
+    Where a mapped current-year retained-income balance exists, it is the
+    SFP source of truth.
+
+    Rebuilding retained income from prior closing plus current profit can
+    omit dividends, distributions, prior-period adjustments and other equity
+    movements already included in the mapped trial balance.
+  */
+  const hasMappedCurrentRetainedIncome =
+    Math.abs(retainedIncomeTotal.current) >= 0.005;
+
   const currentClosingRetainedIncome =
-    priorClosingRetainedIncome + profitForYear.current + currentOtherMovements;
+    hasMappedCurrentRetainedIncome
+      ? retainedIncomeTotal.current
+      : priorClosingRetainedIncome +
+        profitForYear.current +
+        currentOtherMovements;
 
   const shareCapital = [
     {
