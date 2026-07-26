@@ -274,6 +274,58 @@ export default function AfsStatementOverrideSettings({
             <div style={{ fontSize: 11, fontWeight: 900 }}>
               Cash Flow Workspace
             </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 6,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => onChange("cashFlowMethod", "indirect" as any)}
+                style={{
+                  border: "1px solid #111827",
+                  background:
+                    (overrides.cashFlowMethod || "indirect") === "indirect"
+                      ? "#111827"
+                      : "#ffffff",
+                  color:
+                    (overrides.cashFlowMethod || "indirect") === "indirect"
+                      ? "#ffffff"
+                      : "#111827",
+                  padding: "7px 8px",
+                  fontSize: 10,
+                  fontWeight: 900,
+                  cursor: "pointer",
+                }}
+              >
+                Indirect method
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onChange("cashFlowMethod", "direct" as any)}
+                style={{
+                  border: "1px solid #111827",
+                  background:
+                    overrides.cashFlowMethod === "direct"
+                      ? "#111827"
+                      : "#ffffff",
+                  color:
+                    overrides.cashFlowMethod === "direct"
+                      ? "#ffffff"
+                      : "#111827",
+                  padding: "7px 8px",
+                  fontSize: 10,
+                  fontWeight: 900,
+                  cursor: "pointer",
+                }}
+              >
+                Direct method
+              </button>
+            </div>
             <div style={{ fontSize: 9, color: "#64748b", lineHeight: 1.35 }}>
               This works like the PPE note: fill the yellow fields, then the AFS cash flow pulls from here.
             </div>
@@ -304,33 +356,70 @@ export default function AfsStatementOverrideSettings({
             />
 
             <div style={sectionTitleStyle()}>Operating activities</div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1.25fr 0.75fr 0.75fr",
-                gap: 5,
-                alignItems: "center",
-                fontSize: 10,
-              }}
-            >
-              <strong>Profit / (loss) before taxation</strong>
-              <span style={{ textAlign: "right" }}>{amount(engineChecks?.profitBeforeTax)}</span>
-              <span style={{ textAlign: "right", color: "#64748b" }}>from SOCI</span>
-            </div>
-            <CashField
-              label="Adjustments for non-cash and other items"
-              currentKey="cashAdjustmentsToProfitCurrent"
-              priorKey="cashAdjustmentsToProfitPrior"
-              overrides={overrides}
-              onChange={onChange}
-            />
-            <CashField
-              label="Changes in working capital"
-              currentKey="cashWorkingCapitalCurrent"
-              priorKey="cashWorkingCapitalPrior"
-              overrides={overrides}
-              onChange={onChange}
-            />
+
+            {(overrides.cashFlowMethod || "indirect") === "indirect" ? (
+              <>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1.25fr 0.75fr 0.75fr",
+                    gap: 5,
+                    alignItems: "center",
+                    fontSize: 10,
+                  }}
+                >
+                  <strong>Profit / (loss) before taxation</strong>
+                  <span style={{ textAlign: "right" }}>
+                    {amount(engineChecks?.profitBeforeTax)}
+                  </span>
+                  <span style={{ textAlign: "right", color: "#64748b" }}>
+                    from SOCI
+                  </span>
+                </div>
+
+                <CashField
+                  label="Adjustments for non-cash and other items"
+                  currentKey="cashAdjustmentsToProfitCurrent"
+                  priorKey="cashAdjustmentsToProfitPrior"
+                  overrides={overrides}
+                  onChange={onChange}
+                />
+
+                <CashField
+                  label="Changes in working capital"
+                  currentKey="cashWorkingCapitalCurrent"
+                  priorKey="cashWorkingCapitalPrior"
+                  overrides={overrides}
+                  onChange={onChange}
+                />
+              </>
+            ) : (
+              <>
+                <CashField
+                  label="Cash receipts from customers"
+                  currentKey="cashReceiptsCustomersCurrent"
+                  priorKey="cashReceiptsCustomersPrior"
+                  overrides={overrides}
+                  onChange={onChange}
+                />
+
+                <CashField
+                  label="Cash paid to suppliers and employees"
+                  currentKey="cashPaymentsSuppliersEmployeesCurrent"
+                  priorKey="cashPaymentsSuppliersEmployeesPrior"
+                  overrides={overrides}
+                  onChange={onChange}
+                />
+
+                <CashField
+                  label="Other direct operating cash flows"
+                  currentKey="cashOtherDirectOperatingCurrent"
+                  priorKey="cashOtherDirectOperatingPrior"
+                  overrides={overrides}
+                  onChange={onChange}
+                />
+              </>
+            )}
             <CashField
               label="Interest received"
               currentKey="cashInterestReceivedCurrent"

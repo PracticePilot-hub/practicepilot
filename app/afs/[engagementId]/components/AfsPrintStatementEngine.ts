@@ -25,6 +25,15 @@ export type AfsEngineTrialBalanceLine = {
 };
 
 export type AfsStatementOverrides = {
+  cashFlowMethod?: "indirect" | "direct";
+
+  cashReceiptsCustomersCurrent?: number | null;
+  cashReceiptsCustomersPrior?: number | null;
+  cashPaymentsSuppliersEmployeesCurrent?: number | null;
+  cashPaymentsSuppliersEmployeesPrior?: number | null;
+  cashOtherDirectOperatingCurrent?: number | null;
+  cashOtherDirectOperatingPrior?: number | null;
+
   sceOpeningShareCapital?: number | null;
   sceOpeningRetainedIncome?: number | null;
   sceOpeningReserves?: number | null;

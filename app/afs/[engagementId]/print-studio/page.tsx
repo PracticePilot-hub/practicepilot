@@ -1799,7 +1799,7 @@ export default function AfsPrintStudioPage() {
 
   function updateStatementOverride(
     key: keyof AfsStatementOverrides,
-    value: number | null
+    value: number | null | "indirect" | "direct"
   ) {
     setStatementOverrides((current) => {
       const next = {
@@ -2485,20 +2485,49 @@ export default function AfsPrintStudioPage() {
     const closingCashRow = findById("cfs-closing-cash") || findByLabel(["cash and cash equivalents at end"]);
 
     const inventoryCurrent = storedAmount("inventories", "current", Number(inventoryRow?.current || 0));
-    const inventoryPrior =
+    const inventoryPrior = storedAmount(
+      "inventories",
+      "prior",
       trialBalanceHistory.length >= 2
         ? historicalCashFlowData.inventoryPrior
-        : storedAmount("inventories", "prior", Number(inventoryRow?.prior || 0));
-    const receivablesCurrent = storedAmount("tradeReceivables", "current", Number(receivablesRow?.current || 0)) + storedAmount("prepayments", "current", 0);
+        : Number(inventoryRow?.prior || 0),
+    );
+
+    const receivablesCurrent =
+      storedAmount(
+        "tradeReceivables",
+        "current",
+        Number(receivablesRow?.current || 0),
+      ) +
+      storedAmount("prepayments", "current", 0);
+
     const receivablesPrior =
-      trialBalanceHistory.length >= 2
-        ? historicalCashFlowData.receivablesPrior
-        : storedAmount("tradeReceivables", "prior", Number(receivablesRow?.prior || 0)) + storedAmount("prepayments", "prior", 0);
-    const payablesCurrent = storedAmount("tradePayables", "current", Number(payablesRow?.current || 0)) + storedAmount("deferredIncome", "current", 0);
+      storedAmount(
+        "tradeReceivables",
+        "prior",
+        trialBalanceHistory.length >= 2
+          ? historicalCashFlowData.receivablesPrior
+          : Number(receivablesRow?.prior || 0),
+      ) +
+      storedAmount("prepayments", "prior", 0);
+
+    const payablesCurrent =
+      storedAmount(
+        "tradePayables",
+        "current",
+        Number(payablesRow?.current || 0),
+      ) +
+      storedAmount("deferredIncome", "current", 0);
+
     const payablesPrior =
-      trialBalanceHistory.length >= 2
-        ? historicalCashFlowData.payablesPrior
-        : storedAmount("tradePayables", "prior", Number(payablesRow?.prior || 0)) + storedAmount("deferredIncome", "prior", 0);
+      storedAmount(
+        "tradePayables",
+        "prior",
+        trialBalanceHistory.length >= 2
+          ? historicalCashFlowData.payablesPrior
+          : Number(payablesRow?.prior || 0),
+      ) +
+      storedAmount("deferredIncome", "prior", 0);
 
     const generatedCurrent = Number(profitRow?.current || 0) + adjustmentsCurrent + inventoryCurrent + receivablesCurrent + payablesCurrent;
     const generatedPrior = Number(profitRow?.prior || 0) + adjustmentsPrior + inventoryPrior + receivablesPrior + payablesPrior;
@@ -2663,6 +2692,183 @@ if (closingCashRow) {
   finalClosingPrior - sfpClosingPrior,
 ),
     };
+
+    const cashFlowMethod =
+      effectiveStatementOverrides.cashFlowMethod || "indirect";
+
+    if (cashFlowMethod === "direct") {
+      const directReceiptsCurrent = Number(
+        effectiveStatementOverrides.cashReceiptsCustomersCurrent || 0,
+      );
+      const directReceiptsPrior = Number(
+        effectiveStatementOverrides.cashReceiptsCustomersPrior || 0,
+      );
+
+      const directPaymentsCurrent = Number(
+        effectiveStatementOverrides.cashPaymentsSuppliersEmployeesCurrent || 0,
+      );
+      const directPaymentsPrior = Number(
+        effectiveStatementOverrides.cashPaymentsSuppliersEmployeesPrior || 0,
+      );
+
+      const directOtherOperatingCurrent = Number(
+        effectiveStatementOverrides.cashOtherDirectOperatingCurrent || 0,
+      );
+      const directOtherOperatingPrior = Number(
+        effectiveStatementOverrides.cashOtherDirectOperatingPrior || 0,
+      );
+
+      const directNetOperatingCurrent =
+        directReceiptsCurrent +
+        directPaymentsCurrent +
+        directOtherOperatingCurrent +
+        Number(effectiveStatementOverrides.cashInterestReceivedCurrent || 0) +
+        Number(effectiveStatementOverrides.cashFinanceCostsPaidCurrent || 0) +
+        Number(effectiveStatementOverrides.cashTaxPaidCurrent || 0) +
+        otherOperatingCurrent;
+
+      const directNetOperatingPrior =
+        directReceiptsPrior +
+        directPaymentsPrior +
+        directOtherOperatingPrior +
+        Number(effectiveStatementOverrides.cashInterestReceivedPrior || 0) +
+        Number(effectiveStatementOverrides.cashFinanceCostsPaidPrior || 0) +
+        Number(effectiveStatementOverrides.cashTaxPaidPrior || 0) +
+        otherOperatingPrior;
+
+      const directNetMovementCurrent =
+        directNetOperatingCurrent +
+        Number(netInvestingRow?.current || 0) +
+        Number(netFinancingRow?.current || 0);
+
+      const directNetMovementPrior =
+        directNetOperatingPrior +
+        Number(netInvestingRow?.prior || 0) +
+        Number(netFinancingRow?.prior || 0);
+
+      const directClosingCurrent =
+        openingCurrent + directNetMovementCurrent;
+
+      const directClosingPrior =
+        openingPrior + directNetMovementPrior;
+
+      const directRows = rows.filter((row: any) => {
+        const id = String(row?.id || "");
+
+        return ![
+          "cfs-profit-before-tax",
+          "cfs-adjustments",
+          "cfs-inventories",
+          "cfs-trade-receivables",
+          "cfs-trade-payables",
+          "cfs-cash-generated-operations",
+        ].includes(id);
+      });
+
+      const operatingIndex = directRows.findIndex(
+        (row: any) => String(row?.id || "") === "cfs-operating",
+      );
+
+      directRows.splice(operatingIndex + 1, 0,
+        {
+          id: "cfs-direct-receipts-customers",
+          label: "Cash receipts from customers",
+          current: Math.round(directReceiptsCurrent),
+          prior: Math.round(directReceiptsPrior),
+          type: "line",
+        },
+        {
+          id: "cfs-direct-payments-suppliers-employees",
+          label: "Cash paid to suppliers and employees",
+          current: Math.round(directPaymentsCurrent),
+          prior: Math.round(directPaymentsPrior),
+          type: "line",
+        },
+        {
+          id: "cfs-direct-other-operating",
+          label: "Other direct operating cash flows",
+          current: Math.round(directOtherOperatingCurrent),
+          prior: Math.round(directOtherOperatingPrior),
+          type: "line",
+        },
+      );
+
+      const directNetOperatingRow = directRows.find(
+        (row: any) => String(row?.id || "") === "cfs-net-operating",
+      );
+
+      const directNetMovementRow = directRows.find(
+        (row: any) => String(row?.id || "") === "cfs-net-movement",
+      );
+
+      const directOpeningRow = directRows.find(
+        (row: any) => String(row?.id || "") === "cfs-opening-cash",
+      );
+
+      const directClosingRow = directRows.find(
+        (row: any) => String(row?.id || "") === "cfs-closing-cash",
+      );
+
+      if (directNetOperatingRow) {
+        directNetOperatingRow.current = Math.round(
+          directNetOperatingCurrent,
+        );
+        directNetOperatingRow.prior = Math.round(
+          directNetOperatingPrior,
+        );
+      }
+
+      if (directNetMovementRow) {
+        directNetMovementRow.current = Math.round(
+          directNetMovementCurrent,
+        );
+        directNetMovementRow.prior = Math.round(
+          directNetMovementPrior,
+        );
+      }
+
+      if (directOpeningRow) {
+        directOpeningRow.current = Math.round(openingCurrent);
+        directOpeningRow.prior = Math.round(openingPrior);
+      }
+
+      if (directClosingRow) {
+        directClosingRow.current = Math.round(directClosingCurrent);
+        directClosingRow.prior = Math.round(directClosingPrior);
+      }
+
+      return {
+        ...baseStatementEngine,
+        cashFlowRows: directRows,
+        checks: {
+          ...checks,
+          cashMovementFromCashFlow: Math.round(
+            directNetMovementCurrent,
+          ),
+          cashClosingFromCashFlow: Math.round(
+            directClosingCurrent,
+          ),
+          cashFlowMovementDifference: Math.round(
+            directNetMovementCurrent -
+              Number(
+                baseStatementEngine.checks.cashMovementFromSfp || 0,
+              ),
+          ),
+          cashFlowClosingDifference: Math.round(
+            directClosingCurrent - sfpClosingCurrent,
+          ),
+          cashMovementPriorFromCashFlow: Math.round(
+            directNetMovementPrior,
+          ),
+          cashClosingPriorFromCashFlow: Math.round(
+            directClosingPrior,
+          ),
+          cashFlowPriorClosingDifference: Math.round(
+            directClosingPrior - sfpClosingPrior,
+          ),
+        },
+      };
+    }
 
     return {
       ...baseStatementEngine,
@@ -3456,8 +3662,6 @@ function elementOuterHeight(element: HTMLElement | null) {
     currentHeading,
     priorHeading,
     hideComparatives ? "1" : "0",
-    JSON.stringify(structuredNotesState),
-    JSON.stringify(noteData),
   ].join("::");
 
   const paginationMeasureRef = useRef<HTMLDivElement | null>(null);

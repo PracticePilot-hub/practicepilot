@@ -327,21 +327,22 @@ function useStructuredNotesState(
 ) {
   const storageKey = `practicepilot-afs-structured-notes:${engagementId}`;
   const [state, setState] = useState<StructuredState>(initialState || {});
-
-  const initialStateJson = JSON.stringify(initialState || {});
+  const loadedEngagementRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const parsedInitialState = initialStateJson
-      ? JSON.parse(initialStateJson)
-      : {};
+    if (loadedEngagementRef.current === engagementId) return;
 
-    if (Object.keys(parsedInitialState).length > 0) {
-      setState(parsedInitialState);
+    loadedEngagementRef.current = engagementId;
+
+    const suppliedState = initialState || {};
+
+    if (Object.keys(suppliedState).length > 0) {
+      setState(suppliedState);
 
       try {
         window.localStorage.setItem(
           storageKey,
-          JSON.stringify(parsedInitialState),
+          JSON.stringify(suppliedState),
         );
       } catch {
         // localStorage is only a fallback cache
@@ -356,7 +357,7 @@ function useStructuredNotesState(
     } catch {
       setState({});
     }
-  }, [storageKey, initialStateJson]);
+  }, [engagementId, storageKey]);
 
   function update(path: string[], value: any) {
     setState((current) => {
