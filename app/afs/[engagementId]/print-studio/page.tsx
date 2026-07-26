@@ -2903,17 +2903,19 @@ if (closingCashRow) {
       const directReceiptsPrior =
         revenuePrior + directReceivablesMovementPrior;
 
+      /*
+        Cash paid to suppliers and employees is derived from the completed
+        Cash generated from operations note.
+
+        Cash generated from operations =
+          cash receipts from customers
+          + cash paid to suppliers and employees
+      */
       const directPaymentsCurrent =
-        tradingAndOperatingExpensesCurrent +
-        operatingNonCashAdjustmentCurrent +
-        inventoryCurrent +
-        payablesCurrent;
+        generatedCurrent - directReceiptsCurrent;
 
       const directPaymentsPrior =
-        tradingAndOperatingExpensesPrior +
-        operatingNonCashAdjustmentPrior +
-        inventoryPrior +
-        payablesPrior;
+        generatedPrior - directReceiptsPrior;
 
       const mappedInterestReceivedCurrent =
         -mappedRawTotal(
