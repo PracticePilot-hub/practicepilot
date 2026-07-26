@@ -370,20 +370,109 @@ function canonicalFromMapping(line: AfsEngineTrialBalanceLine): CanonicalBucket 
 
   if (!text.trim()) return { statement: "unmapped" };
 
-  if (includesAny(text, ["revenue", "sales", "turnover"])) {
-    return { statement: "profitLoss", noteKey: "revenue", plGroup: "revenue" };
+  /*
+    PROFIT OR LOSS CLASSIFICATION
+
+    Mapping codes are the source of truth. Parent headings and labels may
+    contain broad wording such as "Revenue and income" or "Cost of sales".
+    Those words must never override the selected mapping code.
+  */
+
+  if (mappingStartsWith(line, ["700"])) {
+    return {
+      statement: "profitLoss",
+      noteKey: "revenue",
+      plGroup: "revenue",
+    };
   }
+
+  if (mappingStartsWith(line, ["720"])) {
+    return {
+      statement: "profitLoss",
+      plGroup: "costOfSales",
+    };
+  }
+
+  if (mappingStartsWith(line, ["730", "770", "780", "785"])) {
+    return {
+      statement: "profitLoss",
+      noteKey: "otherIncome",
+      plGroup: "otherIncome",
+    };
+  }
+
+  if (mappingStartsWith(line, ["750", "781"])) {
+    return {
+      statement: "profitLoss",
+      noteKey: "operatingExpenses",
+      plGroup: "operatingExpenses",
+    };
+  }
+
+  if (mappingStartsWith(line, ["775"])) {
+    return {
+      statement: "profitLoss",
+      noteKey: "financeCosts",
+      plGroup: "financeCosts",
+    };
+  }
+
+  if (mappingStartsWith(line, ["795"])) {
+    return {
+      statement: "profitLoss",
+      noteKey: "taxation",
+      plGroup: "taxation",
+    };
+  }
+
+  /*
+    Legacy fallback for older mappings where no recognised mapping code
+    exists. Specific classifications must be checked before broad wording.
+  */
 
   if (includesAny(text, ["cost of sales", "cost-of-sales", "costofsales"])) {
-    return { statement: "profitLoss", plGroup: "costOfSales" };
+    return {
+      statement: "profitLoss",
+      plGroup: "costOfSales",
+    };
   }
 
-  if (includesAny(text, ["other income", "investment income", "finance income"])) {
-    return { statement: "profitLoss", noteKey: "otherIncome", plGroup: "otherIncome" };
+  if (
+    includesAny(text, [
+      "finance cost",
+      "finance-cost",
+      "interest expense",
+      "interest paid",
+    ])
+  ) {
+    return {
+      statement: "profitLoss",
+      noteKey: "financeCosts",
+      plGroup: "financeCosts",
+    };
   }
 
-  if (includesAny(text, ["finance cost", "finance-cost", "interest expense", "interest paid"])) {
-    return { statement: "profitLoss", noteKey: "financeCosts", plGroup: "financeCosts" };
+  if (
+    includesAny(text, [
+      "other income",
+      "investment income",
+      "finance income",
+      "interest received",
+    ])
+  ) {
+    return {
+      statement: "profitLoss",
+      noteKey: "otherIncome",
+      plGroup: "otherIncome",
+    };
+  }
+
+  if (includesAny(text, ["revenue", "sales", "turnover"])) {
+    return {
+      statement: "profitLoss",
+      noteKey: "revenue",
+      plGroup: "revenue",
+    };
   }
 
   if (includesAny(text, ["current tax receivable", "income tax receivable", "tax receivable", "deferred tax asset"])) {
