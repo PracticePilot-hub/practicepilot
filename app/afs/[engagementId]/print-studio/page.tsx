@@ -2819,43 +2819,45 @@ if (closingCashRow) {
         otherIncomePrior +
         financeCostsPrior;
 
+      const mappedNonCashExpense = (
+        side: "current" | "prior",
+      ) =>
+        (trialBalanceLines || [])
+          .filter((line) => {
+            const mappingText = lineSearchText(line);
+
+            return [
+              "depreciation",
+              "amortisation",
+              "amortization",
+              "impairment",
+            ].some((term) => mappingText.includes(term));
+          })
+          .reduce((sum, line) => {
+            const amount =
+              side === "current"
+                ? rawCurrent(line)
+                : rawPrior(line);
+
+            return sum + Math.abs(amount);
+          }, 0);
+
+      /*
+        Non-cash expenses are added back to the negative expense total.
+        Use the mapped TB amounts automatically instead of relying on a
+        manually completed cash-flow note.
+      */
       const operatingNonCashAdjustmentCurrent =
-        storedAmount("adjustments", "current", 0) +
-        storedAmount(
-          "depreciationAmortisationImpairment",
-          "current",
-          0,
-        ) +
-        storedAmount(
-          "lossOnSaleAssetsLiabilities",
-          "current",
-          0,
-        ) +
-        storedAmount(
-          "fairValueGainsLosses",
-          "current",
-          0,
-        ) +
+        mappedNonCashExpense("current") +
+        storedAmount("lossOnSaleAssetsLiabilities", "current", 0) +
+        storedAmount("fairValueGainsLosses", "current", 0) +
         storedAmount("movementProvisions", "current", 0) +
         storedAmount("otherNonCash1", "current", 0);
 
       const operatingNonCashAdjustmentPrior =
-        storedAmount("adjustments", "prior", 0) +
-        storedAmount(
-          "depreciationAmortisationImpairment",
-          "prior",
-          0,
-        ) +
-        storedAmount(
-          "lossOnSaleAssetsLiabilities",
-          "prior",
-          0,
-        ) +
-        storedAmount(
-          "fairValueGainsLosses",
-          "prior",
-          0,
-        ) +
+        mappedNonCashExpense("prior") +
+        storedAmount("lossOnSaleAssetsLiabilities", "prior", 0) +
+        storedAmount("fairValueGainsLosses", "prior", 0) +
         storedAmount("movementProvisions", "prior", 0) +
         storedAmount("otherNonCash1", "prior", 0);
 
@@ -2871,11 +2873,35 @@ if (closingCashRow) {
           + inventory movement
           + payables movement
       */
+      const tradeReceivablesCurrentBalance = noteTotal(
+        baseStatementEngine.noteData.tradeReceivables,
+        "current",
+      );
+
+      const tradeReceivablesPriorBalance = noteTotal(
+        baseStatementEngine.noteData.tradeReceivables,
+        "prior",
+      );
+
+      /*
+        Current-year receivables movement is calculated directly from
+        the mapped SFP balances.
+
+        Prior comparative movement comes from the stored historical TB,
+        because the opening comparative balance is not in the current TB.
+      */
+      const directReceivablesMovementCurrent =
+        tradeReceivablesPriorBalance -
+        tradeReceivablesCurrentBalance;
+
+      const directReceivablesMovementPrior =
+        historicalCashFlowData.receivablesPrior;
+
       const directReceiptsCurrent =
-        revenueCurrent + receivablesCurrent;
+        revenueCurrent + directReceivablesMovementCurrent;
 
       const directReceiptsPrior =
-        revenuePrior + receivablesPrior;
+        revenuePrior + directReceivablesMovementPrior;
 
       const directPaymentsCurrent =
         tradingAndOperatingExpensesCurrent +
