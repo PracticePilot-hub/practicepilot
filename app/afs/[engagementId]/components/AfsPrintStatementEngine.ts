@@ -313,10 +313,23 @@ function mappingStartsWith(line: AfsEngineTrialBalanceLine, prefixes: string[]) 
 
 
 function bucketLabel(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket) {
-  if (
-    canonical.noteKey === "otherFinancialLiabilities" &&
-    mappingStartsWith(line, ["590", "500.590"])
-  ) {
+  /*
+    Use the exact selected mapping label for each non-current liability
+    class instead of collapsing them into one generic note label.
+  */
+  if (mappingStartsWith(line, ["550", "500.550"])) {
+    return "Financial liabilities";
+  }
+
+  if (mappingStartsWith(line, ["551", "500.551"])) {
+    return "Borrowings";
+  }
+
+  if (mappingStartsWith(line, ["555", "500.555"])) {
+    return "Lease liabilities";
+  }
+
+  if (mappingStartsWith(line, ["590", "500.590"])) {
     return "Other non-current liabilities";
   }
 
