@@ -2069,6 +2069,32 @@ export function buildAfsPrintStatementEngine(
     cashFlowPriorClosingDifference: checkDifference(cashFlowPriorClosingDifference),
   };
 
+  /*
+    Shareholder/director/member loans retain the Shareholders' loans
+    disclosure note regardless of whether the balance appears as an
+    asset or a liability.
+
+    The SFP location is controlled by the period balance sign, but the
+    disclosure nature and note reference do not change.
+  */
+  const shareholdersLoansNote =
+    noteNumbers.shareholdersLoans || null;
+
+  if (shareholdersLoansNote) {
+    sfpRows.forEach((row: any) => {
+      const label = String(row?.label || "").toLowerCase();
+
+      const isShareholderLoanRow =
+        label.includes("shareholder") ||
+        label.includes("director loan") ||
+        label.includes("member loan");
+
+      if (isShareholderLoanRow) {
+        row.note = shareholdersLoansNote;
+      }
+    });
+  }
+
   return {
     sfpRows,
     sociRows,
