@@ -2686,10 +2686,10 @@ export default function AfsPrintStudioPage() {
     }
 
     const openingCurrent =
-      effectiveStatementOverrides.cashOpeningBalance !== null &&
-      effectiveStatementOverrides.cashOpeningBalance !== undefined
-        ? Number(effectiveStatementOverrides.cashOpeningBalance || 0)
-        : Number(openingCashRow?.current || 0);
+  effectiveStatementOverrides.cashOpeningBalance !== null &&
+  effectiveStatementOverrides.cashOpeningBalance !== undefined
+    ? Number(effectiveStatementOverrides.cashOpeningBalance || 0)
+    : Number(baseStatementEngine.checks.cashClosingPriorFromSfp || 0);
     const openingPrior =
       effectiveStatementOverrides.cashPriorOpeningBalance !== null &&
       effectiveStatementOverrides.cashPriorOpeningBalance !== undefined
