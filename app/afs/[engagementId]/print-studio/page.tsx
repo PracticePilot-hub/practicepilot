@@ -3033,15 +3033,27 @@ if (closingCashRow) {
         Number(effectiveStatementOverrides.cashTaxPaidPrior || 0) +
         otherOperatingPrior;
 
+      /*
+        The direct-method net cash movement must equal the three subtotals
+        displayed on the statement:
+
+          operating activities
+          + investing activities
+          + financing activities
+
+        Use the completed section totals directly so that finance costs and
+        every other operating cash-flow item cannot be omitted from the final
+        movement calculation.
+      */
       const directNetMovementCurrent =
-        directNetOperatingCurrent +
-        Number(netInvestingRow?.current || 0) +
-        Number(netFinancingRow?.current || 0);
+        Math.round(directNetOperatingCurrent) +
+        Math.round(netInvestingCurrent) +
+        Math.round(Number(netFinancingRow?.current || 0));
 
       const directNetMovementPrior =
-        directNetOperatingPrior +
-        Number(netInvestingRow?.prior || 0) +
-        Number(netFinancingRow?.prior || 0);
+        Math.round(directNetOperatingPrior) +
+        Math.round(netInvestingPrior) +
+        Math.round(Number(netFinancingRow?.prior || 0));
 
       const directClosingCurrent =
         openingCurrent + directNetMovementCurrent;
