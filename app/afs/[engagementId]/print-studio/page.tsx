@@ -3134,17 +3134,35 @@ if (closingCashRow) {
         (row: any) => String(row?.id || "") === "cfs-net-operating",
       );
 
-      const directNetMovementRow = directRows.find(
-        (row: any) => String(row?.id || "") === "cfs-net-movement",
-      );
+      const directNetMovementRow =
+        directRows.find(
+          (row: any) => String(row?.id || "") === "cfs-net-movement",
+        ) ||
+        directRows.find((row: any) =>
+          String(row?.label || "")
+            .toLowerCase()
+            .includes("net increase / (decrease) in cash and cash equivalents"),
+        );
 
-      const directOpeningRow = directRows.find(
-        (row: any) => String(row?.id || "") === "cfs-opening-cash",
-      );
+      const directOpeningRow =
+        directRows.find(
+          (row: any) => String(row?.id || "") === "cfs-opening-cash",
+        ) ||
+        directRows.find((row: any) =>
+          String(row?.label || "")
+            .toLowerCase()
+            .includes("cash and cash equivalents at beginning of year"),
+        );
 
-      const directClosingRow = directRows.find(
-        (row: any) => String(row?.id || "") === "cfs-closing-cash",
-      );
+      const directClosingRow =
+        directRows.find(
+          (row: any) => String(row?.id || "") === "cfs-closing-cash",
+        ) ||
+        directRows.find((row: any) =>
+          String(row?.label || "")
+            .toLowerCase()
+            .includes("cash and cash equivalents at end of year"),
+        );
 
       if (directNetOperatingRow) {
         directNetOperatingRow.current = Math.round(
