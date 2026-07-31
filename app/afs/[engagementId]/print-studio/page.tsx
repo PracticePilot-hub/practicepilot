@@ -3099,20 +3099,26 @@ const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
           )
         : mappedFinanceCostsPaidPrior;
 
+    const manualTaxPaidCurrent = Number(
+      effectiveStatementOverrides.cashTaxPaidCurrent || 0,
+    );
+    const manualTaxPaidPrior = Number(
+      effectiveStatementOverrides.cashTaxPaidPrior || 0,
+    );
+
+    /*
+      Blank workbench inputs are persisted as zero. A saved zero must not
+      suppress a real tax payment calculated from the exact current-tax
+      mappings. A non-zero workbench amount remains an explicit override.
+    */
     const taxPaidCurrent =
-      effectiveStatementOverrides.cashTaxPaidCurrent !== null &&
-      effectiveStatementOverrides.cashTaxPaidCurrent !== undefined
-        ? Number(
-            effectiveStatementOverrides.cashTaxPaidCurrent || 0,
-          )
+      Math.abs(manualTaxPaidCurrent) > 0
+        ? manualTaxPaidCurrent
         : mappedTaxPaidCurrent;
 
     const taxPaidPrior =
-      effectiveStatementOverrides.cashTaxPaidPrior !== null &&
-      effectiveStatementOverrides.cashTaxPaidPrior !== undefined
-        ? Number(
-            effectiveStatementOverrides.cashTaxPaidPrior || 0,
-          )
+      Math.abs(manualTaxPaidPrior) > 0
+        ? manualTaxPaidPrior
         : mappedTaxPaidPrior;
 
     if (interestReceivedRow) {
@@ -3600,13 +3606,33 @@ const calculatedDirectNetMovementPrior =
   Number(netInvestingRow?.prior || 0) +
   Number(netFinancingRow?.prior || 0);
 
-const directRoundingCurrent =
+const directRawDifferenceCurrent =
   Math.round(sfpClosingCurrent) -
   Math.round(openingCurrent + calculatedDirectNetMovementCurrent);
 
-const directRoundingPrior =
+const directRawDifferencePrior =
   Math.round(sfpClosingPrior) -
   Math.round(openingPrior + calculatedDirectNetMovementPrior);
+
+const directRoundingTolerance = Math.max(
+  0,
+  Math.round(Number(effectiveStatementOverrides.roundingTolerance ?? 5)),
+);
+
+/*
+  A rounding line may only absorb a genuinely small difference. Large
+  differences remain visible through FlightDeck instead of being hidden as
+  rounding adjustments.
+*/
+const directRoundingCurrent =
+  Math.abs(directRawDifferenceCurrent) <= directRoundingTolerance
+    ? directRawDifferenceCurrent
+    : 0;
+
+const directRoundingPrior =
+  Math.abs(directRawDifferencePrior) <= directRoundingTolerance
+    ? directRawDifferencePrior
+    : 0;
 
 const directNetMovementCurrent =
   calculatedDirectNetMovementCurrent + directRoundingCurrent;
@@ -3630,6 +3656,8 @@ const directClosingPrior =
           "cfs-trade-receivables",
           "cfs-trade-payables",
           "cfs-cash-generated-operations",
+          "cfs-rounding-adjustment",
+          "cfs-direct-rounding-adjustment",
         ].includes(id);
       });
 
