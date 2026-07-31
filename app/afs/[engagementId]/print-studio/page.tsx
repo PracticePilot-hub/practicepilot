@@ -4261,7 +4261,7 @@ const cashFlowRows = statementEngine.cashFlowRows;
               : [];
             const displayLabel = savedLabel || originalLabel;
             const type = String(row?.type || "").toLowerCase();
-            const isHeading = type === "heading";
+            const isHeading = type === "heading" ||type === "section" ||type === "subsection";
             const isSubtotal =
               type === "subtotal" ||
               type === "total" ||
