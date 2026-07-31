@@ -2998,28 +2998,15 @@ const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
       A workbench amount remains an explicit override. When no override has
       been captured, use the mapped taxation amount automatically.
     */
-    /*
-      Current tax paid is derived only from current-tax mapping codes.
-      Deferred tax mappings are deliberately excluded because they are
-      non-cash.
-
-      Tax paid = -(opening net current-tax liability
-                   + current-tax expense
-                   - closing net current-tax liability)
-
-      A current-tax receivable is treated as a negative net liability. This
-      means a payment on account correctly produces a negative cash outflow.
-      The comparative remains a workbench override unless an earlier opening
-      tax balance is available from historical data.
-    */
-    const currentTaxExpenseFromTb = (
+    const exactMappedRawTotal = (
+      mappingCode: string,
       side: "current" | "prior",
     ) =>
       (trialBalanceLines || [])
         .filter(
           (line) =>
-            mappingIdentifierStartsWith(line.mapping_code, ["795.10"]) ||
-            mappingIdentifierStartsWith(line.mapping_leaf_id, ["795.10"]),
+            normaliseMappingIdentifier(line.mapping_code) ===
+            normaliseMappingIdentifier(mappingCode),
         )
         .reduce(
           (sum, line) =>
@@ -3030,38 +3017,53 @@ const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
           0,
         );
 
-    const currentTaxReceivableCurrent = mappedNoteTotal(
-      baseStatementEngine.noteData.currentTaxReceivable,
-      "current",
-    );
-    const currentTaxReceivablePrior = mappedNoteTotal(
-      baseStatementEngine.noteData.currentTaxReceivable,
-      "prior",
-    );
-    const currentTaxPayableCurrent = mappedNoteTotal(
-      baseStatementEngine.noteData.currentTaxPayable,
-      "current",
-    );
-    const currentTaxPayablePrior = mappedNoteTotal(
-      baseStatementEngine.noteData.currentTaxPayable,
-      "prior",
+    /*
+      Current tax paid is calculated from current-tax mappings only.
+      Deferred tax mappings 395.10 and 795.20 are deliberately excluded.
+
+      Tax paid =
+        opening current-tax payable
+        - opening current-tax receivable
+        + current-tax expense
+        - closing current-tax payable
+        + closing current-tax receivable
+
+      The cash-flow line is presented as a negative outflow.
+    */
+    const currentTaxExpenseCurrent = Math.abs(
+      exactMappedRawTotal("795.10", "current"),
     );
 
-    const openingNetCurrentTaxBalance =
-      currentTaxPayablePrior - currentTaxReceivablePrior;
-    const closingNetCurrentTaxBalance =
-      currentTaxPayableCurrent - currentTaxReceivableCurrent;
-
-    const mappedTaxPaidCurrent = -(
-      openingNetCurrentTaxBalance +
-      currentTaxExpenseFromTb("current") -
-      closingNetCurrentTaxBalance
+    const openingCurrentTaxReceivable = Math.abs(
+      exactMappedRawTotal("495.10", "prior"),
     );
+    const closingCurrentTaxReceivable = Math.abs(
+      exactMappedRawTotal("495.10", "current"),
+    );
+
+    const openingCurrentTaxPayable = Math.abs(
+      exactMappedRawTotal("695.10", "prior"),
+    );
+    const closingCurrentTaxPayable = Math.abs(
+      exactMappedRawTotal("695.10", "current"),
+    );
+
+    const calculatedCurrentTaxPaid =
+      openingCurrentTaxPayable -
+      openingCurrentTaxReceivable +
+      currentTaxExpenseCurrent -
+      closingCurrentTaxPayable +
+      closingCurrentTaxReceivable;
+
+    const mappedTaxPaidCurrent =
+      calculatedCurrentTaxPaid === 0
+        ? 0
+        : -Math.abs(calculatedCurrentTaxPaid);
 
     /*
-      The opening comparative current-tax balance is not available from the
-      active TB. Do not manufacture prior-year tax paid from closing balances.
-      A comparative amount may still be entered explicitly in the workbench.
+      The opening comparative tax balances are not available from the active
+      two-column TB alone, so prior-year tax paid remains an explicit
+      workbench amount unless historical tax-control data is added later.
     */
     const mappedTaxPaidPrior = 0;
 
