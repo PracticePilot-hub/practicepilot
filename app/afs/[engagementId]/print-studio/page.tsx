@@ -2747,15 +2747,33 @@ const effectiveStructuredNotesState = useMemo(() => {
       "financeCosts",
     ];
 
-    const adjustmentsCurrent = adjustmentKeys.reduce(
-      (sum, key) => sum + storedAmount(key, "current", 0),
-      0,
-    );
+    const deferredTaxAdjustmentCurrent = (
+  baseStatementEngine.noteData.taxation || []
+).reduce(
+  (sum: number, line: any) =>
+    sum + Number(line?.current || 0),
+  0,
+);
 
-    const adjustmentsPrior = adjustmentKeys.reduce(
-      (sum, key) => sum + storedAmount(key, "prior", 0),
-      0,
-    );
+const deferredTaxAdjustmentPrior = (
+  baseStatementEngine.noteData.taxation || []
+).reduce(
+  (sum: number, line: any) =>
+    sum + Number(line?.prior || 0),
+  0,
+);
+
+const adjustmentsCurrent =
+  adjustmentKeys.reduce(
+    (sum, key) => sum + storedAmount(key, "current", 0),
+    0,
+  ) + deferredTaxAdjustmentCurrent;
+
+const adjustmentsPrior =
+  adjustmentKeys.reduce(
+    (sum, key) => sum + storedAmount(key, "prior", 0),
+    0,
+  ) + deferredTaxAdjustmentPrior;
 
     const profitRow = findById("cfs-profit-before-tax") || findByLabel(["profit", "before taxation"]);
     const adjustmentsRow = findById("cfs-adjustments") || findByLabel(["adjustments", "non-cash"]);
@@ -2980,8 +2998,72 @@ const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
       A workbench amount remains an explicit override. When no override has
       been captured, use the mapped taxation amount automatically.
     */
-    const mappedTaxPaidCurrent = 0;
-const mappedTaxPaidPrior = 0;
+    /*
+      Current tax paid is derived only from current-tax mapping codes.
+      Deferred tax mappings are deliberately excluded because they are
+      non-cash.
+
+      Tax paid = -(opening net current-tax liability
+                   + current-tax expense
+                   - closing net current-tax liability)
+
+      A current-tax receivable is treated as a negative net liability. This
+      means a payment on account correctly produces a negative cash outflow.
+      The comparative remains a workbench override unless an earlier opening
+      tax balance is available from historical data.
+    */
+    const currentTaxExpenseFromTb = (
+      side: "current" | "prior",
+    ) =>
+      (trialBalanceLines || [])
+        .filter(
+          (line) =>
+            mappingIdentifierStartsWith(line.mapping_code, ["795.10"]) ||
+            mappingIdentifierStartsWith(line.mapping_leaf_id, ["795.10"]),
+        )
+        .reduce(
+          (sum, line) =>
+            sum +
+            (side === "current"
+              ? rawCurrent(line)
+              : rawPrior(line)),
+          0,
+        );
+
+    const currentTaxReceivableCurrent = mappedNoteTotal(
+      baseStatementEngine.noteData.currentTaxReceivable,
+      "current",
+    );
+    const currentTaxReceivablePrior = mappedNoteTotal(
+      baseStatementEngine.noteData.currentTaxReceivable,
+      "prior",
+    );
+    const currentTaxPayableCurrent = mappedNoteTotal(
+      baseStatementEngine.noteData.currentTaxPayable,
+      "current",
+    );
+    const currentTaxPayablePrior = mappedNoteTotal(
+      baseStatementEngine.noteData.currentTaxPayable,
+      "prior",
+    );
+
+    const openingNetCurrentTaxBalance =
+      currentTaxPayablePrior - currentTaxReceivablePrior;
+    const closingNetCurrentTaxBalance =
+      currentTaxPayableCurrent - currentTaxReceivableCurrent;
+
+    const mappedTaxPaidCurrent = -(
+      openingNetCurrentTaxBalance +
+      currentTaxExpenseFromTb("current") -
+      closingNetCurrentTaxBalance
+    );
+
+    /*
+      The opening comparative current-tax balance is not available from the
+      active TB. Do not manufacture prior-year tax paid from closing balances.
+      A comparative amount may still be entered explicitly in the workbench.
+    */
+    const mappedTaxPaidPrior = 0;
 
     const interestReceivedCurrent =
       effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
