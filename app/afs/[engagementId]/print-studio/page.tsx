@@ -2979,15 +2979,8 @@ const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
       A workbench amount remains an explicit override. When no override has
       been captured, use the mapped taxation amount automatically.
     */
-    const mappedTaxPaidCurrent = mappedNoteTotal(
-      baseStatementEngine.noteData.taxation,
-      "current",
-    );
-
-    const mappedTaxPaidPrior = mappedNoteTotal(
-      baseStatementEngine.noteData.taxation,
-      "prior",
-    );
+    const mappedTaxPaidCurrent = 0;
+const mappedTaxPaidPrior = 0;
 
     const interestReceivedCurrent =
       effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
