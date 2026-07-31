@@ -159,37 +159,70 @@ const mappingTree: MappingNode[] = [
   folder("sfp", "Statement of Financial Position", [
     folder("sfp-non-current-assets", "300 · Non-current assets", [
       folder("sfp-nca-ppe", "305 · Property, plant and equipment", [
-        folder("ppe-land-buildings", "Land and buildings", [
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Land and buildings"], "At cost", "305.10", "ppe"),
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Land and buildings"], "Accumulated depreciation", "305.11", "ppe"),
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Land and buildings"], "Accumulated impairment", "305.12", "ppe"),
+        folder("ppe-land", "Land", [
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Land"], "At cost", "305.10", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Land"], "Accumulated impairment", "305.12", "ppe"),
+        ]),
+        folder("ppe-buildings", "Buildings", [
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Buildings"], "At cost", "305.20", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Buildings"], "Accumulated depreciation", "305.21", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Buildings"], "Accumulated impairment", "305.22", "ppe"),
+        ]),
+        folder("ppe-leasehold-property", "Leasehold property", [
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Leasehold property"], "At cost", "305.30", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Leasehold property"], "Accumulated depreciation", "305.31", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Leasehold property"], "Accumulated impairment", "305.32", "ppe"),
         ]),
         folder("ppe-plant-machinery", "Plant and machinery", [
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Plant and machinery"], "At cost", "305.20", "ppe"),
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Plant and machinery"], "Accumulated depreciation", "305.21", "ppe"),
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Plant and machinery"], "Accumulated impairment", "305.22", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Plant and machinery"], "At cost", "305.40", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Plant and machinery"], "Accumulated depreciation", "305.41", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Plant and machinery"], "Accumulated impairment", "305.42", "ppe"),
         ]),
         folder("ppe-furniture-fittings", "Furniture and fittings", [
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Furniture and fittings"], "At cost", "305.30", "ppe"),
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Furniture and fittings"], "Accumulated depreciation", "305.31", "ppe"),
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Furniture and fittings"], "Accumulated impairment", "305.32", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Furniture and fittings"], "At cost", "305.50", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Furniture and fittings"], "Accumulated depreciation", "305.51", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Furniture and fittings"], "Accumulated impairment", "305.52", "ppe"),
         ]),
         folder("ppe-motor-vehicles", "Motor vehicles", [
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Motor vehicles"], "At cost", "305.40", "ppe"),
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Motor vehicles"], "Accumulated depreciation", "305.41", "ppe"),
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Motor vehicles"], "Accumulated impairment", "305.42", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Motor vehicles"], "At cost", "305.60", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Motor vehicles"], "Accumulated depreciation", "305.61", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Motor vehicles"], "Accumulated impairment", "305.62", "ppe"),
         ]),
-        folder("ppe-office-equipment", "Office and computer equipment", [
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Office and computer equipment"], "At cost", "305.50", "ppe"),
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Office and computer equipment"], "Accumulated depreciation", "305.51", "ppe"),
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Office and computer equipment"], "Accumulated impairment", "305.52", "ppe"),
+        folder("ppe-office-equipment", "Office equipment", [
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Office equipment"], "At cost", "305.70", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Office equipment"], "Accumulated depreciation", "305.71", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Office equipment"], "Accumulated impairment", "305.72", "ppe"),
         ]),
-        folder("ppe-other", "Other property, plant and equipment", [
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other property, plant and equipment"], "At cost", "305.80", "ppe"),
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other property, plant and equipment"], "Accumulated depreciation", "305.81", "ppe"),
-          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other property, plant and equipment"], "Accumulated impairment", "305.82", "ppe"),
+        folder("ppe-computer-equipment", "Computer equipment", [
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Computer equipment"], "At cost", "305.80", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Computer equipment"], "Accumulated depreciation", "305.81", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Computer equipment"], "Accumulated impairment", "305.82", "ppe"),
         ]),
-        leaf("SFP", "Non-current assets", ["Property, plant and equipment"], "Capital work in progress", "305.90", "ppe"),
+        folder("ppe-leasehold-improvements", "Leasehold improvements", [
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Leasehold improvements"], "At cost", "305.90", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Leasehold improvements"], "Accumulated depreciation", "305.91", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Leasehold improvements"], "Accumulated impairment", "305.92", "ppe"),
+        ]),
+        folder("ppe-other-1", "Other PPE 1", [
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 1"], "At cost", "305.101", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 1"], "Accumulated depreciation", "305.102", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 1"], "Accumulated impairment", "305.103", "ppe"),
+        ]),
+        folder("ppe-other-2", "Other PPE 2", [
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 2"], "At cost", "305.111", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 2"], "Accumulated depreciation", "305.112", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 2"], "Accumulated impairment", "305.113", "ppe"),
+        ]),
+        folder("ppe-other-3", "Other PPE 3", [
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 3"], "At cost", "305.121", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 3"], "Accumulated depreciation", "305.122", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 3"], "Accumulated impairment", "305.123", "ppe"),
+        ]),
+        folder("ppe-other-4", "Other PPE 4", [
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 4"], "At cost", "305.131", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 4"], "Accumulated depreciation", "305.132", "ppe"),
+          leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 4"], "Accumulated impairment", "305.133", "ppe"),
+        ]),
       ]),
       folder("sfp-nca-rou", "306 · Right-of-use assets", [
         leaf("SFP", "Non-current assets", ["Right-of-use assets"], "At cost", "306.10", "right-of-use-assets"),
@@ -396,6 +429,7 @@ export default function MappingPanel({ trialBalanceLines, onTrialBalanceLinesCha
   const [localLines, setLocalLines] = useState<TrialBalanceLine[]>(trialBalanceLines);
   const [selectedLineKey, setSelectedLineKey] = useState("");
   const [selectedLeaf, setSelectedLeaf] = useState<MappingLeaf | null>(null);
+  const [financialStatementLabel, setFinancialStatementLabel] = useState("");
   const [searchText, setSearchText] = useState("");
   const [accountFilter, setAccountFilter] = useState("Unmapped");
   const [saving, setSaving] = useState(false);
@@ -461,11 +495,45 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
     (line) => !isMapped(line) && line.suggested.confidence === "High"
   ).length;
 
+  function selectLine(line: EnrichedLine) {
+    setSelectedLineKey(line.lineKey);
+
+    const mappedLeaf =
+      findLeafByCode(String(line.mapping_code || "")) ||
+      allMappingLeaves.find((item) => item.id === line.mapping_leaf_id) ||
+      null;
+
+    if (mappedLeaf) {
+      setSelectedLeaf(mappedLeaf);
+    }
+
+    setFinancialStatementLabel(
+      String(line.mapping_label || mappedLeaf?.label || "").trim()
+    );
+  }
+
+  function selectMappingLeaf(mappingLeaf: MappingLeaf) {
+    setSelectedLeaf(mappingLeaf);
+
+    const existingLabel =
+      selectedLine &&
+      selectedLine.mapping_code === mappingLeaf.mappingCode
+        ? String(selectedLine.mapping_label || "").trim()
+        : "";
+
+    setFinancialStatementLabel(existingLabel || mappingLeaf.label);
+  }
+
   function toggleNode(id: string) {
     setOpenNodes((current) => ({ ...current, [id]: !current[id] }));
   }
 
-  async function saveMapping(line: EnrichedLine, mappingLeaf: MappingLeaf, confidence = "Manual") {
+  async function saveMapping(
+    line: EnrichedLine,
+    mappingLeaf: MappingLeaf,
+    confidence = "Manual",
+    presentationLabel = mappingLeaf.label
+  ) {
     if (!line.id && !line.account_code) {
       alert("This trial balance line does not have an ID or account number yet.");
       return;
@@ -486,7 +554,10 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
             accountCode: line.account_code,
             account_code: line.account_code,
             mappingLeafId: mappingLeaf.id,
-            mappingLabel: mappingLeaf.label,
+            mappingCategory: mappingLeaf.label,
+            mappingLabel: presentationLabel.trim() || mappingLeaf.label,
+            financialStatementLabel:
+              presentationLabel.trim() || mappingLeaf.label,
             mappingStatement: mappingLeaf.statement,
             mappingSection: mappingLeaf.section,
             mappingPath: [...mappingLeaf.path, mappingLeaf.label].join(" > "),
@@ -519,6 +590,9 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
       });
       setSelectedLineKey(line.lineKey);
       setSelectedLeaf(mappingLeaf);
+      setFinancialStatementLabel(
+        String(updatedLine.mapping_label || presentationLabel || mappingLeaf.label)
+      );
       setMessage("Mapping saved.");
     } catch (error: any) {
       alert(error?.message || "Failed to save mapping.");
@@ -584,7 +658,12 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
       return;
     }
 
-    await saveMapping(selectedLine, selectedLeaf);
+    await saveMapping(
+      selectedLine,
+      selectedLeaf,
+      "Manual",
+      financialStatementLabel
+    );
   }
 
   async function applySuggestedMapping(line: EnrichedLine) {
@@ -593,7 +672,12 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
       return;
     }
 
-    await saveMapping(line, line.suggested.leaf, line.suggested.confidence);
+    await saveMapping(
+      line,
+      line.suggested.leaf,
+      line.suggested.confidence,
+      line.suggested.leaf.label
+    );
   }
 
   async function applyAllHighConfidence() {
@@ -608,7 +692,12 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
 
     for (const line of linesToApply) {
       if (line.suggested.leaf) {
-        await saveMapping(line, line.suggested.leaf, line.suggested.confidence);
+        await saveMapping(
+          line,
+          line.suggested.leaf,
+          line.suggested.confidence,
+          line.suggested.leaf.label
+        );
       }
     }
   }
@@ -701,7 +790,7 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
                           ...styles.tr,
                           ...(isSelected ? styles.selectedRow : {}),
                         }}
-                        onClick={() => setSelectedLineKey(line.lineKey)}
+                        onClick={() => selectLine(line)}
                       >
                         <td style={styles.tdCode}>{line.account_code || ""}</td>
                         <td style={styles.td}>{line.account_name}</td>
@@ -800,7 +889,7 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
                 openNodes={openNodes}
                 toggleNode={toggleNode}
                 selectedLeaf={selectedLeaf}
-                setSelectedLeaf={setSelectedLeaf}
+                setSelectedLeaf={selectMappingLeaf}
                 leafUsage={leafUsage}
               />
             ))}
@@ -827,6 +916,20 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
               ? `${selectedLeaf.mappingCode} · ${selectedLeaf.path.join(" > ")} > ${selectedLeaf.label}`
               : "None selected"}
           </strong>
+
+          <label style={styles.presentationLabelWrap}>
+            <span>Financial statement description</span>
+            <input
+              type="text"
+              style={styles.presentationLabelInput}
+              value={financialStatementLabel}
+              disabled={!selectedLeaf || saving}
+              placeholder={selectedLeaf?.label || "Select a mapping first"}
+              onChange={(event) =>
+                setFinancialStatementLabel(event.target.value)
+              }
+            />
+          </label>
         </div>
 
         <button
@@ -1409,7 +1512,7 @@ const styles: Record<string, CSSProperties> = {
     background: "#f8fafc",
     padding: "6px 8px",
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) 24px minmax(0, 1fr) 82px",
+    gridTemplateColumns: "minmax(0, 0.85fr) 24px minmax(360px, 1.15fr) 82px",
     gap: "8px",
     alignItems: "center",
   },
@@ -1419,6 +1522,27 @@ const styles: Record<string, CSSProperties> = {
     color: "#48617f",
     fontSize: "10.5px",
     lineHeight: 1.2,
+  },
+  presentationLabelWrap: {
+    display: "grid",
+    gridTemplateColumns: "145px minmax(180px, 1fr)",
+    gap: "6px",
+    alignItems: "center",
+    marginTop: "4px",
+    color: "#334155",
+    fontSize: "10px",
+    fontWeight: 800,
+  },
+  presentationLabelInput: {
+    width: "100%",
+    minWidth: 0,
+    border: "1px solid #94a3b8",
+    borderRadius: "0px",
+    background: "#ffffff",
+    padding: "5px 6px",
+    color: "#0f172a",
+    fontSize: "11px",
+    outline: "none",
   },
   assignArrow: {
     color: "#64748b",

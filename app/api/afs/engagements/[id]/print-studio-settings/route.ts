@@ -584,7 +584,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         note_texts: payload.noteTexts || {},
         statement_overrides: payload.statementOverrides || {},
         structured_notes_state: payload.structuredNotesState || {},
-        owner_user_id: ownerUserId,
         created_at: now,
         updated_at: now,
       };

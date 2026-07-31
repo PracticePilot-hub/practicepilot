@@ -1643,20 +1643,63 @@ const isDraftPdf =
           }
         }
 
-        if (
-          savedStatementOverrides &&
-          typeof savedStatementOverrides === "object" &&
-          Object.keys(savedStatementOverrides).length > 0
-        ) {
-          setStatementOverrides(savedStatementOverrides);
+        let localStatementOverrides: Record<string, any> = {};
+        let localStructuredNotesState: Record<string, any> = {};
+
+        try {
+          const localStatementRaw = window.localStorage.getItem(
+            `practicepilot-afs-print-studio:${engagementId}:statement-overrides`,
+          );
+
+          if (localStatementRaw) {
+            const parsed = JSON.parse(localStatementRaw);
+
+            if (parsed && typeof parsed === "object") {
+              localStatementOverrides = parsed;
+            }
+          }
+        } catch {
+          localStatementOverrides = {};
         }
 
-        if (
-          savedStructuredNotesState &&
-          typeof savedStructuredNotesState === "object"
-        ) {
-          setStructuredNotesState(savedStructuredNotesState);
+        try {
+          const localStructuredRaw = window.localStorage.getItem(
+            `practicepilot-afs-structured-notes:${engagementId}`,
+          );
+
+          if (localStructuredRaw) {
+            const parsed = JSON.parse(localStructuredRaw);
+
+            if (parsed && typeof parsed === "object") {
+              localStructuredNotesState = parsed;
+            }
+          }
+        } catch {
+          localStructuredNotesState = {};
         }
+
+        const mergedStatementOverrides = {
+          ...(
+            savedStatementOverrides &&
+            typeof savedStatementOverrides === "object"
+              ? savedStatementOverrides
+              : {}
+          ),
+          ...localStatementOverrides,
+        };
+
+        const mergedStructuredNotesState = {
+          ...(
+            savedStructuredNotesState &&
+            typeof savedStructuredNotesState === "object"
+              ? savedStructuredNotesState
+              : {}
+          ),
+          ...localStructuredNotesState,
+        };
+
+        setStatementOverrides(mergedStatementOverrides);
+        setStructuredNotesState(mergedStructuredNotesState);
       }
     } catch (error) {
       console.error("Failed to load Print Studio data", error);
@@ -1676,6 +1719,7 @@ const isDraftPdf =
     accountingPolicyTexts?: EditableDisclosureTextMap;
     noteTexts?: EditableDisclosureTextMap;
     statementOverrides?: AfsStatementOverrides;
+    structuredNotesState?: Record<string, any>;
   }) {
     if (!engagementId || !printStudioSettingsLoaded) return;
 
@@ -2600,9 +2644,76 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   const sociRows = statementEngine.sociRows;
   const sceRows = statementEngine.sceRows;
   const cashFlowRows = statementEngine.cashFlowRows;
+  const detailedIncomeLabelOverrides = {
+    ...(
+      structuredNotesState?.detailedIncomeLabelOverrides &&
+      typeof structuredNotesState.detailedIncomeLabelOverrides === "object"
+        ? structuredNotesState.detailedIncomeLabelOverrides
+        : {}
+    ),
+    ...(
+      (statementOverrides as any)?.detailedIncomeLabelOverrides &&
+      typeof (statementOverrides as any).detailedIncomeLabelOverrides ===
+        "object"
+        ? (statementOverrides as any).detailedIncomeLabelOverrides
+        : {}
+    ),
+  };
+
+  function detailedIncomeExportAliasKeys(row: any) {
+    const keys = new Set<string>();
+    const rowId = String(row?.id || "").trim();
+    const originalLabel = String(row?.label || "").trim();
+
+    if (rowId) keys.add(rowId);
+    if (originalLabel) keys.add(originalLabel);
+
+    const numberMatch = originalLabel.match(
+      /other\s*expenses?\s*(\d+)/i,
+    );
+
+    if (numberMatch?.[1]) {
+      const number = numberMatch[1];
+      keys.add(`Other Expenses ${number}`);
+      keys.add(`otherExpenses${number}`);
+      keys.add(`other_expenses_${number}`);
+      keys.add(`other-expenses-${number}`);
+    }
+
+    return Array.from(keys);
+  }
+
+  function resolveDetailedIncomeExportLabel(row: any) {
+    for (const key of detailedIncomeExportAliasKeys(row)) {
+      const savedLabel = cleanString(
+        detailedIncomeLabelOverrides[key],
+      );
+
+      if (savedLabel) return savedLabel;
+    }
+
+    return String(row?.label || "");
+  }
+
   const detailedIncomeRows = useMemo(
-    () => cleanDetailedIncomeRowsForReport(statementEngine.detailedIncomeRows || []),
-    [statementEngine.detailedIncomeRows],
+    () =>
+      cleanDetailedIncomeRowsForReport(
+        (statementEngine.detailedIncomeRows || []).map((row: any) => {
+          const savedLabel = resolveDetailedIncomeExportLabel(row);
+          const originalLabel = String(row?.label || "");
+
+          return savedLabel && savedLabel !== originalLabel
+            ? {
+                ...row,
+                label: savedLabel,
+              }
+            : row;
+        }),
+      ),
+    [
+      statementEngine.detailedIncomeRows,
+      detailedIncomeLabelOverrides,
+    ],
   );
   const noteData = statementEngine.noteData;
 

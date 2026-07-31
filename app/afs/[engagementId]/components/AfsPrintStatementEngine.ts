@@ -27,6 +27,10 @@ export type AfsEngineTrialBalanceLine = {
 export type AfsStatementOverrides = {
   cashFlowMethod?: "indirect" | "direct";
 
+  roundingTolerance?: number | null;
+  roundingAccountMappingCode?: string | null;
+  roundingAccountLabel?: string | null;
+
   cashReceiptsCustomersCurrent?: number | null;
   cashReceiptsCustomersPrior?: number | null;
   cashPaymentsSuppliersEmployeesCurrent?: number | null;
@@ -177,6 +181,7 @@ type StatementBucket = {
   key: string;
   label: string;
   note?: string | number | null;
+  noteKey?: AfsNoteKey;
   current: number;
   prior: number;
 };
@@ -221,37 +226,9 @@ function cleanLabel(value: unknown) {
 }
 
 /**
- * Statement classification is mapping-only.
- * It must never read account_code or account_name to decide where a line belongs.
+ * Statement classification is mapping-number only.
+ * Labels and account names are presentation fields and never determine placement.
  */
-function mappingText(line: AfsEngineTrialBalanceLine) {
-  return [
-    line.mapping_statement,
-    line.mapping_section,
-    line.mapping_path,
-    line.mapping_category,
-    line.mapping_label,
-    line.mapping_code,
-    line.lead_schedule_number,
-    line.lead_schedule_key,
-    line.mapping_leaf_id,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-}
-
-function includesAny(text: string, terms: string[]) {
-  return terms.some((term) => text.includes(term));
-}
-
-function isDeferredTaxAssetLine(line: AfsEngineTrialBalanceLine) {
-  return includesAny(mappingText(line), ["deferred tax asset", "deferred tax receivable"]);
-}
-
-function isDeferredTaxLiabilityLine(line: AfsEngineTrialBalanceLine) {
-  return includesAny(mappingText(line), ["deferred tax liability", "deferred tax payable"]);
-}
 
 function rawCurrent(line: AfsEngineTrialBalanceLine) {
   if (
@@ -276,13 +253,16 @@ function rawPrior(line: AfsEngineTrialBalanceLine) {
 }
 
 function bucketKey(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket) {
+  /*
+    Statement rows are grouped by the canonical mapping class.
+    Mapping leaf codes still remain available for classes that do not have
+    a dedicated note class, such as VAT and statutory controls.
+  */
   return (
-    line.lead_schedule_key ||
-    line.mapping_leaf_id ||
-    line.mapping_code ||
-    line.mapping_label ||
-    line.mapping_category ||
     canonical.noteKey ||
+    line.mapping_code ||
+    line.mapping_leaf_id ||
+    line.lead_schedule_number ||
     "mapped-uncategorised"
   );
 }
@@ -313,10 +293,26 @@ function mappingStartsWith(line: AfsEngineTrialBalanceLine, prefixes: string[]) 
 
 
 function bucketLabel(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket) {
-  /*
-    Use the exact selected mapping label for each non-current liability
-    class instead of collapsing them into one generic note label.
-  */
+  if (mappingStartsWith(line, ["395", "300.395"])) {
+    return "Deferred tax asset";
+  }
+
+  if (mappingStartsWith(line, ["490.10", "400.490.10"])) {
+    return "VAT receivable";
+  }
+
+  if (mappingStartsWith(line, ["490.20", "400.490.20"])) {
+    return "PAYE / UIF / SDL receivable";
+  }
+
+  if (mappingStartsWith(line, ["490.90", "400.490.90"])) {
+    return "Other SARS / statutory receivable";
+  }
+
+  if (mappingStartsWith(line, ["595", "500.595"])) {
+    return "Deferred tax liability";
+  }
+
   if (mappingStartsWith(line, ["550", "500.550"])) {
     return "Financial liabilities";
   }
@@ -333,22 +329,15 @@ function bucketLabel(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket
     return "Other non-current liabilities";
   }
 
-  if (canonical.noteKey === "currentTaxReceivable" && isDeferredTaxAssetLine(line)) {
-    return "Deferred tax asset";
-  }
-
-  if (canonical.noteKey === "currentTaxPayable" && isDeferredTaxLiabilityLine(line)) {
-    return "Deferred tax liability";
-  }
-
   if (canonical.noteKey) return NOTE_LABELS[canonical.noteKey];
 
   return cleanLabel(
     line.mapping_label ||
       line.mapping_category ||
-      line.lead_schedule_key ||
       line.mapping_code ||
-      "Mapped item"
+      line.mapping_leaf_id ||
+      line.lead_schedule_number ||
+      "Mapped item",
   );
 }
 
@@ -363,342 +352,122 @@ function detailedLabel(line: AfsEngineTrialBalanceLine) {
         line.mapping_category ||
         line.lead_schedule_key ||
         line.mapping_code ||
-        line.account_name ||
         "Mapped item",
     ) || bucketLabel(line, canonicalFromMapping(line))
   );
 }
 
 function canonicalFromMapping(line: AfsEngineTrialBalanceLine): CanonicalBucket {
-  const text = mappingText(line);
-
   /*
-    Mapping-code driven classification.
-    590 / 500.590 is Other non-current liabilities.
-    This must not be decided from account names or label wording.
+    ABSOLUTE RULE:
+    Statement placement is determined only by mapping numbers.
+    No account names, mapping labels, categories, paths or wording are used.
   */
-  if (mappingStartsWith(line, ["590", "500.590"])) {
+
+  if (mappingStartsWith(line, ["305", "300.305", "306", "300.306"])) {
+    return { statement: "nonCurrentAsset", noteKey: "propertyPlantEquipment" };
+  }
+  if (mappingStartsWith(line, ["310", "300.310"])) {
+    return { statement: "nonCurrentAsset", noteKey: "investmentProperty" };
+  }
+  if (mappingStartsWith(line, ["320", "300.320"])) {
+    return { statement: "nonCurrentAsset", noteKey: "intangibleAssets" };
+  }
+  if (mappingStartsWith(line, ["321", "300.321"])) {
+    return { statement: "nonCurrentAsset", noteKey: "goodwill" };
+  }
+  if (mappingStartsWith(line, ["326", "300.326", "327", "300.327", "328", "300.328", "390", "300.390"])) {
+    return { statement: "nonCurrentAsset", noteKey: "otherNonCurrentAssets" };
+  }
+  if (mappingStartsWith(line, ["340", "300.340"])) {
+    return { statement: "nonCurrentAsset", noteKey: "loansReceivable" };
+  }
+  if (mappingStartsWith(line, ["395", "300.395"])) {
+    return { statement: "nonCurrentAsset", noteKey: "currentTaxReceivable" };
+  }
+
+  if (mappingStartsWith(line, ["405", "400.405"])) {
+    return { statement: "currentAsset", noteKey: "inventories" };
+  }
+  if (mappingStartsWith(line, ["420", "400.420"])) {
+    return { statement: "currentAsset", noteKey: "cashAndCashEquivalents" };
+  }
+  if (mappingStartsWith(line, ["430", "400.430", "432", "400.432"])) {
+    return { statement: "currentAsset", noteKey: "tradeReceivables" };
+  }
+  if (mappingStartsWith(line, ["449", "400.449"])) {
+    return { statement: "currentAsset", noteKey: "loansReceivable" };
+  }
+  if (mappingStartsWith(line, ["490", "400.490"])) {
+    return { statement: "currentAsset" };
+  }
+  if (mappingStartsWith(line, ["495", "400.495"])) {
+    return { statement: "currentAsset", noteKey: "currentTaxReceivable" };
+  }
+  if (mappingStartsWith(line, ["499", "400.499"])) {
+    return { statement: "currentAsset" };
+  }
+
+  if (mappingStartsWith(line, ["805", "800.805"])) {
+    return { statement: "equity", noteKey: "shareCapital" };
+  }
+  if (mappingStartsWith(line, ["810", "800.810"])) {
+    return { statement: "equity", noteKey: "retainedIncome" };
+  }
+  if (mappingStartsWith(line, ["820", "800.820"])) {
+    return { statement: "equity" };
+  }
+  if (mappingStartsWith(line, ["800"])) {
+    return { statement: "equity" };
+  }
+
+  if (mappingStartsWith(line, ["515", "500.515", "531", "500.531", "547", "500.547", "548", "500.548", "550", "500.550", "551", "500.551", "555", "500.555", "590", "500.590", "595", "500.595"])) {
     return {
       statement: "nonCurrentLiability",
-      noteKey: "otherFinancialLiabilities",
+      noteKey: mappingStartsWith(line, ["548", "500.548"])
+        ? "shareholdersLoans"
+        : mappingStartsWith(line, ["595", "500.595"])
+        ? "currentTaxPayable"
+        : "otherFinancialLiabilities",
     };
   }
 
-  /*
-    Statement of Financial Position mapping codes are authoritative.
-
-    Non-current liability mappings must never be changed to current merely
-    because a parent mapping path contains the words "current liabilities".
-  */
-  if (
-    mappingStartsWith(line, [
-      "515",
-      "500.515",
-      "531",
-      "500.531",
-      "547",
-      "500.547",
-      "548",
-      "500.548",
-      "550",
-      "500.550",
-      "551",
-      "500.551",
-      "555",
-      "500.555",
-      "590",
-      "500.590",
-      "595",
-      "500.595",
-    ])
-  ) {
-    return {
-      statement: "nonCurrentLiability",
-      noteKey:
-        mappingStartsWith(line, ["548", "500.548"])
-          ? "shareholdersLoans"
-          : "otherFinancialLiabilities",
-    };
-  }
-
-  if (
-    mappingStartsWith(line, [
-      "620",
-      "600.620",
-      "630",
-      "600.630",
-      "650",
-      "600.650",
-      "660",
-      "600.660",
-      "688",
-      "600.688",
-      "690",
-      "600.690",
-      "695",
-      "600.695",
-      "699",
-      "600.699",
-    ])
-  ) {
+  if (mappingStartsWith(line, ["620", "600.620", "630", "600.630", "650", "600.650", "660", "600.660", "688", "600.688", "690", "600.690", "695", "600.695", "699", "600.699"])) {
     return {
       statement: "currentLiability",
-      noteKey:
-        mappingStartsWith(line, ["630", "600.630"])
-          ? "tradePayables"
-          : mappingStartsWith(line, ["695", "600.695"])
-          ? "currentTaxPayable"
-          : undefined,
+      noteKey: mappingStartsWith(line, ["630", "600.630"])
+        ? "tradePayables"
+        : mappingStartsWith(line, ["695", "600.695"])
+        ? "currentTaxPayable"
+        : undefined,
     };
   }
-
-  if (!text.trim()) return { statement: "unmapped" };
-
-  /*
-    PROFIT OR LOSS CLASSIFICATION
-
-    Mapping codes are the source of truth. Parent headings and labels may
-    contain broad wording such as "Revenue and income" or "Cost of sales".
-    Those words must never override the selected mapping code.
-  */
 
   if (mappingStartsWith(line, ["700"])) {
     const currentAmount = rawCurrent(line);
     const priorAmount = rawPrior(line);
-
-    const isDebitNatureRevenueAccount =
+    const debitNature =
       currentAmount > 0.005 ||
       (Math.abs(currentAmount) < 0.005 && priorAmount > 0.005);
 
-    if (isDebitNatureRevenueAccount) {
-      return {
-        statement: "profitLoss",
-        noteKey: "operatingExpenses",
-        plGroup: "operatingExpenses",
-      };
-    }
-
-    return {
-      statement: "profitLoss",
-      noteKey: "revenue",
-      plGroup: "revenue",
-    };
+    return debitNature
+      ? { statement: "profitLoss", noteKey: "operatingExpenses", plGroup: "operatingExpenses" }
+      : { statement: "profitLoss", noteKey: "revenue", plGroup: "revenue" };
   }
-
   if (mappingStartsWith(line, ["720"])) {
-    return {
-      statement: "profitLoss",
-      plGroup: "costOfSales",
-    };
+    return { statement: "profitLoss", plGroup: "costOfSales" };
   }
-
   if (mappingStartsWith(line, ["730", "770", "780", "785"])) {
-    return {
-      statement: "profitLoss",
-      noteKey: "otherIncome",
-      plGroup: "otherIncome",
-    };
+    return { statement: "profitLoss", noteKey: "otherIncome", plGroup: "otherIncome" };
   }
-
   if (mappingStartsWith(line, ["750", "781"])) {
-    return {
-      statement: "profitLoss",
-      noteKey: "operatingExpenses",
-      plGroup: "operatingExpenses",
-    };
-  }
-
-  if (mappingStartsWith(line, ["775"])) {
-    return {
-      statement: "profitLoss",
-      noteKey: "financeCosts",
-      plGroup: "financeCosts",
-    };
-  }
-
-  if (mappingStartsWith(line, ["795"])) {
-    return {
-      statement: "profitLoss",
-      noteKey: "taxation",
-      plGroup: "taxation",
-    };
-  }
-
-  /*
-    Legacy fallback for older mappings where no recognised mapping code
-    exists. Specific classifications must be checked before broad wording.
-  */
-
-  if (includesAny(text, ["cost of sales", "cost-of-sales", "costofsales"])) {
-    return {
-      statement: "profitLoss",
-      plGroup: "costOfSales",
-    };
-  }
-
-  if (
-    includesAny(text, [
-      "finance cost",
-      "finance-cost",
-      "interest expense",
-      "interest paid",
-    ])
-  ) {
-    return {
-      statement: "profitLoss",
-      noteKey: "financeCosts",
-      plGroup: "financeCosts",
-    };
-  }
-
-  if (
-    includesAny(text, [
-      "other income",
-      "investment income",
-      "finance income",
-      "interest received",
-    ])
-  ) {
-    return {
-      statement: "profitLoss",
-      noteKey: "otherIncome",
-      plGroup: "otherIncome",
-    };
-  }
-
-  if (includesAny(text, ["revenue", "sales", "turnover"])) {
-    return {
-      statement: "profitLoss",
-      noteKey: "revenue",
-      plGroup: "revenue",
-    };
-  }
-
-  if (includesAny(text, ["current tax receivable", "income tax receivable", "tax receivable", "deferred tax asset"])) {
-    return { statement: "currentAsset", noteKey: "currentTaxReceivable" };
-  }
-
-  if (includesAny(text, ["current tax payable", "income tax payable", "tax payable", "deferred tax liability"])) {
-    return { statement: "currentLiability", noteKey: "currentTaxPayable" };
-  }
-
-  if (includesAny(text, ["tax expense", "income tax expense", "taxation", "normal tax"])) {
-    return { statement: "profitLoss", noteKey: "taxation", plGroup: "taxation" };
-  }
-
-  if (
-    includesAny(text, [
-      "operating expenses",
-      "operating expense",
-      "administration expenses",
-      "administrative expenses",
-      "expenses",
-    ])
-  ) {
     return { statement: "profitLoss", noteKey: "operatingExpenses", plGroup: "operatingExpenses" };
   }
-
-  if (includesAny(text, ["property plant", "property, plant", "plant and equipment", "ppe"])) {
-    return { statement: "nonCurrentAsset", noteKey: "propertyPlantEquipment" };
+  if (mappingStartsWith(line, ["775"])) {
+    return { statement: "profitLoss", noteKey: "financeCosts", plGroup: "financeCosts" };
   }
-
-  if (includesAny(text, ["goodwill"])) {
-    return { statement: "nonCurrentAsset", noteKey: "goodwill" };
-  }
-
-  if (includesAny(text, ["investment property"])) {
-    return { statement: "nonCurrentAsset", noteKey: "investmentProperty" };
-  }
-
-  if (includesAny(text, ["intangible"])) {
-    return { statement: "nonCurrentAsset", noteKey: "intangibleAssets" };
-  }
-
-  if (includesAny(text, ["biological asset"])) {
-    return { statement: "nonCurrentAsset", noteKey: "biologicalAssets" };
-  }
-
-  if (includesAny(text, ["loans receivable", "loan receivable"])) {
-    return { statement: "nonCurrentAsset", noteKey: "loansReceivable" };
-  }
-
-  if (includesAny(text, ["other non-current asset", "other non current asset", "non-current asset", "non current asset"])) {
-    return { statement: "nonCurrentAsset", noteKey: "otherNonCurrentAssets" };
-  }
-
-  if (includesAny(text, ["inventory", "inventories", "stock"])) {
-    return { statement: "currentAsset", noteKey: "inventories" };
-  }
-
-  if (includesAny(text, ["trade receivable", "trade and other receivable", "accounts receivable", "debtors"])) {
-    return { statement: "currentAsset", noteKey: "tradeReceivables" };
-  }
-
-  if (includesAny(text, ["current tax receivable", "income tax receivable"])) {
-    return { statement: "currentAsset", noteKey: "currentTaxReceivable" };
-  }
-
-  if (includesAny(text, ["cash and cash equivalents", "cash equivalents", "bank", "cash"])) {
-    return { statement: "currentAsset", noteKey: "cashAndCashEquivalents" };
-  }
-
-  if (includesAny(text, ["current asset", "asset"])) {
-    return { statement: "currentAsset", noteKey: "otherNonCurrentAssets" };
-  }
-
-  if (includesAny(text, ["share capital", "issued capital", "members contribution", "member contribution"])) {
-    return { statement: "equity", noteKey: "shareCapital" };
-  }
-
-  if (includesAny(text, ["retained", "accumulated profit", "accumulated loss"])) {
-    return { statement: "equity", noteKey: "retainedIncome" };
-  }
-
-  if (includesAny(text, ["reserve", "equity"])) {
-    return { statement: "equity" };
-  }
-
-  if (
-    includesAny(text, [
-      "shareholder",
-      "director loan",
-      "member loan",
-      "members loan",
-      "loan from shareholder",
-      "loans from shareholders",
-      "related party loan",
-    ])
-  ) {
-    return { statement: "nonCurrentLiability", noteKey: "shareholdersLoans" };
-  }
-
-  if (
-    includesAny(text, [
-      "other financial liability",
-      "borrowings",
-      "long-term loan",
-      "long term loan",
-      "lease liability",
-      "instalment sale",
-    ])
-  ) {
-    return { statement: "nonCurrentLiability", noteKey: "otherFinancialLiabilities" };
-  }
-
-  if (includesAny(text, ["trade payable", "trade and other payable", "accounts payable", "creditors", "accrual"])) {
-    return { statement: "currentLiability", noteKey: "tradePayables" };
-  }
-
-  if (includesAny(text, ["current tax payable", "income tax payable"])) {
-    return { statement: "currentLiability", noteKey: "currentTaxPayable" };
-  }
-
-  if (includesAny(text, ["current liability", "current liabilities"])) {
-    return { statement: "currentLiability" };
-  }
-
-  if (includesAny(text, ["non-current liability", "non current liability", "liability", "liabilities"])) {
-    return { statement: "nonCurrentLiability" };
+  if (mappingStartsWith(line, ["795"])) {
+    return { statement: "profitLoss", noteKey: "taxation", plGroup: "taxation" };
   }
 
   return { statement: "unmapped" };
@@ -744,6 +513,7 @@ function addToBucket(
       key,
       label,
       note: canonical.noteKey ? noteNumbers[canonical.noteKey] || null : null,
+      noteKey: canonical.noteKey,
       current: 0,
       prior: 0,
     });
@@ -754,71 +524,6 @@ function addToBucket(
 
   bucket.current += normaliseAmount(line, rawCurrent(line), canonical);
   bucket.prior += normaliseAmount(line, rawPrior(line), canonical);
-}
-
-function addPeriodAmountToBucket(
-  buckets: Map<string, StatementBucket>,
-  key: string,
-  label: string,
-  note: string | number | null,
-  side: "current" | "prior",
-  amount: number
-) {
-  if (Math.abs(amount) < 0.005) return;
-
-  if (!buckets.has(key)) {
-    buckets.set(key, {
-      key,
-      label,
-      note,
-      current: 0,
-      prior: 0,
-    });
-  }
-
-  const bucket = buckets.get(key);
-  if (!bucket) return;
-
-  bucket[side] += amount;
-}
-
-function isCashOrBankLine(line: AfsEngineTrialBalanceLine) {
-  return (
-    mappingStartsWith(line, ["420", "620"]) ||
-    includesAny(mappingText(line), [
-      "cash and cash equivalents",
-      "cash equivalents",
-      "bank overdraft",
-      "bank overdrafts",
-      "bank and cash",
-    ])
-  );
-}
-
-function isShareholderLoanLine(line: AfsEngineTrialBalanceLine) {
-  return (
-    mappingStartsWith(line, ["548", "500.548"]) ||
-    includesAny(mappingText(line), [
-      "shareholder loan",
-      "shareholders loan",
-      "shareholders' loan",
-      "loan from shareholder",
-      "loans from shareholders",
-      "director loan",
-      "member loan",
-    ])
-  );
-}
-
-function isPayrollStatutoryLine(line: AfsEngineTrialBalanceLine) {
-  return includesAny(mappingText(line), [
-    "paye",
-    "uif",
-    "sdl",
-    "payroll tax",
-    "statutory payable",
-    "statutory receivable",
-  ]);
 }
 
 function addBalanceSheetLineByPeriod(
@@ -832,164 +537,45 @@ function addBalanceSheetLineByPeriod(
   canonical: CanonicalBucket,
   noteNumbers: Partial<Record<AfsNoteKey, string | number>>
 ) {
-  const cashOrBank = isCashOrBankLine(line);
-  const shareholderLoan = isShareholderLoanLine(line);
-  const payrollStatutory = isPayrollStatutoryLine(line);
-
   const baseKey = String(bucketKey(line, canonical));
   const baseLabel = bucketLabel(line, canonical);
   const baseNote = canonical.noteKey
     ? noteNumbers[canonical.noteKey] || null
     : null;
 
-  function addMappedSide(
-    side: "current" | "prior",
-    rawAmount: number
-  ) {
-    if (Math.abs(rawAmount) < 0.005) return;
+  const target =
+    canonical.statement === "nonCurrentAsset"
+      ? buckets.nonCurrentAssets
+      : canonical.statement === "currentAsset"
+      ? buckets.currentAssets
+      : canonical.statement === "nonCurrentLiability"
+      ? buckets.nonCurrentLiabilities
+      : buckets.currentLiabilities;
 
-    /*
-      Cash is the only general balance-sheet class that must be split
-      by sign for each reporting period.
-    */
-    if (cashOrBank) {
-      if (rawAmount >= 0) {
-        addPeriodAmountToBucket(
-          buckets.currentAssets,
-          "cash-and-cash-equivalents",
-          "Cash and cash equivalents",
-          noteNumbers.cashAndCashEquivalents || null,
-          side,
-          rawAmount
-        );
-      } else {
-        addPeriodAmountToBucket(
-          buckets.currentLiabilities,
-          "bank-overdrafts",
-          "Bank overdrafts",
-          null,
-          side,
-          Math.abs(rawAmount)
-        );
-      }
+  const key = `${baseKey}:${canonical.statement}`;
 
-      return;
-    }
-
-    /*
-      Shareholder/director/member loans may genuinely be receivable
-      in one period and payable in another.
-    */
-    if (shareholderLoan) {
-      if (rawAmount >= 0) {
-        addPeriodAmountToBucket(
-          buckets.nonCurrentAssets,
-          "shareholders-loans-receivable",
-          "Shareholders' loans receivable",
-          noteNumbers.loansReceivable || null,
-          side,
-          rawAmount
-        );
-      } else {
-        addPeriodAmountToBucket(
-          buckets.nonCurrentLiabilities,
-          "shareholders-loans-payable",
-          "Shareholders' loans",
-          noteNumbers.shareholdersLoans || null,
-          side,
-          Math.abs(rawAmount)
-        );
-      }
-
-      return;
-    }
-
-    /*
-      Payroll statutory controls may also switch between receivable
-      and payable by reporting period.
-    */
-    if (payrollStatutory) {
-      if (rawAmount >= 0) {
-        addPeriodAmountToBucket(
-          buckets.currentAssets,
-          "payroll-statutory-receivable",
-          "PAYE / UIF / SDL receivable",
-          noteNumbers.currentTaxReceivable || null,
-          side,
-          rawAmount
-        );
-      } else {
-        addPeriodAmountToBucket(
-          buckets.currentLiabilities,
-          "payroll-statutory-payable",
-          "PAYE / UIF / SDL payable",
-          noteNumbers.currentTaxPayable || null,
-          side,
-          Math.abs(rawAmount)
-        );
-      }
-
-      return;
-    }
-
-    /*
-      Every other balance-sheet account stays in the section selected
-      by its mapping.
-
-      This is essential for contra-asset balances such as accumulated
-      depreciation. A negative PPE component must reduce PPE; it must
-      never be moved to liabilities.
-    */
-    if (canonical.statement === "nonCurrentAsset") {
-      addPeriodAmountToBucket(
-        buckets.nonCurrentAssets,
-        `${baseKey}:non-current-asset`,
-        baseLabel,
-        baseNote,
-        side,
-        rawAmount
-      );
-      return;
-    }
-
-    if (canonical.statement === "currentAsset") {
-      addPeriodAmountToBucket(
-        buckets.currentAssets,
-        `${baseKey}:current-asset`,
-        baseLabel,
-        baseNote,
-        side,
-        rawAmount
-      );
-      return;
-    }
-
-    if (canonical.statement === "nonCurrentLiability") {
-      addPeriodAmountToBucket(
-        buckets.nonCurrentLiabilities,
-        `${baseKey}:non-current-liability`,
-        baseLabel,
-        baseNote,
-        side,
-        -rawAmount
-      );
-      return;
-    }
-
-    if (canonical.statement === "currentLiability") {
-      addPeriodAmountToBucket(
-        buckets.currentLiabilities,
-        `${baseKey}:current-liability`,
-        baseLabel,
-        baseNote,
-        side,
-        -rawAmount
-      );
-    }
+  if (!target.has(key)) {
+    target.set(key, {
+      key,
+      label: baseLabel,
+      note: baseNote,
+      noteKey: canonical.noteKey,
+      current: 0,
+      prior: 0,
+    });
   }
 
-  addMappedSide("current", rawCurrent(line));
-  addMappedSide("prior", rawPrior(line));
+  const bucket = target.get(key);
+  if (!bucket) return;
+
+  const currentRaw = rawCurrent(line);
+  const priorRaw = rawPrior(line);
+  const liability =
+    canonical.statement === "nonCurrentLiability" ||
+    canonical.statement === "currentLiability";
+
+  bucket.current += liability ? -currentRaw : currentRaw;
+  bucket.prior += liability ? -priorRaw : priorRaw;
 }
 
 function visibleBuckets(map: Map<string, StatementBucket>) {
@@ -1008,6 +594,16 @@ function sumBuckets(buckets: StatementBucket[]) {
       prior: total.prior + bucket.prior,
     }),
     { current: 0, prior: 0 }
+  );
+}
+
+function sumRoundedBuckets(buckets: StatementBucket[]) {
+  return buckets.reduce(
+    (total, bucket) => ({
+      current: total.current + Math.round(bucket.current),
+      prior: total.prior + Math.round(bucket.prior),
+    }),
+    { current: 0, prior: 0 },
   );
 }
 
@@ -1084,36 +680,226 @@ function emptyNoteData(): AfsNoteData {
   };
 }
 
-function detailedRowsFromLines(lines: AfsEngineTrialBalanceLine[]) {
+function detailedRowsFromLines(
+  lines: AfsEngineTrialBalanceLine[],
+  overrides: AfsStatementOverrides = {},
+  automaticProfitRoundingAdjustment = 0,
+) {
   const rows: AfsStatementRow[] = [];
+  const roundingTolerance = Math.max(
+    0,
+    Math.round(Number(overrides.roundingTolerance ?? 5)),
+  );
+  const roundingAccountMappingCode = String(
+    overrides.roundingAccountMappingCode || "",
+  ).trim();
+  const roundingAccountLabel =
+    String(overrides.roundingAccountLabel || "").trim() || "Bank Charges";
 
-  const buckets: Record<string, AfsStatementRow[]> = {
-    revenue: [],
-    costOfSales: [],
-    otherIncome: [],
-    operatingExpenses: [],
-    financeCosts: [],
-    taxation: [],
+  type DetailedBucket = {
+    key: string;
+    label: string;
+    current: number;
+    prior: number;
+    isDefaultRoundingTarget?: boolean;
   };
+
+  const buckets: Record<
+    "revenue" |
+      "costOfSales" |
+      "otherIncome" |
+      "operatingExpenses" |
+      "financeCosts" |
+      "taxation",
+    Map<string, DetailedBucket>
+  > = {
+    revenue: new Map<string, DetailedBucket>(),
+    costOfSales: new Map<string, DetailedBucket>(),
+    otherIncome: new Map<string, DetailedBucket>(),
+    operatingExpenses: new Map<string, DetailedBucket>(),
+    financeCosts: new Map<string, DetailedBucket>(),
+    taxation: new Map<string, DetailedBucket>(),
+  };
+
+  function detailedBucketKey(
+    line: AfsEngineTrialBalanceLine,
+    group: string,
+  ) {
+    return String(
+      line.mapping_code ||
+        line.lead_schedule_number ||
+        line.mapping_leaf_id ||
+        line.lead_schedule_key ||
+        line.mapping_label ||
+        line.mapping_category ||
+        `${group}-unmapped`,
+    ).trim();
+  }
+
+  function isDefaultBankChargesLine(line: AfsEngineTrialBalanceLine) {
+    return String(line.mapping_label || "")
+      .trim()
+      .toLowerCase() === "bank charges";
+  }
+
+  function preferredDetailedLabel(
+    existing: string | undefined,
+    line: AfsEngineTrialBalanceLine,
+  ) {
+    const customLabel = cleanLabel(line.mapping_label);
+
+    if (customLabel) return customLabel;
+    if (existing) return existing;
+
+    return detailedLabel(line);
+  }
 
   lines.forEach((line) => {
     const canonical = canonicalFromMapping(line);
     if (canonical.statement !== "profitLoss") return;
 
     const group = canonical.plGroup || "operatingExpenses";
+    const groupBuckets = buckets[group];
+    const key = detailedBucketKey(line, group);
+    const existing = groupBuckets.get(key);
 
-    buckets[group].push({
-      id:
-        line.id ||
-        line.account_code ||
-        line.account_name ||
-        `${group}-${buckets[group].length}`,
-      label: detailedLabel(line),
-      current: Math.round(normaliseAmount(line, rawCurrent(line), canonical)),
-      prior: Math.round(normaliseAmount(line, rawPrior(line), canonical)),
-      type: "line",
-    });
+    if (!existing) {
+      groupBuckets.set(key, {
+        key,
+        label: preferredDetailedLabel(undefined, line),
+        current: normaliseAmount(line, rawCurrent(line), canonical),
+        prior: normaliseAmount(line, rawPrior(line), canonical),
+        isDefaultRoundingTarget: isDefaultBankChargesLine(line),
+      });
+      return;
+    }
+
+    existing.label = preferredDetailedLabel(existing.label, line);
+    existing.current += normaliseAmount(
+      line,
+      rawCurrent(line),
+      canonical,
+    );
+    existing.prior += normaliseAmount(
+      line,
+      rawPrior(line),
+      canonical,
+    );
+    existing.isDefaultRoundingTarget =
+      existing.isDefaultRoundingTarget || isDefaultBankChargesLine(line);
   });
+
+  function groupRows(
+    group:
+      | "revenue"
+      | "costOfSales"
+      | "otherIncome"
+      | "operatingExpenses"
+      | "financeCosts"
+      | "taxation",
+  ): AfsStatementRow[] {
+    const rawBuckets = Array.from(buckets[group].values()).filter(
+      (bucket) =>
+        Math.round(bucket.current) !== 0 ||
+        Math.round(bucket.prior) !== 0,
+    );
+
+    if (
+      group === "operatingExpenses" &&
+      automaticProfitRoundingAdjustment !== 0 &&
+      Math.abs(automaticProfitRoundingAdjustment) <= roundingTolerance
+    ) {
+      const target =
+        (roundingAccountMappingCode
+          ? rawBuckets.find(
+              (bucket) =>
+                String(bucket.key).trim() === roundingAccountMappingCode,
+            )
+          : undefined) ||
+        rawBuckets.find((bucket) => bucket.isDefaultRoundingTarget);
+
+      if (target) {
+        target.current += automaticProfitRoundingAdjustment;
+        target.label = roundingAccountLabel;
+      }
+    }
+
+    const rows = rawBuckets
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .map((bucket) => ({
+        id: `${group}:${bucket.key}`,
+        label: bucket.label,
+        current: Math.round(bucket.current),
+        prior: Math.round(bucket.prior),
+        type: "line" as const,
+      }));
+
+    const roundedRawCurrent = Math.round(
+      rawBuckets.reduce((sum, bucket) => sum + bucket.current, 0),
+    );
+    const roundedRawPrior = Math.round(
+      rawBuckets.reduce((sum, bucket) => sum + bucket.prior, 0),
+    );
+
+    const displayedCurrent = rows.reduce(
+      (sum, row) => sum + Number(row.current || 0),
+      0,
+    );
+    const displayedPrior = rows.reduce(
+      (sum, row) => sum + Number(row.prior || 0),
+      0,
+    );
+
+    const roundingCurrent = roundedRawCurrent - displayedCurrent;
+    const roundingPrior = roundedRawPrior - displayedPrior;
+
+    if (roundingCurrent !== 0 || roundingPrior !== 0) {
+      const withinTolerance =
+        Math.abs(roundingCurrent) <= roundingTolerance &&
+        Math.abs(roundingPrior) <= roundingTolerance;
+
+      const defaultTargetBucket = rawBuckets.find(
+        (bucket) => bucket.isDefaultRoundingTarget,
+      );
+      const targetRow = roundingAccountMappingCode
+        ? rows.find(
+            (row) =>
+              row.id === `${group}:${roundingAccountMappingCode}`,
+          )
+        : defaultTargetBucket
+        ? rows.find(
+            (row) => row.id === `${group}:${defaultTargetBucket.key}`,
+          )
+        : undefined;
+
+      if (withinTolerance && targetRow) {
+        targetRow.current =
+          Number(targetRow.current || 0) + roundingCurrent;
+        targetRow.prior =
+          Number(targetRow.prior || 0) + roundingPrior;
+        targetRow.label = roundingAccountLabel;
+      } else {
+        rows.push({
+          id: `${group}:rounding-adjustment`,
+          label: "Rounding adjustment",
+          current: roundingCurrent,
+          prior: roundingPrior,
+          type: "line",
+        });
+      }
+    }
+
+    return rows;
+  }
+
+  const groupedRows = {
+    revenue: groupRows("revenue"),
+    costOfSales: groupRows("costOfSales"),
+    otherIncome: groupRows("otherIncome"),
+    operatingExpenses: groupRows("operatingExpenses"),
+    financeCosts: groupRows("financeCosts"),
+    taxation: groupRows("taxation"),
+  };
 
   function sum(groupRows: AfsStatementRow[]) {
     return groupRows.reduce(
@@ -1121,7 +907,7 @@ function detailedRowsFromLines(lines: AfsEngineTrialBalanceLine[]) {
         current: total.current + Number(row.current || 0),
         prior: total.prior + Number(row.prior || 0),
       }),
-      { current: 0, prior: 0 }
+      { current: 0, prior: 0 },
     );
   }
 
@@ -1129,11 +915,18 @@ function detailedRowsFromLines(lines: AfsEngineTrialBalanceLine[]) {
     id: string,
     label: string,
     groupRows: AfsStatementRow[],
-    options: { showEvenIfZero?: boolean; subtotalLabel?: string } = {}
+    options: {
+      showEvenIfZero?: boolean;
+      subtotalLabel?: string;
+    } = {},
   ) {
     if (!options.showEvenIfZero && groupRows.length === 0) return;
 
-    rows.push({ id: `${id}-section`, label, type: "section" });
+    rows.push({
+      id: `${id}-section`,
+      label,
+      type: "section",
+    });
 
     if (groupRows.length > 0) {
       rows.push(...groupRows);
@@ -1148,6 +941,7 @@ function detailedRowsFromLines(lines: AfsEngineTrialBalanceLine[]) {
     }
 
     const groupTotal = sum(groupRows);
+
     rows.push({
       id: `${id}-total`,
       label: options.subtotalLabel || label,
@@ -1157,17 +951,24 @@ function detailedRowsFromLines(lines: AfsEngineTrialBalanceLine[]) {
     });
   }
 
-  pushGroup("revenue", "Revenue", buckets.revenue, {
+  pushGroup("revenue", "Revenue", groupedRows.revenue, {
     showEvenIfZero: true,
     subtotalLabel: "Total revenue",
   });
-  pushGroup("cost-of-sales", "Cost of sales", buckets.costOfSales, {
-    showEvenIfZero: true,
-    subtotalLabel: "Total cost of sales",
-  });
 
-  const revenueTotal = sum(buckets.revenue);
-  const costOfSalesTotal = sum(buckets.costOfSales);
+  pushGroup(
+    "cost-of-sales",
+    "Cost of sales",
+    groupedRows.costOfSales,
+    {
+      showEvenIfZero: true,
+      subtotalLabel: "Total cost of sales",
+    },
+  );
+
+  const revenueTotal = sum(groupedRows.revenue);
+  const costOfSalesTotal = sum(groupedRows.costOfSales);
+
   const gross = {
     current: revenueTotal.current + costOfSalesTotal.current,
     prior: revenueTotal.prior + costOfSalesTotal.prior,
@@ -1181,20 +982,40 @@ function detailedRowsFromLines(lines: AfsEngineTrialBalanceLine[]) {
     type: "grand-total",
   });
 
-  pushGroup("other-income", "Other income", buckets.otherIncome, {
-    subtotalLabel: "Total other income",
-  });
-  pushGroup("operating-expenses", "Operating expenses", buckets.operatingExpenses, {
-    showEvenIfZero: true,
-    subtotalLabel: "Total operating expenses",
-  });
-  pushGroup("finance-costs", "Finance costs", buckets.financeCosts, {
-    subtotalLabel: "Total finance costs",
-  });
+  pushGroup(
+    "other-income",
+    "Other income",
+    groupedRows.otherIncome,
+    {
+      subtotalLabel: "Total other income",
+    },
+  );
 
-  const otherIncomeTotal = sum(buckets.otherIncome);
-  const operatingExpensesTotal = sum(buckets.operatingExpenses);
-  const financeCostsTotal = sum(buckets.financeCosts);
+  pushGroup(
+    "operating-expenses",
+    "Operating expenses",
+    groupedRows.operatingExpenses,
+    {
+      showEvenIfZero: true,
+      subtotalLabel: "Total operating expenses",
+    },
+  );
+
+  pushGroup(
+    "finance-costs",
+    "Finance costs",
+    groupedRows.financeCosts,
+    {
+      subtotalLabel: "Total finance costs",
+    },
+  );
+
+  const otherIncomeTotal = sum(groupedRows.otherIncome);
+  const operatingExpensesTotal = sum(
+    groupedRows.operatingExpenses,
+  );
+  const financeCostsTotal = sum(groupedRows.financeCosts);
+
   const beforeTax = {
     current:
       gross.current +
@@ -1216,17 +1037,25 @@ function detailedRowsFromLines(lines: AfsEngineTrialBalanceLine[]) {
     type: "grand-total",
   });
 
-  pushGroup("taxation", "Taxation", buckets.taxation, {
-    subtotalLabel: "Total taxation",
-  });
+  const taxationTotal = sum(groupedRows.taxation);
 
-  const taxationTotal = sum(buckets.taxation);
+  rows.push({
+    id: "taxation",
+    label: "Taxation",
+    current: Math.round(taxationTotal.current),
+    prior: Math.round(taxationTotal.prior),
+    type: "line",
+  });
 
   rows.push({
     id: "detailed-total",
     label: "Profit / (loss) for the year",
-    current: Math.round(beforeTax.current + taxationTotal.current),
-    prior: Math.round(beforeTax.prior + taxationTotal.prior),
+    current: Math.round(
+      beforeTax.current + taxationTotal.current,
+    ),
+    prior: Math.round(
+      beforeTax.prior + taxationTotal.prior,
+    ),
     type: "grand-total",
   });
 
@@ -1303,32 +1132,29 @@ export function buildAfsPrintStatementEngine(
   };
 
   const otherIncomeTotal = sumBuckets(otherIncome);
-  const opexTotal = sumBuckets(operatingExpenses);
-  const operatingProfit = {
+  let opexTotal = sumBuckets(operatingExpenses);
+  let operatingProfit = {
     current: gross.current + otherIncomeTotal.current + opexTotal.current,
     prior: gross.prior + otherIncomeTotal.prior + opexTotal.prior,
   };
 
   const financeCostsTotal = sumBuckets(financeCosts);
-  const beforeTax = {
+  let beforeTax = {
     current: operatingProfit.current + financeCostsTotal.current,
     prior: operatingProfit.prior + financeCostsTotal.prior,
   };
 
   const taxationTotal = sumBuckets(taxation);
-  const profitForYear = {
+  let profitForYear = {
     current: beforeTax.current + taxationTotal.current,
     prior: beforeTax.prior + taxationTotal.prior,
   };
 
-  const shareCapitalRaw = equityRaw.filter((item) =>
-    item.note === noteNumbers.shareCapital ||
-    item.label.toLowerCase().includes("share capital")
+  const shareCapitalRaw = equityRaw.filter(
+    (item) => item.noteKey === "shareCapital"
   );
-  const retainedIncomeRaw = equityRaw.filter((item) =>
-    item.note === noteNumbers.retainedIncome ||
-    item.label.toLowerCase().includes("retained") ||
-    item.label.toLowerCase().includes("accumulated")
+  const retainedIncomeRaw = equityRaw.filter(
+    (item) => item.noteKey === "retainedIncome"
   );
   const otherEquity = equityRaw.filter(
     (item) => !shareCapitalRaw.includes(item) && !retainedIncomeRaw.includes(item)
@@ -1379,13 +1205,70 @@ export function buildAfsPrintStatementEngine(
   const priorClosingRetainedIncome =
     openingRetainedIncome + profitForYear.prior + priorOtherMovements;
 
-  const currentOtherMovements =
+  const roundingTolerance = Math.max(
+    0,
+    Math.round(Number(overrides.roundingTolerance ?? 5)),
+  );
+  const roundingAccountMappingCode = String(
+    overrides.roundingAccountMappingCode || "",
+  ).trim();
+
+  const preliminaryRetainedIncomeDifference =
+    Math.round(retainedIncomeTotal.current) -
+    Math.round(priorClosingRetainedIncome + profitForYear.current);
+
+  let automaticProfitRoundingAdjustment =
+    Math.abs(preliminaryRetainedIncomeDifference) <= roundingTolerance
+      ? preliminaryRetainedIncomeDifference
+      : 0;
+
+  if (
+    automaticProfitRoundingAdjustment !== 0 &&
+    operatingExpenses.length > 0
+  ) {
+    operatingExpenses[0].current += automaticProfitRoundingAdjustment;
+
+    opexTotal = sumBuckets(operatingExpenses);
+    operatingProfit = {
+      current: gross.current + otherIncomeTotal.current + opexTotal.current,
+      prior: gross.prior + otherIncomeTotal.prior + opexTotal.prior,
+    };
+    beforeTax = {
+      current: operatingProfit.current + financeCostsTotal.current,
+      prior: operatingProfit.prior + financeCostsTotal.prior,
+    };
+    profitForYear = {
+      current: beforeTax.current + taxationTotal.current,
+      prior: beforeTax.prior + taxationTotal.prior,
+    };
+  }
+
+  const savedCurrentOtherMovements =
     overrides.sceCurrentOtherMovements !== null &&
     overrides.sceCurrentOtherMovements !== undefined
       ? Number(overrides.sceCurrentOtherMovements)
       : overrides.sceOtherMovements !== null &&
         overrides.sceOtherMovements !== undefined
       ? Number(overrides.sceOtherMovements)
+      : 0;
+
+  /*
+    A R1-R2 difference between mapped closing retained income and the sum of
+    prior closing retained income plus current profit is presentation rounding,
+    not an equity distribution.
+  */
+  const mappedRetainedIncomeRounding =
+    Math.round(retainedIncomeTotal.current) -
+    Math.round(priorClosingRetainedIncome + profitForYear.current);
+
+  const currentOtherMovements =
+    Math.abs(savedCurrentOtherMovements) <= roundingTolerance
+      ? 0
+      : savedCurrentOtherMovements;
+
+  const currentEquityRoundingAdjustment =
+    Math.abs(mappedRetainedIncomeRounding) <= roundingTolerance
+      ? mappedRetainedIncomeRounding
       : 0;
 
   /*
@@ -1399,50 +1282,138 @@ export function buildAfsPrintStatementEngine(
   const hasMappedCurrentRetainedIncome =
     Math.abs(retainedIncomeTotal.current) >= 0.005;
 
-  const currentClosingRetainedIncome =
+  let currentClosingRetainedIncome =
     hasMappedCurrentRetainedIncome
       ? retainedIncomeTotal.current
       : priorClosingRetainedIncome +
         profitForYear.current +
         currentOtherMovements;
 
-  const shareCapital = [
+  const shareCapital: StatementBucket[] = [
     {
       key: "share-capital-adjusted",
       label: "Share Capital",
       note: noteNumbers.shareCapital || null,
+      noteKey: "shareCapital" as AfsNoteKey,
       current: shareCapitalTotal.current || openingShareCapital,
       prior: shareCapitalTotal.prior || openingShareCapital,
     },
-  ].filter((item) => Math.round(item.current) !== 0 || Math.round(item.prior) !== 0);
+  ].filter(
+    (item) =>
+      Math.round(item.current) !== 0 ||
+      Math.round(item.prior) !== 0,
+  );
 
-  const retainedIncome = [
+  const retainedIncome: StatementBucket[] = [
     {
       key: "retained-income-adjusted",
       label: "Retained Income / Accumulated Loss",
       note: noteNumbers.retainedIncome || null,
+      noteKey: "retainedIncome" as AfsNoteKey,
       current: currentClosingRetainedIncome,
       prior: priorClosingRetainedIncome,
     },
-  ].filter((item) => Math.round(item.current) !== 0 || Math.round(item.prior) !== 0);
+  ].filter(
+    (item) =>
+      Math.round(item.current) !== 0 ||
+      Math.round(item.prior) !== 0,
+  );
 
-  const equity = [...shareCapital, ...retainedIncome, ...otherEquity];
+  const equity: StatementBucket[] = [
+    ...shareCapital,
+    ...retainedIncome,
+    ...otherEquity,
+  ];
 
-  const ncaTotal = sumBuckets(nonCurrentAssets);
-  const caTotal = sumBuckets(currentAssets);
+  const ncaTotal = sumRoundedBuckets(nonCurrentAssets);
+  const caTotal = sumRoundedBuckets(currentAssets);
   const assetsTotal = {
     current: ncaTotal.current + caTotal.current,
     prior: ncaTotal.prior + caTotal.prior,
   };
 
-  const equityTotal = sumBuckets(equity);
-  const nclTotal = sumBuckets(nonCurrentLiabilities);
-  const clTotal = sumBuckets(currentLiabilities);
+  let equityTotal = sumRoundedBuckets(equity);
+  const nclTotal = sumRoundedBuckets(nonCurrentLiabilities);
+  const clTotal = sumRoundedBuckets(currentLiabilities);
   const liabilitiesTotal = {
     current: nclTotal.current + clTotal.current,
     prior: nclTotal.prior + clTotal.prior,
   };
-  const equityLiabilitiesTotal = {
+  let equityLiabilitiesTotal = {
+    current: equityTotal.current + liabilitiesTotal.current,
+    prior: equityTotal.prior + liabilitiesTotal.prior,
+  };
+
+  /*
+    FINAL SFP ROUNDING CONTROL
+
+    The printed SFP must balance on the displayed Rand amounts. Where the
+    difference is within the engagement rounding tolerance, absorb it into
+    retained income before any SFP, SCE or check rows are built. This changes
+    the actual displayed equity balance instead of merely overwriting the
+    grand-total row.
+  */
+  const sfpRetainedRoundingCurrent =
+    Math.round(assetsTotal.current) -
+    Math.round(equityLiabilitiesTotal.current);
+  const sfpRetainedRoundingPrior =
+    Math.round(assetsTotal.prior) -
+    Math.round(equityLiabilitiesTotal.prior);
+
+  if (
+    retainedIncome.length > 0 &&
+    Math.abs(sfpRetainedRoundingCurrent) <= roundingTolerance
+  ) {
+    retainedIncome[0].current += sfpRetainedRoundingCurrent;
+    currentClosingRetainedIncome += sfpRetainedRoundingCurrent;
+  }
+
+  if (
+    retainedIncome.length > 0 &&
+    Math.abs(sfpRetainedRoundingPrior) <= roundingTolerance
+  ) {
+    retainedIncome[0].prior += sfpRetainedRoundingPrior;
+  }
+
+  /*
+    FINAL PROFIT ROUNDING ABSORPTION
+
+    The SFP rounding control can change the displayed closing retained-income
+    balance after the preliminary profit rounding was calculated. Recalculate
+    the remaining difference here and absorb it into operating expenses when
+    it falls within the engagement tolerance. This makes SOCI profit, Detailed
+    IS profit and the SCE retained-income roll-forward agree without showing an
+    artificial equity movement.
+  */
+  const finalProfitRoundingAdjustment =
+    Math.round(currentClosingRetainedIncome) -
+    Math.round(priorClosingRetainedIncome + profitForYear.current);
+
+  if (
+    finalProfitRoundingAdjustment !== 0 &&
+    Math.abs(finalProfitRoundingAdjustment) <= roundingTolerance &&
+    operatingExpenses.length > 0
+  ) {
+    operatingExpenses[0].current += finalProfitRoundingAdjustment;
+    automaticProfitRoundingAdjustment += finalProfitRoundingAdjustment;
+
+    opexTotal = sumBuckets(operatingExpenses);
+    operatingProfit = {
+      current: gross.current + otherIncomeTotal.current + opexTotal.current,
+      prior: gross.prior + otherIncomeTotal.prior + opexTotal.prior,
+    };
+    beforeTax = {
+      current: operatingProfit.current + financeCostsTotal.current,
+      prior: operatingProfit.prior + financeCostsTotal.prior,
+    };
+    profitForYear = {
+      current: beforeTax.current + taxationTotal.current,
+      prior: beforeTax.prior + taxationTotal.prior,
+    };
+  }
+
+  equityTotal = sumRoundedBuckets(equity);
+  equityLiabilitiesTotal = {
     current: equityTotal.current + liabilitiesTotal.current,
     prior: equityTotal.prior + liabilitiesTotal.prior,
   };
@@ -1605,6 +1576,7 @@ export function buildAfsPrintStatementEngine(
     { id: "sce-prior-closing-retained", label: "Prior year closing retained income", current: Math.round(priorClosingRetainedIncome), prior: null, type: "subtotal" },
     { id: "sce-current-profit", label: "Current year profit / (loss)", current: Math.round(profitForYear.current), prior: null, type: "line" },
     { id: "sce-current-other-movement", label: "Current year other movements / distributions", current: Math.round(currentOtherMovements), prior: null, type: "line" },
+    { id: "sce-current-rounding-adjustment", label: "Rounding adjustment", current: Math.round(currentEquityRoundingAdjustment), prior: null, type: "line" },
     { id: "sce-retained-closing", label: "Closing retained income", current: Math.round(currentClosingRetainedIncome), prior: null, type: "subtotal" },
     { id: "sce-share-closing", label: "Closing share capital", current: Math.round(shareCapitalTotal.current || openingShareCapital), prior: null, type: "line" },
     { id: "sce-total-equity", label: "Total equity at end of year", current: Math.round(sceCurrentTotal), prior: null, type: "grand-total" },
@@ -1619,41 +1591,41 @@ export function buildAfsPrintStatementEngine(
   }
 
   const cashBuckets = currentAssets.filter(
-    (item) => item.note === noteNumbers.cashAndCashEquivalents
+    (item) => item.noteKey === "cashAndCashEquivalents"
   );
   const inventoryBuckets = currentAssets.filter(
-    (item) => item.note === noteNumbers.inventories
+    (item) => item.noteKey === "inventories"
   );
   const tradeReceivableBuckets = currentAssets.filter(
-    (item) => item.note === noteNumbers.tradeReceivables
+    (item) => item.noteKey === "tradeReceivables"
   );
   const currentTaxReceivableBuckets = currentAssets.filter(
-    (item) => item.note === noteNumbers.currentTaxReceivable
+    (item) => item.noteKey === "currentTaxReceivable"
   );
   const ppeBuckets = nonCurrentAssets.filter(
-    (item) => item.note === noteNumbers.propertyPlantEquipment
+    (item) => item.noteKey === "propertyPlantEquipment"
   );
   const goodwillBuckets = nonCurrentAssets.filter(
-    (item) => item.note === noteNumbers.goodwill
+    (item) => item.noteKey === "goodwill"
   );
   const loansReceivableBuckets = nonCurrentAssets.filter(
-    (item) => item.note === noteNumbers.loansReceivable
+    (item) => item.noteKey === "loansReceivable"
   );
 
   const shareCapitalBuckets = equity.filter(
-    (item) => item.note === noteNumbers.shareCapital
+    (item) => item.noteKey === "shareCapital"
   );
   const shareholdersLoanBuckets = nonCurrentLiabilities.filter(
-    (item) => item.note === noteNumbers.shareholdersLoans
+    (item) => item.noteKey === "shareholdersLoans"
   );
   const otherFinancialLiabilityBuckets = nonCurrentLiabilities.filter(
-    (item) => item.note === noteNumbers.otherFinancialLiabilities
+    (item) => item.noteKey === "otherFinancialLiabilities"
   );
   const tradePayableBuckets = currentLiabilities.filter(
-    (item) => item.note === noteNumbers.tradePayables
+    (item) => item.noteKey === "tradePayables"
   );
   const currentTaxPayableBuckets = currentLiabilities.filter(
-    (item) => item.note === noteNumbers.currentTaxPayable
+    (item) => item.noteKey === "currentTaxPayable"
   );
 
   const cashClosingFromSfp = roundedBucketTotal(cashBuckets);
@@ -1760,16 +1732,15 @@ export function buildAfsPrintStatementEngine(
   const loansRepaidPrior = overrideAmount(overrides, "cashLoansRepaidPrior", 0);
   const dividendsPaidCurrent = overrideAmount(overrides, "cashDividendsPaidCurrent", 0);
   const dividendsPaidPrior = overrideAmount(overrides, "cashDividendsPaidPrior", 0);
-  const otherFinancingCurrent = overrideAmount(
-    overrides,
-    "cashOtherFinancingCurrent",
-    shareCapitalMovementCurrent + otherFinancialLiabilityMovementCurrent
-  );
-  const otherFinancingPrior = overrideAmount(
-    overrides,
-    "cashOtherFinancingPrior",
-    shareCapitalMovementPrior + otherFinancialLiabilityMovementPrior
-  );
+  
+  const otherFinancingCurrent =
+  shareCapitalMovementCurrent +
+  otherFinancialLiabilityMovementCurrent;
+
+const otherFinancingPrior =
+  shareCapitalMovementPrior +
+  otherFinancialLiabilityMovementPrior;
+
   const otherFinancing2Current = overrideAmount(overrides, "cashOtherFinancing2Current", 0);
   const otherFinancing2Prior = overrideAmount(overrides, "cashOtherFinancing2Prior", 0);
   const otherFinancing3Current = overrideAmount(overrides, "cashOtherFinancing3Current", 0);
@@ -1993,9 +1964,16 @@ export function buildAfsPrintStatementEngine(
     });
   }
 
-  [...nonCurrentAssets, ...currentAssets, ...equity, ...nonCurrentLiabilities, ...currentLiabilities].forEach((item) => {
-    const noteKey = Object.entries(noteNumbers).find(([, number]) => number === item.note)?.[0] as AfsNoteKey | undefined;
-    addNoteLine(noteKey, item);
+  const allBalanceSheetBuckets: StatementBucket[] = [
+    ...nonCurrentAssets,
+    ...currentAssets,
+    ...equity,
+    ...nonCurrentLiabilities,
+    ...currentLiabilities,
+  ];
+
+  allBalanceSheetBuckets.forEach((item) => {
+    addNoteLine(item.noteKey, item);
   });
 
   revenue.forEach((item) => addNoteLine("revenue", item));
@@ -2069,38 +2047,16 @@ export function buildAfsPrintStatementEngine(
     cashFlowPriorClosingDifference: checkDifference(cashFlowPriorClosingDifference),
   };
 
-  /*
-    Shareholder/director/member loans retain the Shareholders' loans
-    disclosure note regardless of whether the balance appears as an
-    asset or a liability.
-
-    The SFP location is controlled by the period balance sign, but the
-    disclosure nature and note reference do not change.
-  */
-  const shareholdersLoansNote =
-    noteNumbers.shareholdersLoans || null;
-
-  if (shareholdersLoansNote) {
-    sfpRows.forEach((row: any) => {
-      const label = String(row?.label || "").toLowerCase();
-
-      const isShareholderLoanRow =
-        label.includes("shareholder") ||
-        label.includes("director loan") ||
-        label.includes("member loan");
-
-      if (isShareholderLoanRow) {
-        row.note = shareholdersLoansNote;
-      }
-    });
-  }
-
   return {
     sfpRows,
     sociRows,
     sceRows,
     cashFlowRows,
-    detailedIncomeRows: detailedRowsFromLines(lines),
+    detailedIncomeRows: detailedRowsFromLines(
+      lines,
+      overrides,
+      automaticProfitRoundingAdjustment,
+    ),
     noteData,
     checks,
   };

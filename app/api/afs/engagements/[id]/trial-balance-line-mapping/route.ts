@@ -26,25 +26,90 @@ function normaliseAccountCode(value: unknown) {
 }
 
 function buildFullMappingPayload(body: any) {
-  const mappingCode = nullable(body.mapping_code ?? body.mappingCode ?? body.selectedMappingCode ?? body.code);
-  const mappingLabel = nullable(body.mapping_label ?? body.mappingLabel ?? body.selectedMappingLabel ?? body.label ?? body.title);
-  const mappingLeafId = nullable(body.mapping_leaf_id ?? body.mappingLeafId ?? body.leafId ?? body.mappingLeafID);
-  const mappingStatement = nullable(body.mapping_statement ?? body.mappingStatement ?? body.statement);
-  const mappingSection = nullable(body.mapping_section ?? body.mappingSection ?? body.selectedMappingSection ?? body.section);
-  const mappingPath = nullable(body.mapping_path ?? body.mappingPath ?? body.selectedMappingPath ?? body.path);
-  const mappingSmartRule = nullable(body.mapping_smart_rule ?? body.mappingSmartRule ?? body.smartRule);
-  const mappingConfidence = nullable(body.mapping_confidence ?? body.mappingConfidence ?? body.confidence);
-  const leadScheduleNumber = nullable(
-    body.lead_schedule_number ?? body.leadScheduleNumber ?? body.leadNumber ?? mappingCode
+  const mappingCode = nullable(
+    body.mapping_code ??
+      body.mappingCode ??
+      body.selectedMappingCode ??
+      body.code
   );
+
+  const defaultMappingLabel = nullable(
+    body.mapping_category ??
+      body.mappingCategory ??
+      body.defaultMappingLabel ??
+      body.selectedMappingLabel ??
+      body.label ??
+      body.title
+  );
+
+  const financialStatementLabel = nullable(
+    body.financial_statement_label ??
+      body.financialStatementLabel ??
+      body.presentationLabel ??
+      body.displayLabel ??
+      body.mapping_label ??
+      body.mappingLabel ??
+      defaultMappingLabel
+  );
+
+  const mappingLeafId = nullable(
+    body.mapping_leaf_id ??
+      body.mappingLeafId ??
+      body.leafId ??
+      body.mappingLeafID
+  );
+
+  const mappingStatement = nullable(
+    body.mapping_statement ??
+      body.mappingStatement ??
+      body.statement
+  );
+
+  const mappingSection = nullable(
+    body.mapping_section ??
+      body.mappingSection ??
+      body.selectedMappingSection ??
+      body.section
+  );
+
+  const mappingPath = nullable(
+    body.mapping_path ??
+      body.mappingPath ??
+      body.selectedMappingPath ??
+      body.path
+  );
+
+  const mappingSmartRule = nullable(
+    body.mapping_smart_rule ??
+      body.mappingSmartRule ??
+      body.smartRule
+  );
+
+  const mappingConfidence = nullable(
+    body.mapping_confidence ??
+      body.mappingConfidence ??
+      body.confidence
+  );
+
+  const leadScheduleNumber = nullable(
+    body.lead_schedule_number ??
+      body.leadScheduleNumber ??
+      body.leadNumber ??
+      mappingCode
+  );
+
   const leadScheduleKey = nullable(
-    body.lead_schedule_key ?? body.leadScheduleKey ?? body.mapping_key ?? body.mappingKey ?? body.key
+    body.lead_schedule_key ??
+      body.leadScheduleKey ??
+      body.mapping_key ??
+      body.mappingKey ??
+      body.key
   );
 
   return {
-    mapping_category: mappingLabel,
+    mapping_category: defaultMappingLabel,
     mapping_leaf_id: mappingLeafId,
-    mapping_label: mappingLabel,
+    mapping_label: financialStatementLabel,
     mapping_statement: mappingStatement,
     mapping_section: mappingSection,
     mapping_path: mappingPath,

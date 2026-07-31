@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 type ClientSetup = {
   registered_name: string | null;
+  logo_url: string | null;
   registration_number: string | null;
   entity_type: string | null;
   country: string | null;
@@ -132,6 +134,7 @@ type Props = {
 
 const blankSetup: ClientSetup = {
   registered_name: "",
+  logo_url: "",
   registration_number: "",
   entity_type: "",
   country: "South Africa",
@@ -226,6 +229,14 @@ const blankPerson: NewPerson = {
   cell: "",
 };
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+const supabase =
+  supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey)
+    : null;
+
 export default function ClientSetupPanel({
   engagementId,
   clientName,
@@ -249,6 +260,7 @@ export default function ClientSetupPanel({
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   async function loadSetup() {
     setLoading(true);
@@ -334,6 +346,76 @@ export default function ClientSetupPanel({
     } finally {
       setSaving(false);
     }
+  }
+
+  async function uploadClientLogo(file: File) {
+    if (!supabase) {
+      alert("Supabase is not configured.");
+      return;
+    }
+
+    const allowedTypes = [
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/svg+xml",
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      alert("Please upload a PNG, JPG, WEBP or SVG logo.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert("The logo may not be larger than 5 MB.");
+      return;
+    }
+
+    setUploadingLogo(true);
+
+    try {
+      const extension =
+        file.name.split(".").pop()?.toLowerCase() ||
+        (file.type === "image/svg+xml" ? "svg" : "png");
+
+      const filePath = `${engagementId}/client-logo-${Date.now()}.${extension}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("afs-client-logos")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.type,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from("afs-client-logos")
+        .getPublicUrl(filePath);
+
+      const publicUrl = publicUrlData.publicUrl;
+
+      if (!publicUrl) {
+        throw new Error("The logo uploaded, but no public URL was returned.");
+      }
+
+      setSetup((current) => ({
+        ...current,
+        logo_url: publicUrl,
+      }));
+    } catch (error: any) {
+      alert(error.message || "Failed to upload the client logo.");
+    } finally {
+      setUploadingLogo(false);
+    }
+  }
+
+  function removeClientLogo() {
+    setSetup((current) => ({
+      ...current,
+      logo_url: "",
+    }));
   }
 
   async function addPerson() {
@@ -484,6 +566,62 @@ export default function ClientSetupPanel({
             value={setup.trading_name || ""}
             onChange={(e) => update("trading_name", e.target.value)}
           />
+        </Field>
+
+        <Field label="AFS cover logo">
+          <div style={styles.logoField}>
+            {setup.logo_url ? (
+              <div style={styles.logoPreviewWrap}>
+                <img
+                  src={setup.logo_url}
+                  alt="Client logo"
+                  style={styles.logoPreview}
+                />
+              </div>
+            ) : (
+              <div style={styles.logoPlaceholder}>No logo uploaded</div>
+            )}
+
+            <div style={styles.logoActions}>
+              <label style={styles.secondaryButton}>
+                {uploadingLogo
+                  ? "Uploading..."
+                  : setup.logo_url
+                    ? "Replace logo"
+                    : "Upload logo"}
+                <input
+                  type="file"
+                  accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
+                  disabled={uploadingLogo}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.currentTarget.value = "";
+
+                    if (file) {
+                      void uploadClientLogo(file);
+                    }
+                  }}
+                  style={{ display: "none" }}
+                />
+              </label>
+
+              {setup.logo_url ? (
+                <button
+                  type="button"
+                  style={styles.removeLogoButton}
+                  onClick={removeClientLogo}
+                  disabled={uploadingLogo}
+                >
+                  Remove
+                </button>
+              ) : null}
+            </div>
+
+            <div style={styles.logoHelp}>
+              PNG, JPG, WEBP or SVG. Maximum 5 MB. Click “Save client setup”
+              after uploading or removing the logo.
+            </div>
+          </div>
         </Field>
 
         <Field label="Country">
@@ -1297,6 +1435,66 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "13px",
     cursor: "pointer",
     whiteSpace: "nowrap",
+  },
+  logoField: {
+    display: "grid",
+    gap: "8px",
+  },
+  logoPreviewWrap: {
+    minHeight: "92px",
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    padding: "10px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoPreview: {
+    display: "block",
+    maxWidth: "100%",
+    maxHeight: "72px",
+    objectFit: "contain",
+  },
+  logoPlaceholder: {
+    minHeight: "92px",
+    border: "1px dashed #94a3b8",
+    background: "#f8fafc",
+    color: "#64748b",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "12px",
+    fontWeight: 600,
+  },
+  logoActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  secondaryButton: {
+    border: "1px solid #0f172a",
+    padding: "7px 10px",
+    background: "#ffffff",
+    color: "#0f172a",
+    fontWeight: 800,
+    fontSize: "12px",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  removeLogoButton: {
+    border: "1px solid #dc2626",
+    padding: "7px 10px",
+    background: "#ffffff",
+    color: "#b91c1c",
+    fontWeight: 800,
+    fontSize: "12px",
+    cursor: "pointer",
+  },
+  logoHelp: {
+    color: "#64748b",
+    fontSize: "10px",
+    fontWeight: 500,
+    lineHeight: 1.35,
   },
   deleteButton: {
     border: "1px solid #dc2626",

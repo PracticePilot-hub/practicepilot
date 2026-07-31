@@ -176,6 +176,85 @@ export default function AfsStatementOverrideSettings({
         the first year prepared on PracticePilot. Changes auto-save.
       </div>
 
+<div style={sectionStyle()}>
+        <div style={{ fontSize: 11, fontWeight: 900 }}>
+          Rounding Control
+        </div>
+
+        <label style={{ display: "grid", gap: 4 }}>
+          <span style={labelStyle()}>
+            Maximum permitted rounding difference
+          </span>
+
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={numberValue(overrides.roundingTolerance ?? 5)}
+            onChange={(event) =>
+              onChange(
+                "roundingTolerance",
+                parseNumber(event.target.value),
+              )
+            }
+            style={fieldStyle()}
+          />
+        </label>
+
+        <label style={{ display: "grid", gap: 4 }}>
+          <span style={labelStyle()}>
+            Rounding account mapping code
+          </span>
+          <input
+            type="text"
+            value={String(overrides.roundingAccountMappingCode || "")}
+            onChange={(event) =>
+              (onChange as any)(
+                "roundingAccountMappingCode",
+                event.target.value.trim() || null,
+              )
+            }
+            placeholder="Enter the exact mapping code"
+            style={{
+              ...fieldStyle(),
+              textAlign: "left",
+            }}
+          />
+        </label>
+
+        <label style={{ display: "grid", gap: 4 }}>
+          <span style={labelStyle()}>
+            Rounding account label
+          </span>
+          <input
+            type="text"
+            value={String(overrides.roundingAccountLabel || "Bank Charges")}
+            onChange={(event) =>
+              (onChange as any)(
+                "roundingAccountLabel",
+                event.target.value || null,
+              )
+            }
+            placeholder="Bank Charges"
+            style={{
+              ...fieldStyle(),
+              textAlign: "left",
+            }}
+          />
+        </label>
+
+        <div
+          style={{
+            fontSize: 9,
+            color: "#64748b",
+            lineHeight: 1.35,
+          }}
+        >
+          Differences within the tolerance are absorbed into the selected
+          mapping code. The default suggested account is Bank Charges.
+        </div>
+      </div>
+
       {mode === "sce" ? (
         <div style={sectionStyle()}>
           <div style={{ fontSize: 11, fontWeight: 900 }}>

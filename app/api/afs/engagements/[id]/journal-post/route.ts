@@ -98,29 +98,60 @@ function buildUpdatePayload(existing: any, movement: number) {
 
   const nextAdjustment = existingAdjustment + movement;
 
-  const sourceBalance =
-    firstNumber(existing, [
-      "source_balance",
-      "source_current_balance",
-      "imported_balance",
-      "debit",
-    ]) - firstNumber(existing, ["credit"]);
+  /*
+    In this AFS trial-balance table:
+    - source_balance / debit stores the signed current-year imported balance.
+    - credit stores the prior-year comparative balance.
 
-  const fallbackCurrent = firstNumber(existing, [
-    "current_year_balance",
-    "current_balance",
-    "final_balance",
+    The prior-year comparative must never be included in the current-year
+    adjusted balance.
+  */
+  const hasStoredSourceBalance =
+    existing?.source_balance !== undefined &&
+    existing?.source_balance !== null &&
+    existing?.source_balance !== "";
+
+  const hasStoredImportedBalance =
+    existing?.source_current_balance !== undefined &&
+    existing?.source_current_balance !== null &&
+    existing?.source_current_balance !== "";
+
+  const hasLegacyImportedBalance =
+    existing?.imported_balance !== undefined &&
+    existing?.imported_balance !== null &&
+    existing?.imported_balance !== "";
+
+  const currentBase = hasStoredSourceBalance
+    ? toNumber(existing.source_balance)
+    : hasStoredImportedBalance
+      ? toNumber(existing.source_current_balance)
+      : hasLegacyImportedBalance
+        ? toNumber(existing.imported_balance)
+        : existing?.debit !== undefined &&
+            existing?.debit !== null &&
+            existing?.debit !== ""
+          ? toNumber(existing.debit)
+          : firstNumber(existing, [
+              "current_year_balance",
+              "current_balance",
+              "final_balance",
+            ]);
+
+  const manualAdjustment = firstNumber(existing, [
+    "manual_adjustment",
+    "manual_adjustments",
   ]);
-
-  const currentBase =
-    Math.abs(sourceBalance) >= 0.005 ? sourceBalance : fallbackCurrent;
 
   const reclassifications = firstNumber(existing, [
     "reclassifications",
     "reclassification",
   ]);
 
-  const finalBalance = currentBase + nextAdjustment + reclassifications;
+  const finalBalance =
+    currentBase +
+    manualAdjustment +
+    nextAdjustment +
+    reclassifications;
 
   return {
     adjustments: nextAdjustment,

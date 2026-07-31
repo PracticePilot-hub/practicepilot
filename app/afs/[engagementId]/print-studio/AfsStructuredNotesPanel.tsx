@@ -140,10 +140,9 @@ const DEFAULT_PPE_ROWS: PpeRow[] = [
   },
   { key: "motorVehicles", label: "Motor vehicles", current: {}, prior: {} },
   { key: "officeEquipment", label: "Office equipment", current: {}, prior: {} },
-  { key: "itEquipment", label: "IT equipment", current: {}, prior: {} },
   {
-    key: "computerSoftware",
-    label: "Computer software",
+    key: "computerEquipment",
+    label: "Computer equipment",
     current: {},
     prior: {},
   },
@@ -159,16 +158,10 @@ const DEFAULT_PPE_ROWS: PpeRow[] = [
     current: {},
     prior: {},
   },
-  { key: "propertyPlantEquipment1", label: "PPE 1", current: {}, prior: {} },
-  { key: "propertyPlantEquipment2", label: "PPE 2", current: {}, prior: {} },
   { key: "otherPpe1", label: "Other PPE 1", current: {}, prior: {} },
   { key: "otherPpe2", label: "Other PPE 2", current: {}, prior: {} },
-  {
-    key: "capitalWorkInProgress",
-    label: "Capital WIP",
-    current: {},
-    prior: {},
-  },
+  { key: "otherPpe3", label: "Other PPE 3", current: {}, prior: {} },
+  { key: "otherPpe4", label: "Other PPE 4", current: {}, prior: {} },
 ];
 
 const COST_MOVEMENTS: { key: PpeMovementKey; label: string }[] = [
@@ -178,9 +171,6 @@ const COST_MOVEMENTS: { key: PpeMovementKey; label: string }[] = [
   { key: "disposals", label: "Disposals" },
   { key: "transfers", label: "Transfers" },
   { key: "revaluations", label: "Revaluations" },
-  { key: "foreignExchangeMovements", label: "Forex" },
-  { key: "decommissioningLiability", label: "Decomm." },
-  { key: "otherMovements", label: "Other" },
 ];
 
 const ACC_DEP_MOVEMENTS: { key: PpeMovementKey; label: string }[] = [
@@ -190,7 +180,6 @@ const ACC_DEP_MOVEMENTS: { key: PpeMovementKey; label: string }[] = [
   { key: "impairmentReversal", label: "Reversal" },
   { key: "accumulatedDepreciationDisposals", label: "Disposals" },
   { key: "accumulatedDepreciationTransfers", label: "Transfers" },
-  { key: "accumulatedDepreciationOtherMovements", label: "Other" },
 ];
 
 function toNumber(value: unknown) {
@@ -290,34 +279,93 @@ function isPpeLine(line: any) {
   );
 }
 
-function ppeClassKeyFromLine(line: any) {
-  const label =
-    clean(line.mapping_label) ||
-    clean(line.account_name) ||
-    "Property, plant and equipment";
-  const text = label.toLowerCase();
-
-  if (text.includes("land")) return { key: "land", label: "Land" };
-  if (text.includes("building"))
-    return { key: "buildings", label: "Buildings" };
-  if (text.includes("motor") || text.includes("vehicle"))
-    return { key: "motorVehicles", label: "Motor vehicles" };
-  if (
-    text.includes("computer") ||
-    text.includes("laptop") ||
-    text.includes("it equipment")
+function normalisedMappingCode(line: any) {
+  return clean(
+    line?.mapping_code ||
+      line?.lead_schedule_number ||
+      line?.lead_schedule_key ||
+      line?.mapping_leaf_id,
   )
-    return { key: "itEquipment", label: "IT equipment" };
-  if (text.includes("office"))
-    return { key: "officeEquipment", label: "Office equipment" };
-  if (text.includes("furniture") || text.includes("fitting"))
-    return { key: "furnitureAndFittings", label: "Furniture and fittings" };
-  if (text.includes("plant") || text.includes("machinery"))
-    return { key: "plantAndMachinery", label: "Plant and machinery" };
-  if (text.includes("leasehold"))
-    return { key: "leaseholdProperty", label: "Leasehold property" };
+    .replace(/^sfp[\s.:/-]*/i, "")
+    .replace(/^500[\s.:/-]*/i, "");
+}
 
-  return { key: "propertyPlantEquipment1", label };
+function ppeClassKeyFromLine(line: any) {
+  const code = normalisedMappingCode(line);
+
+  const codeMap: {
+    prefixes: string[];
+    key: string;
+    label: string;
+    balanceType: "cost" | "accumulatedDepreciation" | "impairment";
+  }[] = [
+    { prefixes: ["305.10"], key: "land", label: "Land", balanceType: "cost" },
+    { prefixes: ["305.12"], key: "land", label: "Land", balanceType: "impairment" },
+
+    { prefixes: ["305.20"], key: "buildings", label: "Buildings", balanceType: "cost" },
+    { prefixes: ["305.21"], key: "buildings", label: "Buildings", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["305.22"], key: "buildings", label: "Buildings", balanceType: "impairment" },
+
+    { prefixes: ["305.30"], key: "leaseholdProperty", label: "Leasehold property", balanceType: "cost" },
+    { prefixes: ["305.31"], key: "leaseholdProperty", label: "Leasehold property", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["305.32"], key: "leaseholdProperty", label: "Leasehold property", balanceType: "impairment" },
+
+    { prefixes: ["305.40"], key: "plantAndMachinery", label: "Plant and machinery", balanceType: "cost" },
+    { prefixes: ["305.41"], key: "plantAndMachinery", label: "Plant and machinery", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["305.42"], key: "plantAndMachinery", label: "Plant and machinery", balanceType: "impairment" },
+
+    { prefixes: ["305.50"], key: "furnitureAndFittings", label: "Furniture and fittings", balanceType: "cost" },
+    { prefixes: ["305.51"], key: "furnitureAndFittings", label: "Furniture and fittings", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["305.52"], key: "furnitureAndFittings", label: "Furniture and fittings", balanceType: "impairment" },
+
+    { prefixes: ["305.60"], key: "motorVehicles", label: "Motor vehicles", balanceType: "cost" },
+    { prefixes: ["305.61"], key: "motorVehicles", label: "Motor vehicles", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["305.62"], key: "motorVehicles", label: "Motor vehicles", balanceType: "impairment" },
+
+    { prefixes: ["305.70"], key: "officeEquipment", label: "Office equipment", balanceType: "cost" },
+    { prefixes: ["305.71"], key: "officeEquipment", label: "Office equipment", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["305.72"], key: "officeEquipment", label: "Office equipment", balanceType: "impairment" },
+
+    { prefixes: ["305.80"], key: "computerEquipment", label: "Computer equipment", balanceType: "cost" },
+    { prefixes: ["305.81"], key: "computerEquipment", label: "Computer equipment", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["305.82"], key: "computerEquipment", label: "Computer equipment", balanceType: "impairment" },
+
+    { prefixes: ["305.90"], key: "leaseholdImprovements", label: "Leasehold improvements", balanceType: "cost" },
+    { prefixes: ["305.91"], key: "leaseholdImprovements", label: "Leasehold improvements", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["305.92"], key: "leaseholdImprovements", label: "Leasehold improvements", balanceType: "impairment" },
+
+    { prefixes: ["305.101"], key: "otherPpe1", label: "Other PPE 1", balanceType: "cost" },
+    { prefixes: ["305.102"], key: "otherPpe1", label: "Other PPE 1", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["305.103"], key: "otherPpe1", label: "Other PPE 1", balanceType: "impairment" },
+
+    { prefixes: ["305.111"], key: "otherPpe2", label: "Other PPE 2", balanceType: "cost" },
+    { prefixes: ["305.112"], key: "otherPpe2", label: "Other PPE 2", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["305.113"], key: "otherPpe2", label: "Other PPE 2", balanceType: "impairment" },
+
+    { prefixes: ["305.121"], key: "otherPpe3", label: "Other PPE 3", balanceType: "cost" },
+    { prefixes: ["305.122"], key: "otherPpe3", label: "Other PPE 3", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["305.123"], key: "otherPpe3", label: "Other PPE 3", balanceType: "impairment" },
+
+    { prefixes: ["305.131"], key: "otherPpe4", label: "Other PPE 4", balanceType: "cost" },
+    { prefixes: ["305.132"], key: "otherPpe4", label: "Other PPE 4", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["305.133"], key: "otherPpe4", label: "Other PPE 4", balanceType: "impairment" },
+
+    { prefixes: ["306.10"], key: "rightOfUseAssets", label: "Right-of-use assets", balanceType: "cost" },
+    { prefixes: ["306.20"], key: "rightOfUseAssets", label: "Right-of-use assets", balanceType: "accumulatedDepreciation" },
+    { prefixes: ["306.30"], key: "rightOfUseAssets", label: "Right-of-use assets", balanceType: "impairment" },
+  ];
+
+  const match = codeMap.find((entry) =>
+    entry.prefixes.some(
+      (prefix) =>
+        code === prefix ||
+        code.startsWith(`${prefix}.`) ||
+        code.startsWith(`${prefix}-`) ||
+        code.startsWith(`${prefix} `),
+    ),
+  );
+
+  return match || null;
 }
 
 function useStructuredNotesState(
@@ -418,6 +466,18 @@ function noteTitle(
   );
 }
 
+function directOpeningBalance(line: any) {
+  if (
+    line?.opening_balance !== null &&
+    line?.opening_balance !== undefined &&
+    Number.isFinite(Number(line.opening_balance))
+  ) {
+    return Number(line.opening_balance);
+  }
+
+  return 0;
+}
+
 function buildPpeRows(lines: any[], savedRows: PpeRow[] = []) {
   const map = new Map<string, PpeRow>();
 
@@ -429,38 +489,88 @@ function buildPpeRows(lines: any[], savedRows: PpeRow[] = []) {
     });
   });
 
-  savedRows.forEach((row) => {
+  savedRows
+  .filter((savedRow) => map.has(String(savedRow.key)))
+  .forEach((row) => {
+    const current = { ...(row.current || {}) } as any;
+    const prior = { ...(row.prior || {}) } as any;
+
+    // These values must always be rebuilt from controlled mapping codes.
+    current.openingCost = 0;
+    current.openingAccumulatedDepreciation = 0;
+    current.mappedClosingCost = 0;
+    current.mappedClosingAccumulatedDepreciation = 0;
+
+    prior.openingCost = 0;
+    prior.openingAccumulatedDepreciation = 0;
+    prior.mappedClosingCost = 0;
+    prior.mappedClosingAccumulatedDepreciation = 0;
+
     map.set(String(row.key), {
+      ...map.get(String(row.key))!,
       ...row,
-      current: { ...(row.current || {}) },
-      prior: { ...(row.prior || {}) },
+      current,
+      prior,
     });
   });
 
   lines.filter(isPpeLine).forEach((line) => {
     const klass = ppeClassKeyFromLine(line);
-    if (!map.has(klass.key)) {
-      map.set(klass.key, {
-        key: klass.key,
-        label: klass.label,
-        current: {},
-        prior: {},
-      });
-    }
+
+    // Never force an unknown PPE account into a generic Other PPE row.
+    // The account must use one of the controlled 305/306 mapping codes.
+    if (!klass) return;
 
     const row = map.get(klass.key);
     if (!row) return;
 
-    const prior = lineAmount(line, "prior");
-    const current = lineAmount(line, "current");
+    const currentClosing = lineAmount(line, "current");
+    const priorClosing = lineAmount(line, "prior");
+    const storedPriorOpening = directOpeningBalance(line);
 
-    row.prior.openingCost = row.prior.openingCost ?? prior;
-    row.current.openingCost = row.current.openingCost ?? prior;
-    row.current.otherMovements =
-      row.current.otherMovements ?? Math.round(current - prior);
+const priorOpening =
+  Math.round(storedPriorOpening) !== 0
+    ? storedPriorOpening
+    : priorClosing;
+
+    if (klass.balanceType === "cost") {
+      row.current.openingCost =
+        toNumber(row.current.openingCost) + priorClosing;
+      row.prior.openingCost =
+        toNumber(row.prior.openingCost) + priorOpening;
+
+      (row.current as any).mappedClosingCost =
+        toNumber((row.current as any).mappedClosingCost) + currentClosing;
+      (row.prior as any).mappedClosingCost =
+        toNumber((row.prior as any).mappedClosingCost) + priorClosing;
+    }
+
+    if (
+      klass.balanceType === "accumulatedDepreciation" ||
+      klass.balanceType === "impairment"
+    ) {
+      const currentAccumulated = Math.abs(currentClosing);
+      const priorAccumulated = Math.abs(priorClosing);
+      const openingAccumulated = Math.abs(priorOpening);
+
+      row.current.openingAccumulatedDepreciation =
+        toNumber(row.current.openingAccumulatedDepreciation) +
+        priorAccumulated;
+      row.prior.openingAccumulatedDepreciation =
+        toNumber(row.prior.openingAccumulatedDepreciation) +
+        openingAccumulated;
+
+      (row.current as any).mappedClosingAccumulatedDepreciation =
+        toNumber((row.current as any).mappedClosingAccumulatedDepreciation) +
+        currentAccumulated;
+      (row.prior as any).mappedClosingAccumulatedDepreciation =
+        toNumber((row.prior as any).mappedClosingAccumulatedDepreciation) +
+        priorAccumulated;
+    }
   });
 
-  return Array.from(map.values());
+  return DEFAULT_PPE_ROWS.map((defaultRow) => map.get(defaultRow.key)!)
+    .filter(Boolean);
 }
 
 function numberInputStyle() {
@@ -511,10 +621,7 @@ function closingCost(values: PpeValues) {
     toNumber(values.additionsBusinessCombinations) -
     toNumber(values.disposals) +
     toNumber(values.transfers) +
-    toNumber(values.revaluations) +
-    toNumber(values.foreignExchangeMovements) +
-    toNumber(values.decommissioningLiability) +
-    toNumber(values.otherMovements)
+    toNumber(values.revaluations)
   );
 }
 
@@ -525,8 +632,7 @@ function closingAccumulatedDepreciation(values: PpeValues) {
     toNumber(values.impairmentLosses) -
     toNumber(values.impairmentReversal) -
     toNumber(values.accumulatedDepreciationDisposals) +
-    toNumber(values.accumulatedDepreciationTransfers) +
-    toNumber(values.accumulatedDepreciationOtherMovements)
+    toNumber(values.accumulatedDepreciationTransfers)
   );
 }
 
@@ -881,10 +987,19 @@ function PpeInput({
   state: StructuredState;
   update: (path: string[], value: any) => void;
 }) {
+  const isMappedOpening =
+  year === "current" &&
+  (
+    movementKey === "openingCost" ||
+    movementKey === "openingAccumulatedDepreciation"
+  );
   const raw = state.ppeInputs?.[row.key]?.[year]?.[movementKey];
   const fallback = row[year]?.[movementKey];
-  const value =
-    raw !== undefined
+  const value = isMappedOpening
+    ? fallback !== undefined && fallback !== 0
+      ? String(fallback)
+      : ""
+    : raw !== undefined
       ? raw
       : fallback !== undefined && fallback !== 0
         ? String(fallback)
@@ -896,10 +1011,17 @@ function PpeInput({
         type="text"
         inputMode="decimal"
         value={value}
-        onChange={(event) =>
-          update(["ppeInputs", row.key, year, movementKey], event.target.value)
-        }
-        style={numberInputStyle()}
+        readOnly={isMappedOpening}
+        title={isMappedOpening ? "Pulled automatically from the trial balance." : undefined}
+        onChange={(event) => {
+          if (isMappedOpening) return;
+          update(["ppeInputs", row.key, year, movementKey], event.target.value);
+        }}
+        style={{
+          ...numberInputStyle(),
+          background: isMappedOpening ? "#f1f5f9" : "#fff7bf",
+          color: isMappedOpening ? "#334155" : "#111827",
+        }}
       />
     </td>
   );
@@ -954,6 +1076,33 @@ function PpeStructuredNote({
   const mappedPrior = rowsTotal(mappedRows, "prior");
   const ppeCurrentCarrying = sumPpeRows(workingRows, "current", carryingAmount);
   const ppePriorCarrying = sumPpeRows(workingRows, "prior", carryingAmount);
+  const mappedCurrentCost = workingRows.reduce(
+    (sum, row) => sum + toNumber((row.current as any).mappedClosingCost),
+    0,
+  );
+  const mappedPriorCost = workingRows.reduce(
+    (sum, row) => sum + toNumber((row.prior as any).mappedClosingCost),
+    0,
+  );
+  const mappedCurrentAccumulatedDepreciation = workingRows.reduce(
+    (sum, row) =>
+      sum +
+      toNumber((row.current as any).mappedClosingAccumulatedDepreciation),
+    0,
+  );
+  const mappedPriorAccumulatedDepreciation = workingRows.reduce(
+    (sum, row) =>
+      sum +
+      toNumber((row.prior as any).mappedClosingAccumulatedDepreciation),
+    0,
+  );
+  const mappedCurrentCarrying =
+    mappedCurrentCost - mappedCurrentAccumulatedDepreciation;
+  const mappedPriorCarrying =
+    mappedPriorCost - mappedPriorAccumulatedDepreciation;
+  const ppeReconciles =
+    Math.round(ppeCurrentCarrying) === Math.round(mappedCurrentCarrying) &&
+    Math.round(ppePriorCarrying) === Math.round(mappedPriorCarrying);
 
   if (!edit && populatedRows.length === 0) {
     return null;
@@ -975,6 +1124,24 @@ function PpeStructuredNote({
         expectedPrior={mappedPrior}
         actualPrior={ppePriorCarrying}
       />
+
+      {edit && !ppeReconciles ? (
+        <div
+          style={{
+            margin: "6px 0 8px",
+            border: "1px solid #dc2626",
+            background: "#fef2f2",
+            color: "#991b1b",
+            padding: "6px 8px",
+            fontSize: 10.4,
+            fontWeight: 700,
+          }}
+        >
+          PPE note is not reconciled to the mapped trial balance. Complete the
+          movement columns until the closing cost and accumulated depreciation
+          agree to the mapped closing balances.
+        </div>
+      ) : null}
 
       {edit ? (
         <>
@@ -1150,23 +1317,23 @@ function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
   const { currentHeading, priorHeading } = useNotesDisplay();
 
   return (
-    <div style={styles.matrixScroll}>
-      <table
-        style={{
-          ...styles.table,
-          minWidth: 760,
-          tableLayout: "fixed",
-        }}
-      >
+    <table
+      style={{
+        ...styles.table,
+        width: "100%",
+        tableLayout: "fixed",
+      }}
+    >
       <colgroup>
-        <col style={{ width: 190 }} />
-        <col style={{ width: 82 }} />
-        <col style={{ width: 88 }} />
-        <col style={{ width: 88 }} />
-        <col style={{ width: 82 }} />
-        <col style={{ width: 88 }} />
-        <col style={{ width: 88 }} />
+        <col style={{ width: "34%" }} />
+        <col style={{ width: "11%" }} />
+        <col style={{ width: "11%" }} />
+        <col style={{ width: "11%" }} />
+        <col style={{ width: "11%" }} />
+        <col style={{ width: "11%" }} />
+        <col style={{ width: "11%" }} />
       </colgroup>
+
       <thead>
         <tr>
           <th style={styles.thLeft}>Class</th>
@@ -1178,34 +1345,48 @@ function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
           <th style={styles.thRight}>{priorHeading} carrying</th>
         </tr>
       </thead>
+
       <tbody>
         {rows.map((row) => (
           <tr key={row.key}>
-            <td style={styles.tdLeft}>{displayNoteLineLabel(row.label)}</td>
-            <td style={styles.tdRight}>{amount(closingCost(row.current))}</td>
+            <td style={styles.tdLeft}>
+              {displayNoteLineLabel(row.label)}
+            </td>
+            <td style={styles.tdRight}>
+              {amount(closingCost(row.current))}
+            </td>
             <td style={styles.tdRight}>
               {amount(closingAccumulatedDepreciation(row.current))}
             </td>
             <td style={styles.tdRight}>
               {amount(carryingAmount(row.current))}
             </td>
-            <td style={styles.tdRight}>{amount(closingCost(row.prior))}</td>
+            <td style={styles.tdRight}>
+              {amount(closingCost(row.prior))}
+            </td>
             <td style={styles.tdRight}>
               {amount(closingAccumulatedDepreciation(row.prior))}
             </td>
-            <td style={styles.tdRight}>{amount(carryingAmount(row.prior))}</td>
+            <td style={styles.tdRight}>
+              {amount(carryingAmount(row.prior))}
+            </td>
           </tr>
         ))}
+
         <tr>
           <td data-total-label="true" style={styles.totalLabel}>
-            &nbsp;
+            Total
           </td>
           <td data-total-amount="true" style={styles.totalAmount}>
             {amount(sumPpeRows(rows, "current", closingCost))}
           </td>
           <td data-total-amount="true" style={styles.totalAmount}>
             {amount(
-              sumPpeRows(rows, "current", closingAccumulatedDepreciation),
+              sumPpeRows(
+                rows,
+                "current",
+                closingAccumulatedDepreciation,
+              ),
             )}
           </td>
           <td data-total-amount="true" style={styles.totalAmount}>
@@ -1215,15 +1396,20 @@ function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
             {amount(sumPpeRows(rows, "prior", closingCost))}
           </td>
           <td data-total-amount="true" style={styles.totalAmount}>
-            {amount(sumPpeRows(rows, "prior", closingAccumulatedDepreciation))}
+            {amount(
+              sumPpeRows(
+                rows,
+                "prior",
+                closingAccumulatedDepreciation,
+              ),
+            )}
           </td>
           <td data-total-amount="true" style={styles.totalAmount}>
             {amount(sumPpeRows(rows, "prior", carryingAmount))}
           </td>
         </tr>
       </tbody>
-      </table>
-    </div>
+    </table>
   );
 }
 
@@ -1249,10 +1435,20 @@ function PpeMovementEditor({
       <table
         style={{
           ...styles.table,
-          minWidth: 860,
+          width: "100%",
           tableLayout: "fixed",
         }}
       >
+
+        <colgroup>
+  <col style={{ width: 190 }} />
+  {movements.map((movement) => (
+    <col key={movement.key} style={{ width: 62 }} />
+  ))}
+  <col style={{ width: 68 }} />
+</colgroup>
+
+
         <thead>
           <tr>
             <th style={styles.thLeft}>{title}</th>
@@ -1310,54 +1506,235 @@ function PpeFinancialMovementTable({
   year: YearKey;
   title: string;
 }) {
-  const movementRows = year === "current" ? COST_MOVEMENTS : COST_MOVEMENTS;
+  const movementValue = (
+    values: PpeValues,
+    key: PpeMovementKey,
+    reverseSign = false,
+  ) => {
+    const value = toNumber(values?.[key]);
+    return reverseSign ? -Math.abs(value) : value;
+  };
+
+  const openingCarryingAmount = (values: PpeValues) =>
+    toNumber(values.openingCost) -
+    toNumber(values.openingAccumulatedDepreciation);
+
+  const tableRows = rows.map((row) => {
+    const values = row[year] || {};
+
+    return {
+      key: row.key,
+      label: displayNoteLineLabel(row.label),
+      opening: openingCarryingAmount(values),
+      additions: movementValue(values, "additions"),
+      businessCombinations: movementValue(
+        values,
+        "additionsBusinessCombinations",
+      ),
+      disposals:
+        -Math.abs(movementValue(values, "disposals")) +
+        Math.abs(
+          movementValue(
+            values,
+            "accumulatedDepreciationDisposals",
+          ),
+        ),
+      transfers:
+        movementValue(values, "transfers") -
+        movementValue(values, "accumulatedDepreciationTransfers"),
+      revaluations: movementValue(values, "revaluations"),
+      depreciation: movementValue(values, "depreciation", true),
+      impairment:
+        -Math.abs(movementValue(values, "impairmentLosses")) +
+        Math.abs(movementValue(values, "impairmentReversal")),
+      other:
+        movementValue(values, "foreignExchangeMovements") +
+        movementValue(values, "decommissioningLiability") +
+        movementValue(values, "otherMovements") -
+        movementValue(
+          values,
+          "accumulatedDepreciationOtherMovements",
+        ),
+      closing: carryingAmount(values),
+    };
+  });
+
+  const showBusinessCombinations = tableRows.some(
+    (row) => Math.round(row.businessCombinations) !== 0,
+  );
+
+  const showDisposals = tableRows.some(
+    (row) => Math.round(row.disposals) !== 0,
+  );
+
+  const showTransfers = tableRows.some(
+    (row) => Math.round(row.transfers) !== 0,
+  );
+
+  const showRevaluations = tableRows.some(
+    (row) => Math.round(row.revaluations) !== 0,
+  );
+
+  const showImpairment = tableRows.some(
+    (row) => Math.round(row.impairment) !== 0,
+  );
+
+  const showOther = tableRows.some(
+    (row) => Math.round(row.other) !== 0,
+  );
+
+  const total = (key: keyof (typeof tableRows)[number]) =>
+    tableRows.reduce((sum, row) => {
+      const value = row[key];
+      return sum + (typeof value === "number" ? value : 0);
+    }, 0);
 
   return (
     <table style={styles.table}>
-      <colgroup>
-        <col style={{ width: "auto" }} />
-        <col style={{ width: 76 }} />
-        <col style={{ width: 76 }} />
-      </colgroup>
       <thead>
         <tr>
           <th style={styles.thLeft}>{title}</th>
-          {rows.map((row) => (
-            <th key={row.key} style={styles.thRight}>
-              {displayNoteLineLabel(row.label)}
-            </th>
-          ))}
-          <th style={styles.thRight}>Total</th>
+
+          <th style={styles.thRight}>Opening carrying</th>
+          <th style={styles.thRight}>Additions</th>
+
+          {showBusinessCombinations ? (
+            <th style={styles.thRight}>Business comb.</th>
+          ) : null}
+
+          {showDisposals ? (
+            <th style={styles.thRight}>Disposals</th>
+          ) : null}
+
+          {showTransfers ? (
+            <th style={styles.thRight}>Transfers</th>
+          ) : null}
+
+          {showRevaluations ? (
+            <th style={styles.thRight}>Revaluations</th>
+          ) : null}
+
+          <th style={styles.thRight}>Depreciation</th>
+
+          {showImpairment ? (
+            <th style={styles.thRight}>Impairment</th>
+          ) : null}
+
+          {showOther ? (
+            <th style={styles.thRight}>Other</th>
+          ) : null}
+
+          <th style={styles.thRight}>Closing carrying</th>
         </tr>
       </thead>
-      <tbody>
-        {movementRows.map((movement) => {
-          const values = rows.map((row) => ppeValue(row, year, movement.key));
-          const total = values.reduce((sum, value) => sum + value, 0);
-          if (total === 0) return null;
 
-          return (
-            <tr key={`${title}-${movement.key}`}>
-              <td style={styles.tdLeft}>{movement.label}</td>
-              {values.map((value, index) => (
-                <td key={index} style={styles.tdRight}>
-                  {amount(value)}
-                </td>
-              ))}
-              <td style={styles.tdRight}>{amount(total)}</td>
-            </tr>
-          );
-        })}
-        <tr>
-          <td style={styles.totalLabel}>Closing carrying amount</td>
-          {rows.map((row) => (
-            <td key={row.key} style={styles.totalAmount}>
-              {amount(carryingAmount(row[year]))}
+      <tbody>
+        {tableRows.map((row) => (
+          <tr key={`${year}-${row.key}`}>
+            <td style={styles.tdLeft}>{row.label}</td>
+
+            <td style={styles.tdRight}>{amount(row.opening)}</td>
+            <td style={styles.tdRight}>{amount(row.additions)}</td>
+
+            {showBusinessCombinations ? (
+              <td style={styles.tdRight}>
+                {amount(row.businessCombinations)}
+              </td>
+            ) : null}
+
+            {showDisposals ? (
+              <td style={styles.tdRight}>{amount(row.disposals)}</td>
+            ) : null}
+
+            {showTransfers ? (
+              <td style={styles.tdRight}>{amount(row.transfers)}</td>
+            ) : null}
+
+            {showRevaluations ? (
+              <td style={styles.tdRight}>{amount(row.revaluations)}</td>
+            ) : null}
+
+            <td style={styles.tdRight}>
+              {amount(row.depreciation)}
             </td>
-          ))}
-          <td data-total-amount="true" style={styles.totalAmount}>
-            {amount(sumPpeRows(rows, year, carryingAmount))}
+
+            {showImpairment ? (
+              <td style={styles.tdRight}>{amount(row.impairment)}</td>
+            ) : null}
+
+            {showOther ? (
+              <td style={styles.tdRight}>{amount(row.other)}</td>
+            ) : null}
+
+            <td
+  style={{
+    ...styles.tdRight,
+    fontWeight: 800,
+  }}
+>
+  {amount(row.closing)}
+</td>
+          </tr>
+        ))}
+
+        <tr
+  style={{
+    borderBottom: "2px solid #111827",
+  }}
+>
+          <td style={styles.totalLabel}>Total</td>
+
+          <td style={styles.totalAmount}>
+            {amount(total("opening"))}
           </td>
+
+          <td style={styles.totalAmount}>
+            {amount(total("additions"))}
+          </td>
+
+          {showBusinessCombinations ? (
+            <td style={styles.totalAmount}>
+              {amount(total("businessCombinations"))}
+            </td>
+          ) : null}
+
+          {showDisposals ? (
+            <td style={styles.totalAmount}>
+              {amount(total("disposals"))}
+            </td>
+          ) : null}
+
+          {showTransfers ? (
+            <td style={styles.totalAmount}>
+              {amount(total("transfers"))}
+            </td>
+          ) : null}
+
+          {showRevaluations ? (
+            <td style={styles.totalAmount}>
+              {amount(total("revaluations"))}
+            </td>
+          ) : null}
+
+          <td style={styles.totalAmount}>
+            {amount(total("depreciation"))}
+          </td>
+
+          {showImpairment ? (
+            <td style={styles.totalAmount}>
+              {amount(total("impairment"))}
+            </td>
+          ) : null}
+
+          {showOther ? (
+            <td style={styles.totalAmount}>
+              {amount(total("other"))}
+            </td>
+          ) : null}
+
+          <td style={styles.totalAmount}>
+  {amount(total("closing"))}
+</td>
         </tr>
       </tbody>
     </table>
@@ -1459,7 +1836,44 @@ function CashGeneratedAmountCell({
   state: StructuredState;
   update: (path: string[], value: any) => void;
 }) {
-  if (!edit || line.calculated || line.key === "profitBeforeTax") {
+  const automaticCurrentYearKeys = new Set([
+    "adjustments",
+    "depreciationAmortisationImpairment",
+    "lossOnSaleAssetsLiabilities",
+    "fairValueGainsLosses",
+    "movementProvisions",
+    "otherNonCash1",
+    "investmentIncome",
+    "financeCosts",
+    "inventories",
+    "tradeReceivables",
+    "prepayments",
+    "tradePayables",
+    "deferredIncome",
+  ]);
+
+  const isAutomaticCurrentYear =
+    year === "current" &&
+    (
+      line.calculated ||
+      line.key === "profitBeforeTax" ||
+      automaticCurrentYearKeys.has(line.key)
+    );
+
+  const savedValue = cashGeneratedInputValue(
+    state,
+    line.key,
+    year,
+  );
+
+  const displayedValue =
+    savedValue !== undefined &&
+    savedValue !== null &&
+    String(savedValue).trim() !== ""
+      ? savedValue
+      : line[year] || "";
+
+  if (!edit || isAutomaticCurrentYear) {
     return (
       <td style={line.strong ? styles.totalAmount : styles.tdRight}>
         {amount(line[year])}
@@ -1472,11 +1886,15 @@ function CashGeneratedAmountCell({
       <input
         type="text"
         inputMode="decimal"
-        value={cashGeneratedInputValue(state, line.key, year)}
-        placeholder={line[year] ? String(line[year]) : ""}
+        value={displayedValue}
         onChange={(event) =>
           update(
-            ["cashGeneratedFromOperations", "values", line.key, year],
+            [
+              "cashGeneratedFromOperations",
+              "values",
+              line.key,
+              year,
+            ],
             event.target.value,
           )
         }
@@ -1885,9 +2303,13 @@ function OtherFinancialLiabilitiesNote({
             const key = row.id || row.label || String(index);
             const savedLabel = state.otherFinancialLiabilities?.[key]?.label || "";
             const displayLabel = savedLabel || row.label;
-            const terms =
-              state.otherFinancialLiabilities?.[key]?.terms ||
-              "The liability is unsecured, bears no interest and has no fixed repayment terms.";
+            const savedTerms =
+  state.otherFinancialLiabilities?.[key]?.terms;
+
+const terms =
+  savedTerms !== undefined
+    ? String(savedTerms)
+    : "The liability is unsecured, bears no interest and has no fixed repayment terms.";
             const interest = state.otherFinancialLiabilities?.[key]?.interest || "";
             const repayment = state.otherFinancialLiabilities?.[key]?.repayment || "";
             const security = state.otherFinancialLiabilities?.[key]?.security || "";
@@ -2576,35 +2998,89 @@ function CurrentTaxBalanceNote({
   update: (path: string[], value: any) => void;
   stateKey: string;
 }) {
-  const { hideComparatives } = useNotesDisplay();
+  const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
   const deferred = hasDeferredTaxRows(rows);
   const current = currentTaxBalanceAmount(rows);
   const prior = priorTaxBalanceAmount(rows);
+
+  if (deferred) {
+    const movementCurrent = current - prior;
+    const explanation =
+      state[stateKey]?.extraText ||
+      "Deferred tax arises from temporary differences between the carrying amounts of assets and liabilities and their corresponding tax bases.";
+
+    return (
+      <>
+        <table style={styles.table}>
+          <colgroup>
+            <col style={{ width: "auto" }} />
+            <col style={{ width: 76 }} />
+            {!hideComparatives ? <col style={{ width: 76 }} /> : null}
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={styles.thLeft}>Reconciliation</th>
+              <th style={styles.thRight}>{currentHeading}</th>
+              {!hideComparatives ? (
+                <th style={styles.thRight}>{priorHeading}</th>
+              ) : null}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={styles.tdLeft}>Opening balance</td>
+              <td style={styles.tdRight}>{amount(prior)}</td>
+              {!hideComparatives ? (
+                <td style={styles.tdRight}>–</td>
+              ) : null}
+            </tr>
+            <tr>
+              <td style={styles.tdLeft}>
+                Recognised in profit or loss and other movements
+              </td>
+              <td style={styles.tdRight}>{amount(movementCurrent)}</td>
+              {!hideComparatives ? (
+                <td style={styles.tdRight}>–</td>
+              ) : null}
+            </tr>
+            <tr>
+              <td style={styles.totalLabel}>Closing deferred tax asset</td>
+              <td data-total-amount="true" style={styles.totalAmount}>
+                {amount(current)}
+              </td>
+              {!hideComparatives ? (
+                <td data-total-amount="true" style={styles.totalAmount}>
+                  {amount(prior)}
+                </td>
+              ) : null}
+            </tr>
+          </tbody>
+        </table>
+
+        <EditableTextBlock
+          label="Deferred tax explanation"
+          value={explanation}
+          edit={edit}
+          onChange={(value) => update([stateKey, "extraText"], value)}
+        />
+      </>
+    );
+  }
 
   const displayRows =
     splitRows(rows).length > 0
       ? splitRows(rows).map((row) => ({
           ...row,
-          label: deferred
-            ? String(row.label || "").toLowerCase().includes("liability")
-              ? "Deferred tax liability"
-              : "Deferred tax asset"
-            : "Normal tax",
+          label: "Normal tax",
         }))
       : [
           {
             id: `${stateKey}-normal-tax`,
-            label: deferred ? "Deferred tax" : "Normal tax",
+            label: "Normal tax",
             current,
             prior,
           },
         ];
-
-  const totalLabel = deferred
-    ? displayRows.some((row) => String(row.label || "").toLowerCase().includes("liability"))
-      ? "Deferred tax liability"
-      : "Deferred tax asset"
-    : "Net current tax receivable / (payable)";
 
   return (
     <>
@@ -2616,30 +3092,9 @@ function CurrentTaxBalanceNote({
         update={update}
       />
 
-      <table style={styles.table}>
-        <colgroup>
-          <col style={{ width: "auto" }} />
-          <col style={{ width: 76 }} />
-          {!hideComparatives ? <col style={{ width: 76 }} /> : null}
-        </colgroup>
-        <tbody>
-          <tr>
-            <td style={styles.totalLabel}>{totalLabel}</td>
-            <td data-total-amount="true" style={styles.totalAmount}>
-              {amount(current)}
-            </td>
-            {!hideComparatives ? (
-              <td data-total-amount="true" style={styles.totalAmount}>
-                {amount(prior)}
-              </td>
-            ) : null}
-          </tr>
-        </tbody>
-      </table>
-
       {edit ? (
         <EditableTextBlock
-          label={deferred ? "Additional deferred tax wording" : "Additional current tax balance wording"}
+          label="Additional current tax balance wording"
           value={state[stateKey]?.extraText || ""}
           edit
           onChange={(value) => update([stateKey, "extraText"], value)}
@@ -3271,6 +3726,6 @@ const styles: Record<string, any> = {
     fontSize: 9.8,
     cursor: "pointer",
   },
-  matrixScroll: { overflowX: "auto", maxWidth: "100%" },
+  matrixScroll: { overflowX: "visible", maxWidth: "100%" },
   amountTd: { padding: "2px", borderBottom: "0", textAlign: "right" },
 };

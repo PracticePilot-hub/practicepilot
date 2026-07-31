@@ -1369,11 +1369,10 @@ function buildHistoricalCashFlowData(
         inventoryPrior + receivablesPrior + payablesPrior,
       cashLoansRaisedPrior:
         closingShareholderLoans - openingShareholderLoans,
-      cashOtherFinancingPrior:
-        closingShareCapital -
-        openingShareCapital +
-        closingOtherFinancialLiabilities -
-        openingOtherFinancialLiabilities,
+      /*
+        Do not infer "Other financing cash flows" from SFP balances.
+        That row is reserved for an explicit workbench amount.
+      */
       cashPriorMovement: closingCash - openingCash,
     },
     inventoryPrior,
@@ -1394,6 +1393,8 @@ export default function AfsPrintStudioPage() {
   const [loading, setLoading] = useState(true);
   const [activeSectionId, setActiveSectionId] = useState("cover-page");
   const [cashFlowViewMode, setCashFlowViewMode] = useState<"afs" | "work">("afs");
+  const [detailedIncomeInlineDrafts, setDetailedIncomeInlineDrafts] = useState<Record<string, string>>({});
+  const [detailedIncomeEditingRowId, setDetailedIncomeEditingRowId] = useState<string | null>(null);
   const [structuredNotesState, setStructuredNotesState] =
     useState<Record<string, any>>({});
 
@@ -1909,6 +1910,24 @@ export default function AfsPrintStudioPage() {
       "Annual Financial Statements"
   );
 
+  const tradingName = cleanString(
+  getSetupValue(clientSetup, [
+    "trading_name",
+    "tradingName",
+    "business_name",
+    "businessName",
+  ]),
+);
+
+const clientLogoUrl = cleanString(
+  getSetupValue(clientSetup, [
+    "logo_url",
+    "client_logo_url",
+    "afs_logo_url",
+  ]),
+);
+
+
   const entityType = String(
     getSetupValue(clientSetup, ["entity_type", "legal_entity_type"]) ||
       engagement?.entity_type ||
@@ -2149,6 +2168,34 @@ export default function AfsPrintStudioPage() {
 
   const defaultNoteTexts = useMemo(() => buildDefaultNoteTexts(), []);
   const activeNoteTexts = noteTexts || defaultNoteTexts;
+
+  const initialSettingsSyncDoneRef = useRef(false);
+
+useEffect(() => {
+  if (
+    loading ||
+    !printStudioSettingsLoaded ||
+    !engagementId ||
+    initialSettingsSyncDoneRef.current
+  ) {
+    return;
+  }
+
+  initialSettingsSyncDoneRef.current = true;
+
+  void savePrintStudioSettingsToSupabase({
+    reportOptions,
+    directorsReportTexts: activeDirectorsReportTexts,
+    accountingPolicyTexts: activeAccountingPolicyTexts,
+    noteTexts: activeNoteTexts,
+    statementOverrides,
+    structuredNotesState,
+  });
+}, [
+  loading,
+  printStudioSettingsLoaded,
+  engagementId,
+]);
 
   const disclosureTokens = {
     clientName,
@@ -2434,8 +2481,12 @@ export default function AfsPrintStudioPage() {
 
   const effectiveStatementOverrides = useMemo(
     () => ({
-      ...statementOverrides,
+      /*
+        Historical values are fallbacks only. A value deliberately captured
+        in the workbench must always take priority.
+      */
       ...historicalCashFlowData.overrides,
+      ...statementOverrides,
     }),
     [statementOverrides, historicalCashFlowData],
   );
@@ -2450,8 +2501,218 @@ export default function AfsPrintStudioPage() {
     [trialBalanceLines, effectiveStatementOverrides, noteNumberMap]
   );
 
+const effectiveStructuredNotesState = useMemo(() => {
+  const currentState =
+    structuredNotesState && typeof structuredNotesState === "object"
+      ? structuredNotesState
+      : {};
+
+  const currentCashGenerated =
+    currentState.cashGeneratedFromOperations &&
+    typeof currentState.cashGeneratedFromOperations === "object"
+      ? currentState.cashGeneratedFromOperations
+      : {};
+
+  const currentValues =
+    currentCashGenerated.values &&
+    typeof currentCashGenerated.values === "object"
+      ? currentCashGenerated.values
+      : {};
+
+  const ppeInputs =
+    currentState.ppeInputs &&
+    typeof currentState.ppeInputs === "object"
+      ? currentState.ppeInputs
+      : {};
+
+  const ppeDepreciation = (
+    side: "current" | "prior",
+  ) =>
+    Object.values(ppeInputs).reduce((sum: number, row: any) => {
+      return (
+        sum +
+        Math.abs(
+          Number(
+            row?.[side]?.depreciation ??
+              row?.[side]?.depreciationCharge ??
+              0,
+          ),
+        )
+      );
+    }, 0);
+
+  const mappedNoteTotal = (
+    lines: any[] | undefined,
+    side: "current" | "prior",
+  ) =>
+    (lines || []).reduce(
+      (sum: number, line: any) =>
+        sum + Number(line?.[side] || 0),
+      0,
+    );
+
+  const mappedDepreciationCurrent =
+    ppeDepreciation("current");
+
+  const mappedDepreciationPrior =
+    ppeDepreciation("prior");
+
+  const existingDepreciation =
+    currentValues.depreciationAmortisationImpairment || {};
+
+  return {
+    ...currentState,
+    cashGeneratedFromOperations: {
+      ...currentCashGenerated,
+      values: {
+        ...currentValues,
+
+        depreciationAmortisationImpairment: {
+          ...existingDepreciation,
+
+          current:
+            existingDepreciation.current !== undefined &&
+            existingDepreciation.current !== null &&
+            existingDepreciation.current !== ""
+              ? existingDepreciation.current
+              : mappedDepreciationCurrent,
+
+          prior:
+            existingDepreciation.prior !== undefined &&
+            existingDepreciation.prior !== null &&
+            existingDepreciation.prior !== ""
+              ? existingDepreciation.prior
+              : mappedDepreciationPrior,
+        },
+
+        inventories: {
+          ...(currentValues.inventories || {}),
+          current:
+            currentValues.inventories?.current !== undefined &&
+            currentValues.inventories?.current !== null &&
+            currentValues.inventories?.current !== ""
+              ? currentValues.inventories.current
+              : Number(
+                  baseStatementEngine.cashFlowRows?.find(
+                    (row: any) =>
+                      String(row?.id || "") === "cfs-inventories",
+                  )?.current || 0,
+                ),
+          prior:
+            currentValues.inventories?.prior !== undefined &&
+            currentValues.inventories?.prior !== null &&
+            currentValues.inventories?.prior !== ""
+              ? currentValues.inventories.prior
+              : historicalCashFlowData.inventoryPrior,
+        },
+
+        tradeReceivables: {
+          ...(currentValues.tradeReceivables || {}),
+          current:
+            currentValues.tradeReceivables?.current !== undefined &&
+            currentValues.tradeReceivables?.current !== null &&
+            currentValues.tradeReceivables?.current !== ""
+              ? currentValues.tradeReceivables.current
+              : Number(
+                  baseStatementEngine.cashFlowRows?.find(
+                    (row: any) =>
+                      String(row?.id || "") ===
+                      "cfs-trade-receivables",
+                  )?.current || 0,
+                ),
+          prior:
+            currentValues.tradeReceivables?.prior !== undefined &&
+            currentValues.tradeReceivables?.prior !== null &&
+            currentValues.tradeReceivables?.prior !== ""
+              ? currentValues.tradeReceivables.prior
+              : historicalCashFlowData.receivablesPrior,
+        },
+
+        tradePayables: {
+          ...(currentValues.tradePayables || {}),
+          current:
+            currentValues.tradePayables?.current !== undefined &&
+            currentValues.tradePayables?.current !== null &&
+            currentValues.tradePayables?.current !== ""
+              ? currentValues.tradePayables.current
+              : Number(
+                  baseStatementEngine.cashFlowRows?.find(
+                    (row: any) =>
+                      String(row?.id || "") ===
+                      "cfs-trade-payables",
+                  )?.current || 0,
+                ),
+          prior:
+            currentValues.tradePayables?.prior !== undefined &&
+            currentValues.tradePayables?.prior !== null &&
+            currentValues.tradePayables?.prior !== ""
+              ? currentValues.tradePayables.prior
+              : historicalCashFlowData.payablesPrior,
+        },
+
+        investmentIncome: {
+          ...(currentValues.investmentIncome || {}),
+          current:
+            currentValues.investmentIncome?.current !== undefined &&
+            currentValues.investmentIncome?.current !== null &&
+            currentValues.investmentIncome?.current !== ""
+              ? currentValues.investmentIncome.current
+              : Math.abs(
+                  mappedNoteTotal(
+                    baseStatementEngine.noteData.otherIncome,
+                    "current",
+                  ),
+                ),
+          prior:
+            currentValues.investmentIncome?.prior !== undefined &&
+            currentValues.investmentIncome?.prior !== null &&
+            currentValues.investmentIncome?.prior !== ""
+              ? currentValues.investmentIncome.prior
+              : Math.abs(
+                  mappedNoteTotal(
+                    baseStatementEngine.noteData.otherIncome,
+                    "prior",
+                  ),
+                ),
+        },
+
+        financeCosts: {
+          ...(currentValues.financeCosts || {}),
+          current:
+            currentValues.financeCosts?.current !== undefined &&
+            currentValues.financeCosts?.current !== null &&
+            currentValues.financeCosts?.current !== ""
+              ? currentValues.financeCosts.current
+              : Math.abs(
+                  mappedNoteTotal(
+                    baseStatementEngine.noteData.financeCosts,
+                    "current",
+                  ),
+                ),
+          prior:
+            currentValues.financeCosts?.prior !== undefined &&
+            currentValues.financeCosts?.prior !== null &&
+            currentValues.financeCosts?.prior !== ""
+              ? currentValues.financeCosts.prior
+              : Math.abs(
+                  mappedNoteTotal(
+                    baseStatementEngine.noteData.financeCosts,
+                    "prior",
+                  ),
+                ),
+        },
+      },
+    },
+  };
+}, [
+  structuredNotesState,
+  baseStatementEngine,
+  historicalCashFlowData,
+]);
+
   const statementEngine = useMemo(() => {
-    const values = structuredNotesState?.cashGeneratedFromOperations?.values || {};
+    const values =
+  effectiveStructuredNotesState?.cashGeneratedFromOperations?.values || {};
 
     const hasStoredValue = (key: string, side: "current" | "prior") => {
       const value = values?.[key]?.[side];
@@ -2501,6 +2762,16 @@ export default function AfsPrintStudioPage() {
     const receivablesRow = findById("cfs-trade-receivables") || findByLabel(["trade", "receivables"]);
     const payablesRow = findById("cfs-trade-payables") || findByLabel(["trade", "payables"]);
     const generatedRow = findById("cfs-cash-generated-operations") || findByLabel(["cash generated", "operations"]);
+    const interestReceivedRow =
+      findById("cfs-interest-received") ||
+      findByLabel(["interest received"]);
+    const financeCostsPaidRow =
+      findById("cfs-finance-costs-paid") ||
+      findByLabel(["finance costs paid"]);
+    const taxPaidRow =
+      findById("cfs-tax-paid") ||
+      findByLabel(["taxation paid"]) ||
+      findByLabel(["tax paid"]);
     const otherOperatingRow = findById("cfs-other-operating") || findByLabel(["other operating cash flows"]);
     const netOperatingRow = findById("cfs-net-operating") || findByLabel(["net cash", "operating activities"]);
     const purchasePpeRow =
@@ -2523,28 +2794,68 @@ export default function AfsPrintStudioPage() {
       findById("cfs-net-financing") ||
       findByLabel(["net cash", "financing activities"]);
 
+    /*
+      Prior-year financing must represent movements, not closing balances.
+      The statement engine may carry a legacy prior closing liability into
+      Other financing cash flows. Replace that comparative with explicit
+      movement values only.
+    */
+    const loansRaisedRow =
+      findById("cfs-loans-raised") ||
+      findByLabel(["shareholder loans raised"]);
+
+    const dividendsPaidRow =
+      findById("cfs-dividends-paid") ||
+      findByLabel(["dividends paid"]);
+
+    const otherFinancingRow =
+      findById("cfs-other-financing") ||
+      findByLabel(["other financing cash flows"]);
+
+    const explicitOtherFinancingPrior =
+      effectiveStatementOverrides.cashOtherFinancingPrior !== null &&
+      effectiveStatementOverrides.cashOtherFinancingPrior !== undefined
+        ? Number(effectiveStatementOverrides.cashOtherFinancingPrior || 0)
+        : 0;
+
+    if (otherFinancingRow) {
+      otherFinancingRow.prior = Math.round(explicitOtherFinancingPrior);
+    }
+
+    const correctedNetFinancingPrior =
+      Number(loansRaisedRow?.prior || 0) +
+      Number(dividendsPaidRow?.prior || 0) +
+      explicitOtherFinancingPrior;
+
+    if (netFinancingRow) {
+      netFinancingRow.prior = Math.round(correctedNetFinancingPrior);
+    }
+
     const ppeAdditionsFromNote = (side: "current" | "prior") => {
-      const ppeInputs = structuredNotesState?.ppeInputs || {};
+  const savedRows = Array.isArray(structuredNotesState?.ppeRows)
+    ? structuredNotesState.ppeRows
+    : [];
 
-      return Object.values(ppeInputs).reduce(
-        (sum: number, item: any) =>
-          sum + Number(item?.[side]?.additions || 0),
-        0,
-      );
-    };
+  const savedInputs =
+    structuredNotesState?.ppeInputs &&
+    typeof structuredNotesState.ppeInputs === "object"
+      ? Object.values(structuredNotesState.ppeInputs)
+      : [];
 
-    const ppeAdditionsCurrent = ppeAdditionsFromNote("current");
-    const ppeAdditionsPrior = ppeAdditionsFromNote("prior");
+  const rows = savedRows.length > 0 ? savedRows : savedInputs;
 
-    const purchasePpeCurrent =
-      ppeAdditionsCurrent !== 0
-        ? -Math.abs(ppeAdditionsCurrent)
-        : Number(purchasePpeRow?.current || 0);
+  return rows.reduce(
+    (sum: number, row: any) =>
+      sum + Number(row?.[side]?.additions || 0),
+    0,
+  );
+};
 
-    const purchasePpePrior =
-      ppeAdditionsPrior !== 0
-        ? -Math.abs(ppeAdditionsPrior)
-        : Number(purchasePpeRow?.prior || 0);
+const ppeAdditionsCurrent = ppeAdditionsFromNote("current");
+const ppeAdditionsPrior = ppeAdditionsFromNote("prior");
+
+const purchasePpeCurrent = -Math.abs(ppeAdditionsCurrent);
+const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
 
     if (purchasePpeRow) {
       purchasePpeRow.current = Math.round(purchasePpeCurrent);
@@ -2623,6 +2934,124 @@ export default function AfsPrintStudioPage() {
       generatedRow.prior = Math.round(generatedPrior);
     }
 
+    const mappedNoteTotal = (
+      lines: any[] | undefined,
+      side: "current" | "prior",
+    ) =>
+      (lines || []).reduce(
+        (sum: number, line: any) =>
+          sum + Number(line?.[side] || 0),
+        0,
+      );
+
+    const mappedInterestReceivedCurrent = Math.abs(
+      mappedNoteTotal(
+        baseStatementEngine.noteData.otherIncome,
+        "current",
+      ),
+    );
+
+    const mappedInterestReceivedPrior = Math.abs(
+      mappedNoteTotal(
+        baseStatementEngine.noteData.otherIncome,
+        "prior",
+      ),
+    );
+
+    const mappedFinanceCostsPaidCurrent = -Math.abs(
+      mappedNoteTotal(
+        baseStatementEngine.noteData.financeCosts,
+        "current",
+      ),
+    );
+
+    const mappedFinanceCostsPaidPrior = -Math.abs(
+      mappedNoteTotal(
+        baseStatementEngine.noteData.financeCosts,
+        "prior",
+      ),
+    );
+
+    /*
+      Taxation in the SOCI is already presented with the correct cash-flow
+      sign: an expense is negative and a tax credit is positive.
+
+      A workbench amount remains an explicit override. When no override has
+      been captured, use the mapped taxation amount automatically.
+    */
+    const mappedTaxPaidCurrent = mappedNoteTotal(
+      baseStatementEngine.noteData.taxation,
+      "current",
+    );
+
+    const mappedTaxPaidPrior = mappedNoteTotal(
+      baseStatementEngine.noteData.taxation,
+      "prior",
+    );
+
+    const interestReceivedCurrent =
+      effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
+      effectiveStatementOverrides.cashInterestReceivedCurrent !== undefined
+        ? Number(
+            effectiveStatementOverrides.cashInterestReceivedCurrent || 0,
+          )
+        : mappedInterestReceivedCurrent;
+
+    const interestReceivedPrior =
+      effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
+      effectiveStatementOverrides.cashInterestReceivedPrior !== undefined
+        ? Number(
+            effectiveStatementOverrides.cashInterestReceivedPrior || 0,
+          )
+        : mappedInterestReceivedPrior;
+
+    const financeCostsPaidCurrent =
+      effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== null &&
+      effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== undefined
+        ? Number(
+            effectiveStatementOverrides.cashFinanceCostsPaidCurrent || 0,
+          )
+        : mappedFinanceCostsPaidCurrent;
+
+    const financeCostsPaidPrior =
+      effectiveStatementOverrides.cashFinanceCostsPaidPrior !== null &&
+      effectiveStatementOverrides.cashFinanceCostsPaidPrior !== undefined
+        ? Number(
+            effectiveStatementOverrides.cashFinanceCostsPaidPrior || 0,
+          )
+        : mappedFinanceCostsPaidPrior;
+
+    const taxPaidCurrent =
+      effectiveStatementOverrides.cashTaxPaidCurrent !== null &&
+      effectiveStatementOverrides.cashTaxPaidCurrent !== undefined
+        ? Number(
+            effectiveStatementOverrides.cashTaxPaidCurrent || 0,
+          )
+        : mappedTaxPaidCurrent;
+
+    const taxPaidPrior =
+      effectiveStatementOverrides.cashTaxPaidPrior !== null &&
+      effectiveStatementOverrides.cashTaxPaidPrior !== undefined
+        ? Number(
+            effectiveStatementOverrides.cashTaxPaidPrior || 0,
+          )
+        : mappedTaxPaidPrior;
+
+    if (interestReceivedRow) {
+      interestReceivedRow.current = Math.round(interestReceivedCurrent);
+      interestReceivedRow.prior = Math.round(interestReceivedPrior);
+    }
+
+    if (financeCostsPaidRow) {
+      financeCostsPaidRow.current = Math.round(financeCostsPaidCurrent);
+      financeCostsPaidRow.prior = Math.round(financeCostsPaidPrior);
+    }
+
+    if (taxPaidRow) {
+      taxPaidRow.current = Math.round(taxPaidCurrent);
+      taxPaidRow.prior = Math.round(taxPaidPrior);
+    }
+
     const otherOperatingCurrent =
       Number(effectiveStatementOverrides.cashOtherOperatingCurrent || 0) +
       Number(effectiveStatementOverrides.cashOtherOperating2Current || 0) +
@@ -2639,15 +3068,15 @@ export default function AfsPrintStudioPage() {
 
     const netOperatingCurrent =
       generatedCurrent +
-      Number(effectiveStatementOverrides.cashInterestReceivedCurrent || 0) +
-      Number(effectiveStatementOverrides.cashFinanceCostsPaidCurrent || 0) +
-      Number(effectiveStatementOverrides.cashTaxPaidCurrent || 0) +
+      interestReceivedCurrent +
+      financeCostsPaidCurrent +
+      taxPaidCurrent +
       otherOperatingCurrent;
     const netOperatingPrior =
       generatedPrior +
-      Number(effectiveStatementOverrides.cashInterestReceivedPrior || 0) +
-      Number(effectiveStatementOverrides.cashFinanceCostsPaidPrior || 0) +
-      Number(effectiveStatementOverrides.cashTaxPaidPrior || 0) +
+      interestReceivedPrior +
+      financeCostsPaidPrior +
+      taxPaidPrior +
       otherOperatingPrior;
 
     if (netOperatingRow) {
@@ -2655,15 +3084,30 @@ export default function AfsPrintStudioPage() {
       netOperatingRow.prior = Math.round(netOperatingPrior);
     }
 
-    const netInvestingCurrent =
-      purchasePpeCurrent +
-      Number(disposalPpeRow?.current || 0) +
-      Number(otherInvestingRow?.current || 0);
+  const otherInvestingCurrent =
+  Number(effectiveStatementOverrides.cashOtherInvestingCurrent || 0) +
+  Number(effectiveStatementOverrides.cashOtherInvesting2Current || 0) +
+  Number(effectiveStatementOverrides.cashOtherInvesting3Current || 0);
 
-    const netInvestingPrior =
-      purchasePpePrior +
-      Number(disposalPpeRow?.prior || 0) +
-      Number(otherInvestingRow?.prior || 0);
+const otherInvestingPrior =
+  Number(effectiveStatementOverrides.cashOtherInvestingPrior || 0) +
+  Number(effectiveStatementOverrides.cashOtherInvesting2Prior || 0) +
+  Number(effectiveStatementOverrides.cashOtherInvesting3Prior || 0);
+
+if (otherInvestingRow) {
+  otherInvestingRow.current = Math.round(otherInvestingCurrent);
+  otherInvestingRow.prior = Math.round(otherInvestingPrior);
+}
+
+const netInvestingCurrent =
+  purchasePpeCurrent +
+  Number(disposalPpeRow?.current || 0) +
+  otherInvestingCurrent;
+
+const netInvestingPrior =
+  purchasePpePrior +
+  Number(disposalPpeRow?.prior || 0) +
+  otherInvestingPrior;
 
     if (netInvestingRow) {
       netInvestingRow.current = Math.round(netInvestingCurrent);
@@ -2685,11 +3129,9 @@ export default function AfsPrintStudioPage() {
       netMovementRow.prior = Math.round(netMovementPrior);
     }
 
-    const openingCurrent =
-  effectiveStatementOverrides.cashOpeningBalance !== null &&
-  effectiveStatementOverrides.cashOpeningBalance !== undefined
-    ? Number(effectiveStatementOverrides.cashOpeningBalance || 0)
-    : Number(baseStatementEngine.checks.cashClosingPriorFromSfp || 0);
+    const openingCurrent = Number(
+      baseStatementEngine.checks.cashClosingPriorFromSfp || 0,
+    );
     const openingPrior =
       effectiveStatementOverrides.cashPriorOpeningBalance !== null &&
       effectiveStatementOverrides.cashPriorOpeningBalance !== undefined
@@ -2988,13 +3430,36 @@ if (closingCashRow) {
       const directPaymentsPrior =
         generatedPrior - directReceiptsPrior;
 
-      /*
-        The signed AFS presents net finance costs as Interest paid.
-        Interest received is therefore not shown separately in the
-        direct-method cash flow.
-      */
-      const directInterestReceivedCurrent = 0;
-      const directInterestReceivedPrior = 0;
+      const noteInterestReceived = (
+        side: "current" | "prior",
+      ) =>
+        (baseStatementEngine.noteData.otherIncome || [])
+          .filter((line: any) =>
+            String(line?.label || "")
+              .toLowerCase()
+              .includes("interest"),
+          )
+          .reduce(
+            (sum: number, line: any) =>
+              sum + Math.abs(Number(line?.[side] || 0)),
+            0,
+          );
+
+      const directInterestReceivedCurrent =
+        effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
+        effectiveStatementOverrides.cashInterestReceivedCurrent !== undefined
+          ? Number(
+              effectiveStatementOverrides.cashInterestReceivedCurrent || 0,
+            )
+          : noteInterestReceived("current");
+
+      const directInterestReceivedPrior =
+        effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
+        effectiveStatementOverrides.cashInterestReceivedPrior !== undefined
+          ? Number(
+              effectiveStatementOverrides.cashInterestReceivedPrior || 0,
+            )
+          : noteInterestReceived("prior");
 
       const directFinanceCostsPaidCurrent =
         -Math.abs(
@@ -3021,16 +3486,18 @@ if (closingCashRow) {
         directReceiptsCurrent +
         directPaymentsCurrent +
         directOtherOperatingCurrent +
+        directInterestReceivedCurrent +
         directFinanceCostsPaidCurrent +
-        Number(effectiveStatementOverrides.cashTaxPaidCurrent || 0) +
+        taxPaidCurrent +
         otherOperatingCurrent;
 
       const directNetOperatingPrior =
         directReceiptsPrior +
         directPaymentsPrior +
         directOtherOperatingPrior +
+        directInterestReceivedPrior +
         directFinanceCostsPaidPrior +
-        Number(effectiveStatementOverrides.cashTaxPaidPrior || 0) +
+        taxPaidPrior +
         otherOperatingPrior;
 
       /*
@@ -3045,21 +3512,35 @@ if (closingCashRow) {
         every other operating cash-flow item cannot be omitted from the final
         movement calculation.
       */
-      const directNetMovementCurrent =
-        Math.round(directNetOperatingCurrent) +
-        Math.round(netInvestingCurrent) +
-        Math.round(Number(netFinancingRow?.current || 0));
+      const calculatedDirectNetMovementCurrent =
+  directNetOperatingCurrent +
+  Number(netInvestingRow?.current || 0) +
+  Number(netFinancingRow?.current || 0);
 
-      const directNetMovementPrior =
-        Math.round(directNetOperatingPrior) +
-        Math.round(netInvestingPrior) +
-        Math.round(Number(netFinancingRow?.prior || 0));
+const calculatedDirectNetMovementPrior =
+  directNetOperatingPrior +
+  Number(netInvestingRow?.prior || 0) +
+  Number(netFinancingRow?.prior || 0);
 
-      const directClosingCurrent =
-        openingCurrent + directNetMovementCurrent;
+const directRoundingCurrent =
+  Math.round(sfpClosingCurrent) -
+  Math.round(openingCurrent + calculatedDirectNetMovementCurrent);
 
-      const directClosingPrior =
-        openingPrior + directNetMovementPrior;
+const directRoundingPrior =
+  Math.round(sfpClosingPrior) -
+  Math.round(openingPrior + calculatedDirectNetMovementPrior);
+
+const directNetMovementCurrent =
+  calculatedDirectNetMovementCurrent + directRoundingCurrent;
+
+const directNetMovementPrior =
+  calculatedDirectNetMovementPrior + directRoundingPrior;
+
+const directClosingCurrent =
+  openingCurrent + directNetMovementCurrent;
+
+const directClosingPrior =
+  openingPrior + directNetMovementPrior;
 
       const directRows = rows.filter((row: any) => {
         const id = String(row?.id || "");
@@ -3101,6 +3582,32 @@ if (closingCashRow) {
           type: "line",
         },
       );
+
+      const directNetMovementIndex = directRows.findIndex((row: any) => {
+  const id = String(row?.id || "");
+  const label = String(row?.label || "").toLowerCase();
+
+  return (
+    id === "cfs-net-movement" ||
+    id === "cfs-cash-movement" ||
+    label.includes(
+      "net increase / (decrease) in cash and cash equivalents",
+    )
+  );
+});
+
+if (
+  directNetMovementIndex >= 0 &&
+  (directRoundingCurrent !== 0 || directRoundingPrior !== 0)
+) {
+  directRows.splice(directNetMovementIndex, 0, {
+    id: "cfs-direct-rounding-adjustment",
+    label: "Rounding adjustment",
+    current: Math.round(directRoundingCurrent),
+    prior: Math.round(directRoundingPrior),
+    type: "line",
+  });
+}
 
       const directInterestReceivedRow = directRows.find(
         (row: any) =>
@@ -3232,7 +3739,7 @@ if (closingCashRow) {
     };
   }, [
     baseStatementEngine,
-    structuredNotesState,
+    effectiveStructuredNotesState,
     effectiveStatementOverrides,
     trialBalanceHistory,
     historicalCashFlowData,
@@ -3243,13 +3750,175 @@ if (closingCashRow) {
     [statementEngine],
   );
 
-  const sfpRows = statementEngine.sfpRows;
-  const sociRows = statementEngine.sociRows;
-  const sceRows = statementEngine.sceRows;
-  const cashFlowRows = statementEngine.cashFlowRows;
+  const correctedEquityStatements = useMemo(() => {
+  const sfpRows = (statementEngine.sfpRows || []).map((row: any) => ({
+    ...row,
+  }));
+
+  const sceRows = (statementEngine.sceRows || []).map((row: any) => ({
+    ...row,
+  }));
+
+  const retainedIncomeRow = sfpRows.find((row: any) =>
+    String(row?.label || "")
+      .toLowerCase()
+      .includes("retained income"),
+  );
+
+  const totalEquityRow = sfpRows.find(
+    (row: any) =>
+      String(row?.label || "").trim().toLowerCase() === "total equity",
+  );
+
+  const totalEquityAndLiabilitiesRow = sfpRows.find(
+    (row: any) =>
+      String(row?.label || "").trim().toLowerCase() ===
+      "total equity and liabilities",
+  );
+
+  const currentProfitRow = sceRows.find(
+    (row: any) => String(row?.id || "") === "sce-current-profit",
+  );
+
+  const priorClosingRetainedRow = sceRows.find(
+    (row: any) =>
+      String(row?.id || "") === "sce-prior-closing-retained",
+  );
+
+  const currentOtherMovementRow = sceRows.find(
+    (row: any) =>
+      String(row?.id || "") === "sce-current-other-movement",
+  );
+
+  const currentClosingRetainedRow = sceRows.find(
+    (row: any) => String(row?.id || "") === "sce-retained-closing",
+  );
+
+  const mappedCurrentRetained = Number(
+    retainedIncomeRow?.current || 0,
+  );
+
+  const priorClosingRetained = Number(
+    priorClosingRetainedRow?.current ||
+      retainedIncomeRow?.prior ||
+      0,
+  );
+
+  const currentProfit = Number(currentProfitRow?.current || 0);
+
+  /*
+    The mapped retained-income account represents the accumulated
+    retained-income balance before the current-year profit is transferred.
+
+    Any movement between the prior closing retained income and the mapped
+    current retained-income account is therefore a genuine other movement,
+    such as a distribution or prior-period adjustment.
+  */
+  const currentOtherMovement =
+    mappedCurrentRetained - priorClosingRetained;
+
+  const correctedCurrentClosingRetained =
+    priorClosingRetained +
+    currentProfit +
+    currentOtherMovement;
+
+  const retainedIncomeAdjustment =
+    correctedCurrentClosingRetained - mappedCurrentRetained;
+
+  if (retainedIncomeRow) {
+    retainedIncomeRow.current = Math.round(
+      correctedCurrentClosingRetained,
+    );
+  }
+
+  if (totalEquityRow) {
+    totalEquityRow.current = Math.round(
+      Number(totalEquityRow.current || 0) +
+        retainedIncomeAdjustment,
+    );
+  }
+
+  if (totalEquityAndLiabilitiesRow) {
+    totalEquityAndLiabilitiesRow.current = Math.round(
+      Number(totalEquityAndLiabilitiesRow.current || 0) +
+        retainedIncomeAdjustment,
+    );
+  }
+
+  if (currentOtherMovementRow) {
+    currentOtherMovementRow.current = Math.round(
+      currentOtherMovement,
+    );
+  }
+
+  if (currentClosingRetainedRow) {
+    currentClosingRetainedRow.current = Math.round(
+      correctedCurrentClosingRetained,
+    );
+  }
+
+  return {
+    sfpRows,
+    sceRows,
+  };
+}, [statementEngine.sfpRows, statementEngine.sceRows]);
+
+const sfpRows = correctedEquityStatements.sfpRows;
+const sociRows = statementEngine.sociRows;
+const sceRows = correctedEquityStatements.sceRows;
+const cashFlowRows = statementEngine.cashFlowRows;
+
+  function consolidateDetailedIncomeRows(rows: AfsStatementRow[]) {
+    const result: AfsStatementRow[] = [];
+    const indexByKey = new Map<string, number>();
+
+    for (const row of rows || []) {
+      const item = row as any;
+      const type = String(item?.type || "").toLowerCase();
+      const label = String(item?.label || "").trim();
+      const normalisedLabel = label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+
+      const isDetail =
+        type !== "heading" &&
+        type !== "subtotal" &&
+        type !== "total" &&
+        type !== "grand-total";
+
+      const isGenericOtherExpense =
+        /^other expenses?(?:\s+\d+)?$/i.test(label);
+
+      if (!isDetail || !normalisedLabel || isGenericOtherExpense) {
+        result.push(row);
+        continue;
+      }
+
+      const existingIndex = indexByKey.get(normalisedLabel);
+
+      if (existingIndex === undefined) {
+        indexByKey.set(normalisedLabel, result.length);
+        result.push({ ...item });
+        continue;
+      }
+
+      const existing = result[existingIndex] as any;
+      existing.current =
+        Number(existing.current || 0) + Number(item.current || 0);
+      existing.prior =
+        Number(existing.prior || 0) + Number(item.prior || 0);
+    }
+
+    return result;
+  }
 
   const detailedIncomeRows = useMemo(() => {
-    const rows = cleanDetailedIncomeRowsForReport(statementEngine.detailedIncomeRows || []);
+    const rows = consolidateDetailedIncomeRows(
+      cleanDetailedIncomeRowsForReport(
+        statementEngine.detailedIncomeRows || [],
+      ),
+    );
 
     const profitBeforeTaxRow = (sociRows || []).find((row: any) =>
       String(row?.label || "").toLowerCase().includes("before taxation"),
@@ -3284,6 +3953,542 @@ if (closingCashRow) {
       ...rows.slice(insertAt),
     ];
   }, [statementEngine.detailedIncomeRows, sociRows]);
+
+
+  function isEditableDetailedIncomeOtherExpense(row: AfsStatementRow) {
+    const label = String((row as any)?.label || "").trim();
+
+    return /^other expenses?(?:\s+\d+)?$/i.test(label);
+  }
+
+  const detailedIncomeLabelOverrides = {
+    ...(
+      structuredNotesState?.detailedIncomeLabelOverrides &&
+      typeof structuredNotesState.detailedIncomeLabelOverrides === "object"
+        ? structuredNotesState.detailedIncomeLabelOverrides
+        : {}
+    ),
+    ...(
+      (statementOverrides as any)?.detailedIncomeLabelOverrides &&
+      typeof (statementOverrides as any).detailedIncomeLabelOverrides ===
+        "object"
+        ? (statementOverrides as any).detailedIncomeLabelOverrides
+        : {}
+    ),
+  };
+
+  useEffect(() => {
+    const sourceRows = alignDetailedIncomeRowsToSoci(
+      detailedIncomeRows,
+      sociRows,
+    );
+
+    const nextOverrides = {
+      ...detailedIncomeLabelOverrides,
+    };
+
+    let changed = false;
+
+    for (const row of sourceRows as any[]) {
+      if (!isEditableDetailedIncomeOtherExpense(row)) continue;
+
+      const rowId = String(row?.id || "");
+      const originalLabel = String(row?.label || "").trim();
+
+      const existingLabel = cleanString(
+        nextOverrides[rowId] ||
+          nextOverrides[originalLabel],
+      );
+
+      if (!existingLabel || existingLabel === originalLabel) continue;
+
+      for (const key of detailedIncomeLabelAliasKeys(
+        rowId,
+        originalLabel,
+      )) {
+        if (nextOverrides[key] !== existingLabel) {
+          nextOverrides[key] = existingLabel;
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      saveDetailedIncomeLabelOverrides(nextOverrides);
+    }
+  }, [
+    detailedIncomeRows,
+    sociRows,
+  ]);
+
+  const editableDetailedIncomeRows = useMemo(
+    () =>
+      alignDetailedIncomeRowsToSoci(
+        detailedIncomeRows,
+        sociRows,
+      ).map((row: any) => {
+        const savedLabel = cleanString(
+          detailedIncomeLabelOverrides[String(row?.id || "")],
+        );
+
+        return savedLabel
+          ? {
+              ...row,
+              label: savedLabel,
+            }
+          : row;
+      }),
+    [
+      detailedIncomeRows,
+      sociRows,
+      detailedIncomeLabelOverrides,
+    ],
+  );
+
+  const editableOtherExpenseRows = useMemo(
+    () =>
+      alignDetailedIncomeRowsToSoci(
+        detailedIncomeRows,
+        sociRows,
+      ).filter(isEditableDetailedIncomeOtherExpense),
+    [detailedIncomeRows, sociRows],
+  );
+
+  function detailedIncomeLabelAliasKeys(
+    rowId: string,
+    originalLabel: string,
+  ) {
+    const keys = new Set<string>();
+    const cleanRowId = String(rowId || "").trim();
+    const cleanOriginalLabel = String(originalLabel || "").trim();
+
+    if (cleanRowId) keys.add(cleanRowId);
+    if (cleanOriginalLabel) keys.add(cleanOriginalLabel);
+
+    const numberMatch = cleanOriginalLabel.match(
+      /other\s*expenses?\s*(\d+)/i,
+    );
+
+    if (numberMatch?.[1]) {
+      const number = numberMatch[1];
+      keys.add(`Other Expenses ${number}`);
+      keys.add(`otherExpenses${number}`);
+      keys.add(`other_expenses_${number}`);
+      keys.add(`other-expenses-${number}`);
+    }
+
+    return Array.from(keys);
+  }
+
+  function saveDetailedIncomeLabelOverrides(
+    nextOverrides: Record<string, string>,
+  ) {
+    const nextStructuredNotesState = {
+      ...structuredNotesState,
+      detailedIncomeLabelOverrides: nextOverrides,
+    };
+
+    const nextStatementOverrides = {
+      ...(statementOverrides as any),
+      detailedIncomeLabelOverrides: nextOverrides,
+    } as AfsStatementOverrides;
+
+    setStructuredNotesState(nextStructuredNotesState);
+    setStatementOverrides(nextStatementOverrides);
+
+    try {
+      window.localStorage.setItem(
+        `practicepilot-afs-structured-notes:${engagementId}`,
+        JSON.stringify(nextStructuredNotesState),
+      );
+
+      window.localStorage.setItem(
+        `practicepilot-afs-print-studio:${engagementId}:statement-overrides`,
+        JSON.stringify(nextStatementOverrides),
+      );
+    } catch {
+      // Supabase remains the source of truth.
+    }
+
+    savePrintStudioSettingsToSupabase({
+      structuredNotesState: nextStructuredNotesState,
+      statementOverrides: nextStatementOverrides,
+    });
+  }
+
+  function updateDetailedIncomeLabel(
+    rowId: string,
+    originalLabel: string,
+    value: string,
+  ) {
+    const nextOverrides = {
+      ...detailedIncomeLabelOverrides,
+    };
+
+    for (const key of detailedIncomeLabelAliasKeys(
+      rowId,
+      originalLabel,
+    )) {
+      nextOverrides[key] = value;
+    }
+
+    saveDetailedIncomeLabelOverrides(nextOverrides);
+  }
+
+  function resetDetailedIncomeLabel(
+    rowId: string,
+    originalLabel: string,
+  ) {
+    const nextOverrides = {
+      ...detailedIncomeLabelOverrides,
+    };
+
+    for (const key of detailedIncomeLabelAliasKeys(
+      rowId,
+      originalLabel,
+    )) {
+      delete nextOverrides[key];
+    }
+
+    setDetailedIncomeInlineDrafts((current) => {
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+
+    saveDetailedIncomeLabelOverrides(nextOverrides);
+  }
+
+  function normaliseDetailedIncomeMatchValue(value: unknown) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ");
+  }
+
+  function mappedAccountsForDetailedIncomeRow(row: any) {
+    const originalLabel = String(row?.label || "").trim();
+    const originalNormalised = normaliseDetailedIncomeMatchValue(originalLabel);
+    const rowIdNormalised = normaliseDetailedIncomeMatchValue(row?.id);
+
+    return trialBalanceLines
+      .filter((line) => {
+        const candidates = [
+          line.mapping_label,
+          line.mapping_category,
+          line.mapping_code,
+          line.mapping_leaf_id,
+          line.lead_schedule_key,
+        ].map(normaliseDetailedIncomeMatchValue);
+
+        return candidates.some(
+          (candidate) =>
+            candidate &&
+            (candidate === originalNormalised ||
+              candidate === rowIdNormalised),
+        );
+      })
+      .map((line) => ({
+        code: String(line.account_code || "").trim(),
+        name: String(line.account_name || "").trim(),
+      }))
+      .filter((line) => line.code || line.name);
+  }
+
+  function formatDetailedIncomeAmount(value: unknown) {
+    const amount = Math.round(Number(value || 0));
+
+    if (!amount) return "–";
+
+    const absolute = Math.abs(amount).toLocaleString("en-GB");
+
+    return amount < 0 ? `(${absolute})` : absolute;
+  }
+
+  function renderEditableDetailedIncomeStatement() {
+    const sourceRows = alignDetailedIncomeRowsToSoci(
+      detailedIncomeRows,
+      sociRows,
+    );
+
+    const hiddenSectionLabels = new Set([
+      "revenue",
+      "cost of sales",
+      "operating expenses",
+      "taxation",
+    ]);
+
+    return (
+      <section style={{ fontSize: 10, lineHeight: 1.25, color: "#111827" }}>
+        <h1 style={pageHeadingStyle()}>Detailed Income Statement</h1>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: hideComparatives
+              ? "minmax(0, 1fr) 90px"
+              : "minmax(0, 1fr) 90px 90px",
+            columnGap: 12,
+            borderBottom: "1px solid #111827",
+            paddingBottom: 5,
+            marginBottom: 4,
+            fontSize: 9,
+          }}
+        >
+          <div>Figures in Rand</div>
+          <div style={{ textAlign: "right" }}>{currentHeading}</div>
+          {!hideComparatives ? (
+            <div style={{ textAlign: "right" }}>{priorHeading}</div>
+          ) : null}
+        </div>
+
+        <div style={{ display: "grid", gap: 1 }}>
+          {sourceRows.map((row: any) => {
+            const rowId = String(row?.id || "");
+            const originalLabel = String(row?.label || "").trim();
+            const normalisedLabel = originalLabel.toLowerCase();
+            const editable = isEditableDetailedIncomeOtherExpense(row);
+            const savedLabel = cleanString(
+              detailedIncomeLabelOverrides[rowId],
+            );
+            const draftValue =
+              detailedIncomeInlineDrafts[rowId] !== undefined
+                ? detailedIncomeInlineDrafts[rowId]
+                : savedLabel || originalLabel;
+            const mappedAccounts = editable
+              ? mappedAccountsForDetailedIncomeRow(row)
+              : [];
+            const displayLabel = savedLabel || originalLabel;
+            const type = String(row?.type || "").toLowerCase();
+            const isHeading = type === "heading";
+            const isSubtotal =
+              type === "subtotal" ||
+              type === "total" ||
+              type === "grand-total";
+            const hideHeading =
+              isHeading && hiddenSectionLabels.has(normalisedLabel);
+
+            if (hideHeading) return null;
+
+            const editing =
+              !isPdfExportMode &&
+              editable &&
+              detailedIncomeEditingRowId === rowId;
+
+            return (
+              <div
+                key={rowId || `${originalLabel}-${row?.current}-${row?.prior}`}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: hideComparatives
+                    ? "minmax(0, 1fr) 90px"
+                    : "minmax(0, 1fr) 90px 90px",
+                  columnGap: 12,
+                  alignItems: "start",
+                  padding: isHeading ? "5px 0 2px" : "2px 0",
+                  fontWeight: isHeading || isSubtotal ? 800 : 400,
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  {editing ? (
+                    <div style={{ display: "grid", gap: 3 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          type="text"
+                          value={draftValue}
+                          onChange={(event) =>
+                            setDetailedIncomeInlineDrafts((current) => ({
+                              ...current,
+                              [rowId]: event.target.value,
+                            }))
+                          }
+                          onBlur={() => {
+                            const nextValue = cleanString(
+                              detailedIncomeInlineDrafts[rowId] ??
+                                savedLabel ??
+                                originalLabel,
+                            );
+
+                            if (
+                              nextValue &&
+                              nextValue !== originalLabel
+                            ) {
+                              updateDetailedIncomeLabel(rowId, originalLabel, nextValue);
+                            } else if (!nextValue) {
+                              resetDetailedIncomeLabel(rowId, originalLabel);
+                            }
+
+                            setDetailedIncomeEditingRowId(null);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.currentTarget.blur();
+                            }
+
+                            if (event.key === "Escape") {
+                              setDetailedIncomeInlineDrafts((current) => ({
+                                ...current,
+                                [rowId]: savedLabel || originalLabel,
+                              }));
+                              setDetailedIncomeEditingRowId(null);
+                            }
+                          }}
+                          style={{
+                            width: "100%",
+                            maxWidth: 300,
+                            border: "1px solid #64748b",
+                            borderRadius: 2,
+                            outline: "none",
+                            background: "#ffffff",
+                            padding: "3px 5px",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: "#111827",
+                          }}
+                        />
+
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() =>
+                            setDetailedIncomeEditingRowId(null)
+                          }
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            color: "#475569",
+                            padding: 0,
+                            fontSize: 9,
+                            fontWeight: 800,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "baseline",
+                          gap: 6,
+                        }}
+                      >
+                        <span>{displayLabel}</span>
+
+                        {!isPdfExportMode && editable ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDetailedIncomeInlineDrafts((current) => ({
+                                ...current,
+                                [rowId]: savedLabel || originalLabel,
+                              }));
+                              setDetailedIncomeEditingRowId(rowId);
+                            }}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              padding: 0,
+                              color: "#2563eb",
+                              fontSize: 8,
+                              fontWeight: 800,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Edit
+                          </button>
+                        ) : null}
+
+                        {!isPdfExportMode && editable && savedLabel ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              resetDetailedIncomeLabel(rowId, originalLabel)
+                            }
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              padding: 0,
+                              color: "#64748b",
+                              fontSize: 8,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Reset
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {!isPdfExportMode &&
+                      editable &&
+                      mappedAccounts.length > 0 ? (
+                        <div
+                          style={{
+                            marginTop: 1,
+                            fontSize: 8,
+                            lineHeight: 1.2,
+                            color: "#64748b",
+                          }}
+                        >
+                          {mappedAccounts
+                            .map((account) =>
+                              [account.code, account.name]
+                                .filter(Boolean)
+                                .join(" · "),
+                            )
+                            .join(" | ")}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    textAlign: "right",
+                    whiteSpace: "nowrap",
+                    borderTop: isSubtotal
+                      ? "1px solid #6b7280"
+                      : "none",
+                    paddingTop: isSubtotal ? 2 : 0,
+                  }}
+                >
+                  {formatDetailedIncomeAmount(row?.current)}
+                </div>
+
+                {!hideComparatives ? (
+                  <div
+                    style={{
+                      textAlign: "right",
+                      whiteSpace: "nowrap",
+                      borderTop: isSubtotal
+                        ? "1px solid #6b7280"
+                        : "none",
+                      paddingTop: isSubtotal ? 2 : 0,
+                    }}
+                  >
+                    {formatDetailedIncomeAmount(row?.prior)}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
 
   const noteData = statementEngine.noteData;
 
@@ -3556,19 +4761,40 @@ if (closingCashRow) {
   }
 
   function renderSceCustomTable() {
-        const openingShare = sceValue("sce-share-opening");
+     const openingShare = sceValue("sce-share-opening");
 const openingRetained = sceValue("sce-retained-opening");
 const priorProfit = sceValue("sce-prior-profit");
+const priorOther = sceValue("sce-prior-other-movement");
 const priorClosingRetained = sceValue("sce-prior-closing-retained");
-const currentProfit = sceValue("sce-current-profit");
+
+const engineCurrentProfit = sceValue("sce-current-profit");
+const engineCurrentOther = sceValue("sce-current-other-movement");
+
 const currentClosingRetained = sceValue("sce-retained-closing");
 const closingShare = sceValue("sce-share-closing");
 
-const priorOther =
-  priorClosingRetained - openingRetained - priorProfit;
+const roundingTolerance = Math.max(
+  0,
+  Math.round(Number(statementOverrides.roundingTolerance ?? 5)),
+);
+
+const currentRetainedDifference =
+  currentClosingRetained -
+  priorClosingRetained -
+  engineCurrentProfit;
+
+const absorbCurrentDifference =
+  Math.abs(currentRetainedDifference) <= roundingTolerance
+    ? currentRetainedDifference
+    : 0;
+
+const currentProfit =
+  engineCurrentProfit + absorbCurrentDifference;
 
 const currentOther =
-  currentClosingRetained - priorClosingRetained - currentProfit;
+  absorbCurrentDifference !== 0
+    ? 0
+    : engineCurrentOther;
 
     const priorShareMovement = 0;
     const priorClosingShare = openingShare + priorShareMovement;
@@ -3900,6 +5126,16 @@ const currentOther =
             onResetAll={resetAllAccountingPolicySections}
           />
         ),
+      };
+    }
+
+    if (activeSectionId === "detailed-income") {
+      return {
+        title: "Detailed Income Statement",
+        description:
+          "Edit the generic Other Expenses descriptions directly in the statement. The mapped accounts are shown beneath each editable line.",
+        emptyMessage: "No separate settings are required.",
+        options: [],
       };
     }
 
@@ -4375,7 +5611,7 @@ return Math.max(
                   defaultNoteTexts={defaultNoteTexts}
                   disclosureTokens={disclosureTokens}
                   hideComparatives={hideComparatives}
-                  structuredNotesState={structuredNotesState}
+                  structuredNotesState={effectiveStructuredNotesState}
                   onStructuredNotesStateChange={() => undefined}
                   forceReviewMode={true}
                   sectionKeys={[key]}
@@ -4404,15 +5640,29 @@ return Math.max(
             <div id="print-cover-page">
               <AfsA4Page>
                 <section
-                  style={{
-                    minHeight: "245mm",
-                    display: "grid",
-                    alignContent: "center",
-                    justifyItems: "center",
-                    textAlign: "center",
-                    color: "#111827",
-                  }}
-                >
+  style={{
+    minHeight: "245mm",
+    display: "grid",
+    alignContent: "center",
+    justifyItems: "center",
+    textAlign: "center",
+    color: "#111827",
+  }}
+>
+  {reportOptions.showCoverLogo && clientLogoUrl ? (
+    <img
+      src={clientLogoUrl}
+      alt={`${clientName} logo`}
+      style={{
+        display: "block",
+        maxWidth: 240,
+        maxHeight: 90,
+        objectFit: "contain",
+        marginBottom: 24,
+      }}
+    />
+  ) : null}
+
                   <h1
                     style={{
                       fontSize: 22,
@@ -4427,6 +5677,22 @@ return Math.max(
                   >
                     {clientName}
                   </h1>
+{tradingName &&
+tradingName.toLowerCase() !== clientName.toLowerCase() ? (
+  <div
+    style={{
+  marginTop: 8,
+  marginBottom: 22,
+  fontSize: 12,
+  fontWeight: 400,
+  color: "#4b5563",
+  letterSpacing: "0.2px",
+}}
+  >
+    Trading as {tradingName}
+  </div>
+) : null}
+
 
                   <div
                     style={{
@@ -4928,7 +6194,7 @@ item.groupLabel.trim().toLowerCase() ? (
                     defaultNoteTexts={defaultNoteTexts}
                     disclosureTokens={disclosureTokens}
                     hideComparatives={hideComparatives}
-                    structuredNotesState={structuredNotesState}
+                    structuredNotesState={effectiveStructuredNotesState}
                     onStructuredNotesStateChange={
                       saveStructuredNotesStateEverywhere
                     }
@@ -4945,14 +6211,7 @@ item.groupLabel.trim().toLowerCase() ? (
           {reportOptions.detailedIncomeStatement ? (
             <div id="print-detailed-income">
               <AfsA4Page {...reportHeaderProps}>
-                <AfsStatementTable
-                  title="Detailed Income Statement"
-                  currencyLabel="Figures in Rand"
-                  currentHeading={currentHeading}
-                  priorHeading={priorHeading}
-                  rows={alignDetailedIncomeRowsToSoci(detailedIncomeRows, sociRows)}
-                hidePriorYear={hideComparatives}
-                />
+                {renderEditableDetailedIncomeStatement()}
               </AfsA4Page>
             </div>
           ) : null}

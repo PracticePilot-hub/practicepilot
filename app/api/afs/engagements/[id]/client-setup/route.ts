@@ -84,6 +84,7 @@ export async function PATCH(req: NextRequest, context: any) {
         clean(body.legal_framework) || "Companies Act of South Africa",
       nature_of_business: clean(body.nature_of_business),
       trading_name: clean(body.trading_name),
+      logo_url: clean(body.logo_url),
 
       basis_of_preparation: clean(body.basis_of_preparation) || "IFRS for SMEs",
       type_of_engagement: clean(body.type_of_engagement) || "Compilation",
