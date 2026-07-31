@@ -2747,33 +2747,15 @@ const effectiveStructuredNotesState = useMemo(() => {
       "financeCosts",
     ];
 
-    const deferredTaxAdjustmentCurrent = (
-  baseStatementEngine.noteData.taxation || []
-).reduce(
-  (sum: number, line: any) =>
-    sum + Number(line?.current || 0),
-  0,
-);
+    const adjustmentsCurrent = adjustmentKeys.reduce(
+      (sum, key) => sum + storedAmount(key, "current", 0),
+      0,
+    );
 
-const deferredTaxAdjustmentPrior = (
-  baseStatementEngine.noteData.taxation || []
-).reduce(
-  (sum: number, line: any) =>
-    sum + Number(line?.prior || 0),
-  0,
-);
-
-const adjustmentsCurrent =
-  adjustmentKeys.reduce(
-    (sum, key) => sum + storedAmount(key, "current", 0),
-    0,
-  ) + deferredTaxAdjustmentCurrent;
-
-const adjustmentsPrior =
-  adjustmentKeys.reduce(
-    (sum, key) => sum + storedAmount(key, "prior", 0),
-    0,
-  ) + deferredTaxAdjustmentPrior;
+    const adjustmentsPrior = adjustmentKeys.reduce(
+      (sum, key) => sum + storedAmount(key, "prior", 0),
+      0,
+    );
 
     const profitRow = findById("cfs-profit-before-tax") || findByLabel(["profit", "before taxation"]);
     const adjustmentsRow = findById("cfs-adjustments") || findByLabel(["adjustments", "non-cash"]);
