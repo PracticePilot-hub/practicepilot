@@ -2929,8 +2929,42 @@ const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
       ) +
       storedAmount("deferredIncome", "prior", 0);
 
-    const generatedCurrent = Number(profitRow?.current || 0) + adjustmentsCurrent + inventoryCurrent + receivablesCurrent + payablesCurrent;
-    const generatedPrior = Number(profitRow?.prior || 0) + adjustmentsPrior + inventoryPrior + receivablesPrior + payablesPrior;
+    const sociProfitBeforeTaxRow = (baseStatementEngine.sociRows || []).find(
+      (row: any) =>
+        String(row?.label || "").trim().toLowerCase() ===
+        "profit / (loss) before taxation",
+    );
+
+    /*
+      The cash-flow statement starts from profit before taxation. Do not trust
+      a legacy cash-flow row here because it may contain profit after tax when
+      deferred tax is present. The SOCI subtotal is the source of truth.
+    */
+    const cashFlowProfitBeforeTaxCurrent = Number(
+      sociProfitBeforeTaxRow?.current || 0,
+    );
+    const cashFlowProfitBeforeTaxPrior = Number(
+      sociProfitBeforeTaxRow?.prior || 0,
+    );
+
+    if (profitRow) {
+      profitRow.current = Math.round(cashFlowProfitBeforeTaxCurrent);
+      profitRow.prior = Math.round(cashFlowProfitBeforeTaxPrior);
+    }
+
+    const generatedCurrent =
+      cashFlowProfitBeforeTaxCurrent +
+      adjustmentsCurrent +
+      inventoryCurrent +
+      receivablesCurrent +
+      payablesCurrent;
+
+    const generatedPrior =
+      cashFlowProfitBeforeTaxPrior +
+      adjustmentsPrior +
+      inventoryPrior +
+      receivablesPrior +
+      payablesPrior;
 
     if (adjustmentsRow) {
       adjustmentsRow.current = Math.round(adjustmentsCurrent);
