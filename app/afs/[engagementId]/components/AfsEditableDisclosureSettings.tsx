@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   EditableDisclosureSection,
   EditableDisclosureTextMap,
@@ -19,6 +19,9 @@ type Props = {
   onReset: (key: string) => void;
   onResetAll: () => void;
   tokenHelp?: string;
+  groupExtras?: Record<string, ReactNode>;
+  notesMode?: "review" | "edit";
+  onNotesModeChange?: (mode: "review" | "edit") => void;
 };
 
 type GroupedSections = {
@@ -91,6 +94,9 @@ export default function AfsEditableDisclosureSettings({
   onReset,
   onResetAll,
   tokenHelp,
+  groupExtras = {},
+  notesMode: controlledNotesMode,
+  onNotesModeChange,
 }: Props) {
   const groupedSections = useMemo<GroupedSections[]>(() => {
     const map = new Map<string, GroupedSections>();
@@ -114,7 +120,16 @@ export default function AfsEditableDisclosureSettings({
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState<Record<string, boolean>>({});
-  const [notesMode, setNotesMode] = useState<"review" | "edit">("review");
+  const [internalNotesMode, setInternalNotesMode] = useState<"review" | "edit">(() => {
+    if (typeof window === "undefined") return "review";
+
+    try {
+      const savedMode = window.localStorage.getItem("afs-notes-mode-global");
+      return savedMode === "edit" ? "edit" : "review";
+    } catch {
+      return "review";
+    }
+  });
   const isNotesMode = sections.some((section) => String(section.key || "").startsWith("notes"));
 
   useEffect(() => {
@@ -125,22 +140,28 @@ export default function AfsEditableDisclosureSettings({
     try {
       const savedMode = window.localStorage.getItem("afs-notes-mode-global");
       if (savedMode === "review" || savedMode === "edit") {
-        setNotesMode(savedMode);
+        setInternalNotesMode(savedMode);
       }
     } catch {
       // ignore localStorage failures
     }
   }, [isNotesMode]);
 
-  function changeNotesMode(nextMode: "review" | "edit") {
-    setNotesMode(nextMode);
+  const notesMode = controlledNotesMode ?? internalNotesMode;
 
-    try {
-      window.localStorage.setItem("afs-notes-mode-global", nextMode);
-      window.dispatchEvent(new CustomEvent("afs-notes-mode-change", { detail: nextMode }));
-    } catch {
-      window.dispatchEvent(new CustomEvent("afs-notes-mode-change", { detail: nextMode }));
+  function changeNotesMode(nextMode: "review" | "edit") {
+    if (controlledNotesMode === undefined) {
+      setInternalNotesMode(nextMode);
     }
+
+    if (onNotesModeChange) {
+      onNotesModeChange(nextMode);
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("afs-notes-mode-change", { detail: nextMode }),
+    );
   }
 
   return (
@@ -354,6 +375,18 @@ export default function AfsEditableDisclosureSettings({
                     </div>
                   );
                 })}
+
+                {groupExtras[group.groupKey] ? (
+                  <div
+                    style={{
+                      borderTop: "1px solid #dbe3ef",
+                      paddingTop: 8,
+                      marginTop: 2,
+                    }}
+                  >
+                    {groupExtras[group.groupKey]}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

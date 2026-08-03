@@ -115,6 +115,8 @@ const NOTE_KEY_MAP: Record<string, string> = {
   notesFinanceCosts: "financeCosts",
   notesTaxation: "taxation",
   notesCashUsedInOperations: "cashUsedInOperations",
+  notesGoingConcern: "goingConcern",
+  notesRelatedParties: "relatedParties",
 };
 
 const DEFAULT_PPE_ROWS: PpeRow[] = [
@@ -577,8 +579,10 @@ function numberInputStyle() {
   return {
     width: "58px",
     minWidth: "58px",
-    border: "1px solid #d1d5db",
-    background: "#fff7bf",
+    border: "1px solid #7A9FC8",
+    background: "#EAF3FF",
+    color: "#111827",
+    outlineColor: "#2563EB",
     padding: "3px 4px",
     fontSize: 10.8,
     textAlign: "right" as const,
@@ -590,23 +594,25 @@ function textAreaStyle() {
   return {
     width: "100%",
     minHeight: 46,
-    border: "1px solid #d1d5db",
+    border: "1px solid #7A9FC8",
     padding: 6,
     fontSize: 10.8,
     fontFamily: "inherit",
     resize: "vertical" as const,
-    background: "#ffffff",
+    background: "#EAF3FF",
+    outlineColor: "#2563EB",
   };
 }
 
 function inputStyle() {
   return {
     width: "100%",
-    border: "1px solid #d1d5db",
+    border: "1px solid #7A9FC8",
     padding: "4px 5px",
     fontSize: 10.8,
     fontFamily: "inherit",
-    background: "#ffffff",
+    background: "#EAF3FF",
+    outlineColor: "#2563EB",
   };
 }
 
@@ -678,6 +684,27 @@ function getSetupNumber(clientSetup: Record<string, any> | null, keys: string[],
     if (value !== null && value !== undefined && value !== "") {
       const parsed = toNumber(value);
       if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return fallback;
+}
+
+
+function getSetupText(
+  clientSetup: Record<string, any> | null,
+  keys: string[],
+  fallback = "",
+) {
+  for (const key of keys) {
+    const value = clientSetup?.[key];
+
+    if (
+      value !== null &&
+      value !== undefined &&
+      String(value).trim() !== ""
+    ) {
+      return String(value).trim();
     }
   }
 
@@ -1019,7 +1046,9 @@ function PpeInput({
         }}
         style={{
           ...numberInputStyle(),
-          background: isMappedOpening ? "#f1f5f9" : "#fff7bf",
+          background: isMappedOpening ? "#F1F5F9" : "#EAF3FF",
+          border: isMappedOpening ? "1px solid #CBD5E1" : "1px solid #7A9FC8",
+          outlineColor: isMappedOpening ? "#CBD5E1" : "#2563EB",
           color: isMappedOpening ? "#334155" : "#111827",
         }}
       />
@@ -1043,6 +1072,417 @@ function resolvedPpeRows(rows: PpeRow[], state: StructuredState) {
 
     return { ...row, current, prior };
   });
+}
+
+
+function GoingConcernNote({
+  edit,
+  state,
+  update,
+}: {
+  edit: boolean;
+  state: StructuredState;
+  update: (path: string[], value: any) => void;
+}) {
+  const values = state.goingConcernAssessment || {};
+  const fields = [
+    ["conditions", "Conditions or events requiring consideration"],
+    ["support", "Shareholder, lender or group support"],
+    ["repayment", "Repayment demands, moratoriums or subordinations"],
+    ["forecast", "Forecast period and expected operating performance"],
+    ["funding", "Expected funding requirements and available facilities"],
+    ["conclusion", "Directors’ conclusion"],
+  ];
+
+  if (edit) {
+    return (
+      <div style={styles.editGridSingle}>
+        <p style={styles.paragraph}>
+          Complete this assessment only when company-specific going-concern disclosure is required. Blank fields do not print.
+        </p>
+        {fields.map(([key, label]) => (
+          <EditableTextBlock
+            key={key}
+            label={label}
+            value={values[key] || ""}
+            edit
+            onChange={(value) => update(["goingConcernAssessment", key], value)}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  const completed = fields.filter(([key]) => String(values[key] || "").trim());
+  if (!completed.length) return null;
+
+  return (
+    <div>
+      {completed.map(([key, label]) => (
+        <div key={key} style={{ marginBottom: 7 }}>
+          <div style={{ fontWeight: 700, fontSize: 10.5 }}>{label}</div>
+          <p style={styles.paragraph}>{values[key]}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RelatedPartiesNote({
+  edit,
+  state,
+  update,
+}: {
+  edit: boolean;
+  state: StructuredState;
+  update: (path: string[], value: any) => void;
+}) {
+  const rows = Array.isArray(state.relatedPartyRows)
+    ? state.relatedPartyRows
+    : [];
+
+  const rowHasContent = (row: any) =>
+    [
+      row?.name,
+      row?.relationship,
+      row?.transaction,
+      row?.current,
+      row?.prior,
+      row?.terms,
+      row?.interest,
+      row?.security,
+      row?.commitments,
+    ].some((value) => String(value ?? "").trim());
+
+  const displayRows = edit
+    ? rows.length
+      ? rows
+      : [{}]
+    : rows.filter(rowHasContent);
+
+  const setRows = (next: any[]) => update(["relatedPartyRows"], next);
+
+  const change = (index: number, field: string, value: string) => {
+    const next = [...displayRows];
+    next[index] = {
+      ...(next[index] || {}),
+      [field]: value,
+    };
+    setRows(next);
+  };
+
+  if (!edit && displayRows.length === 0) return null;
+
+  if (edit) {
+    return (
+      <div style={{ display: "grid", gap: 10 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <p style={{ ...styles.paragraph, margin: 0 }}>
+            Capture each related party separately. Blank fields do not print.
+          </p>
+
+          <button
+            type="button"
+            style={styles.button}
+            onClick={() => setRows([...displayRows, {}])}
+          >
+            Add related party
+          </button>
+        </div>
+
+        {displayRows.map((row: any, index: number) => (
+          <section
+            key={`related-party-editor-${index}`}
+            style={{
+              border: "1px solid #cbd5e1",
+              background: "#ffffff",
+              padding: 9,
+              display: "grid",
+              gap: 8,
+              breakInside: "avoid",
+              pageBreakInside: "avoid",
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1.15fr 1fr",
+                gap: 8,
+              }}
+            >
+              <label style={relatedPartyLabelStyle()}>
+                Name
+                <input
+                  value={row.name || ""}
+                  placeholder="Related party name"
+                  onChange={(event) =>
+                    change(index, "name", event.target.value)
+                  }
+                  style={relatedPartyInputStyle()}
+                />
+              </label>
+
+              <label style={relatedPartyLabelStyle()}>
+                Relationship
+                <input
+                  value={row.relationship || ""}
+                  placeholder="Director, shareholder, group company..."
+                  onChange={(event) =>
+                    change(index, "relationship", event.target.value)
+                  }
+                  style={relatedPartyInputStyle()}
+                />
+              </label>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 105px 105px",
+                gap: 8,
+              }}
+            >
+              <label style={relatedPartyLabelStyle()}>
+                Transaction type
+                <input
+                  value={row.transaction || ""}
+                  placeholder="Loan, management fees, purchases..."
+                  onChange={(event) =>
+                    change(index, "transaction", event.target.value)
+                  }
+                  style={relatedPartyInputStyle()}
+                />
+              </label>
+
+              <label style={relatedPartyLabelStyle()}>
+                Current
+                <input
+                  inputMode="decimal"
+                  value={row.current || ""}
+                  onChange={(event) =>
+                    change(index, "current", event.target.value)
+                  }
+                  style={relatedPartyInputStyle(true)}
+                />
+              </label>
+
+              <label style={relatedPartyLabelStyle()}>
+                Prior
+                <input
+                  inputMode="decimal"
+                  value={row.prior || ""}
+                  onChange={(event) =>
+                    change(index, "prior", event.target.value)
+                  }
+                  style={relatedPartyInputStyle(true)}
+                />
+              </label>
+            </div>
+
+            <label style={relatedPartyLabelStyle()}>
+              Terms and repayment
+              <textarea
+                value={row.terms || ""}
+                placeholder="Repayment terms, maturity and other material conditions"
+                onChange={(event) =>
+                  change(index, "terms", event.target.value)
+                }
+                style={{ ...textAreaStyle(), minHeight: 42 }}
+              />
+            </label>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 8,
+              }}
+            >
+              <label style={relatedPartyLabelStyle()}>
+                Interest
+                <input
+                  value={row.interest || ""}
+                  placeholder="Interest rate or interest-free"
+                  onChange={(event) =>
+                    change(index, "interest", event.target.value)
+                  }
+                  style={relatedPartyInputStyle()}
+                />
+              </label>
+
+              <label style={relatedPartyLabelStyle()}>
+                Security
+                <input
+                  value={row.security || ""}
+                  placeholder="Security or unsecured"
+                  onChange={(event) =>
+                    change(index, "security", event.target.value)
+                  }
+                  style={relatedPartyInputStyle()}
+                />
+              </label>
+            </div>
+
+            <label style={relatedPartyLabelStyle()}>
+              Guarantees, commitments or support
+              <textarea
+                value={row.commitments || ""}
+                placeholder="Guarantees, commitments, subordination or financial support"
+                onChange={(event) =>
+                  change(index, "commitments", event.target.value)
+                }
+                style={{ ...textAreaStyle(), minHeight: 38 }}
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={() =>
+                setRows(
+                  displayRows.filter(
+                    (_: any, rowIndex: number) => rowIndex !== index,
+                  ),
+                )
+              }
+              style={{
+                ...styles.button,
+                justifySelf: "start",
+              }}
+            >
+              Remove
+            </button>
+          </section>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 11 }}>
+      {displayRows.map((row: any, index: number) => {
+        const detailRows = [
+          ["Terms and repayment", row.terms],
+          ["Interest", row.interest],
+          ["Security", row.security],
+          ["Guarantees, commitments or support", row.commitments],
+        ].filter(([, value]) => String(value ?? "").trim());
+
+        return (
+          <section
+            key={`related-party-review-${index}`}
+            style={{
+              breakInside: "avoid",
+              pageBreakInside: "avoid",
+            }}
+          >
+            <table
+              style={{
+                ...styles.table,
+                width: "100%",
+                tableLayout: "fixed",
+                margin: 0,
+              }}
+            >
+              <thead>
+                <tr>
+                  <th style={{ ...styles.thLeft, width: "25%" }}>Name</th>
+                  <th style={{ ...styles.thLeft, width: "20%" }}>
+                    Relationship
+                  </th>
+                  <th style={{ ...styles.thLeft, width: "29%" }}>
+                    Transaction
+                  </th>
+                  <th style={{ ...styles.thRight, width: "13%" }}>
+                    Current
+                  </th>
+                  <th style={{ ...styles.thRight, width: "13%" }}>Prior</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                <tr>
+                  <td style={{ ...styles.tdLeft, fontWeight: 700 }}>
+                    {row.name || "–"}
+                  </td>
+                  <td style={styles.tdLeft}>{row.relationship || "–"}</td>
+                  <td style={styles.tdLeft}>{row.transaction || "–"}</td>
+                  <td style={styles.tdRight}>
+                    {String(row.current ?? "").trim()
+                      ? amount(toNumber(row.current))
+                      : "–"}
+                  </td>
+                  <td style={styles.tdRight}>
+                    {String(row.prior ?? "").trim()
+                      ? amount(toNumber(row.prior))
+                      : "–"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            {detailRows.length > 0 ? (
+              <div
+                style={{
+                  borderBottom: "1px solid #cbd5e1",
+                  padding: "5px 0 7px",
+                  display: "grid",
+                  gap: 3,
+                }}
+              >
+                {detailRows.map(([label, value]) => (
+                  <div
+                    key={`${index}-${label}`}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "145px minmax(0, 1fr)",
+                      gap: 8,
+                      fontSize: 10.2,
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    <strong>{label}</strong>
+                    <span>{String(value)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function relatedPartyLabelStyle() {
+  return {
+    display: "grid",
+    gap: 4,
+    fontSize: 9.5,
+    lineHeight: 1.2,
+    fontWeight: 800,
+    color: "#334155",
+  };
+}
+
+function relatedPartyInputStyle(amountField = false) {
+  return {
+    width: "100%",
+    boxSizing: "border-box" as const,
+    padding: "4px 5px",
+    fontSize: 10,
+    textAlign: amountField ? ("right" as const) : ("left" as const),
+    background: "#EAF3FF",
+    border: "1px solid #7A9FC8",
+    outlineColor: "#2563EB",
+    color: "#111827",
+  };
 }
 
 function PpeStructuredNote({
@@ -2524,6 +2964,8 @@ function ShareholderLoansNote({
           const interest = state.shareholderLoans?.[key]?.interest || "";
           const repayment = state.shareholderLoans?.[key]?.repayment || "";
           const security = state.shareholderLoans?.[key]?.security || "";
+          const relationship =
+            state.shareholderLoans?.[key]?.relationship || "Shareholder / director / member";
 
           return (
             <FragmentWithKey key={key}>
@@ -2562,6 +3004,19 @@ function ShareholderLoansNote({
                           onChange={(event) =>
                             update(
                               ["shareholderLoans", key, "terms"],
+                              event.target.value,
+                            )
+                          }
+                          style={inputStyle()}
+                        />
+                      </label>
+                      <label>
+                        <span style={styles.smallLabel}>Relationship / lender type</span>
+                        <input
+                          value={relationship}
+                          onChange={(event) =>
+                            update(
+                              ["shareholderLoans", key, "relationship"],
                               event.target.value,
                             )
                           }
@@ -2610,6 +3065,11 @@ function ShareholderLoansNote({
                     </div>
                   ) : (
                     <div>
+                      {relationship ? (
+                        <p style={styles.paragraph}>
+                          Relationship / lender type: {relationship}
+                        </p>
+                      ) : null}
                       {terms ? <p style={styles.paragraph}>{terms}</p> : null}
                       {interest ? (
                         <p style={styles.paragraph}>Interest: {interest}</p>
@@ -2832,52 +3292,58 @@ function TaxationNote({
   currentTaxPayableRows?: AmountLine[];
 }) {
   const { hideComparatives } = useNotesDisplay();
-  const visibleRows = splitRows(rows).map((row) => ({
-    ...row,
-    label:
-      String(row.label || "").toLowerCase().includes("deferred")
-        ? row.label
-        : String(row.label || "").toLowerCase().includes("tax")
-          ? "Current taxation"
-          : row.label,
-  }));
 
-  const deferredTaxAssetCurrent = deferredTaxAmount(
-    currentTaxReceivableRows,
-    "current",
-  );
-  const deferredTaxAssetPrior = deferredTaxAmount(
-    currentTaxReceivableRows,
-    "prior",
-  );
-  const deferredTaxLiabilityCurrent = deferredTaxAmount(
-    currentTaxPayableRows,
-    "current",
-  );
-  const deferredTaxLiabilityPrior = deferredTaxAmount(
-    currentTaxPayableRows,
-    "prior",
+  const visibleRows = splitRows(rows);
+  const totalTaxCurrent = rowsTotal(visibleRows, "current");
+  const totalTaxPrior = rowsTotal(visibleRows, "prior");
+
+  const explicitCurrentTaxRows = visibleRows.filter((row) => {
+    const label = String(row.label || "").toLowerCase();
+    return label.includes("current tax") || label.includes("normal tax");
+  });
+
+  const explicitDeferredTaxRows = visibleRows.filter((row) =>
+    String(row.label || "").toLowerCase().includes("deferred"),
   );
 
-  const inferredDeferredCreditCurrent =
-    deferredTaxAssetCurrent - deferredTaxLiabilityCurrent;
-  const inferredDeferredCreditPrior =
-    deferredTaxAssetPrior - deferredTaxLiabilityPrior;
+  const deferredAssetCurrent = deferredTaxAmount(currentTaxReceivableRows, "current");
+  const deferredAssetPrior = deferredTaxAmount(currentTaxReceivableRows, "prior");
+  const deferredLiabilityCurrent = deferredTaxAmount(currentTaxPayableRows, "current");
+  const deferredLiabilityPrior = deferredTaxAmount(currentTaxPayableRows, "prior");
 
-  const currentTaxExpenseCurrent = rowsTotal(visibleRows, "current");
-  const currentTaxExpensePrior = rowsTotal(visibleRows, "prior");
+  const hasDeferredTaxBalance =
+    deferredAssetCurrent !== 0 ||
+    deferredAssetPrior !== 0 ||
+    deferredLiabilityCurrent !== 0 ||
+    deferredLiabilityPrior !== 0;
 
-  const deferredTaxCreditCurrent =
-    currentTaxExpenseCurrent === 0 && inferredDeferredCreditCurrent !== 0
-      ? -inferredDeferredCreditCurrent
+  const hasExplicitComponents =
+    explicitCurrentTaxRows.length > 0 || explicitDeferredTaxRows.length > 0;
+
+  const currentTaxCurrent = hasExplicitComponents
+    ? rowsTotal(explicitCurrentTaxRows, "current")
+    : hasDeferredTaxBalance
+      ? 0
+      : totalTaxCurrent;
+  const currentTaxPrior = hasExplicitComponents
+    ? rowsTotal(explicitCurrentTaxRows, "prior")
+    : hasDeferredTaxBalance
+      ? 0
+      : totalTaxPrior;
+
+  const deferredTaxCurrent = hasExplicitComponents
+    ? rowsTotal(explicitDeferredTaxRows, "current")
+    : hasDeferredTaxBalance
+      ? totalTaxCurrent
       : 0;
-  const deferredTaxCreditPrior =
-    currentTaxExpensePrior === 0 && inferredDeferredCreditPrior !== 0
-      ? -inferredDeferredCreditPrior
+  const deferredTaxPrior = hasExplicitComponents
+    ? rowsTotal(explicitDeferredTaxRows, "prior")
+    : hasDeferredTaxBalance
+      ? totalTaxPrior
       : 0;
 
-  const taxExpenseCurrent = currentTaxExpenseCurrent + deferredTaxCreditCurrent;
-  const taxExpensePrior = currentTaxExpensePrior + deferredTaxCreditPrior;
+  const componentTotalCurrent = currentTaxCurrent + deferredTaxCurrent;
+  const componentTotalPrior = currentTaxPrior + deferredTaxPrior;
 
   const profitRow = findProfitBeforeTaxRow(cashUsedInOperationsRows);
   const profitCurrent = toNumber(profitRow?.current);
@@ -2895,39 +3361,66 @@ function TaxationNote({
     27,
   );
 
-  const theoreticalCurrent = Math.round(profitCurrent * (taxRate / 100));
-  const theoreticalPrior = Math.round(profitPrior * (taxRate / 100));
+  /*
+    Statement signs are retained: a tax credit is positive in the SOCI and
+    a tax expense is negative. Therefore tax at the statutory rate is the
+    opposite sign of accounting profit / loss.
+  */
+  const theoreticalCurrent = Math.round(-profitCurrent * (taxRate / 100));
+  const theoreticalPrior = Math.round(-profitPrior * (taxRate / 100));
 
-  const componentRows: AmountLine[] = [];
+  const reconciliationState = state.taxationReconciliation || {};
+  const captured = (key: string, side: "current" | "prior") =>
+    toNumber(reconciliationState?.[key]?.[side]);
 
-  if (visibleRows.length) {
-    componentRows.push(...visibleRows);
-  }
+  const reconciliationKeys = [
+    { key: "nonDeductibleExpenses", label: "Tax effect of non-deductible expenses" },
+    { key: "exemptIncome", label: "Tax effect of exempt income" },
+    { key: "assessedLossesNotRecognised", label: "Tax effect of assessed losses not recognised" },
+    { key: "deferredTaxAssetRecognised", label: "Deferred tax asset recognised" },
+    { key: "priorYearAdjustments", label: "Prior-year adjustments" },
+  ];
 
-  if (deferredTaxCreditCurrent !== 0 || deferredTaxCreditPrior !== 0) {
-    componentRows.push({
-      id: "deferred-tax-credit",
-      label: "Deferred tax credit recognised",
-      current: deferredTaxCreditCurrent,
-      prior: deferredTaxCreditPrior,
-    });
-  }
+  const capturedCurrent = reconciliationKeys.reduce(
+    (sum, item) => sum + captured(item.key, "current"),
+    0,
+  );
+  const capturedPrior = reconciliationKeys.reduce(
+    (sum, item) => sum + captured(item.key, "prior"),
+    0,
+  );
 
-  if (componentRows.length === 0) {
-    componentRows.push({
-      id: "current-taxation-zero",
-      label: "Current taxation",
-      current: 0,
-      prior: 0,
-    });
-  }
+  const otherCurrent =
+    componentTotalCurrent - theoreticalCurrent - capturedCurrent;
+  const otherPrior = componentTotalPrior - theoreticalPrior - capturedPrior;
+
+  const componentRows: AmountLine[] = [
+    {
+      id: "current-taxation",
+      label:
+        currentTaxCurrent >= 0
+          ? "Current tax credit"
+          : "Current tax expense",
+      current: currentTaxCurrent,
+      prior: currentTaxPrior,
+    },
+    {
+      id: "deferred-taxation",
+      label:
+        deferredTaxCurrent >= 0
+          ? "Deferred tax credit"
+          : "Deferred tax expense",
+      current: deferredTaxCurrent,
+      prior: deferredTaxPrior,
+    },
+  ];
 
   return (
     <>
-      <p style={styles.subheading}>Major components of the tax expense / (credit)</p>
+      <p style={styles.subheading}>Components of the tax expense / (credit)</p>
       <NoteTable
         rows={componentRows}
-        edit={edit}
+        edit={false}
         state={state}
         stateKey="taxationExpense"
         update={update}
@@ -2944,25 +3437,70 @@ function TaxationNote({
           <tr>
             <td style={styles.tdLeft}>Accounting profit / (loss) before taxation</td>
             <td style={styles.tdRight}>{amount(profitCurrent)}</td>
-            {!hideComparatives ? (
-              <td style={styles.tdRight}>{amount(profitPrior)}</td>
-            ) : null}
+            {!hideComparatives ? <td style={styles.tdRight}>{amount(profitPrior)}</td> : null}
           </tr>
           <tr>
-            <td style={styles.tdLeft}>Tax at the applicable tax rate of {taxRate}%</td>
+            <td style={styles.tdLeft}>Tax calculated at {taxRate}%</td>
             <td style={styles.tdRight}>{amount(theoreticalCurrent)}</td>
-            {!hideComparatives ? (
-              <td style={styles.tdRight}>{amount(theoreticalPrior)}</td>
-            ) : null}
+            {!hideComparatives ? <td style={styles.tdRight}>{amount(theoreticalPrior)}</td> : null}
           </tr>
+
+          {reconciliationKeys.map((item) => {
+            const current = captured(item.key, "current");
+            const prior = captured(item.key, "prior");
+            if (!edit && roundAmount(current) === 0 && roundAmount(prior) === 0) return null;
+
+            return (
+              <tr key={item.key}>
+                <td style={styles.tdLeft}>{item.label}</td>
+                <td style={styles.tdRight}>
+                  {edit ? (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={reconciliationState?.[item.key]?.current ?? ""}
+                      onChange={(event) =>
+                        update(["taxationReconciliation", item.key, "current"], event.target.value)
+                      }
+                      style={numberInputStyle()}
+                    />
+                  ) : amount(current)}
+                </td>
+                {!hideComparatives ? (
+                  <td style={styles.tdRight}>
+                    {edit ? (
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={reconciliationState?.[item.key]?.prior ?? ""}
+                        onChange={(event) =>
+                          update(["taxationReconciliation", item.key, "prior"], event.target.value)
+                        }
+                        style={numberInputStyle()}
+                      />
+                    ) : amount(prior)}
+                  </td>
+                ) : null}
+              </tr>
+            );
+          })}
+
+          {roundAmount(otherCurrent) !== 0 || roundAmount(otherPrior) !== 0 ? (
+            <tr>
+              <td style={styles.tdLeft}>Other reconciling items</td>
+              <td style={styles.tdRight}>{amount(otherCurrent)}</td>
+              {!hideComparatives ? <td style={styles.tdRight}>{amount(otherPrior)}</td> : null}
+            </tr>
+          ) : null}
+
           <tr>
             <td style={styles.totalLabel}>Tax expense / (credit) per income statement</td>
             <td data-total-amount="true" style={styles.totalAmount}>
-              {amount(taxExpenseCurrent)}
+              {amount(componentTotalCurrent)}
             </td>
             {!hideComparatives ? (
               <td data-total-amount="true" style={styles.totalAmount}>
-                {amount(taxExpensePrior)}
+                {amount(componentTotalPrior)}
               </td>
             ) : null}
           </tr>
@@ -2972,11 +3510,9 @@ function TaxationNote({
       {edit ? (
         <EditableTextBlock
           label="Additional tax reconciliation wording"
-          value={state.taxationExpense?.extraText || ""}
+          value={state.taxationExpense?.extraText ?? ""}
           edit
-          onChange={(value) =>
-            update(["taxationExpense", "extraText"], value)
-          }
+          onChange={(value) => update(["taxationExpense", "extraText"], value)}
         />
       ) : state.taxationExpense?.extraText ? (
         <p style={styles.paragraph}>{state.taxationExpense.extraText}</p>
@@ -2991,23 +3527,109 @@ function CurrentTaxBalanceNote({
   state,
   update,
   stateKey,
+  clientSetup,
 }: {
   rows: AmountLine[];
   edit: boolean;
   state: StructuredState;
   update: (path: string[], value: any) => void;
   stateKey: string;
+  clientSetup: Record<string, any> | null;
 }) {
-  const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
-  const deferred = hasDeferredTaxRows(rows);
-  const current = currentTaxBalanceAmount(rows);
-  const prior = priorTaxBalanceAmount(rows);
+  const { currentHeading, priorHeading, hideComparatives } =
+    useNotesDisplay();
 
-  if (deferred) {
-    const movementCurrent = current - prior;
+  const visibleRows = splitRows(rows);
+  const deferredRows = visibleRows.filter((row) =>
+    String(row.label || "").toLowerCase().includes("deferred tax"),
+  );
+  const currentTaxRows = visibleRows.filter(
+    (row) =>
+      !String(row.label || "").toLowerCase().includes("deferred tax"),
+  );
+
+  if (deferredRows.length > 0) {
+    const deferredCurrent = rowsTotal(deferredRows, "current");
+    const deferredPrior = rowsTotal(deferredRows, "prior");
+    const movementCurrent = deferredCurrent - deferredPrior;
     const explanation =
       state[stateKey]?.extraText ||
       "Deferred tax arises from temporary differences between the carrying amounts of assets and liabilities and their corresponding tax bases.";
+
+    const assessedLossesFromTaxComputation = Math.abs(
+      getSetupNumber(
+        clientSetup,
+        [
+          "assessed_loss",
+          "assessed_loss_brought_forward",
+          "assessedLoss",
+          "assessedLossBroughtForward",
+          "tax_assessed_loss",
+          "taxAssessedLoss",
+        ],
+        0,
+      ),
+    );
+
+    const taxRate = getSetupNumber(
+      clientSetup,
+      [
+        "tax_rate",
+        "income_tax_rate",
+        "company_tax_rate",
+        "taxRate",
+        "incomeTaxRate",
+        "companyTaxRate",
+      ],
+      27,
+    );
+
+    const forecastPeriodFromSetup = getSetupText(
+      clientSetup,
+      [
+        "deferred_tax_forecast_period",
+        "deferredTaxForecastPeriod",
+        "forecast_period",
+        "forecastPeriod",
+      ],
+      "3 years",
+    );
+
+    const populateDeferredTaxAssessment = () => {
+      const currentAssessment =
+        state.deferredTaxAssessment &&
+        typeof state.deferredTaxAssessment === "object"
+          ? state.deferredTaxAssessment
+          : {};
+
+      const suggestedNature =
+        assessedLossesFromTaxComputation > 0
+          ? `The deferred tax assessment includes assessed losses of ${amount(
+              assessedLossesFromTaxComputation,
+            )} together with applicable temporary differences.`
+          : "The deferred tax assessment relates to temporary differences between the carrying amounts and tax bases of assets and liabilities.";
+
+      update(["deferredTaxAssessment"], {
+        ...currentAssessment,
+        nature:
+          String(currentAssessment.nature || "").trim() ||
+          suggestedNature,
+        assessedLosses:
+          String(currentAssessment.assessedLosses || "").trim() ||
+          (assessedLossesFromTaxComputation
+            ? String(Math.round(assessedLossesFromTaxComputation))
+            : ""),
+        recognisedFromLosses:
+          String(currentAssessment.recognisedFromLosses || "").trim() ||
+          (deferredCurrent ? String(Math.round(deferredCurrent)) : ""),
+        forecastPeriod:
+          String(currentAssessment.forecastPeriod || "").trim() ||
+          forecastPeriodFromSetup,
+        taxRate:
+          String(currentAssessment.taxRate || "").trim() ||
+          String(taxRate),
+      });
+    };
 
     return (
       <>
@@ -3029,28 +3651,24 @@ function CurrentTaxBalanceNote({
           <tbody>
             <tr>
               <td style={styles.tdLeft}>Opening balance</td>
-              <td style={styles.tdRight}>{amount(prior)}</td>
-              {!hideComparatives ? (
-                <td style={styles.tdRight}>–</td>
-              ) : null}
+              <td style={styles.tdRight}>{amount(deferredPrior)}</td>
+              {!hideComparatives ? <td style={styles.tdRight}>–</td> : null}
             </tr>
             <tr>
               <td style={styles.tdLeft}>
                 Recognised in profit or loss and other movements
               </td>
               <td style={styles.tdRight}>{amount(movementCurrent)}</td>
-              {!hideComparatives ? (
-                <td style={styles.tdRight}>–</td>
-              ) : null}
+              {!hideComparatives ? <td style={styles.tdRight}>–</td> : null}
             </tr>
             <tr>
               <td style={styles.totalLabel}>Closing deferred tax asset</td>
               <td data-total-amount="true" style={styles.totalAmount}>
-                {amount(current)}
+                {amount(deferredCurrent)}
               </td>
               {!hideComparatives ? (
                 <td data-total-amount="true" style={styles.totalAmount}>
-                  {amount(prior)}
+                  {amount(deferredPrior)}
                 </td>
               ) : null}
             </tr>
@@ -3063,24 +3681,182 @@ function CurrentTaxBalanceNote({
           edit={edit}
           onChange={(value) => update([stateKey, "extraText"], value)}
         />
+
+        {edit ? (
+          <div style={{ display: "grid", gap: 8, margin: "10px 0 12px" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+              }}
+            >
+              <div>
+                <p style={{ ...styles.subheading, margin: 0 }}>
+                  Deferred tax assessment
+                </p>
+                <p
+                  style={{
+                    margin: "3px 0 0",
+                    fontSize: 9.5,
+                    lineHeight: 1.3,
+                    color: "#64748b",
+                  }}
+                >
+                  Mapped closing deferred tax asset: {amount(deferredCurrent)} ·
+                  Tax rate: {taxRate}% · Assessed losses from Tax Computation:
+                  {" "}
+                  {assessedLossesFromTaxComputation
+                    ? amount(assessedLossesFromTaxComputation)
+                    : "not captured"}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                style={styles.button}
+                onClick={populateDeferredTaxAssessment}
+              >
+                Populate from AFS and Tax Computation
+              </button>
+            </div>
+
+            <EditableTextBlock
+              label="Nature of temporary differences and assessed losses"
+              value={state.deferredTaxAssessment?.nature ?? ""}
+              edit
+              onChange={(value) => update(["deferredTaxAssessment", "nature"], value)}
+            />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <label style={{ display: "grid", gap: 4 }}>
+                <span style={styles.smallLabel}>Assessed losses available</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={state.deferredTaxAssessment?.assessedLosses ?? ""}
+                  onChange={(event) =>
+                    update(["deferredTaxAssessment", "assessedLosses"], event.target.value)
+                  }
+                  style={inputStyle()}
+                />
+              </label>
+              <label style={{ display: "grid", gap: 4 }}>
+                <span style={styles.smallLabel}>Deferred tax asset from assessed losses recognised</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={state.deferredTaxAssessment?.recognisedFromLosses ?? ""}
+                  onChange={(event) =>
+                    update(["deferredTaxAssessment", "recognisedFromLosses"], event.target.value)
+                  }
+                  style={inputStyle()}
+                />
+              </label>
+              <label style={{ display: "grid", gap: 4 }}>
+                <span style={styles.smallLabel}>Unrecognised deferred tax asset</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={state.deferredTaxAssessment?.unrecognisedAsset ?? ""}
+                  onChange={(event) =>
+                    update(["deferredTaxAssessment", "unrecognisedAsset"], event.target.value)
+                  }
+                  style={inputStyle()}
+                />
+              </label>
+              <label style={{ display: "grid", gap: 4 }}>
+                <span style={styles.smallLabel}>Forecast period used</span>
+                <input
+                  type="text"
+                  value={state.deferredTaxAssessment?.forecastPeriod ?? ""}
+                  onChange={(event) =>
+                    update(["deferredTaxAssessment", "forecastPeriod"], event.target.value)
+                  }
+                  style={inputStyle()}
+                />
+              </label>
+              <label style={{ display: "grid", gap: 4 }}>
+                <span style={styles.smallLabel}>Tax rate used</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={state.deferredTaxAssessment?.taxRate ?? ""}
+                  onChange={(event) =>
+                    update(["deferredTaxAssessment", "taxRate"], event.target.value)
+                  }
+                  style={inputStyle()}
+                />
+              </label>
+            </div>
+            <EditableTextBlock
+              label="Evidence supporting probable future taxable profits"
+              value={state.deferredTaxAssessment?.evidence ?? ""}
+              edit
+              onChange={(value) => update(["deferredTaxAssessment", "evidence"], value)}
+            />
+            <EditableTextBlock
+              label="Preparer conclusion"
+              value={state.deferredTaxAssessment?.conclusion ?? ""}
+              edit
+              onChange={(value) => update(["deferredTaxAssessment", "conclusion"], value)}
+            />
+          </div>
+        ) : (
+          <>
+            {state.deferredTaxAssessment?.nature ? (
+              <p style={styles.paragraph}>{state.deferredTaxAssessment.nature}</p>
+            ) : null}
+            {state.deferredTaxAssessment?.evidence ? (
+              <p style={styles.paragraph}>
+                Recognition is supported by: {state.deferredTaxAssessment.evidence}
+              </p>
+            ) : null}
+            {state.deferredTaxAssessment?.conclusion ? (
+              <p style={styles.paragraph}>{state.deferredTaxAssessment.conclusion}</p>
+            ) : null}
+            {toNumber(state.deferredTaxAssessment?.unrecognisedAsset) !== 0 ? (
+              <p style={styles.paragraph}>
+                Unrecognised deferred tax asset: {amount(state.deferredTaxAssessment.unrecognisedAsset)}.
+              </p>
+            ) : null}
+          </>
+        )}
+
+        {currentTaxRows.length > 0 ? (
+          <>
+            <p style={styles.subheading}>Current tax balance</p>
+            <NoteTable
+              rows={currentTaxRows.map((row) => ({
+                ...row,
+                label:
+                  stateKey === "currentTaxPayable"
+                    ? "Current tax payable"
+                    : "Current tax receivable",
+              }))}
+              edit={edit}
+              state={state}
+              stateKey={`${stateKey}CurrentTax`}
+              update={update}
+            />
+          </>
+        ) : null}
       </>
     );
   }
 
   const displayRows =
-    splitRows(rows).length > 0
-      ? splitRows(rows).map((row) => ({
+    currentTaxRows.length > 0
+      ? currentTaxRows.map((row) => ({
           ...row,
-          label: "Normal tax",
+          label:
+            stateKey === "currentTaxPayable"
+              ? "Current tax payable"
+              : "Current tax receivable",
         }))
-      : [
-          {
-            id: `${stateKey}-normal-tax`,
-            label: "Normal tax",
-            current,
-            prior,
-          },
-        ];
+      : [];
+
+  if (displayRows.length === 0 && !edit) return null;
 
   return (
     <>
@@ -3103,6 +3879,223 @@ function CurrentTaxBalanceNote({
         <p style={styles.paragraph}>{state[stateKey].extraText}</p>
       ) : null}
     </>
+  );
+}
+
+
+function operatingExpenseSearchText(line: any) {
+  return [
+    line.mapping_code,
+    line.mapping_leaf_id,
+    line.lead_schedule_key,
+    line.lead_schedule_number,
+    line.mapping_label,
+    line.mapping_path,
+    line.mapping_section,
+    line.mapping_category,
+    line.account_code,
+    line.account_name,
+    line.account_type,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function buildOperatingExpenseDetailRows(
+  trialBalanceLines: any[],
+  fallbackRows: AmountLine[],
+): AmountLine[] {
+  const sourceRows: AmountLine[] = [];
+
+  (trialBalanceLines || []).forEach((line, index) => {
+    const text = operatingExpenseSearchText(line);
+
+    const excluded =
+      text.includes("cost of sales") ||
+      text.includes("cost-of-sales") ||
+      text.includes("taxation") ||
+      text.includes("income tax") ||
+      text.includes("tax expense") ||
+      text.includes("finance cost") ||
+      text.includes("interest expense") ||
+      text.includes("revenue") ||
+      text.includes("sales") ||
+      text.includes("turnover") ||
+      text.includes("other income") ||
+      text.includes("operating income");
+
+    const included =
+      text.includes("operating expense") ||
+      text.includes("operating expenses") ||
+      text.includes("expense");
+
+    if (!included || excluded) return;
+
+    const currentRaw = lineAmount(line, "current");
+    const priorRaw = lineAmount(line, "prior");
+    const current = currentRaw > 0 ? -Math.abs(currentRaw) : currentRaw;
+    const prior = priorRaw > 0 ? -Math.abs(priorRaw) : priorRaw;
+
+    if (roundAmount(current) === 0 && roundAmount(prior) === 0) return;
+
+    sourceRows.push({
+      id: String(line.account_code || line.id || `operating-expense-${index}`),
+      label:
+        clean(line.account_name) ||
+        clean(line.description) ||
+        clean(line.mapping_label) ||
+        `Operating expense ${index + 1}`,
+      current,
+      prior,
+    });
+  });
+
+  const rowsToGroup = sourceRows.length > 0 ? sourceRows : fallbackRows;
+
+  const grouped = new Map<string, AmountLine>();
+
+  const addToGroup = (
+    id: string,
+    label: string,
+    current: number,
+    prior: number,
+  ) => {
+    const existing = grouped.get(id) || {
+      id,
+      label,
+      current: 0,
+      prior: 0,
+    };
+
+    existing.current += current;
+    existing.prior += prior;
+    grouped.set(id, existing);
+  };
+
+  rowsToGroup.forEach((row) => {
+    const label = String(row.label || "").toLowerCase();
+    const current = toNumber(row.current);
+    const prior = toNumber(row.prior);
+
+    if (
+      label.includes("salary") ||
+      label.includes("salaries") ||
+      label.includes("wage") ||
+      label.includes("staff") ||
+      label.includes("employee") ||
+      label.includes("training") ||
+      label.includes("uniform")
+    ) {
+      addToGroup("employee-costs", "Employee costs", current, prior);
+      return;
+    }
+
+    if (
+      label.includes("rent") ||
+      label.includes("cleaning") ||
+      label.includes("repair") ||
+      label.includes("maintenance") ||
+      label.includes("lease") ||
+      label.includes("leasing")
+    ) {
+      addToGroup(
+        "occupancy-costs",
+        "Rent and occupancy costs",
+        current,
+        prior,
+      );
+      return;
+    }
+
+    if (label.includes("depreciation") || label.includes("amortisation")) {
+      addToGroup("depreciation", "Depreciation and amortisation", current, prior);
+      return;
+    }
+
+    if (label.includes("royalt")) {
+      addToGroup("royalties", "Royalties", current, prior);
+      return;
+    }
+
+    if (
+      label.includes("accounting") ||
+      label.includes("consult") ||
+      label.includes("legal") ||
+      label.includes("professional")
+    ) {
+      addToGroup(
+        "professional-fees",
+        "Professional and consulting fees",
+        current,
+        prior,
+      );
+      return;
+    }
+
+    if (label.includes("advert") || label.includes("promotion")) {
+      addToGroup(
+        "advertising",
+        "Advertising and promotion",
+        current,
+        prior,
+      );
+      return;
+    }
+
+    addToGroup(
+      "other-operating-expenses",
+      "Other operating expenses",
+      current,
+      prior,
+    );
+  });
+
+  const order = [
+    "employee-costs",
+    "occupancy-costs",
+    "depreciation",
+    "royalties",
+    "professional-fees",
+    "advertising",
+    "other-operating-expenses",
+  ];
+
+  return order
+    .map((key) => grouped.get(key))
+    .filter(
+      (row): row is AmountLine =>
+        Boolean(row) &&
+        (roundAmount(row?.current) !== 0 || roundAmount(row?.prior) !== 0),
+    );
+}
+
+function OperatingExpensesNote({
+  rows,
+  trialBalanceLines,
+  edit,
+  state,
+  update,
+}: {
+  rows: AmountLine[];
+  trialBalanceLines: any[];
+  edit: boolean;
+  state: StructuredState;
+  update: (path: string[], value: any) => void;
+}) {
+  const detailRows = buildOperatingExpenseDetailRows(
+    trialBalanceLines,
+    rows,
+  );
+
+  return (
+    <NoteTable
+      rows={detailRows}
+      edit={edit}
+      state={state}
+      stateKey="operatingExpenses"
+      update={update}
+    />
   );
 }
 
@@ -3188,7 +4181,16 @@ export default function AfsStructuredNotesPanel({
   headingMode = "main",
   rootId,
 }: Props) {
-  const [mode, setMode] = useState<"review" | "edit">("review");
+  const [mode, setMode] = useState<"review" | "edit">(() => {
+    if (forceReviewMode || typeof window === "undefined") return "review";
+    try {
+      return window.localStorage.getItem(`afs-notes-mode:${engagementId}`) === "edit"
+        ? "edit"
+        : "review";
+    } catch {
+      return "review";
+    }
+  });
   const notesRootRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -3231,14 +4233,45 @@ export default function AfsStructuredNotesPanel({
 
     const numberedSections = noteSections
       .map((section) => {
-        const active = Boolean(reportOptions[section.optionKey]);
+        const configuredActive = Boolean(reportOptions[section.optionKey]);
         const dataKey = NOTE_KEY_MAP[section.key];
         const rows = dataKey ? noteData[dataKey] || [] : [];
+
+        const goingConcernHasContent = Object.values(
+          state.goingConcernAssessment || {},
+        ).some((item) => String(item || "").trim());
+
+        const relatedPartiesHaveContent = (
+          Array.isArray(state.relatedPartyRows) ? state.relatedPartyRows : []
+        ).some((row: any) =>
+          [
+            row?.name,
+            row?.relationship,
+            row?.transaction,
+            row?.current,
+            row?.prior,
+            row?.terms,
+            row?.commitments,
+          ].some((item) => String(item || "").trim()),
+        );
+
+        const customDisclosureHasContent =
+          section.key === "notesGoingConcern"
+            ? goingConcernHasContent
+            : section.key === "notesRelatedParties"
+              ? relatedPartiesHaveContent
+              : true;
+
+        const active =
+          configuredActive && (isEditing || customDisclosureHasContent);
+
         const hasData =
           splitRows(rows).length > 0 ||
-          section.key === "notesPropertyPlantEquipment";
+          section.key === "notesPropertyPlantEquipment" ||
+          (configuredActive && customDisclosureHasContent);
 
-        if (!active && !isEditing && !hasData) return null;
+        if (!configuredActive && !isEditing && !hasData) return null;
+        if (!active && !isEditing) return null;
         if (active) noteNumber += 1;
 
         return {
@@ -3498,6 +4531,14 @@ export default function AfsStructuredNotesPanel({
                     state={state}
                     update={update}
                   />
+                ) : section.key === "notesOperatingExpenses" ? (
+                  <OperatingExpensesNote
+                    rows={rows}
+                    trialBalanceLines={trialBalanceLines}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                  />
                 ) : section.key === "notesTaxation" ? (
                   <TaxationNote
                     rows={rows}
@@ -3516,6 +4557,7 @@ export default function AfsStructuredNotesPanel({
                     state={state}
                     update={update}
                     stateKey="currentTaxReceivable"
+                    clientSetup={clientSetup}
                   />
                 ) : section.key === "notesCurrentTaxPayable" ? (
                   <CurrentTaxBalanceNote
@@ -3524,6 +4566,19 @@ export default function AfsStructuredNotesPanel({
                     state={state}
                     update={update}
                     stateKey="currentTaxPayable"
+                    clientSetup={clientSetup}
+                  />
+                ) : section.key === "notesGoingConcern" ? (
+                  <GoingConcernNote
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                  />
+                ) : section.key === "notesRelatedParties" ? (
+                  <RelatedPartiesNote
+                    edit={isEditing}
+                    state={state}
+                    update={update}
                   />
                 ) : (
                   <GenericStructuredNote
@@ -3584,7 +4639,7 @@ const styles: Record<string, any> = {
     fontSize: 10.8,
     cursor: "pointer",
   },
-  noteSection: { marginBottom: 19, breakInside: "avoid-page", pageBreakInside: "avoid" },
+  noteSection: { marginBottom: 19, breakInside: "avoid", pageBreakInside: "avoid" },
   noteSectionOff: {
     marginBottom: 10,
     opacity: 0.72,

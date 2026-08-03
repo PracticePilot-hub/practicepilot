@@ -24,44 +24,56 @@ type Props = {
 };
 
 const sections: SectionRow[] = [
-  { key: "generalReview", optionKey: "directorsReportGeneralReview", label: "General review" },
-  { key: "incorporation", optionKey: "directorsReportIncorporation", label: "Incorporation" },
-  { key: "natureBusiness", optionKey: "directorsReportNatureBusiness", label: "Nature of business" },
-  { key: "reviewActivities", optionKey: "directorsReportReviewActivities", label: "Review of activities" },
-  { key: "financialResults", optionKey: "directorsReportFinancialResults", label: "Financial results" },
-  { key: "eventsAfter", optionKey: "directorsReportEventsAfter", label: "Events after reporting date" },
-  { key: "dividends", optionKey: "directorsReportDividends", label: "Dividends" },
-  { key: "shareCapital", optionKey: "directorsReportShareCapital", label: "Share capital" },
-  { key: "directors", optionKey: "directorsReportDirectors", label: "Directors / members" },
-  { key: "secretary", optionKey: "directorsReportSecretary", label: "Secretary" },
-  { key: "externalAccountant", optionKey: "directorsReportExternalAccountant", label: "External accountant / compiler" },
-  { key: "interestContracts", optionKey: "directorsReportInterestContracts", label: "Interests in contracts" },
-  { key: "borrowingLimitations", optionKey: "directorsReportBorrowingLimitations", label: "Borrowing limitations" },
-  { key: "shareholder", optionKey: "directorsReportShareholder", label: "Shareholder matters" },
-  { key: "goingConcern", optionKey: "directorsReportGoingConcern", label: "Going concern" },
-  { key: "liquiditySolvency", optionKey: "directorsReportLiquiditySolvency", label: "Liquidity and solvency" },
-  { key: "litigation", optionKey: "directorsReportLitigation", label: "Litigation" },
-  { key: "socialEthics", optionKey: "directorsReportSocialEthics", label: "Social and ethics" },
-  { key: "subsidiaries", optionKey: "directorsReportSubsidiaries", label: "Subsidiaries" },
-  { key: "associates", optionKey: "directorsReportAssociates", label: "Associates" },
-  { key: "jointVentures", optionKey: "directorsReportJointVentures", label: "Joint ventures" },
-  { key: "nonCurrentAssets", optionKey: "directorsReportNonCurrentAssets", label: "Non-current assets" },
-  { key: "authorisation", optionKey: "directorsReportAuthorisation", label: "Authorisation" },
-  { key: "other1", optionKey: "directorsReportOther1", label: "Other disclosure 1" },
-  { key: "other2", optionKey: "directorsReportOther2", label: "Other disclosure 2" },
-  { key: "other3", optionKey: "directorsReportOther3", label: "Other disclosure 3" },
-  { key: "other4", optionKey: "directorsReportOther4", label: "Other disclosure 4" },
-  { key: "other5", optionKey: "directorsReportOther5", label: "Other disclosure 5" },
-  { key: "other6", optionKey: "directorsReportOther6", label: "Other disclosure 6" },
-  { key: "other7", optionKey: "directorsReportOther7", label: "Other disclosure 7" },
-  { key: "other8", optionKey: "directorsReportOther8", label: "Other disclosure 8" },
-  { key: "other9", optionKey: "directorsReportOther9", label: "Other disclosure 9" },
-  { key: "other10", optionKey: "directorsReportOther10", label: "Other disclosure 10" },
-];
+  ["generalReview", "directorsReportGeneralReview", "General review"],
+  ["incorporation", "directorsReportIncorporation", "Incorporation"],
+  ["natureBusiness", "directorsReportNatureBusiness", "Nature of business"],
+  ["reviewActivities", "directorsReportReviewActivities", "Review of activities"],
+  ["financialResults", "directorsReportFinancialResults", "Financial results"],
+  ["eventsAfter", "directorsReportEventsAfter", "Events after reporting date"],
+  ["dividends", "directorsReportDividends", "Dividends"],
+  ["shareCapital", "directorsReportShareCapital", "Share capital"],
+  ["directors", "directorsReportDirectors", "Directors / members"],
+  ["secretary", "directorsReportSecretary", "Secretary"],
+  ["externalAccountant", "directorsReportExternalAccountant", "External accountant / compiler"],
+  ["interestContracts", "directorsReportInterestContracts", "Interests in contracts"],
+  ["borrowingLimitations", "directorsReportBorrowingLimitations", "Borrowing limitations"],
+  ["shareholder", "directorsReportShareholder", "Shareholder matters"],
+  ["goingConcern", "directorsReportGoingConcern", "Going concern"],
+  ["liquiditySolvency", "directorsReportLiquiditySolvency", "Liquidity and solvency"],
+  ["litigation", "directorsReportLitigation", "Litigation"],
+  ["socialEthics", "directorsReportSocialEthics", "Social and ethics"],
+  ["subsidiaries", "directorsReportSubsidiaries", "Subsidiaries"],
+  ["associates", "directorsReportAssociates", "Associates"],
+  ["jointVentures", "directorsReportJointVentures", "Joint ventures"],
+  ["nonCurrentAssets", "directorsReportNonCurrentAssets", "Non-current assets"],
+  ["authorisation", "directorsReportAuthorisation", "Authorisation"],
+  ["other1", "directorsReportOther1", "Other disclosure 1"],
+  ["other2", "directorsReportOther2", "Other disclosure 2"],
+  ["other3", "directorsReportOther3", "Other disclosure 3"],
+  ["other4", "directorsReportOther4", "Other disclosure 4"],
+  ["other5", "directorsReportOther5", "Other disclosure 5"],
+  ["other6", "directorsReportOther6", "Other disclosure 6"],
+  ["other7", "directorsReportOther7", "Other disclosure 7"],
+  ["other8", "directorsReportOther8", "Other disclosure 8"],
+  ["other9", "directorsReportOther9", "Other disclosure 9"],
+  ["other10", "directorsReportOther10", "Other disclosure 10"],
+].map(([key, optionKey, label]) => ({
+  key: key as DirectorsReportSectionKey,
+  optionKey,
+  label,
+}));
 
 function clean(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value);
+}
+
+function hasOwnValue(source: any, key: DirectorsReportSectionKey, field: "title" | "text") {
+  return Boolean(
+    source &&
+      source[key] &&
+      Object.prototype.hasOwnProperty.call(source[key], field),
+  );
 }
 
 export default function AfsDirectorsReportSettings({
@@ -78,19 +90,23 @@ export default function AfsDirectorsReportSettings({
 
   const enabledCount = useMemo(
     () => sections.filter((section) => Boolean(reportOptions?.[section.optionKey])).length,
-    [reportOptions]
+    [reportOptions],
   );
 
   function itemTitle(key: DirectorsReportSectionKey) {
-    const current = (texts as any)?.[key]?.title;
-    const fallback = (defaults as any)?.[key]?.title;
-    return clean(current || fallback);
+    return clean(
+      hasOwnValue(texts, key, "title")
+        ? (texts as any)?.[key]?.title
+        : (defaults as any)?.[key]?.title,
+    );
   }
 
   function itemText(key: DirectorsReportSectionKey) {
-    const current = (texts as any)?.[key]?.text;
-    const fallback = (defaults as any)?.[key]?.text;
-    return clean(current || fallback);
+    return clean(
+      hasOwnValue(texts, key, "text")
+        ? (texts as any)?.[key]?.text
+        : (defaults as any)?.[key]?.text,
+    );
   }
 
   return (
@@ -100,9 +116,7 @@ export default function AfsDirectorsReportSettings({
           <strong>Directors’ Report sections</strong>
           <div style={styles.small}>Switch sections on/off and edit wording where needed.</div>
         </div>
-        <button type="button" onClick={onResetAll} style={styles.smallButton}>
-          Defaults
-        </button>
+        <button type="button" onClick={onResetAll} style={styles.smallButton}>Defaults</button>
       </div>
 
       <div style={styles.counter}>{enabledCount}/{sections.length} switched on</div>
@@ -118,10 +132,13 @@ export default function AfsDirectorsReportSettings({
                 <input
                   type="checkbox"
                   checked={enabled}
-                  onChange={(event) => toggleReportOption(section.optionKey, event.target.checked)}
+                  onChange={(event) =>
+                    toggleReportOption(section.optionKey, event.target.checked)
+                  }
                 />
                 <span>{section.label}</span>
               </label>
+
               <div style={styles.actions}>
                 <button
                   type="button"
@@ -130,7 +147,11 @@ export default function AfsDirectorsReportSettings({
                 >
                   {isOpen ? "Close" : "Edit"}
                 </button>
-                <button type="button" onClick={() => onReset(section.key)} style={styles.smallButton}>
+                <button
+                  type="button"
+                  onClick={() => onReset(section.key)}
+                  style={styles.smallButton}
+                >
                   Default
                 </button>
               </div>
@@ -172,6 +193,6 @@ const styles: Record<string, React.CSSProperties> = {
   actions: { display: "flex", gap: 4 },
   smallButton: { border: "1px solid #cbd5e1", background: "#ffffff", padding: "3px 6px", fontSize: 10, fontWeight: 800, cursor: "pointer" },
   editor: { display: "grid", gap: 5, marginTop: 6 },
-  input: { width: "100%", border: "1px solid #cbd5e1", padding: "5px 6px", fontSize: 11 },
-  textarea: { width: "100%", border: "1px solid #cbd5e1", padding: "6px", fontSize: 11, lineHeight: 1.35, resize: "vertical", fontFamily: "inherit" },
+  input: { width: "100%", border: "1px solid #7A9FC8", background: "#EAF3FF", color: "#111827", padding: "5px 6px", fontSize: 11, outlineColor: "#2563EB" },
+  textarea: { width: "100%", border: "1px solid #7A9FC8", background: "#EAF3FF", color: "#111827", padding: 6, fontSize: 11, lineHeight: 1.35, resize: "vertical", fontFamily: "inherit", outlineColor: "#2563EB" },
 };

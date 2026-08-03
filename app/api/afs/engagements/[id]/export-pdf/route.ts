@@ -23,6 +23,25 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function safeFilename(value: string) {
   const cleaned = String(value || "afs")
     .replace(/[’']/g, "")
@@ -169,8 +188,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     const page = await browser.newPage();
 
-    page.setDefaultNavigationTimeout(60_000);
-    page.setDefaultTimeout(60_000);
+    page.setDefaultNavigationTimeout(25_000);
+    page.setDefaultTimeout(25_000);
 
     const cookieHeader = request.headers.get("cookie") || "";
 
@@ -208,35 +227,50 @@ export async function GET(request: NextRequest, context: RouteContext) {
       }, authStorage);
     }
 
-    await page.goto(exportUrl.toString(), {
-      waitUntil: "domcontentloaded",
-      timeout: 60_000,
-    });
+    await withTimeout(
+      page.goto(exportUrl.toString(), {
+        waitUntil: "domcontentloaded",
+        timeout: 25_000,
+      }),
+      27_000,
+      "The Print Studio page did not open in time.",
+    );
 
     /*
-      The real Print Studio page sets this attribute only after all live
-      engagement, TB, settings, notes and overrides have finished loading.
+      Wait briefly for the normal React readiness signals. Pagination already
+      has its own five-second fallback on the page, so the export route must
+      never wait indefinitely for a perfect measurement state.
     */
-    await page.waitForFunction(
-      () =>
-        document.body?.getAttribute("data-afs-pdf-ready") === "true" &&
-        document
-          .getElementById("afs-pagination-ready")
-          ?.getAttribute("data-ready") === "true" &&
-        !/loading print studio data/i.test(document.body?.innerText || ""),
-      { timeout: 60_000 },
-    );
+    try {
+      await page.waitForFunction(
+        () =>
+          document.body?.getAttribute("data-afs-pdf-ready") === "true" &&
+          document
+            .getElementById("afs-pagination-ready")
+            ?.getAttribute("data-ready") === "true" &&
+          !/loading print studio data/i.test(document.body?.innerText || ""),
+        { timeout: 15_000 },
+      );
+    } catch {
+      /*
+        Continue with the last rendered stable layout. The SFP selector below
+        is the hard minimum requirement for a valid AFS export.
+      */
+    }
 
     await page.waitForSelector("#print-sfp", {
       visible: true,
-      timeout: 60_000,
+      timeout: 12_000,
     });
 
     await page.emulateMediaType("print");
 
-    const exportInfo = await page.evaluate(async () => {
+    const exportInfo = await withTimeout(page.evaluate(async () => {
       if (document.fonts?.ready) {
-        await document.fonts.ready.catch(() => undefined);
+        await Promise.race([
+          document.fonts.ready.catch(() => undefined),
+          new Promise((resolve) => setTimeout(resolve, 2500)),
+        ]);
       }
 
       const bodyText = document.body?.innerText || "";
@@ -331,20 +365,25 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
       const images = Array.from(document.images);
 
-      await Promise.all(
-        images.map(
-          (image) =>
-            new Promise<void>((resolve) => {
-              if (image.complete) {
-                resolve();
-                return;
-              }
+      await Promise.race([
+        Promise.all(
+          images.map(
+            (image) =>
+              new Promise<void>((resolve) => {
+                if (image.complete) {
+                  resolve();
+                  return;
+                }
 
-              image.addEventListener("load", () => resolve(), { once: true });
-              image.addEventListener("error", () => resolve(), { once: true });
-            }),
+                const finish = () => resolve();
+                image.addEventListener("load", finish, { once: true });
+                image.addEventListener("error", finish, { once: true });
+                setTimeout(finish, 2000);
+              }),
+          ),
         ),
-      );
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+      ]);
 
       document.title = title;
 
@@ -353,30 +392,34 @@ export async function GET(request: NextRequest, context: RouteContext) {
         entityName: entityLine,
         yearEnd,
       };
-    });
+    }), 12_000, "The rendered report could not be prepared for printing in time.");
 
     await page.waitForFunction(
       () => {
         const style = window.getComputedStyle(document.body);
         return style.display !== "none" && style.visibility !== "hidden";
       },
-      { timeout: 10_000 },
+      { timeout: 5_000 },
     );
 
-    await sleep(900);
+    await sleep(350);
 
-    const pdfBytes = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      preferCSSPageSize: true,
-      displayHeaderFooter: false,
-      margin: {
-        top: "0mm",
-        right: "0mm",
-        bottom: "0mm",
-        left: "0mm",
-      },
-    });
+    const pdfBytes = await withTimeout(
+      page.pdf({
+        format: "A4",
+        printBackground: true,
+        preferCSSPageSize: true,
+        displayHeaderFooter: false,
+        margin: {
+          top: "0mm",
+          right: "0mm",
+          bottom: "0mm",
+          left: "0mm",
+        },
+      }),
+      15_000,
+      "Chromium did not finish generating the PDF in time.",
+    );
 
     const pdfBuffer = Buffer.from(pdfBytes);
     const finalTitle = cleanTitle(exportInfo?.title || `${id} AFS`);
@@ -403,7 +446,19 @@ export async function GET(request: NextRequest, context: RouteContext) {
     );
   } finally {
     if (browser) {
-      await browser.close();
+      try {
+        await withTimeout(
+          browser.close(),
+          3000,
+          "Chromium did not close cleanly.",
+        );
+      } catch {
+        try {
+          browser.process()?.kill("SIGKILL");
+        } catch {
+          // The response has already been returned or failed safely.
+        }
+      }
     }
   }
 }

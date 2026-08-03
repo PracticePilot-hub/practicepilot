@@ -49,11 +49,13 @@ function fieldStyle() {
   return {
     width: "100%",
     height: 24,
-    border: "1px solid #cbd5e1",
+    border: "1px solid #7A9FC8",
     padding: "2px 5px",
     fontSize: 10,
     textAlign: "right" as const,
-    background: "#fff7bf",
+    background: "#EAF3FF",
+    outlineColor: "#2563EB",
+    color: "#111827",
   };
 }
 
@@ -406,7 +408,7 @@ export default function AfsStatementOverrideSettings({
               </button>
             </div>
             <div style={{ fontSize: 9, color: "#64748b", lineHeight: 1.35 }}>
-              This works like the PPE note: fill the yellow fields, then the AFS cash flow pulls from here.
+              Complete the editable fields below and the AFS cash flow will pull from them.
             </div>
 
             <div

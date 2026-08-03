@@ -1,36 +1,35 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
-import type {
+import AfsPrintStudioShell, {
   AfsReportOption,
   AfsStudioSection,
-} from "../../components/AfsPrintStudioShell";
-import AfsA4Page from "../../components/AfsA4Page";
+} from "../components/AfsPrintStudioShell";
+import AfsA4Page from "../components/AfsA4Page";
 import AfsStatementTable, {
   AfsStatementRow,
-} from "../../components/AfsStatementTable";
-import AfsDirectorsReportSettings from "../../components/AfsDirectorsReportSettings";
-import AfsEditableDisclosureSettings from "../../components/AfsEditableDisclosureSettings";
-import AfsStatementOverrideSettings from "../../components/AfsStatementOverrideSettings";
-import AfsStructuredNotesPanel from "../AfsStructuredNotesPanel";
-import {
-  buildSharedOtherFinancialLiabilityRows,
-  buildSharedShareholderLoanRows,
-  resolveSharedStructuredNoteEntry,
-} from "../AfsSharedStructuredNoteData";
-import {
+} from "../components/AfsStatementTable";
+import AfsDirectorsReportSettings from "../components/AfsDirectorsReportSettings";
+import AfsEditableDisclosureSettings from "../components/AfsEditableDisclosureSettings";
+import AfsStatementOverrideSettings from "../components/AfsStatementOverrideSettings";
+import AfsStructuredNotesPanel from "./AfsStructuredNotesPanel";
+import AfsFlightDeck, {
   buildAfsFlightDeckIssuesFromEngine,
-} from "../AfsFlightDeck";
+} from "./AfsFlightDeck";
 import {
   DirectorsResponsibilitiesBlock,
   DirectorsReportBlock,
   CompilationReportBlock,
   buildDefaultDirectorsReportTexts,
+  getActiveDirectorsReportSectionKeys,
+} from "../components/AfsNarrativeBlocks";
+
+import type {
   DirectorsReportSectionKey,
   DirectorsReportTextOverrides,
-} from "../../components/AfsNarrativeBlocks";
+} from "../components/AfsNarrativeBlocks";
 import {
   accountingPolicySections,
   noteSections,
@@ -38,12 +37,12 @@ import {
   buildDefaultNoteTexts,
   renderDisclosureText,
   EditableDisclosureTextMap,
-} from "../../components/AfsPolicyNoteDefaults";
+} from "../components/AfsPolicyNoteDefaults";
 import {
   buildAfsPrintStatementEngine,
   AfsStatementOverrides,
   AfsNoteKey,
-} from "../../components/AfsPrintStatementEngine";
+} from "../components/AfsPrintStatementEngine";
 
 type EngagementData = {
   id: string;
@@ -61,10 +60,6 @@ type AfsFirmSettings = {
   firm_name?: string | null;
   trading_name?: string | null;
   logo_url?: string | null;
-  logo_data_url?: string | null;
-  governing_body_logo_data_url?: string | null;
-  second_governing_body_logo_data_url?: string | null;
-  footer_logo_data_url?: string | null;
   address_lines?: string | null;
   telephone?: string | null;
   email?: string | null;
@@ -115,6 +110,22 @@ type TrialBalanceLine = {
   lead_schedule_key?: string | null;
 };
 
+type TrialBalanceHistoryLine = {
+  id?: string;
+  financial_year_end: string;
+  account_code: string;
+  account_name: string;
+  closing_balance: number;
+  mapping_code?: string | null;
+  mapping_leaf_id?: string | null;
+  mapping_label?: string | null;
+  mapping_statement?: string | null;
+  mapping_section?: string | null;
+  mapping_path?: string | null;
+  lead_schedule_number?: string | null;
+  lead_schedule_key?: string | null;
+};
+
 type PersonData = {
   id?: string;
   name?: string | null;
@@ -138,14 +149,6 @@ type StatementBucket = {
   prior: number;
 };
 
-type NoteAmountLine = {
-  id?: string;
-  label: string;
-  current: number;
-  prior: number;
-  meta?: Record<string, any>;
-};
-
 type ReportOptions = {
   coverPage: boolean;
   generalInformation: boolean;
@@ -161,6 +164,7 @@ type ReportOptions = {
   notes: boolean;
   detailedIncomeStatement: boolean;
   taxComputation: boolean;
+  hideComparativeFigures: boolean;
 
   policyBasisPreparation: boolean;
   policyJudgementsEstimates: boolean;
@@ -279,8 +283,6 @@ type ReportOptions = {
   showCoverFrameworkStatement: boolean;
   showCoverNoAssuranceStatement: boolean;
 
-  hideComparativeFigures: boolean;
-
   [key: string]: boolean;
 };
 
@@ -299,6 +301,7 @@ const defaultReportOptions: ReportOptions = {
   notes: true,
   detailedIncomeStatement: true,
   taxComputation: true,
+  hideComparativeFigures: false,
 
   policyBasisPreparation: true,
   policyJudgementsEstimates: true,
@@ -416,8 +419,8 @@ const defaultReportOptions: ReportOptions = {
   showCoverLogo: false,
   showCoverFrameworkStatement: true,
   showCoverNoAssuranceStatement: true,
-  hideComparativeFigures: false,
 };
+
 
 function safeNumber(value: unknown) {
   const parsed = Number(value);
@@ -505,7 +508,7 @@ function bucketLabel(line: TrialBalanceLine) {
 
 function addToBuckets(
   buckets: Map<string, StatementBucket>,
-  line: TrialBalanceLine,
+  line: TrialBalanceLine
 ) {
   const key = bucketKey(line);
   const current = normaliseAmount(line, rawCurrent(line));
@@ -558,7 +561,7 @@ function lineSearchText(line: TrialBalanceLine) {
 
 function buildBuckets(
   lines: TrialBalanceLine[],
-  matcher: (line: TrialBalanceLine) => boolean,
+  matcher: (line: TrialBalanceLine) => boolean
 ) {
   const buckets = new Map<string, StatementBucket>();
 
@@ -567,7 +570,7 @@ function buildBuckets(
   return Array.from(buckets.values())
     .filter(
       (bucket) =>
-        Math.round(bucket.current) !== 0 || Math.round(bucket.prior) !== 0,
+        Math.round(bucket.current) !== 0 || Math.round(bucket.prior) !== 0
     )
     .sort((a, b) => a.label.localeCompare(b.label));
 }
@@ -589,305 +592,9 @@ function sumBuckets(buckets: StatementBucket[]) {
       current: total.current + bucket.current,
       prior: total.prior + bucket.prior,
     }),
-    { current: 0, prior: 0 },
+    { current: 0, prior: 0 }
   );
 }
-
-
-function statementRowHasAmountFields(row: AfsStatementRow) {
-  const item = row as any;
-  return item?.current !== undefined || item?.prior !== undefined;
-}
-
-function statementRowRoundedAmount(row: AfsStatementRow, side: "current" | "prior") {
-  const item = row as any;
-  return Math.round(safeNumber(item?.[side]));
-}
-
-function statementRowHasNonZeroAmount(row: AfsStatementRow) {
-  if (!statementRowHasAmountFields(row)) return false;
-  return (
-    statementRowRoundedAmount(row, "current") !== 0 ||
-    statementRowRoundedAmount(row, "prior") !== 0
-  );
-}
-
-function isDetailedIncomeHeadingRow(row: AfsStatementRow) {
-  const item = row as any;
-  const type = String(item?.type || "").toLowerCase();
-
-  if (type === "section" || type === "subsection") return true;
-  if (statementRowHasAmountFields(row)) return false;
-
-  const label = String(item?.label || "").trim();
-  return label.length > 0;
-}
-
-function isDetailedIncomeSpacerRow(row: AfsStatementRow) {
-  const item = row as any;
-  return String(item?.type || "").toLowerCase() === "spacer";
-}
-
-function isZeroDetailedIncomeAmountRow(row: AfsStatementRow) {
-  if (!statementRowHasAmountFields(row)) return false;
-  return !statementRowHasNonZeroAmount(row);
-}
-
-function cleanDetailedIncomeRowsForReport(rows: AfsStatementRow[]) {
-  const firstPass = (rows || []).filter(
-    (row) => !isDetailedIncomeSpacerRow(row) && !isZeroDetailedIncomeAmountRow(row),
-  );
-
-  return firstPass.filter((row, index) => {
-    if (!isDetailedIncomeHeadingRow(row)) return true;
-
-    for (let nextIndex = index + 1; nextIndex < firstPass.length; nextIndex += 1) {
-      const nextRow = firstPass[nextIndex];
-
-      if (isDetailedIncomeHeadingRow(nextRow)) return false;
-      if (statementRowHasNonZeroAmount(nextRow)) return true;
-    }
-
-    return false;
-  });
-}
-
-
-function isShareholderLoanTrialBalanceLine(line: TrialBalanceLine) {
-  const text = lineSearchText(line);
-
-  if (
-    includesAny(text, [
-      "share capital",
-      "ordinary share",
-      "issued share",
-      "retained",
-      "accumulated",
-      "revenue",
-      "sales",
-      "expense",
-      "asset",
-    ])
-  ) {
-    return false;
-  }
-
-  return includesAny(text, [
-    "shareholder",
-    "shareholder loan",
-    "shareholders loan",
-    "shareholders' loan",
-    "director loan",
-    "directors loan",
-    "member loan",
-    "members loan",
-    "loan from shareholder",
-    "loan to shareholder",
-    "loan from director",
-    "loan to director",
-    "loan from member",
-    "loan to member",
-  ]);
-}
-
-function readableLoanAccountLabel(line: TrialBalanceLine) {
-  const raw =
-    line.account_name ||
-    line.mapping_label ||
-    line.mapping_category ||
-    line.lead_schedule_key ||
-    "Shareholders' loans";
-
-  return String(raw)
-    .replace(/^\s*\d+[\s./-]*/g, "")
-    .replace(/\s*[-–—]\s*(shareholder'?s?|director'?s?|member'?s?)\s*loans?$/i, "")
-    .replace(/\s*\((shareholder'?s?|director'?s?|member'?s?)\s*loans?\)\s*$/i, "")
-    .trim() || String(raw);
-}
-
-function isOtherFinancialLiabilityTrialBalanceLine(line: TrialBalanceLine) {
-  const text = lineSearchText(line);
-
-  if (isShareholderLoanTrialBalanceLine(line)) {
-    return false;
-  }
-
-  if (
-    includesAny(text, [
-      "share capital",
-      "ordinary share",
-      "issued share",
-      "retained",
-      "accumulated",
-      "revenue",
-      "sales",
-      "expense",
-      "asset",
-      "current liability",
-      "trade payable",
-      "creditor",
-    ])
-  ) {
-    return false;
-  }
-
-  return (
-    String(line.mapping_code || "").trim() === "590" ||
-    String(line.lead_schedule_number || "").trim() === "590" ||
-    includesAny(text, [
-      "other financial liabil",
-      "other non-current liabil",
-      "other non current liabil",
-      "non-current financial liabil",
-      "non current financial liabil",
-    ])
-  );
-}
-
-function readableOtherFinancialLiabilityLabel(line: TrialBalanceLine) {
-  const raw =
-    line.account_name ||
-    line.mapping_label ||
-    line.mapping_category ||
-    line.lead_schedule_key ||
-    "Other financial liabilities";
-
-  return String(raw)
-    .replace(/^\s*\d+[\s./-]*/g, "")
-    .replace(
-      /\s*[-–—]\s*(other\s+)?(non[- ]current\s+)?financial\s+liabilit(y|ies)$/i,
-      "",
-    )
-    .replace(
-      /\s*\((other\s+)?(non[- ]current\s+)?financial\s+liabilit(y|ies)\)\s*$/i,
-      "",
-    )
-    .trim() || String(raw);
-}
-
-function buildOtherFinancialLiabilitySplitRows(
-  lines: TrialBalanceLine[],
-  fallbackRows: any[],
-) {
-  const grouped = new Map<string, NoteAmountLine>();
-
-  (lines || [])
-    .filter(isOtherFinancialLiabilityTrialBalanceLine)
-    .forEach((line) => {
-      const label = readableOtherFinancialLiabilityLabel(line);
-      const key =
-        line.id ||
-        line.account_code ||
-        label.toLowerCase().replace(/[^a-z0-9]+/g, "-") ||
-        "other-financial-liability";
-
-      const current = normaliseAmount(line, rawCurrent(line));
-      const prior = normaliseAmount(line, rawPrior(line));
-
-      if (!grouped.has(label)) {
-        grouped.set(label, {
-          id: String(key),
-          label,
-          current: 0,
-          prior: 0,
-          meta: {
-            source: "trial-balance-split",
-            accountCode: line.account_code,
-            terms:
-              "The liability is unsecured, bears no interest and has no fixed repayment terms.",
-          },
-        });
-      }
-
-      const row = grouped.get(label);
-      if (!row) return;
-
-      row.current += current;
-      row.prior += prior;
-    });
-
-  const splitRows = Array.from(grouped.values())
-    .filter(
-      (row) =>
-        Math.round(row.current || 0) !== 0 ||
-        Math.round(row.prior || 0) !== 0,
-    )
-    .sort((a, b) => String(a.label).localeCompare(String(b.label)));
-
-  const fallbackVisible = (fallbackRows || []).filter(
-    (row) =>
-      Math.round(Number(row?.current || 0)) !== 0 ||
-      Math.round(Number(row?.prior || 0)) !== 0,
-  );
-
-  return splitRows.length > 0 ? splitRows : fallbackVisible;
-}
-
-function buildShareholderLoanSplitRows(
-  lines: TrialBalanceLine[],
-  fallbackRows: any[],
-) {
-  const grouped = new Map<string, NoteAmountLine>();
-
-  (lines || [])
-    .filter(isShareholderLoanTrialBalanceLine)
-    .forEach((line) => {
-      const label = readableLoanAccountLabel(line);
-      const key =
-        line.id ||
-        line.account_code ||
-        label.toLowerCase().replace(/[^a-z0-9]+/g, "-") ||
-        "shareholder-loan";
-
-      const current = normaliseAmount(line, rawCurrent(line));
-      const prior = normaliseAmount(line, rawPrior(line));
-
-      if (!grouped.has(label)) {
-        grouped.set(label, {
-          id: String(key),
-          label,
-          current: 0,
-          prior: 0,
-          meta: {
-            source: "trial-balance-split",
-            accountCode: line.account_code,
-          },
-        });
-      }
-
-      const row = grouped.get(label);
-      if (!row) return;
-      row.current += current;
-      row.prior += prior;
-    });
-
-  const splitRows = Array.from(grouped.values())
-    .filter(
-      (row) =>
-        Math.round(row.current || 0) !== 0 || Math.round(row.prior || 0) !== 0,
-    )
-    .sort((a, b) => String(a.label).localeCompare(String(b.label)));
-
-  const fallbackVisible = (fallbackRows || []).filter(
-    (row) =>
-      Math.round(Number(row?.current || 0)) !== 0 ||
-      Math.round(Number(row?.prior || 0)) !== 0,
-  );
-
-  if (splitRows.length > 1) return splitRows;
-
-  if (
-    splitRows.length === 1 &&
-    !String(splitRows[0].label || "")
-      .toLowerCase()
-      .includes("shareholders")
-  ) {
-    return splitRows;
-  }
-
-  return fallbackVisible;
-}
-
 
 function buildSfpRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
   const nonCurrentAssets = buildBuckets(lines, (line) => {
@@ -925,7 +632,7 @@ function buildSfpRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
     );
   }).filter(
     (bucket) =>
-      !nonCurrentAssets.some((existing) => existing.key === bucket.key),
+      !nonCurrentAssets.some((existing) => existing.key === bucket.key)
   );
 
   const equity = buildBuckets(lines, (line) => {
@@ -972,7 +679,7 @@ function buildSfpRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
     );
   }).filter(
     (bucket) =>
-      !nonCurrentLiabilities.some((existing) => existing.key === bucket.key),
+      !nonCurrentLiabilities.some((existing) => existing.key === bucket.key)
   );
 
   const ncaTotal = sumBuckets(nonCurrentAssets);
@@ -1099,7 +806,7 @@ function buildSociRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
       "investment income",
     ]);
   }).filter(
-    (bucket) => !revenue.some((existing) => existing.key === bucket.key),
+    (bucket) => !revenue.some((existing) => existing.key === bucket.key)
   );
 
   const operatingExpenses = buildBuckets(lines, (line) => {
@@ -1112,7 +819,7 @@ function buildSociRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
   }).filter(
     (bucket) =>
       !costOfSales.some((existing) => existing.key === bucket.key) &&
-      !otherIncome.some((existing) => existing.key === bucket.key),
+      !otherIncome.some((existing) => existing.key === bucket.key)
   );
 
   const financeCosts = buildBuckets(lines, (line) => {
@@ -1201,7 +908,11 @@ function getSetupValue(setup: ClientSetupData | null, keys: string[]) {
 
     if (Array.isArray(value) && value.length > 0) return value;
 
-    if (value !== null && value !== undefined && String(value).trim() !== "") {
+    if (
+      value !== null &&
+      value !== undefined &&
+      String(value).trim() !== ""
+    ) {
       return value;
     }
   }
@@ -1222,7 +933,10 @@ function formatMultiline(value: unknown) {
 
 function getPersonName(person: PersonData) {
   return (
-    person.full_name || person.person_name || person.name || "Name not captured"
+    person.full_name ||
+    person.person_name ||
+    person.name ||
+    "Name not captured"
   );
 }
 
@@ -1233,7 +947,7 @@ function isDirectorLike(person: PersonData) {
       person.designation ||
       person.capacity ||
       person.person_type ||
-      "",
+      ""
   ).toLowerCase();
 
   return (
@@ -1289,15 +1003,14 @@ function renderInfoRow(label: string, value: unknown) {
       <td
         style={{
           width: "36%",
-          padding: "8px 0 9px",
-          fontWeight: 500,
+          padding: "5px 0",
+          fontWeight: 700,
           verticalAlign: "top",
-          lineHeight: 1.35,
         }}
       >
         {label}
       </td>
-      <td style={{ padding: "6px 0 7px", verticalAlign: "top", lineHeight: 1.35 }}>
+      <td style={{ padding: "5px 0", verticalAlign: "top" }}>
         {lines.map((line, index) => (
           <div key={`${label}-${index}`}>{line}</div>
         ))}
@@ -1316,36 +1029,36 @@ function paragraphStyle() {
 
 function sectionHeadingStyle() {
   return {
-    fontSize: 11.3,
+    fontSize: 12,
     lineHeight: 1.3,
-    fontWeight: 500,
-    margin: "14px 0 5px",
-    letterSpacing: "-0.003em",
+    fontWeight: 700,
+    margin: "16px 0 6px",
   };
 }
 
 function subsectionHeadingStyle() {
   return {
-    fontSize: 10.7,
+    fontSize: 11,
     lineHeight: 1.3,
-    fontWeight: 500,
-    margin: "9px 0 3px",
-    color: "#334155",
+    fontWeight: 700,
+    margin: "10px 0 4px",
   };
 }
 
 function pageHeadingStyle() {
   return {
-    fontSize: 13.6,
-    fontWeight: 500,
-    margin: "0 0 14px",
-    paddingBottom: 5,
-    borderBottom: "0.5px solid #94a3b8",
+    fontFamily: "Arial, Helvetica, sans-serif",
+    fontSize: 16,
+    lineHeight: 1.12,
+    fontWeight: 600,
+    margin: "0 0 12px",
+    paddingBottom: 6,
+    borderBottom: "1px solid #000000",
+    letterSpacing: 0,
     textTransform: "none" as const,
-    letterSpacing: "-0.008em",
-    color: "#273449",
   };
 }
+
 
 function isGenericNoteText(value: unknown) {
   return String(value || "")
@@ -1354,7 +1067,7 @@ function isGenericNoteText(value: unknown) {
 }
 
 function cleanNoteTextMap(
-  input: EditableDisclosureTextMap,
+  input: EditableDisclosureTextMap
 ): EditableDisclosureTextMap {
   const next: EditableDisclosureTextMap = {};
 
@@ -1375,6 +1088,65 @@ function taxAmount(value: number) {
   if (rounded === 0) return "–";
   return rounded < 0 ? `(${formatted})` : formatted;
 }
+
+function statementRowHasAmountFields(row: AfsStatementRow) {
+  const item = row as any;
+  return item?.current !== undefined || item?.prior !== undefined;
+}
+
+function statementRowRoundedAmount(row: AfsStatementRow, side: "current" | "prior") {
+  const item = row as any;
+  return Math.round(safeNumber(item?.[side]));
+}
+
+function statementRowHasNonZeroAmount(row: AfsStatementRow) {
+  if (!statementRowHasAmountFields(row)) return false;
+  return (
+    statementRowRoundedAmount(row, "current") !== 0 ||
+    statementRowRoundedAmount(row, "prior") !== 0
+  );
+}
+
+function isDetailedIncomeHeadingRow(row: AfsStatementRow) {
+  const item = row as any;
+  const type = String(item?.type || "").toLowerCase();
+
+  if (type === "section" || type === "subsection") return true;
+  if (statementRowHasAmountFields(row)) return false;
+
+  const label = String(item?.label || "").trim();
+  return label.length > 0;
+}
+
+function isDetailedIncomeSpacerRow(row: AfsStatementRow) {
+  const item = row as any;
+  return String(item?.type || "").toLowerCase() === "spacer";
+}
+
+function isZeroDetailedIncomeAmountRow(row: AfsStatementRow) {
+  if (!statementRowHasAmountFields(row)) return false;
+  return !statementRowHasNonZeroAmount(row);
+}
+
+function cleanDetailedIncomeRowsForReport(rows: AfsStatementRow[]) {
+  const firstPass = (rows || []).filter(
+    (row) => !isDetailedIncomeSpacerRow(row) && !isZeroDetailedIncomeAmountRow(row),
+  );
+
+  return firstPass.filter((row, index) => {
+    if (!isDetailedIncomeHeadingRow(row)) return true;
+
+    for (let nextIndex = index + 1; nextIndex < firstPass.length; nextIndex += 1) {
+      const nextRow = firstPass[nextIndex];
+
+      if (isDetailedIncomeHeadingRow(nextRow)) return false;
+      if (statementRowHasNonZeroAmount(nextRow)) return true;
+    }
+
+    return false;
+  });
+}
+
 
 
 function alignDetailedIncomeRowsToSoci(
@@ -1414,42 +1186,284 @@ function alignDetailedIncomeRowsToSoci(
   });
 }
 
-export default function AfsPrintStudioExportPage() {
- const params = useParams();
-const searchParams = useSearchParams();
-const engagementId = String(params?.engagementId || "");
-const isDraftPdf =
-  searchParams.get("draft") === "1" || searchParams.get("draft") === "true";
 
-  const [loading, setLoading] = useState(true);
-  const [isPrintExportMode, setIsPrintExportMode] = useState(false);
-  const [activeSectionId, setActiveSectionId] = useState("cover-page");
-  const [cashFlowViewMode, setCashFlowViewMode] = useState<"afs" | "work">(
-    "afs",
+function normaliseMappingIdentifier(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function mappingIdentifierStartsWith(value: unknown, prefixes: string[]) {
+  const identifier = normaliseMappingIdentifier(value);
+
+  return prefixes.some((prefix) => {
+    const cleanPrefix = normaliseMappingIdentifier(prefix);
+
+    return (
+      identifier === cleanPrefix ||
+      identifier.startsWith(`${cleanPrefix}.`) ||
+      identifier.startsWith(`${cleanPrefix}-`)
+    );
+  });
+}
+
+function historyCategory(line: TrialBalanceHistoryLine) {
+  const mappingCode = normaliseMappingIdentifier(line.mapping_code);
+  const mappingLeafId = normaliseMappingIdentifier(line.mapping_leaf_id);
+  const leadScheduleNumber = normaliseMappingIdentifier(
+    line.lead_schedule_number,
+  );
+  const leadScheduleKey = normaliseMappingIdentifier(line.lead_schedule_key);
+
+  /*
+    Historical cash-flow classification is mapping-driven only.
+    Account names and mapping labels are never used.
+  */
+  if (
+    mappingCode === "420.10" ||
+    mappingLeafId.startsWith("420-10-") ||
+    leadScheduleKey === "cash"
+  ) {
+    return "cash";
+  }
+
+  if (
+    mappingIdentifierStartsWith(mappingCode, ["410"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["410"]) ||
+    leadScheduleKey === "inventories"
+  ) {
+    return "inventories";
+  }
+
+  if (
+    leadScheduleKey === "trade-receivables" ||
+    leadScheduleKey === "trade-and-other-receivables"
+  ) {
+    return "tradeReceivables";
+  }
+
+  if (
+    leadScheduleKey === "trade-payables" ||
+    leadScheduleKey === "trade-and-other-payables"
+  ) {
+    return "tradePayables";
+  }
+
+  if (
+    mappingIdentifierStartsWith(mappingCode, ["500"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["500"]) ||
+    leadScheduleKey === "share-capital"
+  ) {
+    return "shareCapital";
+  }
+
+  if (
+    mappingIdentifierStartsWith(mappingCode, ["548", "500.548"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["548", "500-548"]) ||
+    leadScheduleKey === "shareholders-loans" ||
+    leadScheduleKey === "shareholder-loans"
+  ) {
+    return "shareholderLoans";
+  }
+
+  if (
+    mappingIdentifierStartsWith(mappingCode, ["590", "500.590"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["590", "500-590"]) ||
+    leadScheduleKey === "other-financial-liabilities" ||
+    leadScheduleKey === "other-non-current-liabilities"
+  ) {
+    return "otherFinancialLiabilities";
+  }
+
+  return "other";
+}
+
+function historyPresentedBalance(line: TrialBalanceHistoryLine) {
+  const category = historyCategory(line);
+  const raw = safeNumber(line.closing_balance);
+
+  if (
+    category === "tradePayables" ||
+    category === "shareCapital" ||
+    category === "shareholderLoans" ||
+    category === "otherFinancialLiabilities"
+  ) {
+    return -raw;
+  }
+
+  return raw;
+}
+
+type HistoricalCashFlowData = {
+  overrides: Partial<AfsStatementOverrides>;
+  inventoryPrior: number;
+  receivablesPrior: number;
+  payablesPrior: number;
+};
+
+function buildHistoricalCashFlowData(
+  history: TrialBalanceHistoryLine[],
+): HistoricalCashFlowData {
+  const years = Array.from(
+    new Set(
+      (history || [])
+        .map((line) => String(line.financial_year_end || "").trim())
+        .filter(Boolean),
+    ),
+  ).sort();
+
+  if (years.length < 2) {
+    return {
+      overrides: {},
+      inventoryPrior: 0,
+      receivablesPrior: 0,
+      payablesPrior: 0,
+    };
+  }
+
+  const openingYear = years[years.length - 2];
+  const closingYear = years[years.length - 1];
+
+  const totalFor = (year: string, category: string) =>
+    (history || [])
+      .filter(
+        (line) =>
+          String(line.financial_year_end || "").trim() === year &&
+          historyCategory(line) === category,
+      )
+      .reduce((sum, line) => sum + historyPresentedBalance(line), 0);
+
+  const openingCash = totalFor(openingYear, "cash");
+  const closingCash = totalFor(closingYear, "cash");
+
+  const openingInventory = totalFor(openingYear, "inventories");
+  const closingInventory = totalFor(closingYear, "inventories");
+
+  const openingReceivables = totalFor(openingYear, "tradeReceivables");
+  const closingReceivables = totalFor(closingYear, "tradeReceivables");
+
+  const openingPayables = totalFor(openingYear, "tradePayables");
+  const closingPayables = totalFor(closingYear, "tradePayables");
+
+  const openingShareCapital = totalFor(openingYear, "shareCapital");
+  const closingShareCapital = totalFor(closingYear, "shareCapital");
+
+  const openingShareholderLoans = totalFor(openingYear, "shareholderLoans");
+  const closingShareholderLoans = totalFor(closingYear, "shareholderLoans");
+
+  const openingOtherFinancialLiabilities = totalFor(
+    openingYear,
+    "otherFinancialLiabilities",
+  );
+  const closingOtherFinancialLiabilities = totalFor(
+    closingYear,
+    "otherFinancialLiabilities",
   );
 
-  useEffect(() => {
-    const onExportMode = (event: Event) => {
-      setIsPrintExportMode(Boolean((event as CustomEvent<boolean>).detail));
-    };
-    const onBeforePrint = () => setIsPrintExportMode(true);
-    const onAfterPrint = () => setIsPrintExportMode(false);
+  const inventoryPrior = openingInventory - closingInventory;
+  const receivablesPrior = openingReceivables - closingReceivables;
+  const payablesPrior = closingPayables - openingPayables;
 
-    window.addEventListener("afs-print-export-mode", onExportMode);
-    window.addEventListener("beforeprint", onBeforePrint);
-    window.addEventListener("afterprint", onAfterPrint);
+  return {
+    overrides: {
+      cashPriorOpeningBalance: openingCash,
+      cashWorkingCapitalPrior:
+        inventoryPrior + receivablesPrior + payablesPrior,
+      cashLoansRaisedPrior:
+        closingShareholderLoans - openingShareholderLoans,
+      /*
+        Do not infer "Other financing cash flows" from SFP balances.
+        That row is reserved for an explicit workbench amount.
+      */
+      cashPriorMovement: closingCash - openingCash,
+    },
+    inventoryPrior,
+    receivablesPrior,
+    payablesPrior,
+  };
+}
+
+export default function AfsPrintStudioPage() {
+  const params = useParams();
+  const searchParams = useSearchParams();
+  const engagementId = String(params?.engagementId || "");
+  const isPdfExportMode =
+    searchParams.get("pdf") === "1" ||
+    searchParams.get("export") === "1" ||
+    searchParams.get("pdf") === "true";
+
+  const [loading, setLoading] = useState(true);
+  const [activeSectionId, setActiveSectionId] = useState("cover-page");
+  const [cashFlowViewMode, setCashFlowViewMode] = useState<"afs" | "work">("afs");
+  const [detailedIncomeInlineDrafts, setDetailedIncomeInlineDrafts] = useState<Record<string, string>>({});
+  const [detailedIncomeEditingRowId, setDetailedIncomeEditingRowId] = useState<string | null>(null);
+  const [structuredNotesState, setStructuredNotesState] =
+    useState<Record<string, any>>({});
+
+  useEffect(() => {
+    if (!isPdfExportMode) return;
+
+    document.documentElement.classList.add("afsPdfExportHtml");
+    document.body.classList.add("afsPdfExportMode");
+    document.body.setAttribute("data-afs-pdf-mode", "true");
+    document.body.setAttribute("data-afs-pdf-ready", loading ? "false" : "true");
+
+    window.dispatchEvent(
+      new CustomEvent("afs-print-export-mode", { detail: true }),
+    );
 
     return () => {
-      window.removeEventListener("afs-print-export-mode", onExportMode);
-      window.removeEventListener("beforeprint", onBeforePrint);
-      window.removeEventListener("afterprint", onAfterPrint);
+      document.documentElement.classList.remove("afsPdfExportHtml");
+      document.body.classList.remove("afsPdfExportMode");
+      document.body.removeAttribute("data-afs-pdf-mode");
+      document.body.removeAttribute("data-afs-pdf-ready");
+      window.dispatchEvent(
+        new CustomEvent("afs-print-export-mode", { detail: false }),
+      );
     };
-  }, []);
+  }, [isPdfExportMode, loading]);
+
+  useEffect(() => {
+    if (!engagementId) return;
+
+    const storageKey = `practicepilot-afs-structured-notes:${engagementId}`;
+
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      setStructuredNotesState(raw ? JSON.parse(raw) : {});
+    } catch {
+      setStructuredNotesState({});
+    }
+
+    const onStructuredNotesChange = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+
+      if (String(detail.engagementId || "") !== engagementId) return;
+
+      setStructuredNotesState(
+        detail.state && typeof detail.state === "object" ? detail.state : {},
+      );
+    };
+
+    window.addEventListener(
+      "afs-structured-notes-change",
+      onStructuredNotesChange,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "afs-structured-notes-change",
+        onStructuredNotesChange,
+      );
+    };
+  }, [engagementId]);
+
   const [engagement, setEngagement] = useState<EngagementData | null>(null);
   const [clientSetup, setClientSetup] = useState<ClientSetupData | null>(null);
   const [firmSettings, setFirmSettings] = useState<AfsFirmSettings | null>(null);
-  const [trialBalanceLines, setTrialBalanceLines] = useState<
-    TrialBalanceLine[]
+  const [trialBalanceLines, setTrialBalanceLines] = useState<TrialBalanceLine[]>(
+    []
+  );
+  const [trialBalanceHistory, setTrialBalanceHistory] = useState<
+    TrialBalanceHistoryLine[]
   >([]);
   const [clientPeople, setClientPeople] = useState<PersonData[]>([]);
   const [reportOptions, setReportOptions] =
@@ -1458,13 +1472,10 @@ const isDraftPdf =
     useState<DirectorsReportTextOverrides | null>(null);
   const [accountingPolicyTexts, setAccountingPolicyTexts] =
     useState<EditableDisclosureTextMap | null>(null);
-  const [noteTexts, setNoteTexts] = useState<EditableDisclosureTextMap | null>(
-    null,
-  );
+  const [noteTexts, setNoteTexts] =
+    useState<EditableDisclosureTextMap | null>(null);
   const [statementOverrides, setStatementOverrides] =
     useState<AfsStatementOverrides>({});
-  const [structuredNotesState, setStructuredNotesState] =
-    useState<Record<string, any>>({});
   const [printStudioSettingsLoaded, setPrintStudioSettingsLoaded] =
     useState(false);
   const [printStudioSaveStatus, setPrintStudioSaveStatus] = useState<
@@ -1491,16 +1502,15 @@ const isDraftPdf =
 
           if (!firmError && firmData) {
             setFirmSettings(firmData);
+          } else if (firmError) {
+            console.error("Failed to load AFS firm settings", firmError);
           }
         }
       }
 
-      const engagementRes = await fetch(
-        `/api/afs/engagements/${engagementId}`,
-        {
-          cache: "no-store",
-        },
-      );
+      const engagementRes = await fetch(`/api/afs/engagements/${engagementId}`, {
+        cache: "no-store",
+      });
 
       const engagementData = await engagementRes.json();
 
@@ -1510,13 +1520,18 @@ const isDraftPdf =
           engagementData.trialBalanceLines ||
             engagementData.trial_balance_lines ||
             engagementData.lines ||
-            [],
+            []
+        );
+        setTrialBalanceHistory(
+          engagementData.trialBalanceHistory ||
+            engagementData.trial_balance_history ||
+            []
         );
       }
 
       const setupRes = await fetch(
         `/api/afs/engagements/${engagementId}/client-setup`,
-        { cache: "no-store" },
+        { cache: "no-store" }
       );
 
       const setupData = await setupRes.json();
@@ -1535,13 +1550,13 @@ const isDraftPdf =
             setupData.directors ||
             setupData.members ||
             setupData.trustees ||
-            [],
+            []
         );
       }
 
       const settingsRes = await fetch(
         `/api/afs/engagements/${engagementId}/print-studio-settings`,
-        { cache: "no-store" },
+        { cache: "no-store" }
       );
 
       const settingsData = await settingsRes.json();
@@ -1555,23 +1570,7 @@ const isDraftPdf =
         const savedNoteTexts = settingsData.noteTexts || {};
         const savedStatementOverrides = settingsData.statementOverrides || {};
         const savedStructuredNotesState =
-          settingsData.structuredNotesState ||
-          settingsData.structured_notes_state ||
-          settingsData.settings?.structuredNotesState ||
-          settingsData.settings?.structured_notes_state ||
-          settingsData.data?.structuredNotesState ||
-          settingsData.data?.structured_notes_state ||
-          {};
-        const savedFirmSettings =
-          settingsData.firmSettings || settingsData.firm_settings || null;
-
-        if (
-          savedFirmSettings &&
-          typeof savedFirmSettings === "object" &&
-          Object.keys(savedFirmSettings).length > 0
-        ) {
-          setFirmSettings(savedFirmSettings);
-        }
+          settingsData.structuredNotesState || {};
 
         if (
           savedReportOptions &&
@@ -1633,73 +1632,62 @@ const isDraftPdf =
           const cleanedSavedNoteTexts = cleanNoteTextMap(savedNoteTexts);
           setNoteTexts(cleanedSavedNoteTexts);
 
-          if (
-            JSON.stringify(cleanedSavedNoteTexts) !==
-            JSON.stringify(savedNoteTexts)
-          ) {
+          if (JSON.stringify(cleanedSavedNoteTexts) !== JSON.stringify(savedNoteTexts)) {
             savePrintStudioSettingsToSupabase({
               noteTexts: cleanedSavedNoteTexts,
             });
           }
         }
 
+        const localStatementOverridesKey =
+          `practicepilot-afs-print-studio:${engagementId}:statement-overrides`;
+
         let localStatementOverrides: Record<string, any> = {};
-        let localStructuredNotesState: Record<string, any> = {};
 
         try {
-          const localStatementRaw = window.localStorage.getItem(
-            `practicepilot-afs-print-studio:${engagementId}:statement-overrides`,
-          );
+          const rawLocalStatementOverrides =
+            window.localStorage.getItem(localStatementOverridesKey);
 
-          if (localStatementRaw) {
-            const parsed = JSON.parse(localStatementRaw);
-
-            if (parsed && typeof parsed === "object") {
-              localStatementOverrides = parsed;
-            }
-          }
+          localStatementOverrides = rawLocalStatementOverrides
+            ? JSON.parse(rawLocalStatementOverrides)
+            : {};
         } catch {
           localStatementOverrides = {};
         }
 
-        try {
-          const localStructuredRaw = window.localStorage.getItem(
-            `practicepilot-afs-structured-notes:${engagementId}`,
-          );
-
-          if (localStructuredRaw) {
-            const parsed = JSON.parse(localStructuredRaw);
-
-            if (parsed && typeof parsed === "object") {
-              localStructuredNotesState = parsed;
-            }
-          }
-        } catch {
-          localStructuredNotesState = {};
-        }
-
         const mergedStatementOverrides = {
-          ...(
-            savedStatementOverrides &&
-            typeof savedStatementOverrides === "object"
-              ? savedStatementOverrides
-              : {}
-          ),
+          ...(savedStatementOverrides &&
+          typeof savedStatementOverrides === "object"
+            ? savedStatementOverrides
+            : {}),
           ...localStatementOverrides,
         };
 
-        const mergedStructuredNotesState = {
-          ...(
-            savedStructuredNotesState &&
-            typeof savedStructuredNotesState === "object"
-              ? savedStructuredNotesState
-              : {}
-          ),
-          ...localStructuredNotesState,
-        };
+        if (
+          mergedStatementOverrides.cashFlowMethod !== "direct" &&
+          mergedStatementOverrides.cashFlowMethod !== "indirect"
+        ) {
+          mergedStatementOverrides.cashFlowMethod = "indirect";
+        }
 
         setStatementOverrides(mergedStatementOverrides);
-        setStructuredNotesState(mergedStructuredNotesState);
+
+        if (
+          savedStructuredNotesState &&
+          typeof savedStructuredNotesState === "object" &&
+          Object.keys(savedStructuredNotesState).length > 0
+        ) {
+          setStructuredNotesState(savedStructuredNotesState);
+
+          try {
+            window.localStorage.setItem(
+              `practicepilot-afs-structured-notes:${engagementId}`,
+              JSON.stringify(savedStructuredNotesState),
+            );
+          } catch {
+            // Supabase remains the source of truth.
+          }
+        }
       }
     } catch (error) {
       console.error("Failed to load Print Studio data", error);
@@ -1734,22 +1722,20 @@ const isDraftPdf =
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),
-        },
+        }
       );
 
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(
-          result.error || "Failed to save Print Studio settings.",
-        );
+        throw new Error(result.error || "Failed to save Print Studio settings.");
       }
 
       setPrintStudioSaveStatus("saved");
 
       window.setTimeout(() => {
         setPrintStudioSaveStatus((current) =>
-          current === "saved" ? "idle" : current,
+          current === "saved" ? "idle" : current
         );
       }, 1600);
     } catch (error) {
@@ -1770,7 +1756,7 @@ const isDraftPdf =
   }
 
   function saveDirectorsReportTextsEverywhere(
-    next: DirectorsReportTextOverrides,
+    next: DirectorsReportTextOverrides
   ) {
     if (!engagementId) return;
 
@@ -1783,7 +1769,7 @@ const isDraftPdf =
   }
 
   function saveAccountingPolicyTextsEverywhere(
-    next: EditableDisclosureTextMap,
+    next: EditableDisclosureTextMap
   ) {
     if (!engagementId) return;
 
@@ -1818,9 +1804,28 @@ const isDraftPdf =
     });
   }
 
+  function saveStructuredNotesStateEverywhere(next: Record<string, any>) {
+    if (!engagementId) return;
+
+    setStructuredNotesState(next);
+
+    try {
+      window.localStorage.setItem(
+        `practicepilot-afs-structured-notes:${engagementId}`,
+        JSON.stringify(next),
+      );
+    } catch {
+      // Supabase remains the source of truth.
+    }
+
+    savePrintStudioSettingsToSupabase({
+      structuredNotesState: next,
+    });
+  }
+
   function updateStatementOverride(
     key: keyof AfsStatementOverrides,
-    value: number | null,
+    value: number | null | "indirect" | "direct"
   ) {
     setStatementOverrides((current) => {
       const next = {
@@ -1844,10 +1849,7 @@ const isDraftPdf =
     });
   }
 
-  function toggleReportOption(
-    key: keyof ReportOptions | string,
-    checked: boolean,
-  ) {
+  function toggleReportOption(key: keyof ReportOptions | string, checked: boolean) {
     setReportOptions((current) => {
       const next = {
         ...current,
@@ -1863,7 +1865,7 @@ const isDraftPdf =
   function option(
     key: keyof ReportOptions,
     label: string,
-    description?: string,
+    description?: string
   ): AfsReportOption {
     return {
       id: String(key),
@@ -1877,46 +1879,23 @@ const isDraftPdf =
   const reportSectionOptions: AfsReportOption[] = [
     option("coverPage", "Cover page", "Show the AFS cover page."),
     option("index", "Index", "Show the report index."),
-    option(
-      "generalInformation",
-      "General information",
-      "Show entity and engagement details.",
-    ),
-    option(
-      "directorsResponsibilities",
-      "Directors’ responsibilities",
-      "Show the approval and responsibility statement.",
-    ),
-    option(
-      "directorsReport",
-      "Directors’ report",
-      "Show the directors’ report.",
-    ),
+    option("generalInformation", "General information", "Show entity and engagement details."),
+    option("directorsResponsibilities", "Directors’ responsibilities", "Show the approval and responsibility statement."),
+    option("directorsReport", "Directors’ report", "Show the directors’ report."),
     option("compilerReport", "Compiler report", "Show the compilation report."),
     option("sfp", "Statement of financial position", "Show SFP."),
-    option(
-      "soci",
-      "Statement of comprehensive income",
-      "Show comprehensive income.",
-    ),
-    option(
-      "sce",
-      "Statement of changes in equity",
-      "Show statement of changes in equity.",
-    ),
+    option("soci", "Statement of comprehensive income", "Show comprehensive income."),
+    option("sce", "Statement of changes in equity", "Show statement of changes in equity."),
     option("cashFlow", "Cash flow", "Show cash flow statement."),
-    option(
-      "accountingPolicies",
-      "Accounting policies",
-      "Show accounting policies.",
-    ),
+    option("accountingPolicies", "Accounting policies", "Show accounting policies."),
     option("notes", "Notes", "Show notes to the financial statements."),
-    option(
-      "detailedIncomeStatement",
-      "Detailed income statement",
-      "Show detailed income statement.",
-    ),
+    option("detailedIncomeStatement", "Detailed income statement", "Show detailed income statement."),
     option("taxComputation", "Tax computation", "Show tax computation."),
+    option(
+      "hideComparativeFigures",
+      "First year of trading / hide comparative figures",
+      "Hide the prior-year column on the AFS statements and notes."
+    ),
   ];
 
   const clientName = String(
@@ -1928,13 +1907,31 @@ const isDraftPdf =
       "entity_name",
     ]) ||
       engagement?.client_name ||
-      "Annual Financial Statements",
+      "Annual Financial Statements"
   );
+
+  const tradingName = cleanString(
+  getSetupValue(clientSetup, [
+    "trading_name",
+    "tradingName",
+    "business_name",
+    "businessName",
+  ]),
+);
+
+const clientLogoUrl = cleanString(
+  getSetupValue(clientSetup, [
+    "logo_url",
+    "client_logo_url",
+    "afs_logo_url",
+  ]),
+);
+
 
   const entityType = String(
     getSetupValue(clientSetup, ["entity_type", "legal_entity_type"]) ||
       engagement?.entity_type ||
-      "Company",
+      "Company"
   );
 
   const yearEnd = String(
@@ -1945,7 +1942,7 @@ const isDraftPdf =
       "period_end",
     ]) ||
       engagement?.financial_year_end ||
-      "Year-end not set",
+      "Year-end not set"
   );
 
   const registrationNumber =
@@ -1956,7 +1953,7 @@ const isDraftPdf =
         "trust_registration_number",
         "master_reference_number",
         "registration_no",
-      ]) || "",
+      ]) || ""
     ) || null;
 
   const country = getSetupValue(clientSetup, [
@@ -1971,9 +1968,9 @@ const isDraftPdf =
       getSetupValue(clientSetup, [
         "current_period_heading",
         "current_year_heading",
-      ]) || yearEnd,
+      ]) || yearEnd
     ),
-    "Current",
+    "Current"
   );
 
   const priorHeading = shortYearHeading(
@@ -1981,16 +1978,14 @@ const isDraftPdf =
       getSetupValue(clientSetup, [
         "prior_period_heading",
         "prior_year_heading",
-      ]),
+      ])
     ),
-    "Prior",
+    "Prior"
   );
-
-  const hideComparativeFigures = Boolean(reportOptions.hideComparativeFigures);
 
   const peopleFromSetup = [
     ...formatMultiline(
-      getSetupValue(clientSetup, ["directors", "members", "trustees"]),
+      getSetupValue(clientSetup, ["directors", "members", "trustees"])
     ),
   ].map((name) => ({ name }));
 
@@ -1999,8 +1994,8 @@ const isDraftPdf =
     directors.length > 0
       ? directors
       : clientPeople.length > 0
-        ? clientPeople
-        : peopleFromSetup;
+      ? clientPeople
+      : peopleFromSetup;
 
   const bodyLabel = governingBody(entityType);
   const bodyLabelCapitalised =
@@ -2043,11 +2038,9 @@ const isDraftPdf =
     "Professional Accountant (SA)";
 
   const practitionerLogoUrl =
-    firmSetting("logo_data_url") ||
     firmSetting("logo_url") ||
     cleanString(
       getSetupValue(clientSetup, [
-        "practitioner_logo_data_url",
         "practitioner_logo_url",
         "compiler_logo_url",
         "firm_logo_url",
@@ -2057,11 +2050,9 @@ const isDraftPdf =
     );
 
   const practitionerFooterLogoUrl =
-    firmSetting("footer_logo_data_url") ||
     firmSetting("footer_logo_url") ||
     cleanString(
       getSetupValue(clientSetup, [
-        "practitioner_footer_logo_data_url",
         "practitioner_footer_logo_url",
         "compiler_footer_logo_url",
         "firm_footer_logo_url",
@@ -2094,7 +2085,8 @@ const isDraftPdf =
     ]) || "________________";
 
   const currency =
-    getSetupValue(clientSetup, ["currency", "presentation_currency"]) || "Rand";
+    getSetupValue(clientSetup, ["currency", "presentation_currency"]) ||
+    "Rand";
 
   const baseNarrativeContext = {
     clientName,
@@ -2112,10 +2104,6 @@ const isDraftPdf =
     practitionerDesignation: String(practitionerDesignation),
     practitionerLogoUrl,
     practitionerFooterLogoUrl,
-    logoDataUrl: firmSetting("logo_data_url"),
-    footerLogoDataUrl: firmSetting("footer_logo_data_url"),
-    governingBodyLogoDataUrl: firmSetting("governing_body_logo_data_url"),
-    secondGoverningBodyLogoDataUrl: firmSetting("second_governing_body_logo_data_url"),
     practitionerAddressLines: firmSetting("address_lines"),
     practitionerTelephone: firmSetting("telephone"),
     practitionerEmail: firmSetting("email"),
@@ -2124,31 +2112,21 @@ const isDraftPdf =
     governingBodyRegistrationNumber: firmSetting(
       "governing_body_registration_number",
     ),
-    governingBodyLogoUrl:
-      firmSetting("governing_body_logo_data_url") ||
-      firmSetting("governing_body_logo_url"),
+    governingBodyLogoUrl: firmSetting("governing_body_logo_url"),
     secondGoverningBodyName: firmSetting("second_governing_body_name"),
     secondGoverningBodyRegistrationNumber: firmSetting(
       "second_governing_body_registration_number",
     ),
-    secondGoverningBodyLogoUrl:
-      firmSetting("second_governing_body_logo_data_url") ||
-      firmSetting("second_governing_body_logo_url"),
-    firmFooterText: firmSetting("footer_text"),
+    secondGoverningBodyLogoUrl: firmSetting("second_governing_body_logo_url"),
     practitionerFooterText: firmSetting("footer_text"),
-    footerText: firmSetting("footer_text"),
-    firmLogoUrl: practitionerLogoUrl,
-    logoUrl: practitionerLogoUrl,
-    letterheadLogoUrl: practitionerLogoUrl,
-    firmFooterLogoUrl: practitionerFooterLogoUrl,
-    footerLogoUrl: practitionerFooterLogoUrl,
+    firmFooterText: firmSetting("footer_text"),
     natureOfBusiness: String(
       getSetupValue(clientSetup, [
         "nature_of_business",
         "principal_activities",
         "business_activity",
         "business_description",
-      ]) || "",
+      ]) || ""
     ),
     country: String(country || "South Africa"),
     directors: directorsForDisplay,
@@ -2174,15 +2152,27 @@ const isDraftPdf =
       firmSettings,
       country,
       directorsForDisplay.length,
-    ],
+    ]
   );
 
-  const activeDirectorsReportTexts =
-    directorsReportTexts || defaultDirectorsReportTexts;
+  const activeDirectorsReportTexts = useMemo(() => {
+    const source = directorsReportTexts || defaultDirectorsReportTexts;
+
+    return Object.fromEntries(
+      Object.entries(source || {}).map(([key, value]: [string, any]) => [
+        key,
+        {
+          ...value,
+          title: String(value?.title || "").replace(/\.\s*\.+/g, "."),
+          text: String(value?.text || "").replace(/\.\s*\.+/g, "."),
+        },
+      ]),
+    ) as DirectorsReportTextOverrides;
+  }, [directorsReportTexts, defaultDirectorsReportTexts]);
 
   const defaultAccountingPolicyTexts = useMemo(
     () => buildDefaultAccountingPolicyTexts(),
-    [],
+    []
   );
 
   const activeAccountingPolicyTexts =
@@ -2190,6 +2180,34 @@ const isDraftPdf =
 
   const defaultNoteTexts = useMemo(() => buildDefaultNoteTexts(), []);
   const activeNoteTexts = noteTexts || defaultNoteTexts;
+
+  const initialSettingsSyncDoneRef = useRef(false);
+
+useEffect(() => {
+  if (
+    loading ||
+    !printStudioSettingsLoaded ||
+    !engagementId ||
+    initialSettingsSyncDoneRef.current
+  ) {
+    return;
+  }
+
+  initialSettingsSyncDoneRef.current = true;
+
+  void savePrintStudioSettingsToSupabase({
+    reportOptions,
+    directorsReportTexts: activeDirectorsReportTexts,
+    accountingPolicyTexts: activeAccountingPolicyTexts,
+    noteTexts: activeNoteTexts,
+    statementOverrides,
+    structuredNotesState,
+  });
+}, [
+  loading,
+  printStudioSettingsLoaded,
+  engagementId,
+]);
 
   const disclosureTokens = {
     clientName,
@@ -2206,7 +2224,7 @@ const isDraftPdf =
 
   function updateDirectorsReportTitle(
     key: DirectorsReportSectionKey,
-    value: string,
+    value: string
   ) {
     setDirectorsReportTexts((current) => {
       const base =
@@ -2227,7 +2245,7 @@ const isDraftPdf =
 
   function updateDirectorsReportText(
     key: DirectorsReportSectionKey,
-    value: string,
+    value: string
   ) {
     setDirectorsReportTexts((current) => {
       const base =
@@ -2272,11 +2290,10 @@ const isDraftPdf =
       const next = {
         ...base,
         [key]: {
-          ...(base[key] ||
-            defaultAccountingPolicyTexts[key] || {
-              title: key,
-              text: "",
-            }),
+          ...(base[key] || defaultAccountingPolicyTexts[key] || {
+            title: key,
+            text: "",
+          }),
           title: value,
         },
       };
@@ -2292,11 +2309,10 @@ const isDraftPdf =
       const next = {
         ...base,
         [key]: {
-          ...(base[key] ||
-            defaultAccountingPolicyTexts[key] || {
-              title: key,
-              text: "",
-            }),
+          ...(base[key] || defaultAccountingPolicyTexts[key] || {
+            title: key,
+            text: "",
+          }),
           text: value,
         },
       };
@@ -2330,11 +2346,10 @@ const isDraftPdf =
       const next = {
         ...base,
         [key]: {
-          ...(base[key] ||
-            defaultNoteTexts[key] || {
-              title: key,
-              text: "",
-            }),
+          ...(base[key] || defaultNoteTexts[key] || {
+            title: key,
+            text: "",
+          }),
           title: value,
         },
       };
@@ -2350,11 +2365,10 @@ const isDraftPdf =
       const next = {
         ...base,
         [key]: {
-          ...(base[key] ||
-            defaultNoteTexts[key] || {
-              title: key,
-              text: "",
-            }),
+          ...(base[key] || defaultNoteTexts[key] || {
+            title: key,
+            text: "",
+          }),
           text: value,
         },
       };
@@ -2429,159 +2443,6 @@ const isDraftPdf =
     directorsReportTexts: activeDirectorsReportTexts,
   };
 
-  const directorsReportFirstPageOptionKeys = [
-    "directorsReportGeneralReview",
-    "directorsReportIncorporation",
-    "directorsReportNatureBusiness",
-    "directorsReportReviewActivities",
-    "directorsReportFinancialResults",
-    "directorsReportEventsAfter",
-    "directorsReportDividends",
-    "directorsReportShareCapital",
-    "directorsReportDirectors",
-    "directorsReportSecretary",
-    "directorsReportExternalAccountant",
-    "directorsReportInterestContracts",
-    "directorsReportBorrowingLimitations",
-    "directorsReportShareholder",
-  ];
-
-  const directorsReportContinuationOptionKeys = [
-    "directorsReportGoingConcern",
-    "directorsReportLiquiditySolvency",
-    "directorsReportLitigation",
-    "directorsReportSocialEthics",
-    "directorsReportSubsidiaries",
-    "directorsReportAssociates",
-    "directorsReportJointVentures",
-    "directorsReportNonCurrentAssets",
-    "directorsReportAuthorisation",
-    "directorsReportOther1",
-    "directorsReportOther2",
-    "directorsReportOther3",
-    "directorsReportOther4",
-    "directorsReportOther5",
-    "directorsReportOther6",
-    "directorsReportOther7",
-    "directorsReportOther8",
-    "directorsReportOther9",
-    "directorsReportOther10",
-  ];
-
-  const directorsReportContinuationStartNumber =
-    directorsReportFirstPageOptionKeys.filter(
-      (key) => Boolean((reportOptions as any)[key]),
-    ).length;
-
-  const showDirectorsReportContinuation =
-    directorsReportContinuationOptionKeys.some((key) =>
-      Boolean((reportOptions as any)[key]),
-    );
-
-
-
-  function renderDirectorsReportAuthorisationExportPage() {
-    const authorisationTextBlock =
-  ((activeDirectorsReportTexts as any)?.directorsReportAuthorisation ||
-    (activeDirectorsReportTexts as any)?.authorisation ||
-    (defaultDirectorsReportTexts as any)?.directorsReportAuthorisation ||
-    (defaultDirectorsReportTexts as any)?.authorisation ||
-    {}) as { title?: string; text?: string };
-
-const directorsReportSectionsBeforeAuthorisation = [
-  reportOptions.directorsReportGeneralReview,
-  reportOptions.directorsReportIncorporation,
-  reportOptions.directorsReportNatureBusiness,
-  reportOptions.directorsReportReviewActivities,
-  reportOptions.directorsReportFinancialResults,
-  reportOptions.directorsReportEventsAfter,
-  reportOptions.directorsReportDividends,
-  reportOptions.directorsReportShareCapital,
-  reportOptions.directorsReportDirectors,
-  reportOptions.directorsReportSecretary,
-  reportOptions.directorsReportExternalAccountant,
-  reportOptions.directorsReportInterestContracts,
-  reportOptions.directorsReportBorrowingLimitations,
-  reportOptions.directorsReportShareholder,
-  reportOptions.directorsReportGoingConcern,
-  reportOptions.directorsReportLiquiditySolvency,
-  reportOptions.directorsReportLitigation,
-  reportOptions.directorsReportSocialEthics,
-  reportOptions.directorsReportSubsidiaries,
-  reportOptions.directorsReportAssociates,
-  reportOptions.directorsReportJointVentures,
-  reportOptions.directorsReportNonCurrentAssets,
-];
-
-const authorisationNumber =
-  directorsReportSectionsBeforeAuthorisation.filter(Boolean).length + 1;
-
-const cleanAuthorisationTitle = String(
-  authorisationTextBlock.title || "Authorisation of annual financial statements",
-)
-  .replace(/^\d+\.\s*/, "")
-  .trim();
-
-const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
-
-    const rawText =
-      authorisationTextBlock.text ||
-      `The annual financial statements were authorised for issue by the ${bodyLabel} on ${approvalDate}.`;
-
-    const paragraphs = renderDisclosureText(String(rawText), {
-      ...disclosureTokens,
-      bodyLabel,
-      approvalDate: String(approvalDate),
-      clientName,
-    } as any);
-
-    return (
-      <AfsA4Page {...reportHeaderProps}>
-        <section
-          className="afs-directors-report-authorisation-page"
-          style={{
-            fontSize: 11.2,
-            lineHeight: 1.45,
-            color: "#111827",
-          }}
-        >
-          <h1 style={pageHeadingStyle()}>{reportTitle(entityType)} continued</h1>
-
-          <section
-            style={{
-              breakInside: "avoid",
-              pageBreakInside: "avoid",
-              marginTop: 8,
-            }}
-          >
-            <h2
-              style={{
-                ...sectionHeadingStyle(),
-                marginTop: 0,
-                breakAfter: "avoid",
-                pageBreakAfter: "avoid",
-              }}
-            >
-              {title}
-            </h2>
-
-            {paragraphs.map((paragraph, paragraphIndex) => (
-              <p
-                key={`directors-report-authorisation-${paragraphIndex}`}
-                style={{
-                  ...paragraphStyle(),
-                  marginBottom: paragraphIndex === paragraphs.length - 1 ? 0 : 10,
-                }}
-              >
-                {paragraph}
-              </p>
-            ))}
-          </section>
-        </section>
-      </AfsA4Page>
-    );
-  }
-
   const noteNumberMap = useMemo(() => {
     const keyMap: Record<string, AfsNoteKey> = {
       notesPropertyPlantEquipment: "propertyPlantEquipment",
@@ -2625,25 +2486,1615 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
     return map;
   }, [reportOptions]);
 
-  const statementEngine = useMemo(
+  const historicalCashFlowData = useMemo(
+    () => buildHistoricalCashFlowData(trialBalanceHistory),
+    [trialBalanceHistory],
+  );
+
+  const effectiveStatementOverrides = useMemo(
+    () => ({
+      /*
+        Historical values are fallbacks only. A value deliberately captured
+        in the workbench must always take priority.
+      */
+      ...historicalCashFlowData.overrides,
+      ...statementOverrides,
+    }),
+    [statementOverrides, historicalCashFlowData],
+  );
+
+  const baseStatementEngine = useMemo(
     () =>
       buildAfsPrintStatementEngine(
         trialBalanceLines,
-        statementOverrides,
-        noteNumberMap,
+        effectiveStatementOverrides,
+        noteNumberMap
       ),
-    [trialBalanceLines, statementOverrides, noteNumberMap],
+    [trialBalanceLines, effectiveStatementOverrides, noteNumberMap]
   );
+
+const effectiveStructuredNotesState = useMemo(() => {
+  const currentState =
+    structuredNotesState && typeof structuredNotesState === "object"
+      ? structuredNotesState
+      : {};
+
+  const currentCashGenerated =
+    currentState.cashGeneratedFromOperations &&
+    typeof currentState.cashGeneratedFromOperations === "object"
+      ? currentState.cashGeneratedFromOperations
+      : {};
+
+  const currentValues =
+    currentCashGenerated.values &&
+    typeof currentCashGenerated.values === "object"
+      ? currentCashGenerated.values
+      : {};
+
+  const ppeInputs =
+    currentState.ppeInputs &&
+    typeof currentState.ppeInputs === "object"
+      ? currentState.ppeInputs
+      : {};
+
+  const ppeDepreciation = (
+    side: "current" | "prior",
+  ) =>
+    Object.values(ppeInputs).reduce((sum: number, row: any) => {
+      return (
+        sum +
+        Math.abs(
+          Number(
+            row?.[side]?.depreciation ??
+              row?.[side]?.depreciationCharge ??
+              0,
+          ),
+        )
+      );
+    }, 0);
+
+  const mappedNoteTotal = (
+    lines: any[] | undefined,
+    side: "current" | "prior",
+  ) =>
+    (lines || []).reduce(
+      (sum: number, line: any) =>
+        sum + Number(line?.[side] || 0),
+      0,
+    );
+
+  const mappedDepreciationCurrent =
+    ppeDepreciation("current");
+
+  const mappedDepreciationPrior =
+    ppeDepreciation("prior");
+
+  const existingDepreciation =
+    currentValues.depreciationAmortisationImpairment || {};
+
+  return {
+    ...currentState,
+    cashGeneratedFromOperations: {
+      ...currentCashGenerated,
+      values: {
+        ...currentValues,
+
+        depreciationAmortisationImpairment: {
+          ...existingDepreciation,
+
+          current:
+            existingDepreciation.current !== undefined &&
+            existingDepreciation.current !== null &&
+            existingDepreciation.current !== ""
+              ? existingDepreciation.current
+              : mappedDepreciationCurrent,
+
+          prior:
+            existingDepreciation.prior !== undefined &&
+            existingDepreciation.prior !== null &&
+            existingDepreciation.prior !== ""
+              ? existingDepreciation.prior
+              : mappedDepreciationPrior,
+        },
+
+        inventories: {
+          ...(currentValues.inventories || {}),
+          current:
+            currentValues.inventories?.current !== undefined &&
+            currentValues.inventories?.current !== null &&
+            currentValues.inventories?.current !== ""
+              ? currentValues.inventories.current
+              : Number(
+                  baseStatementEngine.cashFlowRows?.find(
+                    (row: any) =>
+                      String(row?.id || "") === "cfs-inventories",
+                  )?.current || 0,
+                ),
+          prior:
+            currentValues.inventories?.prior !== undefined &&
+            currentValues.inventories?.prior !== null &&
+            currentValues.inventories?.prior !== ""
+              ? currentValues.inventories.prior
+              : historicalCashFlowData.inventoryPrior,
+        },
+
+        tradeReceivables: {
+          ...(currentValues.tradeReceivables || {}),
+          current:
+            currentValues.tradeReceivables?.current !== undefined &&
+            currentValues.tradeReceivables?.current !== null &&
+            currentValues.tradeReceivables?.current !== ""
+              ? currentValues.tradeReceivables.current
+              : Number(
+                  baseStatementEngine.cashFlowRows?.find(
+                    (row: any) =>
+                      String(row?.id || "") ===
+                      "cfs-trade-receivables",
+                  )?.current || 0,
+                ),
+          prior:
+            currentValues.tradeReceivables?.prior !== undefined &&
+            currentValues.tradeReceivables?.prior !== null &&
+            currentValues.tradeReceivables?.prior !== ""
+              ? currentValues.tradeReceivables.prior
+              : historicalCashFlowData.receivablesPrior,
+        },
+
+        tradePayables: {
+          ...(currentValues.tradePayables || {}),
+          current:
+            currentValues.tradePayables?.current !== undefined &&
+            currentValues.tradePayables?.current !== null &&
+            currentValues.tradePayables?.current !== ""
+              ? currentValues.tradePayables.current
+              : Number(
+                  baseStatementEngine.cashFlowRows?.find(
+                    (row: any) =>
+                      String(row?.id || "") ===
+                      "cfs-trade-payables",
+                  )?.current || 0,
+                ),
+          prior:
+            currentValues.tradePayables?.prior !== undefined &&
+            currentValues.tradePayables?.prior !== null &&
+            currentValues.tradePayables?.prior !== ""
+              ? currentValues.tradePayables.prior
+              : historicalCashFlowData.payablesPrior,
+        },
+
+        investmentIncome: {
+          ...(currentValues.investmentIncome || {}),
+          current:
+            currentValues.investmentIncome?.current !== undefined &&
+            currentValues.investmentIncome?.current !== null &&
+            currentValues.investmentIncome?.current !== ""
+              ? currentValues.investmentIncome.current
+              : Math.abs(
+                  mappedNoteTotal(
+                    baseStatementEngine.noteData.otherIncome,
+                    "current",
+                  ),
+                ),
+          prior:
+            currentValues.investmentIncome?.prior !== undefined &&
+            currentValues.investmentIncome?.prior !== null &&
+            currentValues.investmentIncome?.prior !== ""
+              ? currentValues.investmentIncome.prior
+              : Math.abs(
+                  mappedNoteTotal(
+                    baseStatementEngine.noteData.otherIncome,
+                    "prior",
+                  ),
+                ),
+        },
+
+        financeCosts: {
+          ...(currentValues.financeCosts || {}),
+          current:
+            currentValues.financeCosts?.current !== undefined &&
+            currentValues.financeCosts?.current !== null &&
+            currentValues.financeCosts?.current !== ""
+              ? currentValues.financeCosts.current
+              : Math.abs(
+                  mappedNoteTotal(
+                    baseStatementEngine.noteData.financeCosts,
+                    "current",
+                  ),
+                ),
+          prior:
+            currentValues.financeCosts?.prior !== undefined &&
+            currentValues.financeCosts?.prior !== null &&
+            currentValues.financeCosts?.prior !== ""
+              ? currentValues.financeCosts.prior
+              : Math.abs(
+                  mappedNoteTotal(
+                    baseStatementEngine.noteData.financeCosts,
+                    "prior",
+                  ),
+                ),
+        },
+      },
+    },
+  };
+}, [
+  structuredNotesState,
+  baseStatementEngine,
+  historicalCashFlowData,
+]);
+
+  const statementEngine = useMemo(() => {
+    const values =
+  effectiveStructuredNotesState?.cashGeneratedFromOperations?.values || {};
+
+    const hasStoredValue = (key: string, side: "current" | "prior") => {
+      const value = values?.[key]?.[side];
+      return value !== undefined && value !== null && value !== "";
+    };
+
+    const storedAmount = (
+      key: string,
+      side: "current" | "prior",
+      fallback: number,
+    ) => {
+      if (!hasStoredValue(key, side)) return fallback;
+      const parsed = Number(values[key][side]);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+
+    const rows = (baseStatementEngine.cashFlowRows || []).map((row: any) => ({ ...row }));
+    const findById = (id: string) => rows.find((row: any) => String(row?.id || "") === id);
+    const findByLabel = (terms: string[]) => rows.find((row: any) => {
+      const label = String(row?.label || "").toLowerCase();
+      return terms.every((term) => label.includes(term));
+    });
+
+    const adjustmentKeys = [
+      "adjustments",
+      "depreciationAmortisationImpairment",
+      "lossOnSaleAssetsLiabilities",
+      "fairValueGainsLosses",
+      "movementProvisions",
+      "otherNonCash1",
+      "investmentIncome",
+      "financeCosts",
+    ];
+
+    const adjustmentsCurrent = adjustmentKeys.reduce(
+  (sum, key) => sum + storedAmount(key, "current", 0),
+  0,
+);
+
+const adjustmentsPrior = adjustmentKeys.reduce(
+  (sum, key) => sum + storedAmount(key, "prior", 0),
+  0,
+);
+
+    const profitRow = findById("cfs-profit-before-tax") || findByLabel(["profit", "before taxation"]);
+    const adjustmentsRow = findById("cfs-adjustments") || findByLabel(["adjustments", "non-cash"]);
+    const inventoryRow = findById("cfs-inventories") || findByLabel(["inventor"]);
+    const receivablesRow = findById("cfs-trade-receivables") || findByLabel(["trade", "receivables"]);
+    const payablesRow = findById("cfs-trade-payables") || findByLabel(["trade", "payables"]);
+    const generatedRow = findById("cfs-cash-generated-operations") || findByLabel(["cash generated", "operations"]);
+    const interestReceivedRow =
+      findById("cfs-interest-received") ||
+      findByLabel(["interest received"]);
+    const financeCostsPaidRow =
+      findById("cfs-finance-costs-paid") ||
+      findByLabel(["finance costs paid"]);
+    const taxPaidRow =
+      findById("cfs-tax-paid") ||
+      findByLabel(["taxation paid"]) ||
+      findByLabel(["tax paid"]);
+    const otherOperatingRow = findById("cfs-other-operating") || findByLabel(["other operating cash flows"]);
+    const netOperatingRow = findById("cfs-net-operating") || findByLabel(["net cash", "operating activities"]);
+    const purchasePpeRow =
+      findById("cfs-purchase-ppe") ||
+      findByLabel(["purchase", "property", "plant", "equipment"]);
+
+    const disposalPpeRow =
+      findById("cfs-disposal-ppe") ||
+      findByLabel(["proceeds", "disposal", "property", "plant", "equipment"]);
+
+    const otherInvestingRow =
+      findById("cfs-other-investing") ||
+      findByLabel(["other investing cash flows"]);
+
+    const netInvestingRow =
+      findById("cfs-net-investing") ||
+      findByLabel(["net cash", "investing activities"]);
+
+    const netFinancingRow =
+      findById("cfs-net-financing") ||
+      findByLabel(["net cash", "financing activities"]);
+
+    /*
+      Prior-year financing must represent movements, not closing balances.
+      The statement engine may carry a legacy prior closing liability into
+      Other financing cash flows. Replace that comparative with explicit
+      movement values only.
+    */
+    const loansRaisedRow =
+      findById("cfs-loans-raised") ||
+      findByLabel(["shareholder loans raised"]);
+
+    const dividendsPaidRow =
+      findById("cfs-dividends-paid") ||
+      findByLabel(["dividends paid"]);
+
+    const otherFinancingRow =
+      findById("cfs-other-financing") ||
+      findByLabel(["other financing cash flows"]);
+
+    const explicitOtherFinancingPrior =
+      effectiveStatementOverrides.cashOtherFinancingPrior !== null &&
+      effectiveStatementOverrides.cashOtherFinancingPrior !== undefined
+        ? Number(effectiveStatementOverrides.cashOtherFinancingPrior || 0)
+        : 0;
+
+    if (otherFinancingRow) {
+      otherFinancingRow.prior = Math.round(explicitOtherFinancingPrior);
+    }
+
+    const correctedNetFinancingPrior =
+      Number(loansRaisedRow?.prior || 0) +
+      Number(dividendsPaidRow?.prior || 0) +
+      explicitOtherFinancingPrior;
+
+    if (netFinancingRow) {
+      netFinancingRow.prior = Math.round(correctedNetFinancingPrior);
+    }
+
+    const ppeAdditionsFromNote = (side: "current" | "prior") => {
+  const savedRows = Array.isArray(structuredNotesState?.ppeRows)
+    ? structuredNotesState.ppeRows
+    : [];
+
+  const savedInputs =
+    structuredNotesState?.ppeInputs &&
+    typeof structuredNotesState.ppeInputs === "object"
+      ? Object.values(structuredNotesState.ppeInputs)
+      : [];
+
+  const rows = savedRows.length > 0 ? savedRows : savedInputs;
+
+  return rows.reduce(
+    (sum: number, row: any) =>
+      sum + Number(row?.[side]?.additions || 0),
+    0,
+  );
+};
+
+const ppeAdditionsCurrent = ppeAdditionsFromNote("current");
+const ppeAdditionsPrior = ppeAdditionsFromNote("prior");
+
+const purchasePpeCurrent = -Math.abs(ppeAdditionsCurrent);
+const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
+
+    if (purchasePpeRow) {
+      purchasePpeRow.current = Math.round(purchasePpeCurrent);
+      purchasePpeRow.prior = Math.round(purchasePpePrior);
+    }
+    const netMovementRow = findById("cfs-net-movement") || findByLabel(["net increase"]);
+    const openingCashRow = findById("cfs-opening-cash") || findByLabel(["cash and cash equivalents at beginning"]);
+    const closingCashRow = findById("cfs-closing-cash") || findByLabel(["cash and cash equivalents at end"]);
+
+    const inventoryCurrent = storedAmount("inventories", "current", Number(inventoryRow?.current || 0));
+    const inventoryPrior = storedAmount(
+      "inventories",
+      "prior",
+      trialBalanceHistory.length >= 2
+        ? historicalCashFlowData.inventoryPrior
+        : Number(inventoryRow?.prior || 0),
+    );
+
+    const receivablesCurrent =
+      storedAmount(
+        "tradeReceivables",
+        "current",
+        Number(receivablesRow?.current || 0),
+      ) +
+      storedAmount("prepayments", "current", 0);
+
+    const receivablesPrior =
+      storedAmount(
+        "tradeReceivables",
+        "prior",
+        trialBalanceHistory.length >= 2
+          ? historicalCashFlowData.receivablesPrior
+          : Number(receivablesRow?.prior || 0),
+      ) +
+      storedAmount("prepayments", "prior", 0);
+
+    const payablesCurrent =
+      storedAmount(
+        "tradePayables",
+        "current",
+        Number(payablesRow?.current || 0),
+      ) +
+      storedAmount("deferredIncome", "current", 0);
+
+    const payablesPrior =
+      storedAmount(
+        "tradePayables",
+        "prior",
+        trialBalanceHistory.length >= 2
+          ? historicalCashFlowData.payablesPrior
+          : Number(payablesRow?.prior || 0),
+      ) +
+      storedAmount("deferredIncome", "prior", 0);
+
+    const sociProfitBeforeTaxRow = (baseStatementEngine.sociRows || []).find(
+      (row: any) =>
+        String(row?.label || "").trim().toLowerCase() ===
+        "profit / (loss) before taxation",
+    );
+
+    /*
+      The cash-flow statement starts from profit before taxation. Do not trust
+      a legacy cash-flow row here because it may contain profit after tax when
+      deferred tax is present. The SOCI subtotal is the source of truth.
+    */
+    const cashFlowProfitBeforeTaxCurrent = Number(
+      sociProfitBeforeTaxRow?.current || 0,
+    );
+    const cashFlowProfitBeforeTaxPrior = Number(
+      sociProfitBeforeTaxRow?.prior || 0,
+    );
+
+    if (profitRow) {
+      profitRow.current = Math.round(cashFlowProfitBeforeTaxCurrent);
+      profitRow.prior = Math.round(cashFlowProfitBeforeTaxPrior);
+    }
+
+    const generatedCurrent =
+      cashFlowProfitBeforeTaxCurrent +
+      adjustmentsCurrent +
+      inventoryCurrent +
+      receivablesCurrent +
+      payablesCurrent;
+
+    const generatedPrior =
+      cashFlowProfitBeforeTaxPrior +
+      adjustmentsPrior +
+      inventoryPrior +
+      receivablesPrior +
+      payablesPrior;
+
+    if (adjustmentsRow) {
+      adjustmentsRow.current = Math.round(adjustmentsCurrent);
+      adjustmentsRow.prior = Math.round(adjustmentsPrior);
+    }
+    if (inventoryRow) {
+      inventoryRow.current = Math.round(inventoryCurrent);
+      inventoryRow.prior = Math.round(inventoryPrior);
+    }
+    if (receivablesRow) {
+      receivablesRow.current = Math.round(receivablesCurrent);
+      receivablesRow.prior = Math.round(receivablesPrior);
+    }
+    if (payablesRow) {
+      payablesRow.current = Math.round(payablesCurrent);
+      payablesRow.prior = Math.round(payablesPrior);
+    }
+    if (generatedRow) {
+      generatedRow.current = Math.round(generatedCurrent);
+      generatedRow.prior = Math.round(generatedPrior);
+    }
+
+    const mappedNoteTotal = (
+      lines: any[] | undefined,
+      side: "current" | "prior",
+    ) =>
+      (lines || []).reduce(
+        (sum: number, line: any) =>
+          sum + Number(line?.[side] || 0),
+        0,
+      );
+
+    const mappedInterestReceivedCurrent = Math.abs(
+      mappedNoteTotal(
+        baseStatementEngine.noteData.otherIncome,
+        "current",
+      ),
+    );
+
+    const mappedInterestReceivedPrior = Math.abs(
+      mappedNoteTotal(
+        baseStatementEngine.noteData.otherIncome,
+        "prior",
+      ),
+    );
+
+    const mappedFinanceCostsPaidCurrent = -Math.abs(
+      mappedNoteTotal(
+        baseStatementEngine.noteData.financeCosts,
+        "current",
+      ),
+    );
+
+    const mappedFinanceCostsPaidPrior = -Math.abs(
+      mappedNoteTotal(
+        baseStatementEngine.noteData.financeCosts,
+        "prior",
+      ),
+    );
+
+    /*
+      Taxation in the SOCI is already presented with the correct cash-flow
+      sign: an expense is negative and a tax credit is positive.
+
+      A workbench amount remains an explicit override. When no override has
+      been captured, use the mapped taxation amount automatically.
+    */
+    const exactMappedRawTotal = (
+      mappingCode: string,
+      side: "current" | "prior",
+    ) =>
+      (trialBalanceLines || [])
+        .filter(
+          (line) =>
+            normaliseMappingIdentifier(line.mapping_code) ===
+            normaliseMappingIdentifier(mappingCode),
+        )
+        .reduce(
+          (sum, line) =>
+            sum +
+            (side === "current"
+              ? rawCurrent(line)
+              : rawPrior(line)),
+          0,
+        );
+
+    /*
+      Current tax paid is calculated from current-tax mappings only.
+      Deferred tax mappings 395.10 and 795.20 are deliberately excluded.
+
+      Tax paid =
+        opening current-tax payable
+        - opening current-tax receivable
+        + current-tax expense
+        - closing current-tax payable
+        + closing current-tax receivable
+
+      The cash-flow line is presented as a negative outflow.
+    */
+    const currentTaxExpenseCurrent = Math.abs(
+      exactMappedRawTotal("795.10", "current"),
+    );
+
+    const openingCurrentTaxReceivable = Math.abs(
+      exactMappedRawTotal("495.10", "prior"),
+    );
+    const closingCurrentTaxReceivable = Math.abs(
+      exactMappedRawTotal("495.10", "current"),
+    );
+
+    const openingCurrentTaxPayable = Math.abs(
+      exactMappedRawTotal("695.10", "prior"),
+    );
+    const closingCurrentTaxPayable = Math.abs(
+      exactMappedRawTotal("695.10", "current"),
+    );
+
+    const calculatedCurrentTaxPaid =
+      openingCurrentTaxPayable -
+      openingCurrentTaxReceivable +
+      currentTaxExpenseCurrent -
+      closingCurrentTaxPayable +
+      closingCurrentTaxReceivable;
+
+    const mappedTaxPaidCurrent =
+      calculatedCurrentTaxPaid === 0
+        ? 0
+        : -Math.abs(calculatedCurrentTaxPaid);
+
+    /*
+      The opening comparative tax balances are not available from the active
+      two-column TB alone, so prior-year tax paid remains an explicit
+      workbench amount unless historical tax-control data is added later.
+    */
+    const mappedTaxPaidPrior = 0;
+
+    const interestReceivedCurrent =
+      effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
+      effectiveStatementOverrides.cashInterestReceivedCurrent !== undefined
+        ? Number(
+            effectiveStatementOverrides.cashInterestReceivedCurrent || 0,
+          )
+        : mappedInterestReceivedCurrent;
+
+    const interestReceivedPrior =
+      effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
+      effectiveStatementOverrides.cashInterestReceivedPrior !== undefined
+        ? Number(
+            effectiveStatementOverrides.cashInterestReceivedPrior || 0,
+          )
+        : mappedInterestReceivedPrior;
+
+    const financeCostsPaidCurrent =
+      effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== null &&
+      effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== undefined
+        ? Number(
+            effectiveStatementOverrides.cashFinanceCostsPaidCurrent || 0,
+          )
+        : mappedFinanceCostsPaidCurrent;
+
+    const financeCostsPaidPrior =
+      effectiveStatementOverrides.cashFinanceCostsPaidPrior !== null &&
+      effectiveStatementOverrides.cashFinanceCostsPaidPrior !== undefined
+        ? Number(
+            effectiveStatementOverrides.cashFinanceCostsPaidPrior || 0,
+          )
+        : mappedFinanceCostsPaidPrior;
+
+    const manualTaxPaidCurrent = Number(
+      effectiveStatementOverrides.cashTaxPaidCurrent || 0,
+    );
+    const manualTaxPaidPrior = Number(
+      effectiveStatementOverrides.cashTaxPaidPrior || 0,
+    );
+
+    /*
+      Blank workbench inputs are persisted as zero. A saved zero must not
+      suppress a real tax payment calculated from the exact current-tax
+      mappings. A non-zero workbench amount remains an explicit override.
+    */
+    const taxPaidCurrent =
+      Math.abs(manualTaxPaidCurrent) > 0
+        ? manualTaxPaidCurrent
+        : mappedTaxPaidCurrent;
+
+    const taxPaidPrior =
+      Math.abs(manualTaxPaidPrior) > 0
+        ? manualTaxPaidPrior
+        : mappedTaxPaidPrior;
+
+    if (interestReceivedRow) {
+      interestReceivedRow.current = Math.round(interestReceivedCurrent);
+      interestReceivedRow.prior = Math.round(interestReceivedPrior);
+    }
+
+    if (financeCostsPaidRow) {
+      financeCostsPaidRow.current = Math.round(financeCostsPaidCurrent);
+      financeCostsPaidRow.prior = Math.round(financeCostsPaidPrior);
+    }
+
+    if (taxPaidRow) {
+      taxPaidRow.current = Math.round(taxPaidCurrent);
+      taxPaidRow.prior = Math.round(taxPaidPrior);
+    }
+
+    const otherOperatingCurrent =
+      Number(effectiveStatementOverrides.cashOtherOperatingCurrent || 0) +
+      Number(effectiveStatementOverrides.cashOtherOperating2Current || 0) +
+      Number(effectiveStatementOverrides.cashOtherOperating3Current || 0);
+    const otherOperatingPrior =
+      Number(effectiveStatementOverrides.cashOtherOperatingPrior || 0) +
+      Number(effectiveStatementOverrides.cashOtherOperating2Prior || 0) +
+      Number(effectiveStatementOverrides.cashOtherOperating3Prior || 0);
+
+    if (otherOperatingRow) {
+      otherOperatingRow.current = Math.round(otherOperatingCurrent);
+      otherOperatingRow.prior = Math.round(otherOperatingPrior);
+    }
+
+    const netOperatingCurrent =
+      generatedCurrent +
+      interestReceivedCurrent +
+      financeCostsPaidCurrent +
+      taxPaidCurrent +
+      otherOperatingCurrent;
+    const netOperatingPrior =
+      generatedPrior +
+      interestReceivedPrior +
+      financeCostsPaidPrior +
+      taxPaidPrior +
+      otherOperatingPrior;
+
+    if (netOperatingRow) {
+      netOperatingRow.current = Math.round(netOperatingCurrent);
+      netOperatingRow.prior = Math.round(netOperatingPrior);
+    }
+
+  const otherInvestingCurrent =
+  Number(effectiveStatementOverrides.cashOtherInvestingCurrent || 0) +
+  Number(effectiveStatementOverrides.cashOtherInvesting2Current || 0) +
+  Number(effectiveStatementOverrides.cashOtherInvesting3Current || 0);
+
+const otherInvestingPrior =
+  Number(effectiveStatementOverrides.cashOtherInvestingPrior || 0) +
+  Number(effectiveStatementOverrides.cashOtherInvesting2Prior || 0) +
+  Number(effectiveStatementOverrides.cashOtherInvesting3Prior || 0);
+
+if (otherInvestingRow) {
+  otherInvestingRow.current = Math.round(otherInvestingCurrent);
+  otherInvestingRow.prior = Math.round(otherInvestingPrior);
+}
+
+const netInvestingCurrent =
+  purchasePpeCurrent +
+  Number(disposalPpeRow?.current || 0) +
+  otherInvestingCurrent;
+
+const netInvestingPrior =
+  purchasePpePrior +
+  Number(disposalPpeRow?.prior || 0) +
+  otherInvestingPrior;
+
+    if (netInvestingRow) {
+      netInvestingRow.current = Math.round(netInvestingCurrent);
+      netInvestingRow.prior = Math.round(netInvestingPrior);
+    }
+
+    const netMovementCurrent =
+      netOperatingCurrent +
+      netInvestingCurrent +
+      Number(netFinancingRow?.current || 0);
+
+    const netMovementPrior =
+      netOperatingPrior +
+      netInvestingPrior +
+      Number(netFinancingRow?.prior || 0);
+
+    if (netMovementRow) {
+      netMovementRow.current = Math.round(netMovementCurrent);
+      netMovementRow.prior = Math.round(netMovementPrior);
+    }
+
+    const openingCurrent = Number(
+      baseStatementEngine.checks.cashClosingPriorFromSfp || 0,
+    );
+    const openingPrior =
+      effectiveStatementOverrides.cashPriorOpeningBalance !== null &&
+      effectiveStatementOverrides.cashPriorOpeningBalance !== undefined
+        ? Number(effectiveStatementOverrides.cashPriorOpeningBalance || 0)
+        : 0;
+
+    if (openingCashRow) {
+      openingCashRow.current = Math.round(openingCurrent);
+      openingCashRow.prior = Math.round(openingPrior);
+    }
+
+    const calculatedClosingCurrent = openingCurrent + netMovementCurrent;
+const calculatedClosingPrior = openingPrior + netMovementPrior;
+
+const sfpClosingCurrent = Number(
+  baseStatementEngine.checks.cashClosingFromSfp || 0,
+);
+const sfpClosingPrior = Number(
+  baseStatementEngine.checks.cashClosingPriorFromSfp || 0,
+);
+
+const rawRoundingCurrent =
+  Math.round(sfpClosingCurrent) - Math.round(calculatedClosingCurrent);
+
+const rawRoundingPrior =
+  Math.round(sfpClosingPrior) - Math.round(calculatedClosingPrior);
+
+const roundingCurrent =
+  Math.abs(rawRoundingCurrent) <= 1 ? rawRoundingCurrent : 0;
+
+const roundingPrior =
+  Math.abs(rawRoundingPrior) <= 1 ? rawRoundingPrior : 0;
+
+const closingRowIndex = rows.findIndex((row: any) => {
+  const id = String(row?.id || "").toLowerCase();
+  const label = String(row?.label || "").toLowerCase();
+
+  return (
+    id === "cfs-closing-cash" ||
+    label.includes("cash and cash equivalents at end of year")
+  );
+});
+
+const existingRoundingRow = rows.find(
+  (row: any) => String(row?.id || "") === "cfs-rounding-adjustment",
+);
+
+if (existingRoundingRow) {
+  existingRoundingRow.current = roundingCurrent;
+  existingRoundingRow.prior = roundingPrior;
+} else if (
+  closingRowIndex >= 0 &&
+  (roundingCurrent !== 0 || roundingPrior !== 0)
+) {
+  rows.splice(closingRowIndex, 0, {
+    id: "cfs-rounding-adjustment",
+    label: "Rounding adjustment",
+    note: "",
+    current: roundingCurrent,
+    prior: roundingPrior,
+    type: "line",
+    kind: "line",
+    indent: 0,
+  });
+}
+
+const finalClosingCurrent =
+  calculatedClosingCurrent + roundingCurrent;
+
+const finalClosingPrior =
+  calculatedClosingPrior + roundingPrior;
+
+if (closingCashRow) {
+  closingCashRow.current = Math.round(finalClosingCurrent);
+  closingCashRow.prior = Math.round(finalClosingPrior);
+}
+
+    const checks = {
+      ...baseStatementEngine.checks,
+      cashMovementFromCashFlow: Math.round(netMovementCurrent),
+      cashClosingFromCashFlow: Math.round(finalClosingCurrent),
+      cashFlowMovementDifference: Math.round(
+        netMovementCurrent - Number(baseStatementEngine.checks.cashMovementFromSfp || 0),
+      ),
+      cashFlowClosingDifference: Math.round(
+  finalClosingCurrent - sfpClosingCurrent,
+),
+      cashOpeningPrior: Math.round(openingPrior),
+      cashMovementPriorFromCashFlow: Math.round(netMovementPrior),
+      cashClosingPriorFromCashFlow: Math.round(finalClosingPrior),
+      cashFlowPriorClosingDifference: Math.round(
+  finalClosingPrior - sfpClosingPrior,
+),
+    };
+
+    const cashFlowMethod =
+      effectiveStatementOverrides.cashFlowMethod || "indirect";
+
+    if (cashFlowMethod === "direct") {
+      const noteTotal = (
+        lines: any[] | undefined,
+        side: "current" | "prior",
+      ) =>
+        (lines || []).reduce(
+          (sum: number, line: any) =>
+            sum + Number(line?.[side] || 0),
+          0,
+        );
+
+      const mappedRawTotal = (
+        requiredTerms: string[],
+        side: "current" | "prior",
+      ) =>
+        (trialBalanceLines || [])
+          .filter((line) => {
+            const mappingText = lineSearchText(line);
+
+            return requiredTerms.every((term) =>
+              mappingText.includes(term),
+            );
+          })
+          .reduce(
+            (sum, line) =>
+              sum +
+              (side === "current"
+                ? rawCurrent(line)
+                : rawPrior(line)),
+            0,
+          );
+
+      const revenueCurrent = noteTotal(
+        baseStatementEngine.noteData.revenue,
+        "current",
+      );
+
+      const revenuePrior = noteTotal(
+        baseStatementEngine.noteData.revenue,
+        "prior",
+      );
+
+      const otherIncomeCurrent = noteTotal(
+        baseStatementEngine.noteData.otherIncome,
+        "current",
+      );
+
+      const otherIncomePrior = noteTotal(
+        baseStatementEngine.noteData.otherIncome,
+        "prior",
+      );
+
+      const financeCostsCurrent = Math.abs(
+        noteTotal(
+          baseStatementEngine.noteData.financeCosts,
+          "current",
+        ),
+      );
+
+      const financeCostsPrior = Math.abs(
+        noteTotal(
+          baseStatementEngine.noteData.financeCosts,
+          "prior",
+        ),
+      );
+
+      const profitBeforeTaxCurrent =
+        Number(profitRow?.current || 0);
+
+      const profitBeforeTaxPrior =
+        Number(profitRow?.prior || 0);
+
+      /*
+        Profit before tax =
+          revenue
+          + other income
+          - cost of sales
+          - operating expenses
+          - finance costs
+
+        Therefore cost of sales plus operating expenses =
+          profit before tax
+          - revenue
+          - other income
+          + finance costs
+      */
+      const tradingAndOperatingExpensesCurrent =
+        profitBeforeTaxCurrent -
+        revenueCurrent -
+        otherIncomeCurrent +
+        financeCostsCurrent;
+
+      const tradingAndOperatingExpensesPrior =
+        profitBeforeTaxPrior -
+        revenuePrior -
+        otherIncomePrior +
+        financeCostsPrior;
+
+      const mappedNonCashExpense = (
+        side: "current" | "prior",
+      ) =>
+        (trialBalanceLines || [])
+          .filter((line) => {
+            const mappingText = lineSearchText(line);
+
+            return [
+              "depreciation",
+              "amortisation",
+              "amortization",
+              "impairment",
+            ].some((term) => mappingText.includes(term));
+          })
+          .reduce((sum, line) => {
+            const amount =
+              side === "current"
+                ? rawCurrent(line)
+                : rawPrior(line);
+
+            return sum + Math.abs(amount);
+          }, 0);
+
+      /*
+        Non-cash expenses are added back to the negative expense total.
+        Use the mapped TB amounts automatically instead of relying on a
+        manually completed cash-flow note.
+      */
+      const operatingNonCashAdjustmentCurrent =
+        mappedNonCashExpense("current") +
+        storedAmount("lossOnSaleAssetsLiabilities", "current", 0) +
+        storedAmount("fairValueGainsLosses", "current", 0) +
+        storedAmount("movementProvisions", "current", 0) +
+        storedAmount("otherNonCash1", "current", 0);
+
+      const operatingNonCashAdjustmentPrior =
+        mappedNonCashExpense("prior") +
+        storedAmount("lossOnSaleAssetsLiabilities", "prior", 0) +
+        storedAmount("fairValueGainsLosses", "prior", 0) +
+        storedAmount("movementProvisions", "prior", 0) +
+        storedAmount("otherNonCash1", "prior", 0);
+
+      /*
+        Direct Method:
+
+        Cash receipts from customers
+        = revenue + decrease / (increase) in receivables
+
+        Cash paid to suppliers and employees
+        = cost of sales and operating expenses
+          + non-cash adjustments
+          + inventory movement
+          + payables movement
+      */
+      const tradeReceivablesCurrentBalance = noteTotal(
+        baseStatementEngine.noteData.tradeReceivables,
+        "current",
+      );
+
+      const tradeReceivablesPriorBalance = noteTotal(
+        baseStatementEngine.noteData.tradeReceivables,
+        "prior",
+      );
+
+      /*
+        Current-year receivables movement is calculated directly from
+        the mapped SFP balances.
+
+        Prior comparative movement comes from the stored historical TB,
+        because the opening comparative balance is not in the current TB.
+      */
+      const directReceivablesMovementCurrent =
+        tradeReceivablesPriorBalance -
+        tradeReceivablesCurrentBalance;
+
+      const directReceivablesMovementPrior =
+        historicalCashFlowData.receivablesPrior;
+
+      /*
+        Customer receipts use the working-capital movement already
+        controlled by the Cash generated from operations note.
+      */
+      const directReceiptsCurrent =
+        revenueCurrent + receivablesCurrent;
+
+      const directReceiptsPrior =
+        revenuePrior + receivablesPrior;
+
+      /*
+        Cash paid to suppliers and employees is derived from the completed
+        Cash generated from operations note.
+
+        Cash generated from operations =
+          cash receipts from customers
+          + cash paid to suppliers and employees
+      */
+      const directPaymentsCurrent =
+        generatedCurrent - directReceiptsCurrent;
+
+      const directPaymentsPrior =
+        generatedPrior - directReceiptsPrior;
+
+      const noteInterestReceived = (
+        side: "current" | "prior",
+      ) =>
+        (baseStatementEngine.noteData.otherIncome || [])
+          .filter((line: any) =>
+            String(line?.label || "")
+              .toLowerCase()
+              .includes("interest"),
+          )
+          .reduce(
+            (sum: number, line: any) =>
+              sum + Math.abs(Number(line?.[side] || 0)),
+            0,
+          );
+
+      const directInterestReceivedCurrent =
+        effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
+        effectiveStatementOverrides.cashInterestReceivedCurrent !== undefined
+          ? Number(
+              effectiveStatementOverrides.cashInterestReceivedCurrent || 0,
+            )
+          : noteInterestReceived("current");
+
+      const directInterestReceivedPrior =
+        effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
+        effectiveStatementOverrides.cashInterestReceivedPrior !== undefined
+          ? Number(
+              effectiveStatementOverrides.cashInterestReceivedPrior || 0,
+            )
+          : noteInterestReceived("prior");
+
+      const directFinanceCostsPaidCurrent =
+        -Math.abs(
+          storedAmount(
+            "financeCosts",
+            "current",
+            financeCostsCurrent,
+          ),
+        );
+
+      const directFinanceCostsPaidPrior =
+        -Math.abs(
+          storedAmount(
+            "financeCosts",
+            "prior",
+            financeCostsPrior,
+          ),
+        );
+
+      const directOtherOperatingCurrent = 0;
+      const directOtherOperatingPrior = 0;
+
+      const directNetOperatingCurrent =
+        directReceiptsCurrent +
+        directPaymentsCurrent +
+        directOtherOperatingCurrent +
+        directInterestReceivedCurrent +
+        directFinanceCostsPaidCurrent +
+        taxPaidCurrent +
+        otherOperatingCurrent;
+
+      const directNetOperatingPrior =
+        directReceiptsPrior +
+        directPaymentsPrior +
+        directOtherOperatingPrior +
+        directInterestReceivedPrior +
+        directFinanceCostsPaidPrior +
+        taxPaidPrior +
+        otherOperatingPrior;
+
+      /*
+        The direct-method net cash movement must equal the three subtotals
+        displayed on the statement:
+
+          operating activities
+          + investing activities
+          + financing activities
+
+        Use the completed section totals directly so that finance costs and
+        every other operating cash-flow item cannot be omitted from the final
+        movement calculation.
+      */
+      const calculatedDirectNetMovementCurrent =
+  directNetOperatingCurrent +
+  Number(netInvestingRow?.current || 0) +
+  Number(netFinancingRow?.current || 0);
+
+const calculatedDirectNetMovementPrior =
+  directNetOperatingPrior +
+  Number(netInvestingRow?.prior || 0) +
+  Number(netFinancingRow?.prior || 0);
+
+const directRawDifferenceCurrent =
+  Math.round(sfpClosingCurrent) -
+  Math.round(openingCurrent + calculatedDirectNetMovementCurrent);
+
+const directRawDifferencePrior =
+  Math.round(sfpClosingPrior) -
+  Math.round(openingPrior + calculatedDirectNetMovementPrior);
+
+const directRoundingTolerance = Math.max(
+  0,
+  Math.round(Number(effectiveStatementOverrides.roundingTolerance ?? 5)),
+);
+
+/*
+  A rounding line may only absorb a genuinely small difference. Large
+  differences remain visible through FlightDeck instead of being hidden as
+  rounding adjustments.
+*/
+const directRoundingCurrent =
+  Math.abs(directRawDifferenceCurrent) <= directRoundingTolerance
+    ? directRawDifferenceCurrent
+    : 0;
+
+const directRoundingPrior =
+  Math.abs(directRawDifferencePrior) <= directRoundingTolerance
+    ? directRawDifferencePrior
+    : 0;
+
+const directNetMovementCurrent =
+  calculatedDirectNetMovementCurrent + directRoundingCurrent;
+
+const directNetMovementPrior =
+  calculatedDirectNetMovementPrior + directRoundingPrior;
+
+const directClosingCurrent =
+  openingCurrent + directNetMovementCurrent;
+
+const directClosingPrior =
+  openingPrior + directNetMovementPrior;
+
+      const directRows = rows.filter((row: any) => {
+        const id = String(row?.id || "");
+
+        return ![
+          "cfs-profit-before-tax",
+          "cfs-adjustments",
+          "cfs-inventories",
+          "cfs-trade-receivables",
+          "cfs-trade-payables",
+          "cfs-cash-generated-operations",
+          "cfs-rounding-adjustment",
+          "cfs-direct-rounding-adjustment",
+        ].includes(id);
+      });
+
+      const operatingIndex = directRows.findIndex(
+        (row: any) => String(row?.id || "") === "cfs-operating",
+      );
+
+      directRows.splice(operatingIndex + 1, 0,
+        {
+          id: "cfs-direct-receipts-customers",
+          label: "Cash receipts from customers",
+          current: Math.round(directReceiptsCurrent),
+          prior: Math.round(directReceiptsPrior),
+          type: "line",
+        },
+        {
+          id: "cfs-direct-payments-suppliers-employees",
+          label: "Cash paid to suppliers and employees",
+          current: Math.round(directPaymentsCurrent),
+          prior: Math.round(directPaymentsPrior),
+          type: "line",
+        },
+        {
+          id: "cfs-direct-other-operating",
+          label: "Other direct operating cash flows",
+          current: Math.round(directOtherOperatingCurrent),
+          prior: Math.round(directOtherOperatingPrior),
+          type: "line",
+        },
+      );
+
+      const directNetMovementIndex = directRows.findIndex((row: any) => {
+  const id = String(row?.id || "");
+  const label = String(row?.label || "").toLowerCase();
+
+  return (
+    id === "cfs-net-movement" ||
+    id === "cfs-cash-movement" ||
+    label.includes(
+      "net increase / (decrease) in cash and cash equivalents",
+    )
+  );
+});
+
+if (
+  directNetMovementIndex >= 0 &&
+  (directRoundingCurrent !== 0 || directRoundingPrior !== 0)
+) {
+  directRows.splice(directNetMovementIndex, 0, {
+    id: "cfs-direct-rounding-adjustment",
+    label: "Rounding adjustment",
+    current: Math.round(directRoundingCurrent),
+    prior: Math.round(directRoundingPrior),
+    type: "line",
+  });
+}
+
+      const directInterestReceivedRow = directRows.find(
+        (row: any) =>
+          String(row?.id || "") === "cfs-interest-received",
+      );
+
+      const directFinanceCostsPaidRow = directRows.find(
+        (row: any) =>
+          String(row?.id || "") === "cfs-finance-costs-paid",
+      );
+
+      if (directInterestReceivedRow) {
+        directInterestReceivedRow.current = Math.round(
+          directInterestReceivedCurrent,
+        );
+        directInterestReceivedRow.prior = Math.round(
+          directInterestReceivedPrior,
+        );
+      }
+
+      if (directFinanceCostsPaidRow) {
+        directFinanceCostsPaidRow.current = Math.round(
+          directFinanceCostsPaidCurrent,
+        );
+        directFinanceCostsPaidRow.prior = Math.round(
+          directFinanceCostsPaidPrior,
+        );
+      }
+
+      const directNetOperatingRow = directRows.find(
+        (row: any) => String(row?.id || "") === "cfs-net-operating",
+      );
+
+      const directNetMovementRow =
+        directRows.find(
+          (row: any) => String(row?.id || "") === "cfs-net-movement",
+        ) ||
+        directRows.find((row: any) =>
+          String(row?.label || "")
+            .toLowerCase()
+            .includes("net increase / (decrease) in cash and cash equivalents"),
+        );
+
+      const directOpeningRow =
+        directRows.find(
+          (row: any) => String(row?.id || "") === "cfs-opening-cash",
+        ) ||
+        directRows.find((row: any) =>
+          String(row?.label || "")
+            .toLowerCase()
+            .includes("cash and cash equivalents at beginning of year"),
+        );
+
+      const directClosingRow =
+        directRows.find(
+          (row: any) => String(row?.id || "") === "cfs-closing-cash",
+        ) ||
+        directRows.find((row: any) =>
+          String(row?.label || "")
+            .toLowerCase()
+            .includes("cash and cash equivalents at end of year"),
+        );
+
+      if (directNetOperatingRow) {
+        directNetOperatingRow.current = Math.round(
+          directNetOperatingCurrent,
+        );
+        directNetOperatingRow.prior = Math.round(
+          directNetOperatingPrior,
+        );
+      }
+
+      if (directNetMovementRow) {
+        directNetMovementRow.current = Math.round(
+          directNetMovementCurrent,
+        );
+        directNetMovementRow.prior = Math.round(
+          directNetMovementPrior,
+        );
+      }
+
+      if (directOpeningRow) {
+        directOpeningRow.current = Math.round(openingCurrent);
+        directOpeningRow.prior = Math.round(openingPrior);
+      }
+
+      if (directClosingRow) {
+        directClosingRow.current = Math.round(directClosingCurrent);
+        directClosingRow.prior = Math.round(directClosingPrior);
+      }
+
+      return {
+        ...baseStatementEngine,
+        cashFlowRows: directRows,
+        checks: {
+          ...checks,
+          cashMovementFromCashFlow: Math.round(
+            directNetMovementCurrent,
+          ),
+          cashClosingFromCashFlow: Math.round(
+            directClosingCurrent,
+          ),
+          cashFlowMovementDifference: Math.round(
+            directNetMovementCurrent -
+              Number(
+                baseStatementEngine.checks.cashMovementFromSfp || 0,
+              ),
+          ),
+          cashFlowClosingDifference: Math.round(
+            directClosingCurrent - sfpClosingCurrent,
+          ),
+          cashMovementPriorFromCashFlow: Math.round(
+            directNetMovementPrior,
+          ),
+          cashClosingPriorFromCashFlow: Math.round(
+            directClosingPrior,
+          ),
+          cashFlowPriorClosingDifference: Math.round(
+            directClosingPrior - sfpClosingPrior,
+          ),
+        },
+      };
+    }
+
+    return {
+      ...baseStatementEngine,
+      cashFlowRows: rows,
+      checks,
+    };
+  }, [
+    baseStatementEngine,
+    effectiveStructuredNotesState,
+    effectiveStatementOverrides,
+    trialBalanceHistory,
+    historicalCashFlowData,
+  ]);
 
   const flightDeckIssues = useMemo(
     () => buildAfsFlightDeckIssuesFromEngine(statementEngine),
     [statementEngine],
   );
 
-  const sfpRows = statementEngine.sfpRows;
-  const sociRows = statementEngine.sociRows;
-  const sceRows = statementEngine.sceRows;
-  const cashFlowRows = statementEngine.cashFlowRows;
+  const correctedEquityStatements = useMemo(() => {
+  const sfpRows = (statementEngine.sfpRows || []).map((row: any) => ({
+    ...row,
+  }));
+
+  const sceRows = (statementEngine.sceRows || []).map((row: any) => ({
+    ...row,
+  }));
+
+  const retainedIncomeRow = sfpRows.find((row: any) =>
+    String(row?.label || "")
+      .toLowerCase()
+      .includes("retained income"),
+  );
+
+  const totalEquityRow = sfpRows.find(
+    (row: any) =>
+      String(row?.label || "").trim().toLowerCase() === "total equity",
+  );
+
+  const totalEquityAndLiabilitiesRow = sfpRows.find(
+    (row: any) =>
+      String(row?.label || "").trim().toLowerCase() ===
+      "total equity and liabilities",
+  );
+
+  const currentProfitRow = sceRows.find(
+    (row: any) => String(row?.id || "") === "sce-current-profit",
+  );
+
+  const priorClosingRetainedRow = sceRows.find(
+    (row: any) =>
+      String(row?.id || "") === "sce-prior-closing-retained",
+  );
+
+  const currentOtherMovementRow = sceRows.find(
+    (row: any) =>
+      String(row?.id || "") === "sce-current-other-movement",
+  );
+
+  const currentClosingRetainedRow = sceRows.find(
+    (row: any) => String(row?.id || "") === "sce-retained-closing",
+  );
+
+  const mappedCurrentRetained = Number(
+    retainedIncomeRow?.current || 0,
+  );
+
+  const priorClosingRetained = Number(
+    priorClosingRetainedRow?.current ||
+      retainedIncomeRow?.prior ||
+      0,
+  );
+
+  const currentProfit = Number(currentProfitRow?.current || 0);
+
+  /*
+    The mapped retained-income account represents the accumulated
+    retained-income balance before the current-year profit is transferred.
+
+    Any movement between the prior closing retained income and the mapped
+    current retained-income account is therefore a genuine other movement,
+    such as a distribution or prior-period adjustment.
+  */
+  const currentOtherMovement =
+    mappedCurrentRetained - priorClosingRetained;
+
+  const correctedCurrentClosingRetained =
+    priorClosingRetained +
+    currentProfit +
+    currentOtherMovement;
+
+  const retainedIncomeAdjustment =
+    correctedCurrentClosingRetained - mappedCurrentRetained;
+
+  if (retainedIncomeRow) {
+    retainedIncomeRow.current = Math.round(
+      correctedCurrentClosingRetained,
+    );
+  }
+
+  if (totalEquityRow) {
+    totalEquityRow.current = Math.round(
+      Number(totalEquityRow.current || 0) +
+        retainedIncomeAdjustment,
+    );
+  }
+
+  if (totalEquityAndLiabilitiesRow) {
+    totalEquityAndLiabilitiesRow.current = Math.round(
+      Number(totalEquityAndLiabilitiesRow.current || 0) +
+        retainedIncomeAdjustment,
+    );
+  }
+
+  if (currentOtherMovementRow) {
+    currentOtherMovementRow.current = Math.round(
+      currentOtherMovement,
+    );
+  }
+
+  if (currentClosingRetainedRow) {
+    currentClosingRetainedRow.current = Math.round(
+      correctedCurrentClosingRetained,
+    );
+  }
+
+  return {
+    sfpRows,
+    sceRows,
+  };
+}, [statementEngine.sfpRows, statementEngine.sceRows]);
+
+const sfpRows = correctedEquityStatements.sfpRows;
+const sociRows = statementEngine.sociRows;
+const sceRows = correctedEquityStatements.sceRows;
+const cashFlowRows = statementEngine.cashFlowRows;
+
+  function consolidateDetailedIncomeRows(rows: AfsStatementRow[]) {
+    const result: AfsStatementRow[] = [];
+    const indexByKey = new Map<string, number>();
+
+    for (const row of rows || []) {
+      const item = row as any;
+      const type = String(item?.type || "").toLowerCase();
+      const label = String(item?.label || "").trim();
+      const normalisedLabel = label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+
+      const isDetail =
+        type !== "heading" &&
+        type !== "subtotal" &&
+        type !== "total" &&
+        type !== "grand-total";
+
+      const isGenericOtherExpense =
+        /^other expenses?(?:\s+\d+)?$/i.test(label);
+
+      if (!isDetail || !normalisedLabel || isGenericOtherExpense) {
+        result.push(row);
+        continue;
+      }
+
+      const existingIndex = indexByKey.get(normalisedLabel);
+
+      if (existingIndex === undefined) {
+        indexByKey.set(normalisedLabel, result.length);
+        result.push({ ...item });
+        continue;
+      }
+
+      const existing = result[existingIndex] as any;
+      existing.current =
+        Number(existing.current || 0) + Number(item.current || 0);
+      existing.prior =
+        Number(existing.prior || 0) + Number(item.prior || 0);
+    }
+
+    return result;
+  }
+
+  const detailedIncomeRows = useMemo(() => {
+    const rows = consolidateDetailedIncomeRows(
+      cleanDetailedIncomeRowsForReport(
+        statementEngine.detailedIncomeRows || [],
+      ),
+    );
+
+    const profitBeforeTaxRow = (sociRows || []).find((row: any) =>
+      String(row?.label || "").toLowerCase().includes("before taxation"),
+    );
+
+    const profitBeforeTaxCurrent = Math.round(Number((profitBeforeTaxRow as any)?.current || 0));
+    const profitBeforeTaxPrior = Math.round(Number((profitBeforeTaxRow as any)?.prior || 0));
+
+    const alreadyHasProfitBeforeTax = rows.some((row: any) =>
+      String(row?.label || "").toLowerCase().includes("before taxation"),
+    );
+
+    if (alreadyHasProfitBeforeTax) return rows;
+
+    const insertAt = rows.findIndex((row: any) =>
+      String(row?.label || "").toLowerCase().includes("taxation"),
+    );
+
+    const profitBeforeTaxDetailedRow: AfsStatementRow = {
+      id: "detailed-profit-before-tax",
+      label: "Profit / (loss) before taxation",
+      current: profitBeforeTaxCurrent,
+      prior: profitBeforeTaxPrior,
+      type: "subtotal",
+    };
+
+    if (insertAt < 0) return [...rows, profitBeforeTaxDetailedRow];
+
+    return [
+      ...rows.slice(0, insertAt),
+      profitBeforeTaxDetailedRow,
+      ...rows.slice(insertAt),
+    ];
+  }, [statementEngine.detailedIncomeRows, sociRows]);
+
+
+  function isEditableDetailedIncomeOtherExpense(row: AfsStatementRow) {
+    const label = String((row as any)?.label || "").trim();
+
+    return /^other expenses?(?:\s+\d+)?$/i.test(label);
+  }
+
   const detailedIncomeLabelOverrides = {
     ...(
       structuredNotesState?.detailedIncomeLabelOverrides &&
@@ -2660,15 +4111,95 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
     ),
   };
 
-  function detailedIncomeExportAliasKeys(row: any) {
+  useEffect(() => {
+    const sourceRows = alignDetailedIncomeRowsToSoci(
+      detailedIncomeRows,
+      sociRows,
+    );
+
+    const nextOverrides = {
+      ...detailedIncomeLabelOverrides,
+    };
+
+    let changed = false;
+
+    for (const row of sourceRows as any[]) {
+      if (!isEditableDetailedIncomeOtherExpense(row)) continue;
+
+      const rowId = String(row?.id || "");
+      const originalLabel = String(row?.label || "").trim();
+
+      const existingLabel = cleanString(
+        nextOverrides[rowId] ||
+          nextOverrides[originalLabel],
+      );
+
+      if (!existingLabel || existingLabel === originalLabel) continue;
+
+      for (const key of detailedIncomeLabelAliasKeys(
+        rowId,
+        originalLabel,
+      )) {
+        if (nextOverrides[key] !== existingLabel) {
+          nextOverrides[key] = existingLabel;
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      saveDetailedIncomeLabelOverrides(nextOverrides);
+    }
+  }, [
+    detailedIncomeRows,
+    sociRows,
+  ]);
+
+  const editableDetailedIncomeRows = useMemo(
+    () =>
+      alignDetailedIncomeRowsToSoci(
+        detailedIncomeRows,
+        sociRows,
+      ).map((row: any) => {
+        const savedLabel = cleanString(
+          detailedIncomeLabelOverrides[String(row?.id || "")],
+        );
+
+        return savedLabel
+          ? {
+              ...row,
+              label: savedLabel,
+            }
+          : row;
+      }),
+    [
+      detailedIncomeRows,
+      sociRows,
+      detailedIncomeLabelOverrides,
+    ],
+  );
+
+  const editableOtherExpenseRows = useMemo(
+    () =>
+      alignDetailedIncomeRowsToSoci(
+        detailedIncomeRows,
+        sociRows,
+      ).filter(isEditableDetailedIncomeOtherExpense),
+    [detailedIncomeRows, sociRows],
+  );
+
+  function detailedIncomeLabelAliasKeys(
+    rowId: string,
+    originalLabel: string,
+  ) {
     const keys = new Set<string>();
-    const rowId = String(row?.id || "").trim();
-    const originalLabel = String(row?.label || "").trim();
+    const cleanRowId = String(rowId || "").trim();
+    const cleanOriginalLabel = String(originalLabel || "").trim();
 
-    if (rowId) keys.add(rowId);
-    if (originalLabel) keys.add(originalLabel);
+    if (cleanRowId) keys.add(cleanRowId);
+    if (cleanOriginalLabel) keys.add(cleanOriginalLabel);
 
-    const numberMatch = originalLabel.match(
+    const numberMatch = cleanOriginalLabel.match(
       /other\s*expenses?\s*(\d+)/i,
     );
 
@@ -2683,232 +4214,439 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
     return Array.from(keys);
   }
 
-  function resolveDetailedIncomeExportLabel(row: any) {
-    for (const key of detailedIncomeExportAliasKeys(row)) {
-      const savedLabel = cleanString(
-        detailedIncomeLabelOverrides[key],
+  function saveDetailedIncomeLabelOverrides(
+    nextOverrides: Record<string, string>,
+  ) {
+    const nextStructuredNotesState = {
+      ...structuredNotesState,
+      detailedIncomeLabelOverrides: nextOverrides,
+    };
+
+    const nextStatementOverrides = {
+      ...(statementOverrides as any),
+      detailedIncomeLabelOverrides: nextOverrides,
+    } as AfsStatementOverrides;
+
+    setStructuredNotesState(nextStructuredNotesState);
+    setStatementOverrides(nextStatementOverrides);
+
+    try {
+      window.localStorage.setItem(
+        `practicepilot-afs-structured-notes:${engagementId}`,
+        JSON.stringify(nextStructuredNotesState),
       );
 
-      if (savedLabel) return savedLabel;
+      window.localStorage.setItem(
+        `practicepilot-afs-print-studio:${engagementId}:statement-overrides`,
+        JSON.stringify(nextStatementOverrides),
+      );
+    } catch {
+      // Supabase remains the source of truth.
     }
 
-    return String(row?.label || "");
+    savePrintStudioSettingsToSupabase({
+      structuredNotesState: nextStructuredNotesState,
+      statementOverrides: nextStatementOverrides,
+    });
   }
 
-  const detailedIncomeRows = useMemo(
-    () =>
-      cleanDetailedIncomeRowsForReport(
-        (statementEngine.detailedIncomeRows || []).map((row: any) => {
-          const savedLabel = resolveDetailedIncomeExportLabel(row);
-          const originalLabel = String(row?.label || "");
+  function updateDetailedIncomeLabel(
+    rowId: string,
+    originalLabel: string,
+    value: string,
+  ) {
+    const nextOverrides = {
+      ...detailedIncomeLabelOverrides,
+    };
 
-          return savedLabel && savedLabel !== originalLabel
-            ? {
-                ...row,
-                label: savedLabel,
-              }
-            : row;
-        }),
-      ),
-    [
-      statementEngine.detailedIncomeRows,
-      detailedIncomeLabelOverrides,
-    ],
-  );
-  const noteData = statementEngine.noteData;
+    for (const key of detailedIncomeLabelAliasKeys(
+      rowId,
+      originalLabel,
+    )) {
+      nextOverrides[key] = value;
+    }
 
-  const noteDataForPrintStudio = useMemo(() => {
-    const base: Record<string, any[]> = { ...(noteData as any) };
+    saveDetailedIncomeLabelOverrides(nextOverrides);
+  }
 
-    base.shareholdersLoans = buildSharedShareholderLoanRows(
-      trialBalanceLines,
-      base.shareholdersLoans || [],
+  function resetDetailedIncomeLabel(
+    rowId: string,
+    originalLabel: string,
+  ) {
+    const nextOverrides = {
+      ...detailedIncomeLabelOverrides,
+    };
+
+    for (const key of detailedIncomeLabelAliasKeys(
+      rowId,
+      originalLabel,
+    )) {
+      delete nextOverrides[key];
+    }
+
+    setDetailedIncomeInlineDrafts((current) => {
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+
+    saveDetailedIncomeLabelOverrides(nextOverrides);
+  }
+
+  function normaliseDetailedIncomeMatchValue(value: unknown) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ");
+  }
+
+  function mappedAccountsForDetailedIncomeRow(row: any) {
+    const originalLabel = String(row?.label || "").trim();
+    const originalNormalised = normaliseDetailedIncomeMatchValue(originalLabel);
+    const rowIdNormalised = normaliseDetailedIncomeMatchValue(row?.id);
+
+    return trialBalanceLines
+      .filter((line) => {
+        const candidates = [
+          line.mapping_label,
+          line.mapping_category,
+          line.mapping_code,
+          line.mapping_leaf_id,
+          line.lead_schedule_key,
+        ].map(normaliseDetailedIncomeMatchValue);
+
+        return candidates.some(
+          (candidate) =>
+            candidate &&
+            (candidate === originalNormalised ||
+              candidate === rowIdNormalised),
+        );
+      })
+      .map((line) => ({
+        code: String(line.account_code || "").trim(),
+        name: String(line.account_name || "").trim(),
+      }))
+      .filter((line) => line.code || line.name);
+  }
+
+  function formatDetailedIncomeAmount(value: unknown) {
+    const amount = Math.round(Number(value || 0));
+
+    if (!amount) return "–";
+
+    const absolute = Math.abs(amount).toLocaleString("en-GB");
+
+    return amount < 0 ? `(${absolute})` : absolute;
+  }
+
+  function renderEditableDetailedIncomeStatement() {
+    const sourceRows = alignDetailedIncomeRowsToSoci(
+      detailedIncomeRows,
+      sociRows,
     );
 
-    base.otherFinancialLiabilities =
-      buildSharedOtherFinancialLiabilityRows(
-        trialBalanceLines,
-        base.otherFinancialLiabilities || [],
-      );
+    const hiddenSectionLabels = new Set([
+      "revenue",
+      "cost of sales",
+      "operating expenses",
+      "taxation",
+    ]);
 
-    return base;
-  }, [noteData, trialBalanceLines]);
+    return (
+      <section style={{ fontSize: 10, lineHeight: 1.25, color: "#111827" }}>
+        <h1 style={pageHeadingStyle()}>Detailed Income Statement</h1>
 
-  const cashNoteCurrent = Math.round(
-    (noteData.cashAndCashEquivalents || []).reduce(
-      (sum: number, line: any) => sum + Number(line.current || 0),
-      0,
-    ),
-  );
-  const cashNotePrior = Math.round(
-    (noteData.cashAndCashEquivalents || []).reduce(
-      (sum: number, line: any) => sum + Number(line.prior || 0),
-      0,
-    ),
-  );
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: hideComparatives
+              ? "minmax(0, 1fr) 90px"
+              : "minmax(0, 1fr) 90px 90px",
+            columnGap: 12,
+            borderBottom: "1px solid #111827",
+            paddingBottom: 5,
+            marginBottom: 4,
+            fontSize: 9,
+          }}
+        >
+          <div>Figures in Rand</div>
+          <div style={{ textAlign: "right" }}>{currentHeading}</div>
+          {!hideComparatives ? (
+            <div style={{ textAlign: "right" }}>{priorHeading}</div>
+          ) : null}
+        </div>
 
-  const exportCashFlowRows = useMemo(() => {
-    const rows = (cashFlowRows || []).map((row: any) => ({ ...row }));
-    const labelIncludes = (row: any, terms: string[]) => {
-      const label = String(row?.label || "").toLowerCase();
-      return terms.every((term) => label.includes(term));
-    };
-    const findRow = (terms: string[]) =>
-      rows.find((row: any) => labelIncludes(row, terms));
+        <div style={{ display: "grid", gap: 1 }}>
+          {sourceRows.map((row: any) => {
+            const rowId = String(row?.id || "");
+            const originalLabel = String(row?.label || "").trim();
+            const normalisedLabel = originalLabel.toLowerCase();
+            const editable = isEditableDetailedIncomeOtherExpense(row);
+            const savedLabel = cleanString(
+              detailedIncomeLabelOverrides[rowId],
+            );
+            const draftValue =
+              detailedIncomeInlineDrafts[rowId] !== undefined
+                ? detailedIncomeInlineDrafts[rowId]
+                : savedLabel || originalLabel;
+            const mappedAccounts = editable
+              ? mappedAccountsForDetailedIncomeRow(row)
+              : [];
+            const displayLabel = savedLabel || originalLabel;
+            const type = String(row?.type || "").toLowerCase();
+            const isHeading = type === "heading" ||type === "section" ||type === "subsection";
+            const isSubtotal =
+              type === "subtotal" ||
+              type === "total" ||
+              type === "grand-total";
+            const hideHeading =
+              isHeading && hiddenSectionLabels.has(normalisedLabel);
 
-    const profitRow = findRow(["profit", "taxation"]);
-    const nonCashRow = findRow(["adjustments", "non-cash"]);
-    const workingCapitalRow = findRow(["changes", "working capital"]);
-    const generatedRow = findRow(["cash generated", "operations"]);
-    const netOperatingRow = findRow(["net cash", "operating activities"]);
-    const netIncreaseRow = findRow(["net increase"]);
-    const openingCashRow = findRow(["beginning", "year"]);
-    const closingCashRow = findRow(["end", "year"]);
+            if (hideHeading) return null;
 
-    const profitCurrent = Number(profitRow?.current || 0);
-    const profitPrior = Number(profitRow?.prior || 0);
-    const nonCashCurrent = Number(nonCashRow?.current || 0);
-    const nonCashPrior = Number(nonCashRow?.prior || 0);
+            const editing =
+              !isPdfExportMode &&
+              editable &&
+              detailedIncomeEditingRowId === rowId;
 
-    const currentMovement = cashNoteCurrent - cashNotePrior;
-    const priorMovement = cashNotePrior;
+            return (
+              <div
+                key={rowId || `${originalLabel}-${row?.current}-${row?.prior}`}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: hideComparatives
+                    ? "minmax(0, 1fr) 90px"
+                    : "minmax(0, 1fr) 90px 90px",
+                  columnGap: 12,
+                  alignItems: "start",
+                  padding: isHeading ? "5px 0 2px" : "2px 0",
+                  fontWeight: isHeading || isSubtotal ? 800 : 400,
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  {editing ? (
+                    <div style={{ display: "grid", gap: 3 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          type="text"
+                          value={draftValue}
+                          onChange={(event) =>
+                            setDetailedIncomeInlineDrafts((current) => ({
+                              ...current,
+                              [rowId]: event.target.value,
+                            }))
+                          }
+                          onBlur={() => {
+                            const nextValue = cleanString(
+                              detailedIncomeInlineDrafts[rowId] ??
+                                savedLabel ??
+                                originalLabel,
+                            );
 
-    if (openingCashRow) {
-      openingCashRow.current = cashNotePrior;
-      openingCashRow.prior = 0;
-    }
-    if (closingCashRow) {
-      closingCashRow.current = cashNoteCurrent;
-      closingCashRow.prior = cashNotePrior;
-    }
-    if (netIncreaseRow) {
-      netIncreaseRow.current = currentMovement;
-      netIncreaseRow.prior = priorMovement;
-    }
-    if (workingCapitalRow) {
-      workingCapitalRow.current = currentMovement - profitCurrent - nonCashCurrent;
-      workingCapitalRow.prior = priorMovement - profitPrior - nonCashPrior;
-    }
-    if (generatedRow) {
-      generatedRow.current = currentMovement;
-      generatedRow.prior = priorMovement;
-    }
-    if (netOperatingRow) {
-      netOperatingRow.current = currentMovement;
-      netOperatingRow.prior = priorMovement;
-    }
+                            if (
+                              nextValue &&
+                              nextValue !== originalLabel
+                            ) {
+                              updateDetailedIncomeLabel(rowId, originalLabel, nextValue);
+                            } else if (!nextValue) {
+                              resetDetailedIncomeLabel(rowId, originalLabel);
+                            }
 
-    return rows;
-  }, [cashFlowRows, cashNoteCurrent, cashNotePrior]);
+                            setDetailedIncomeEditingRowId(null);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.currentTarget.blur();
+                            }
+
+                            if (event.key === "Escape") {
+                              setDetailedIncomeInlineDrafts((current) => ({
+                                ...current,
+                                [rowId]: savedLabel || originalLabel,
+                              }));
+                              setDetailedIncomeEditingRowId(null);
+                            }
+                          }}
+                          style={{
+                            width: "100%",
+                            maxWidth: 300,
+                            border: "1px solid #64748b",
+                            borderRadius: 2,
+                            outline: "none",
+                            background: "#ffffff",
+                            padding: "3px 5px",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: "#111827",
+                          }}
+                        />
+
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() =>
+                            setDetailedIncomeEditingRowId(null)
+                          }
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            color: "#475569",
+                            padding: 0,
+                            fontSize: 9,
+                            fontWeight: 800,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "baseline",
+                          gap: 6,
+                        }}
+                      >
+                        <span>{displayLabel}</span>
+
+                        {!isPdfExportMode && editable ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDetailedIncomeInlineDrafts((current) => ({
+                                ...current,
+                                [rowId]: savedLabel || originalLabel,
+                              }));
+                              setDetailedIncomeEditingRowId(rowId);
+                            }}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              padding: 0,
+                              color: "#2563eb",
+                              fontSize: 8,
+                              fontWeight: 800,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Edit
+                          </button>
+                        ) : null}
+
+                        {!isPdfExportMode && editable && savedLabel ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              resetDetailedIncomeLabel(rowId, originalLabel)
+                            }
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              padding: 0,
+                              color: "#64748b",
+                              fontSize: 8,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Reset
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {!isPdfExportMode &&
+                      editable &&
+                      mappedAccounts.length > 0 ? (
+                        <div
+                          style={{
+                            marginTop: 1,
+                            fontSize: 8,
+                            lineHeight: 1.2,
+                            color: "#64748b",
+                          }}
+                        >
+                          {mappedAccounts
+                            .map((account) =>
+                              [account.code, account.name]
+                                .filter(Boolean)
+                                .join(" · "),
+                            )
+                            .join(" | ")}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    textAlign: "right",
+                    whiteSpace: "nowrap",
+                    borderTop: isSubtotal
+                      ? "1px solid #6b7280"
+                      : "none",
+                    paddingTop: isSubtotal ? 2 : 0,
+                  }}
+                >
+                  {formatDetailedIncomeAmount(row?.current)}
+                </div>
+
+                {!hideComparatives ? (
+                  <div
+                    style={{
+                      textAlign: "right",
+                      whiteSpace: "nowrap",
+                      borderTop: isSubtotal
+                        ? "1px solid #6b7280"
+                        : "none",
+                      paddingTop: isSubtotal ? 2 : 0,
+                    }}
+                  >
+                    {formatDetailedIncomeAmount(row?.prior)}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
+
+  const noteData = statementEngine.noteData;
 
   const engineChecks = statementEngine.checks;
 
   const sections: AfsStudioSection[] = [
-    {
-      id: "cover-page",
-      label: "Cover Page",
-      shortLabel: "Cover",
-      group: "report",
-      hidden: !reportOptions.coverPage,
-    },
-    {
-      id: "index",
-      label: "Index",
-      shortLabel: "Index",
-      group: "report",
-      hidden: !reportOptions.index,
-    },
-    {
-      id: "general-info",
-      label: "General Information",
-      shortLabel: "General Info",
-      group: "report",
-      hidden: !reportOptions.generalInformation,
-    },
-    {
-      id: "directors-responsibilities",
-      label: "Directors’ Responsibilities",
-      shortLabel: "Responsibilities",
-      group: "report",
-      hidden: !reportOptions.directorsResponsibilities,
-    },
-    {
-      id: "directors-report",
-      label: "Directors’ Report",
-      shortLabel: "Directors Report",
-      group: "report",
-      hidden: !reportOptions.directorsReport,
-    },
-    {
-      id: "compiler-report",
-      label: "Compiler Report",
-      shortLabel: "Compiler",
-      group: "report",
-      hidden: !reportOptions.compilerReport,
-    },
-    {
-      id: "sfp",
-      label: "Statement of Financial Position",
-      shortLabel: "SFP",
-      group: "report",
-      hidden: !reportOptions.sfp,
-    },
-    {
-      id: "soci",
-      label: "Statement of Comprehensive Income",
-      shortLabel: "SOCI",
-      group: "report",
-      hidden: !reportOptions.soci,
-    },
-    {
-      id: "sce",
-      label: "Statement of Changes in Equity",
-      shortLabel: "SCE",
-      group: "report",
-      hidden: !reportOptions.sce,
-    },
-    {
-      id: "cash-flow",
-      label: "Statement of Cash Flows",
-      shortLabel: "Cash Flow",
-      group: "report",
-      hidden: !reportOptions.cashFlow,
-    },
-    {
-      id: "accounting-policies",
-      label: "Accounting Policies",
-      shortLabel: "Policies",
-      group: "report",
-      hidden: !reportOptions.accountingPolicies,
-    },
-    {
-      id: "notes",
-      label: "Notes to the Financial Statements",
-      shortLabel: "Notes",
-      group: "report",
-      hidden: !reportOptions.notes,
-    },
-    {
-      id: "detailed-income",
-      label: "Detailed Income Statement",
-      shortLabel: "Detailed IS",
-      group: "report",
-      hidden: !reportOptions.detailedIncomeStatement,
-    },
-    {
-      id: "tax-computation",
-      label: "Tax Computation",
-      shortLabel: "Tax",
-      group: "report",
-      hidden: !reportOptions.taxComputation,
-    },
-    {
-      id: "report-options",
-      label: "AFS Report Options",
-      shortLabel: "Options",
-      group: "settings",
-    },
+    { id: "cover-page", label: "Cover Page", shortLabel: "Cover", group: "report", hidden: !reportOptions.coverPage },
+    { id: "index", label: "Index", shortLabel: "Index", group: "report", hidden: !reportOptions.index },
+    { id: "general-info", label: "General Information", shortLabel: "General Info", group: "report", hidden: !reportOptions.generalInformation },
+    { id: "directors-responsibilities", label: "Directors’ Responsibilities", shortLabel: "Responsibilities", group: "report", hidden: !reportOptions.directorsResponsibilities },
+    { id: "directors-report", label: "Directors’ Report", shortLabel: "Directors Report", group: "report", hidden: !reportOptions.directorsReport },
+    { id: "compiler-report", label: "Compiler Report", shortLabel: "Compiler", group: "report", hidden: !reportOptions.compilerReport },
+    { id: "sfp", label: "Statement of Financial Position", shortLabel: "SFP", group: "report", hidden: !reportOptions.sfp },
+    { id: "soci", label: "Statement of Comprehensive Income", shortLabel: "SOCI", group: "report", hidden: !reportOptions.soci },
+    { id: "sce", label: "Statement of Changes in Equity", shortLabel: "SCE", group: "report", hidden: !reportOptions.sce },
+    { id: "cash-flow", label: "Statement of Cash Flows", shortLabel: "Cash Flow", group: "report", hidden: !reportOptions.cashFlow },
+    { id: "accounting-policies", label: "Accounting Policies", shortLabel: "Policies", group: "report", hidden: !reportOptions.accountingPolicies },
+    { id: "notes", label: "Notes to the Financial Statements", shortLabel: "Notes", group: "report", hidden: !reportOptions.notes },
+    { id: "detailed-income", label: "Detailed Income Statement", shortLabel: "Detailed IS", group: "report", hidden: !reportOptions.detailedIncomeStatement },
+    { id: "tax-computation", label: "Tax Computation", shortLabel: "Tax", group: "report", hidden: !reportOptions.taxComputation },
+    { id: "report-options", label: "AFS Report Options", shortLabel: "Options", group: "settings" },
   ];
+
+  const hideComparatives = Boolean(reportOptions.hideComparativeFigures);
 
   const reportHeaderProps = {
     showReportHeader: true,
@@ -2918,7 +4656,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   };
 
   const visibleReportSections = sections.filter(
-    (section) => section.group === "report" && !section.hidden,
+    (section) => section.group === "report" && !section.hidden
   );
 
   function buildAccountingPolicyPrintItems() {
@@ -2930,28 +4668,16 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
       "investment-property",
     ]);
 
-    const items: Array<
-      | {
-          type: "single";
-          section: (typeof accountingPolicySections)[number];
-        }
-      | {
-          type: "group";
-          groupKey: string;
-          groupLabel: string;
-          sections: Array<(typeof accountingPolicySections)[number]>;
-        }
-    > = [];
+    const items: Array<{
+      section: (typeof accountingPolicySections)[number];
+      groupKey: string | null;
+      groupLabel: string;
+      policyNumber: number;
+      showGroupHeading: boolean;
+    }> = [];
 
-    const groupMap = new Map<
-      string,
-      {
-        type: "group";
-        groupKey: string;
-        groupLabel: string;
-        sections: Array<(typeof accountingPolicySections)[number]>;
-      }
-    >();
+    const seenGroups = new Set<string>();
+    let nextPolicyNumber = 1;
 
     accountingPolicySections.forEach((section: any) => {
       const isSelected = Boolean(
@@ -2967,310 +4693,101 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         section.title ||
         section.defaultTitle;
 
-      if (!combinedGroups.has(groupKey)) {
+      if (combinedGroups.has(groupKey)) {
+        const isFirstSelectedSectionInGroup = !seenGroups.has(groupKey);
+
+        if (isFirstSelectedSectionInGroup) {
+          seenGroups.add(groupKey);
+        }
+
+        const policyNumber = isFirstSelectedSectionInGroup
+          ? nextPolicyNumber++
+          : items.find((item) => item.groupKey === groupKey)?.policyNumber ||
+            nextPolicyNumber++;
+
         items.push({
-          type: "single",
           section,
+          groupKey,
+          groupLabel,
+          policyNumber,
+          showGroupHeading: isFirstSelectedSectionInGroup,
         });
+
         return;
       }
 
-      if (!groupMap.has(groupKey)) {
-        const groupItem = {
-          type: "group" as const,
-          groupKey,
-          groupLabel,
-          sections: [],
-        };
-
-        groupMap.set(groupKey, groupItem);
-        items.push(groupItem);
-      }
-
-      groupMap.get(groupKey)?.sections.push(section);
+      items.push({
+        section,
+        groupKey: null,
+        groupLabel,
+        policyNumber: nextPolicyNumber++,
+        showGroupHeading: true,
+      });
     });
 
     return items;
   }
 
-  function getNoteLinesForSectionKey(key: string) {
-    const sourceNoteData = (noteDataForPrintStudio || noteData || {}) as Record<string, any[]>;
 
+  function getNoteLinesForSectionKey(key: string) {
     const map: Record<string, any[]> = {
-      notesPropertyPlantEquipment: sourceNoteData.propertyPlantEquipment,
-      notesGoodwill: sourceNoteData.goodwill,
-      notesInvestmentProperty: sourceNoteData.investmentProperty,
-      notesIntangibleAssets: sourceNoteData.intangibleAssets,
-      notesBiologicalAssets: sourceNoteData.biologicalAssets,
-      notesOtherNonCurrentAssets: sourceNoteData.otherNonCurrentAssets,
-      notesLoansReceivable: sourceNoteData.loansReceivable,
-      notesInventories: sourceNoteData.inventories,
-      notesTradeReceivables: sourceNoteData.tradeReceivables,
-      notesCurrentTaxReceivable: sourceNoteData.currentTaxReceivable,
-      notesCashAndCashEquivalents: sourceNoteData.cashAndCashEquivalents,
-      notesShareCapital: sourceNoteData.shareCapital,
-      notesRetainedIncome: sourceNoteData.retainedIncome,
-      notesShareholdersLoans: sourceNoteData.shareholdersLoans,
-      notesOtherFinancialLiabilities: sourceNoteData.otherFinancialLiabilities,
-      notesTradePayables: sourceNoteData.tradePayables,
-      notesCurrentTaxPayable: sourceNoteData.currentTaxPayable,
-      notesRevenue: sourceNoteData.revenue,
-      notesOtherIncome: sourceNoteData.otherIncome,
-      notesOperatingExpenses: sourceNoteData.operatingExpenses,
-      notesFinanceCosts: sourceNoteData.financeCosts,
-      notesTaxation: sourceNoteData.taxation,
-      notesCashUsedInOperations: sourceNoteData.cashUsedInOperations,
+      notesPropertyPlantEquipment: noteData.propertyPlantEquipment,
+      notesGoodwill: noteData.goodwill,
+      notesInvestmentProperty: noteData.investmentProperty,
+      notesIntangibleAssets: noteData.intangibleAssets,
+      notesBiologicalAssets: noteData.biologicalAssets,
+      notesOtherNonCurrentAssets: noteData.otherNonCurrentAssets,
+      notesLoansReceivable: noteData.loansReceivable,
+      notesInventories: noteData.inventories,
+      notesTradeReceivables: noteData.tradeReceivables,
+      notesCurrentTaxReceivable: noteData.currentTaxReceivable,
+      notesCashAndCashEquivalents: noteData.cashAndCashEquivalents,
+      notesShareCapital: noteData.shareCapital,
+      notesRetainedIncome: noteData.retainedIncome,
+      notesShareholdersLoans: noteData.shareholdersLoans,
+      notesOtherFinancialLiabilities: noteData.otherFinancialLiabilities,
+      notesTradePayables: noteData.tradePayables,
+      notesCurrentTaxPayable: noteData.currentTaxPayable,
+      notesRevenue: noteData.revenue,
+      notesOtherIncome: noteData.otherIncome,
+      notesOperatingExpenses: noteData.operatingExpenses,
+      notesFinanceCosts: noteData.financeCosts,
+      notesTaxation: noteData.taxation,
+      notesCashUsedInOperations: noteData.cashUsedInOperations,
     };
 
     return map[key] || [];
   }
 
-
-  function formatNoteAmount(value: unknown) {
-    return afsAmount(value);
-  }
-
-  function isLikelyGarbageNoteParagraph(value: unknown) {
-    const text = String(value || "").trim();
-    if (!text) return true;
-
-    const compact = text.replace(/\s+/g, "");
-    const hasRealWords = /[A-Za-z]{3,}\s+[A-Za-z]{2,}/.test(text);
-    const looksLikeKeyboardMash = compact.length >= 10 && !hasRealWords;
-
-    return looksLikeKeyboardMash;
-  }
-
-  function cleanExportNoteParagraphs(paragraphs: string[]) {
-    return (paragraphs || []).filter((paragraph) => !isLikelyGarbageNoteParagraph(paragraph));
-  }
-
-  function cashGeneratedNoteRows(lines: any[]) {
-    const source = (lines || []).map((line) => ({ ...line }));
-    const byLabel = (terms: string[]) =>
-      source.find((line) => {
-        const label = String(line?.label || "").toLowerCase();
-        return terms.every((term) => label.includes(term));
-      });
-
-    const profit = byLabel(["profit", "taxation"]) || source[0];
-    const nonCash = byLabel(["non-cash"]);
-    const workingCapital = byLabel(["working", "capital"]);
-    const generated =
-      byLabel(["cash generated", "operations"]) ||
-      byLabel(["cash", "used", "operations"]) ||
-      source[source.length - 1];
-
-    const rows: any[] = [];
-
-    if (profit) {
-      rows.push({ ...profit, label: "Profit / (loss) before taxation" });
-    }
-
-    if (
-      nonCash &&
-      (Math.round(Number(nonCash.current || 0)) !== 0 ||
-        Math.round(Number(nonCash.prior || 0)) !== 0)
-    ) {
-      rows.push({ ...nonCash, label: "Adjustments for non-cash and other items" });
-    }
-
-    if (
-      workingCapital &&
-      (Math.round(Number(workingCapital.current || 0)) !== 0 ||
-        Math.round(Number(workingCapital.prior || 0)) !== 0)
-    ) {
-      rows.push({ ...workingCapital, label: "Changes in working capital" });
-    }
-
-    if (generated) {
-      rows.push({
-        ...generated,
-        label: "Cash generated from operations",
-        meta: { ...(generated.meta || {}), strong: true, finalLine: true },
-      });
-    }
-
-    return rows.length ? rows : source;
-  }
-
-  function renderNoteTable(lines: any[], noteKey?: string) {
+  function renderNoteTable(lines: any[]) {
     if (!lines || lines.length === 0) return null;
 
-    if (noteKey === "notesShareCapital") {
-      const authorisedShares =
-        structuredNotesState.shareCapital?.authorisedShares ||
-        cleanString(clientSetup?.authorised_ordinary_shares) ||
-        "100";
-      const authorisedPar =
-        structuredNotesState.shareCapital?.authorisedPar ||
-        cleanString(clientSetup?.authorised_ordinary_share_par_value) ||
-        "1";
-      const issuedShares =
-        structuredNotesState.shareCapital?.issuedShares ||
-        cleanString(clientSetup?.issued_ordinary_shares) ||
-        "100";
-      const issuedPar =
-        structuredNotesState.shareCapital?.issuedPar ||
-        cleanString(clientSetup?.issued_ordinary_share_par_value) ||
-        "1";
-      const rightsText =
-        structuredNotesState.shareCapital?.rightsText ||
-        "The shares rank equally with regard to voting rights and dividends.";
-
-      const mappedCurrent = lines.reduce(
-        (total, line) => total + Number(line.current || 0),
-        0,
-      );
-      const mappedPrior = lines.reduce(
-        (total, line) => total + Number(line.prior || 0),
-        0,
-      );
-
-      return (
-        <>
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              margin: "4px 0 7px",
-              fontSize: 10.2,
-            }}
-          >
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: "2px 0 3px" }}>
-                  Description
-                </th>
-                <th style={{ textAlign: "right", padding: "2px 0 3px", width: 80 }}>
-                  {currentHeading}
-                </th>
-                {!hideComparativeFigures ? (
-                  <th style={{ textAlign: "right", padding: "2px 0 3px", width: 80 }}>
-                    {priorHeading}
-                  </th>
-                ) : null}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td
-                  colSpan={hideComparativeFigures ? 2 : 3}
-                  style={{ padding: "4px 0 2px", fontWeight: 600 }}
-                >
-                  Authorised
-                </td>
-              </tr>
-              <tr>
-                <td style={{ padding: "2px 0" }}>
-                  {authorisedShares} ordinary shares of R{authorisedPar} each
-                </td>
-                <td style={{ padding: "2px 0", textAlign: "right" }}>
-                  {formatNoteAmount(Number(authorisedShares) * Number(authorisedPar))}
-                </td>
-                {!hideComparativeFigures ? (
-                  <td style={{ padding: "2px 0", textAlign: "right" }}>
-                    {formatNoteAmount(Number(authorisedShares) * Number(authorisedPar))}
-                  </td>
-                ) : null}
-              </tr>
-              <tr>
-                <td
-                  colSpan={hideComparativeFigures ? 2 : 3}
-                  style={{ padding: "6px 0 2px", fontWeight: 600 }}
-                >
-                  Issued
-                </td>
-              </tr>
-              <tr>
-                <td style={{ padding: "2px 0" }}>Ordinary shares at end of year</td>
-                <td style={{ padding: "2px 0", textAlign: "right" }}>
-                  {formatNoteAmount(Number(issuedShares) * Number(issuedPar))}
-                </td>
-                {!hideComparativeFigures ? (
-                  <td style={{ padding: "2px 0", textAlign: "right" }}>
-                    {formatNoteAmount(Number(issuedShares) * Number(issuedPar))}
-                  </td>
-                ) : null}
-              </tr>
-              <tr>
-                <td style={{ padding: "3px 0", fontWeight: 600 }}>Share capital</td>
-                <td
-                  style={{
-                    padding: "3px 0",
-                    textAlign: "right",
-                    fontWeight: 600,
-                    borderTop: "0.6px solid #94a3b8",
-                    borderBottom: "0.8px solid #64748b",
-                  }}
-                >
-                  {formatNoteAmount(mappedCurrent)}
-                </td>
-                {!hideComparativeFigures ? (
-                  <td
-                    style={{
-                      padding: "3px 0",
-                      textAlign: "right",
-                      fontWeight: 600,
-                      borderTop: "0.6px solid #94a3b8",
-                      borderBottom: "0.8px solid #64748b",
-                    }}
-                  >
-                    {formatNoteAmount(mappedPrior)}
-                  </td>
-                ) : null}
-              </tr>
-            </tbody>
-          </table>
-
-          <p style={{ margin: "4px 0 8px", fontSize: 10, lineHeight: 1.3 }}>
-            {rightsText}
-          </p>
-        </>
-      );
-    }
-
-    const isCashGeneratedNote = noteKey === "notesCashUsedInOperations";
-    const isShareholdersLoansNote = noteKey === "notesShareholdersLoans";
-    const isOtherFinancialLiabilitiesNote =
-      noteKey === "notesOtherFinancialLiabilities";
-    const displaySourceLines = isCashGeneratedNote
-      ? cashGeneratedNoteRows(lines)
-      : lines;
-
     const displayLines =
-      displaySourceLines.length === 1
+      lines.length === 1
         ? [
             {
-              ...displaySourceLines[0],
-              label: String(displaySourceLines[0]?.label || "")
-                .toLowerCase()
-                .includes("cash and cash")
-                ? "Bank balances"
-                : String(displaySourceLines[0]?.label || "")
-                      .toLowerCase()
-                      .includes("share capital")
+              ...lines[0],
+              label:
+                String(lines[0]?.label || "").toLowerCase().includes("cash and cash")
+                  ? "Bank balances"
+                  : String(lines[0]?.label || "").toLowerCase().includes("share capital")
                   ? "Issued share capital"
-                  : String(displaySourceLines[0]?.label || "")
-                        .toLowerCase()
-                        .includes("inventor")
-                    ? "Inventories on hand"
-                    : String(displaySourceLines[0]?.label || "")
-                          .toLowerCase()
-                          .includes("shareholder")
-                      ? "Loans from shareholders"
-                      : displaySourceLines[0]?.label,
+                  : String(lines[0]?.label || "").toLowerCase().includes("inventor")
+                  ? "Inventories on hand"
+                  : String(lines[0]?.label || "").toLowerCase().includes("shareholder")
+                  ? "Loans from shareholders"
+                  : lines[0]?.label,
             },
           ]
-        : displaySourceLines;
+        : lines;
 
     const totalCurrent = displayLines.reduce(
       (total, line) => total + Number(line.current || 0),
-      0,
+      0
     );
     const totalPrior = displayLines.reduce(
       (total, line) => total + Number(line.prior || 0),
-      0,
+      0
     );
 
     return (
@@ -3278,8 +4795,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
         style={{
           width: "100%",
           borderCollapse: "collapse",
-          margin: "4px 0 8px",
-          fontSize: 10.2,
+          margin: "8px 0 14px",
+          fontSize: 10.5,
         }}
       >
         <thead>
@@ -3287,8 +4804,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             <th
               style={{
                 textAlign: "left",
-                borderBottom: "0.8px solid #64748b",
-                padding: "2px 0 3px",
+                borderBottom: "1px solid #111827",
+                padding: "3px 0",
               }}
             >
               Description
@@ -3296,166 +4813,73 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             <th
               style={{
                 textAlign: "right",
-                borderBottom: "0.8px solid #64748b",
-                padding: "2px 0 3px",
+                borderBottom: "1px solid #111827",
+                padding: "3px 0",
                 width: 80,
               }}
             >
               {currentHeading}
             </th>
-            {!hideComparativeFigures ? (
-              <th
-                style={{
-                  textAlign: "right",
-                  borderBottom: "0.8px solid #64748b",
-                  padding: "2px 0 3px",
-                  width: 80,
-                }}
-              >
-                {priorHeading}
-              </th>
-            ) : null}
+            <th
+              style={{
+                textAlign: "right",
+                borderBottom: "1px solid #111827",
+                padding: "3px 0",
+                width: 80,
+              }}
+            >
+              {priorHeading}
+            </th>
           </tr>
         </thead>
         <tbody>
-          {displayLines.flatMap((line, lineIndex) => {
-            const rowKey = String(line.id || line.label || lineIndex);
-            const familyState = isShareholdersLoansNote
-              ? structuredNotesState.shareholderLoans
-              : isOtherFinancialLiabilitiesNote
-                ? structuredNotesState.otherFinancialLiabilities
-                : undefined;
-
-            const matchedSavedNoteRow =
-              resolveSharedStructuredNoteEntry(familyState, line);
-
-            const orderedSavedRows =
-              familyState && typeof familyState === "object"
-                ? Object.entries(familyState)
-                    .filter(([key, value]) => key !== "extraText" && value && typeof value === "object")
-                    .map(([, value]) => value)
-                : [];
-
-            const savedNoteRow =
-              matchedSavedNoteRow &&
-              typeof matchedSavedNoteRow === "object" &&
-              Object.keys(matchedSavedNoteRow).length > 0
-                ? matchedSavedNoteRow
-                : orderedSavedRows[lineIndex] || {};
-
-            const displayLabel =
-              String(savedNoteRow?.label || "").trim() ||
-              String(line.label || "");
-            const rows = [
-              <tr key={`${rowKey}-amount`}>
-                <td
-                  style={{
-                    padding: "2px 0",
-                    borderBottom: line?.meta?.finalLine ? "1px solid #111827" : "0",
-                    fontWeight: line?.meta?.strong ? 800 : 400,
-                  }}
-                >
-                  {displayLabel.trim().toLowerCase() === "total" ? "" : displayLabel}
-                </td>
-                <td
-                  style={{
-                    padding: "2px 0",
-                    textAlign: "right",
-                    borderBottom: line?.meta?.finalLine ? "1px solid #111827" : "0",
-                    fontWeight: line?.meta?.strong ? 800 : 400,
-                  }}
-                >
-                  {formatNoteAmount(line.current)}
-                </td>
-                {!hideComparativeFigures ? (
-                  <td
-                    style={{
-                      padding: "2px 0",
-                      textAlign: "right",
-                      borderBottom: line?.meta?.finalLine ? "1px solid #111827" : "0",
-                      fontWeight: line?.meta?.strong ? 800 : 400,
-                    }}
-                  >
-                    {formatNoteAmount(line.prior)}
-                  </td>
-                ) : null}
-              </tr>,
-            ];
-
-            if (
-              isShareholdersLoansNote ||
-              isOtherFinancialLiabilitiesNote
-            ) {
-              const rawTermsText =
-                savedNoteRow?.terms ||
-                line?.meta?.terms ||
-                line?.meta?.loanTerms ||
-                (isOtherFinancialLiabilitiesNote
-                  ? "The liability is unsecured, bears no interest and has no fixed repayment terms."
-                  : "The loan is unsecured, bears no interest and has no fixed repayment terms.");
-
-              const termsText = String(rawTermsText || "")
-                .replace(/\s+unless otherwise disclosed\.?$/i, ".")
-                .trim();
-
-              rows.push(
-                <tr key={`${rowKey}-terms`}>
-                  <td
-                    colSpan={hideComparativeFigures ? 2 : 3}
-                    style={{
-                      padding: "0 0 5px 0",
-                      fontSize: 9.9,
-                      lineHeight: 1.22,
-                      color: "#111827",
-                    }}
-                  >
-                    {termsText}
-                  </td>
-                </tr>,
-              );
-            }
-
-            return rows;
-          })}
-          {!isCashGeneratedNote ? (
-            <tr>
-              <td
-                style={{
-                  padding: "3px 0",
-                  borderTop: "0.8px solid #64748b",
-                  fontWeight: 600,
-                }}
-              >
-                &nbsp;
+          {displayLines.map((line) => (
+            <tr key={line.id}>
+              <td style={{ padding: "3px 0" }}>{String(line.label || "").trim().toLowerCase() === "total" ? "" : line.label}</td>
+              <td style={{ padding: "3px 0", textAlign: "right" }}>
+                {Math.round(Number(line.current || 0)).toLocaleString("en-ZA")}
               </td>
-              <td
-                style={{
-                  padding: "3px 0",
-                  borderTop: "0.8px solid #64748b",
-                  fontWeight: 600,
-                  textAlign: "right",
-                }}
-              >
-                {formatNoteAmount(totalCurrent)}
+              <td style={{ padding: "3px 0", textAlign: "right" }}>
+                {Math.round(Number(line.prior || 0)).toLocaleString("en-ZA")}
               </td>
-              {!hideComparativeFigures ? (
-                <td
-                  style={{
-                    padding: "3px 0",
-                    borderTop: "0.8px solid #64748b",
-                    fontWeight: 600,
-                    textAlign: "right",
-                  }}
-                >
-                  {formatNoteAmount(totalPrior)}
-                </td>
-              ) : null}
             </tr>
-          ) : null}
+          ))}
+          <tr>
+            <td
+              style={{
+                padding: "4px 0",
+                borderTop: "1px solid #111827",
+                fontWeight: 800,
+              }}
+            >
+              Total
+            </td>
+            <td
+              style={{
+                padding: "4px 0",
+                borderTop: "1px solid #111827",
+                fontWeight: 800,
+                textAlign: "right",
+              }}
+            >
+              {Math.round(totalCurrent).toLocaleString("en-ZA")}
+            </td>
+            <td
+              style={{
+                padding: "4px 0",
+                borderTop: "1px solid #111827",
+                fontWeight: 800,
+                textAlign: "right",
+              }}
+            >
+              {Math.round(totalPrior).toLocaleString("en-ZA")}
+            </td>
+          </tr>
         </tbody>
       </table>
     );
   }
+
 
   function afsAmount(value: unknown) {
     const number = Math.round(Number(value || 0));
@@ -3472,106 +4896,118 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
   }
 
   function renderSceCustomTable() {
-    const openingShare = sceValue("sce-share-opening");
-    const openingRetained = sceValue("sce-retained-opening");
-    const priorProfit = sceValue("sce-prior-profit");
-    const priorOther = sceValue("sce-prior-other-movement");
-    const priorClosingRetained = sceValue("sce-prior-closing-retained");
-    const currentProfit = sceValue("sce-current-profit");
-    const currentOther = sceValue("sce-current-other-movement");
-    const currentClosingRetained = sceValue("sce-retained-closing");
-    const closingShare = sceValue("sce-share-closing");
+     const openingShare = sceValue("sce-share-opening");
+const openingRetained = sceValue("sce-retained-opening");
+const priorProfit = sceValue("sce-prior-profit");
+const priorOther = sceValue("sce-prior-other-movement");
+const priorClosingRetained = sceValue("sce-prior-closing-retained");
 
-    const rows = hideComparativeFigures
-      ? [
-          {
-            label: "Profit / (loss) for the year",
-            share: 0,
-            retained: currentProfit,
-            total: currentProfit,
-          },
-          {
-            label: "Other comprehensive income for the year",
-            share: 0,
-            retained: 0,
-            total: 0,
-          },
-          {
-            label: "Other movements / distributions",
-            share: 0,
-            retained: currentOther,
-            total: currentOther,
-          },
-          {
-            label: "Balance at end of year",
-            share: closingShare,
-            retained: currentClosingRetained,
-            total: closingShare + currentClosingRetained,
-            strong: true,
-            underline: true,
-          },
-        ]
-      : [
-          {
-            label: "Balance at beginning of prior year",
-            share: openingShare,
-            retained: openingRetained,
-            total: openingShare + openingRetained,
-            strong: true,
-          },
-          {
-            label: "Profit / (loss) for prior year",
-            share: 0,
-            retained: priorProfit,
-            total: priorProfit,
-          },
-          {
-            label: "Other comprehensive income for prior year",
-            share: 0,
-            retained: 0,
-            total: 0,
-          },
-          {
-            label: "Other movements / distributions - prior year",
-            share: 0,
-            retained: priorOther,
-            total: priorOther,
-          },
-          {
-            label: "Balance at end of prior year",
-            share: openingShare,
-            retained: priorClosingRetained,
-            total: openingShare + priorClosingRetained,
-            strong: true,
-            underline: true,
-          },
-          {
-            label: "Profit / (loss) for current year",
-            share: 0,
-            retained: currentProfit,
-            total: currentProfit,
-          },
-          {
-            label: "Other comprehensive income for current year",
-            share: 0,
-            retained: 0,
-            total: 0,
-          },
-          {
-            label: "Other movements / distributions - current year",
-            share: 0,
-            retained: currentOther,
-            total: currentOther,
-          },
-          {
-            label: "Balance at end of current year",
-            share: closingShare,
-            retained: currentClosingRetained,
-            total: closingShare + currentClosingRetained,
-            strong: true,
-            underline: true,
-          },
-        ];
+const engineCurrentProfit = sceValue("sce-current-profit");
+const engineCurrentOther = sceValue("sce-current-other-movement");
+
+const currentClosingRetained = sceValue("sce-retained-closing");
+const closingShare = sceValue("sce-share-closing");
+
+const roundingTolerance = Math.max(
+  0,
+  Math.round(Number(statementOverrides.roundingTolerance ?? 5)),
+);
+
+const currentRetainedDifference =
+  currentClosingRetained -
+  priorClosingRetained -
+  engineCurrentProfit;
+
+const absorbCurrentDifference =
+  Math.abs(currentRetainedDifference) <= roundingTolerance
+    ? currentRetainedDifference
+    : 0;
+
+const currentProfit =
+  engineCurrentProfit + absorbCurrentDifference;
+
+const currentOther =
+  absorbCurrentDifference !== 0
+    ? 0
+    : engineCurrentOther;
+
+    const priorShareMovement = 0;
+    const priorClosingShare = openingShare + priorShareMovement;
+    const currentShareMovement = closingShare - priorClosingShare;
+
+    const rows = [
+      {
+        label: "Balance at beginning of prior year",
+        share: openingShare,
+        retained: openingRetained,
+        total: openingShare + openingRetained,
+        strong: true,
+      },
+      {
+        label: "Profit / (loss) for prior year",
+        share: 0,
+        retained: priorProfit,
+        total: priorProfit,
+      },
+      {
+        label: "Other comprehensive income for prior year",
+        share: 0,
+        retained: 0,
+        total: 0,
+      },
+       {
+        label: "Shares issued / cancelled - prior year",
+        share: priorShareMovement,
+        retained: 0,
+        total: priorShareMovement,
+      },
+      {
+        label: "Other movements / distributions - prior year",
+        share: 0,
+        retained: priorOther,
+        total: priorOther,
+      },
+      {
+        label: "Balance at end of prior year",
+        share: priorClosingShare,
+        retained: priorClosingRetained,
+        total: priorClosingShare + priorClosingRetained,
+        strong: true,
+        underline: true,
+      },
+      {
+        label: "Profit / (loss) for current year",
+        share: 0,
+        retained: currentProfit,
+        total: currentProfit,
+      },
+      {
+        label: "Other comprehensive income for current year",
+        share: 0,
+        retained: 0,
+        total: 0,
+      },
+     {
+        label: "Shares issued / cancelled - current year",
+        share: currentShareMovement,
+        retained: 0,
+        total: currentShareMovement,
+      },
+      {
+        label: "Other movements / distributions - current year",
+        share: 0,
+        retained: currentOther,
+        total: currentOther,
+      },
+      {
+        label: "Balance at end of current year",
+        share: closingShare,
+        retained: currentClosingRetained,
+        total: closingShare + currentClosingRetained,
+        strong: true,
+        underline: true,
+      },
+    ];
 
     return (
       <section style={{ fontSize: 11, color: "#111827" }}>
@@ -3589,8 +5025,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               <th
                 style={{
                   textAlign: "left",
-                  borderBottom: "0.8px solid #64748b",
-                  padding: "3px 0",
+                  borderBottom: "1px solid #111827",
+                  padding: "4px 0",
                 }}
               >
                 Figures in Rand
@@ -3598,8 +5034,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               <th
                 style={{
                   textAlign: "right",
-                  borderBottom: "0.8px solid #64748b",
-                  padding: "3px 0",
+                  borderBottom: "1px solid #111827",
+                  padding: "4px 0",
                   width: 90,
                 }}
               >
@@ -3608,8 +5044,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               <th
                 style={{
                   textAlign: "right",
-                  borderBottom: "0.8px solid #64748b",
-                  padding: "3px 0",
+                  borderBottom: "1px solid #111827",
+                  padding: "4px 0",
                   width: 110,
                 }}
               >
@@ -3618,8 +5054,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               <th
                 style={{
                   textAlign: "right",
-                  borderBottom: "0.8px solid #64748b",
-                  padding: "3px 0",
+                  borderBottom: "1px solid #111827",
+                  padding: "4px 0",
                   width: 90,
                 }}
               >
@@ -3633,7 +5069,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               <tr key={String(row.label || "").trim().toLowerCase() === "total" ? "" : row.label}>
                 <td
                   style={{
-                    padding: "3px 0",
+                    padding: "4px 0",
                     fontWeight: row.strong ? 800 : 400,
                   }}
                 >
@@ -3641,7 +5077,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 </td>
                 <td
                   style={{
-                    padding: "3px 0",
+                    padding: "4px 0",
                     textAlign: "right",
                     fontWeight: row.strong ? 800 : 400,
                     borderTop: row.underline ? "1px solid #111827" : undefined,
@@ -3654,7 +5090,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 </td>
                 <td
                   style={{
-                    padding: "3px 0",
+                    padding: "4px 0",
                     textAlign: "right",
                     fontWeight: row.strong ? 800 : 400,
                     borderTop: row.underline ? "1px solid #111827" : undefined,
@@ -3667,7 +5103,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 </td>
                 <td
                   style={{
-                    padding: "3px 0",
+                    padding: "4px 0",
                     textAlign: "right",
                     fontWeight: row.strong ? 800 : 400,
                     borderTop: row.underline ? "1px solid #111827" : undefined,
@@ -3685,285 +5121,6 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
       </section>
     );
   }
-
-
-  type PrintableNoteItem = {
-    id: string;
-    number: number;
-    title: string;
-    textParagraphs: string[];
-    lines: any[];
-    estimatedUnits: number;
-  };
-
-  function estimatePrintableNoteUnits(lines: any[], paragraphs: string[]) {
-    /*
-      Export note packing estimate.
-      This is intentionally looser than the old estimate. The previous version
-      treated small 1-line notes as too tall, which created notes pages with
-      only 1 or 2 notes and huge blank spaces. The real rendered note rows are
-      compact, so the export packer must allow several normal notes per A4 page.
-    */
-    const rowCount = Math.max(1, (lines || []).length);
-    const rowUnits = 3.2 + rowCount * 1.45;
-    const paragraphUnits = (paragraphs || []).reduce(
-      (total, paragraph) => total + Math.max(0.9, String(paragraph || "").length / 155),
-      0,
-    );
-
-    return rowUnits + paragraphUnits + 2.2;
-  }
-
-  function buildPrintableNoteItems(): PrintableNoteItem[] {
-    let noteNumber = 1;
-
-    return (noteSections || [])
-      .filter((section: any) => Boolean(reportOptions[section.optionKey as keyof ReportOptions]))
-      .map((section: any) => {
-        const defaults = defaultNoteTexts[section.key] || { title: section.label || section.title || section.key, text: "" };
-        const active = activeNoteTexts[section.key] || defaults;
-        const lines = getNoteLinesForSectionKey(section.key);
-        const textParagraphs = cleanExportNoteParagraphs(renderDisclosureText(active.text || "", disclosureTokens).filter(Boolean));
-
-        const item: PrintableNoteItem = {
-          id: section.key,
-          number: noteNumber,
-          title: section.key === "notesCashUsedInOperations" ? "Cash generated from operations" : active.title || section.label || section.title || defaults.title || section.key,
-          textParagraphs,
-          lines,
-          estimatedUnits: estimatePrintableNoteUnits(lines, textParagraphs),
-        };
-
-        noteNumber += 1;
-        return item;
-      })
-      .filter((item) => item.lines.length > 0 || item.textParagraphs.length > 0);
-  }
-
-  function chunkPrintableNotes(items: PrintableNoteItem[]) {
-    const pages: PrintableNoteItem[][] = [];
-    let page: PrintableNoteItem[] = [];
-    let used = 0;
-
-    items.forEach((item) => {
-      const maxUnits = pages.length === 0 ? 62 : 66;
-      const nextUnits = Math.min(item.estimatedUnits, 26);
-
-      if (page.length > 0 && used + nextUnits > maxUnits) {
-        pages.push(page);
-        page = [];
-        used = 0;
-      }
-
-      page.push(item);
-      used += nextUnits;
-    });
-
-    if (page.length > 0) pages.push(page);
-    return pages.length > 0 ? pages : [[]];
-  }
-
-  function renderPrintableNotesPage(items: PrintableNoteItem[], pageIndex: number) {
-    return (
-      <AfsA4Page {...reportHeaderProps}>
-        <section
-          className="afs-export-notes-page"
-          style={{ fontSize: 10.35, lineHeight: 1.28, color: "#111827" }}
-        >
-          {pageIndex === 0 ? (
-            <h1 style={pageHeadingStyle()}>Notes to the Financial Statements</h1>
-          ) : (
-            <h1 style={{ ...pageHeadingStyle(), fontSize: 13.5 }}>
-              Notes to the Financial Statements continued
-            </h1>
-          )}
-
-          {items.map((item) => (
-            <section
-              key={item.id}
-              className="afs-export-note-item"
-              style={{ marginBottom: 8, breakInside: "avoid", pageBreakInside: "avoid" }}
-            >
-              <h2
-                style={{
-                  fontSize: 10.9,
-                  lineHeight: 1.25,
-                  margin: "0 0 5px",
-                  fontWeight: 500,
-                  color: "#334155",
-                }}
-              >
-                {item.number}. {item.title}
-              </h2>
-
-              {item.textParagraphs.map((paragraph, paragraphIndex) => (
-                <p
-                  key={`${item.id}-paragraph-${paragraphIndex}`}
-                  style={{ margin: "0 0 4px", fontSize: 10.25, lineHeight: 1.26 }}
-                >
-                  {paragraph}
-                </p>
-              ))}
-
-              {renderNoteTable(item.lines, item.id)}
-            </section>
-          ))}
-        </section>
-      </AfsA4Page>
-    );
-  }
-
-
-  const printableNoteItems = useMemo(
-    () => buildPrintableNoteItems(),
-    [
-      reportOptions,
-      activeNoteTexts,
-      defaultNoteTexts,
-      noteDataForPrintStudio,
-      disclosureTokens,
-    ],
-  );
-
-  const printableNotePages = useMemo(
-    () => chunkPrintableNotes(printableNoteItems),
-    [printableNoteItems],
-  );
-
-  const indexRows = useMemo(() => {
-    type IndexRow = {
-      id: string;
-      label: string;
-      page: number;
-      pageSpan: number;
-      show: boolean;
-      includeInIndex: boolean;
-    };
-
-    const reportSequence: Omit<IndexRow, "page">[] = [
-      {
-        id: "cover-page",
-        label: "Cover Page",
-        pageSpan: 1,
-        show: reportOptions.coverPage,
-        includeInIndex: false,
-      },
-      {
-        id: "index",
-        label: "Index",
-        pageSpan: 1,
-        show: reportOptions.index,
-        includeInIndex: true,
-      },
-      {
-        id: "general-info",
-        label: "General Information",
-        pageSpan: 1,
-        show: reportOptions.generalInformation,
-        includeInIndex: true,
-      },
-      {
-        id: "directors-responsibilities",
-        label: responsibilityTitle(entityType).replace(" and Approval", ""),
-        pageSpan: 1,
-        show: reportOptions.directorsResponsibilities,
-        includeInIndex: true,
-      },
-      {
-        id: "directors-report",
-        label: reportTitle(entityType),
-        pageSpan: showDirectorsReportContinuation ? 2 : 1,
-        show: reportOptions.directorsReport,
-        includeInIndex: true,
-      },
-      {
-        id: "compiler-report",
-        label: "Compiler Report",
-        pageSpan: 1,
-        show: reportOptions.compilerReport,
-        includeInIndex: true,
-      },
-      {
-        id: "sfp",
-        label: "Statement of Financial Position",
-        pageSpan: 1,
-        show: reportOptions.sfp,
-        includeInIndex: true,
-      },
-      {
-        id: "soci",
-        label: "Statement of Comprehensive Income",
-        pageSpan: 1,
-        show: reportOptions.soci,
-        includeInIndex: true,
-      },
-      {
-        id: "sce",
-        label: "Statement of Changes in Equity",
-        pageSpan: 1,
-        show: reportOptions.sce,
-        includeInIndex: true,
-      },
-      {
-        id: "cash-flow",
-        label: "Statement of Cash Flows",
-        pageSpan: 1,
-        show: reportOptions.cashFlow,
-        includeInIndex: true,
-      },
-      {
-        id: "accounting-policies",
-        label: "Accounting Policies",
-        pageSpan: 1,
-        show: reportOptions.accountingPolicies,
-        includeInIndex: true,
-      },
-      {
-        id: "notes",
-        label: "Notes to the Financial Statements",
-        pageSpan: Math.max(1, printableNotePages.length),
-        show: reportOptions.notes,
-        includeInIndex: true,
-      },
-      {
-        id: "detailed-income",
-        label: "Detailed Income Statement",
-        pageSpan: 1,
-        show: reportOptions.detailedIncomeStatement,
-        includeInIndex: true,
-      },
-      {
-        id: "tax-computation",
-        label: "Tax Computation",
-        pageSpan: 1,
-        show: reportOptions.taxComputation,
-        includeInIndex: true,
-      },
-    ];
-
-    let currentPage = 1;
-    const rows: IndexRow[] = [];
-
-    reportSequence.forEach((section) => {
-      if (!section.show) return;
-
-      if (section.includeInIndex) {
-        rows.push({
-          ...section,
-          page: currentPage,
-        });
-      }
-
-      currentPage += section.pageSpan;
-    });
-
-    return rows;
-  }, [
-    entityType,
-    printableNotePages.length,
-    reportOptions,
-    showDirectorsReportContinuation,
-  ]);
 
   function contextualOptions() {
     if (activeSectionId === "report-options") {
@@ -4040,12 +5197,11 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 onClick={() => setCashFlowViewMode("afs")}
                 style={{
                   border: "1px solid #111827",
-                  background:
-                    cashFlowViewMode === "afs" ? "#111827" : "#ffffff",
+                  background: cashFlowViewMode === "afs" ? "#111827" : "#ffffff",
                   color: cashFlowViewMode === "afs" ? "#ffffff" : "#111827",
                   padding: "7px 8px",
                   fontSize: 11,
-                  fontWeight: 600,
+                  fontWeight: 900,
                   cursor: "pointer",
                 }}
               >
@@ -4056,12 +5212,11 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                 onClick={() => setCashFlowViewMode("work")}
                 style={{
                   border: "1px solid #111827",
-                  background:
-                    cashFlowViewMode === "work" ? "#111827" : "#ffffff",
+                  background: cashFlowViewMode === "work" ? "#111827" : "#ffffff",
                   color: cashFlowViewMode === "work" ? "#ffffff" : "#111827",
                   padding: "7px 8px",
                   fontSize: 11,
-                  fontWeight: 600,
+                  fontWeight: 900,
                   cursor: "pointer",
                 }}
               >
@@ -4080,8 +5235,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
               }}
             >
               <strong>AFS view</strong> is the clean printable statement. <br />
-              <strong>Workbench</strong> is where current and prior cash flow
-              fields are captured.
+              <strong>Workbench</strong> is where current and prior cash flow fields are captured.
             </div>
           </div>
         ),
@@ -4107,6 +5261,16 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             onResetAll={resetAllAccountingPolicySections}
           />
         ),
+      };
+    }
+
+    if (activeSectionId === "detailed-income") {
+      return {
+        title: "Detailed Income Statement",
+        description:
+          "Edit the generic Other Expenses descriptions directly in the statement. The mapped accounts are shown beneath each editable line.",
+        emptyMessage: "No separate settings are required.",
+        options: [],
       };
     }
 
@@ -4142,7 +5306,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           option("showCoverFrameworkStatement", "Show framework statement"),
           option(
             "showCoverNoAssuranceStatement",
-            "Show no-assurance statement",
+            "Show no-assurance statement"
           ),
         ],
         content: null,
@@ -4151,8 +5315,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
 
     return {
       title: "Section settings",
-      description:
-        "This report page does not have section-specific settings yet.",
+      description: "This report page does not have section-specific settings yet.",
       emptyMessage:
         "No section-specific settings yet. Use AFS Report Options to turn this report page on or off.",
       options: [],
@@ -4160,719 +5323,715 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
     };
   }
 
+function paginateMeasuredItems<T>(
+  items: T[],
+  heights: Map<T, number>,
+  capacity: number,
+) {
+  const pages: T[][] = [];
+  let currentPage: T[] = [];
+  let currentHeight = 0;
+
+  items.forEach((item) => {
+    const itemHeight = Math.max(1, heights.get(item) || 1);
+
+    if (
+      currentPage.length > 0 &&
+      currentHeight + itemHeight > capacity
+    ) {
+      pages.push(currentPage);
+      currentPage = [];
+      currentHeight = 0;
+    }
+
+    currentPage.push(item);
+    currentHeight += itemHeight;
+  });
+
+  if (currentPage.length > 0) {
+    pages.push(currentPage);
+  }
+
+  return pages.length > 0 ? pages : [[]];
+}
+
+function elementOuterHeight(element: HTMLElement | null) {
+  if (!element) return 0;
+
+  const style = window.getComputedStyle(element);
+  return (
+    element.getBoundingClientRect().height +
+    Number.parseFloat(style.marginTop || "0") +
+    Number.parseFloat(style.marginBottom || "0")
+  );
+}
+
   const currentContextualOptions = contextualOptions();
 
-  useEffect(() => {
-    document.body.classList.add("afs-export-route-body");
-    document.documentElement.classList.add("afs-export-route-html");
+  const activeDirectorsReportKeys =
+    getActiveDirectorsReportSectionKeys(narrativeContext);
 
-    return () => {
-      document.body.classList.remove("afs-export-route-body");
-      document.documentElement.classList.remove("afs-export-route-html");
+  const activeNoteSectionKeys = noteSections
+    .filter((section: any) =>
+      Boolean(reportOptions[section.optionKey as keyof ReportOptions]),
+    )
+    .map((section: any) => section.key);
+
+  const directorsPaginationSignature = [
+    activeDirectorsReportKeys.join("|"),
+    directorsForDisplay.length,
+    JSON.stringify(activeDirectorsReportTexts),
+  ].join("::");
+
+  const notesPaginationSignature = [
+    activeNoteSectionKeys.join("|"),
+    currentHeading,
+    priorHeading,
+    hideComparatives ? "1" : "0",
+  ].join("::");
+
+  const accountingPolicyPrintItems = buildAccountingPolicyPrintItems();
+  const accountingPolicyPaginationSignature = accountingPolicyPrintItems
+    .map((item: any) => {
+      const current =
+        activeAccountingPolicyTexts[item.section.key] ||
+        defaultAccountingPolicyTexts[item.section.key] || {};
+
+      return [
+        item.section.key,
+        item.groupKey || "single",
+        item.policyNumber,
+        item.showGroupHeading ? "1" : "0",
+        current.title || "",
+        current.text || "",
+      ].join(":");
+    })
+    .join("@@");
+
+
+  const paginationMeasureRef = useRef<HTMLDivElement | null>(null);
+
+  const [measuredDirectorsPagination, setMeasuredDirectorsPagination] =
+    useState<{
+      signature: string;
+      pages: DirectorsReportSectionKey[][];
+    }>({
+      signature: "",
+      pages: [],
+    });
+
+  const [measuredNotesPagination, setMeasuredNotesPagination] = useState<{
+    signature: string;
+    pages: string[][];
+  }>({
+    signature: "",
+    pages: [],
+  });
+
+  const [measuredAccountingPolicyPagination, setMeasuredAccountingPolicyPagination] =
+    useState<{
+      signature: string;
+      pages: number[][];
+    }>({
+      signature: "",
+      pages: [],
+    });
+
+  const accountingPoliciesPrintRef = useRef<HTMLDivElement | null>(null);
+  const [accountingPolicyLayoutVerified, setAccountingPolicyLayoutVerified] =
+    useState(false);
+
+  const directorsReportPageGroups =
+    measuredDirectorsPagination.signature === directorsPaginationSignature
+      ? measuredDirectorsPagination.pages
+      : [activeDirectorsReportKeys];
+
+      const balancedDirectorsReportPageGroups = (() => {
+  const pages = directorsReportPageGroups.map((page) => [...page]);
+
+  if (pages.length < 2) {
+    return pages;
+  }
+
+  const lastPage = pages[pages.length - 1];
+  const previousPage = pages[pages.length - 2];
+
+  if (lastPage.length === 1 && previousPage.length > 1) {
+    const sectionToMove = previousPage.pop();
+
+    if (sectionToMove) {
+      lastPage.unshift(sectionToMove);
+    }
+  }
+
+  return pages;
+})();
+
+  const notesPageGroups =
+    measuredNotesPagination.signature === notesPaginationSignature
+      ? measuredNotesPagination.pages
+      : [activeNoteSectionKeys];
+
+  const accountingPolicyPageGroups =
+    measuredAccountingPolicyPagination.signature ===
+    accountingPolicyPaginationSignature
+      ? measuredAccountingPolicyPagination.pages
+      : [accountingPolicyPrintItems.map((_: any, index: number) => index)];
+
+  const reportPageNumberMap = useMemo(() => {
+    const pageMap: Record<string, number> = {};
+    let physicalPage = 1;
+
+    const addSection = (id: string, enabled: boolean, pageCount = 1) => {
+      if (!enabled) return;
+      pageMap[id] = physicalPage;
+      physicalPage += Math.max(1, pageCount);
     };
-  }, []);
 
-  useEffect(() => {
-    const closeExportWindow = () => {
-      window.setTimeout(() => {
-        try {
-          window.close();
-        } catch {
-          // Some browsers block scripted close. In that case the user can close the export tab manually.
-        }
-      }, 450);
-    };
+    addSection("cover-page", reportOptions.coverPage);
+    addSection("index", reportOptions.index);
+    addSection("general-info", reportOptions.generalInformation);
+    addSection(
+      "directors-responsibilities",
+      reportOptions.directorsResponsibilities,
+    );
+    addSection(
+      "directors-report",
+      reportOptions.directorsReport,
+      balancedDirectorsReportPageGroups.length,
+    );
+    addSection("compiler-report", reportOptions.compilerReport);
+    addSection("sfp", reportOptions.sfp);
+    addSection("soci", reportOptions.soci);
+    addSection("sce", reportOptions.sce);
+    addSection("cash-flow", reportOptions.cashFlow);
+    addSection(
+      "accounting-policies",
+      reportOptions.accountingPolicies,
+      accountingPolicyPageGroups.length,
+    );
+    addSection("notes", reportOptions.notes, notesPageGroups.length);
+    addSection(
+      "detailed-income",
+      reportOptions.detailedIncomeStatement,
+    );
+    addSection("tax-computation", reportOptions.taxComputation);
 
-    window.addEventListener("afterprint", closeExportWindow);
-    return () => window.removeEventListener("afterprint", closeExportWindow);
-  }, []);
+    return pageMap;
+  }, [
+    reportOptions,
+    balancedDirectorsReportPageGroups.length,
+    accountingPolicyPageGroups.length,
+    notesPageGroups.length,
+  ]);
 
-  useEffect(() => {
+  const paginationReady =
+    measuredDirectorsPagination.signature === directorsPaginationSignature &&
+    measuredNotesPagination.signature === notesPaginationSignature &&
+    measuredAccountingPolicyPagination.signature ===
+      accountingPolicyPaginationSignature &&
+    accountingPolicyLayoutVerified;
+
+  useLayoutEffect(() => {
     if (loading) return;
 
-    const printTimer = window.setTimeout(() => {
-      window.print();
-    }, 650);
+    setAccountingPolicyLayoutVerified(false);
 
-    return () => window.clearTimeout(printTimer);
-  }, [loading]);
+    let cancelled = false;
+
+    const measure = async () => {
+      try {
+        if (document.fonts?.ready) {
+          await document.fonts.ready;
+        }
+      } catch {
+        // Continue with available fonts.
+      }
+
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+
+      if (cancelled || !paginationMeasureRef.current) return;
+
+      const root = paginationMeasureRef.current;
+
+      const readCapacity = (kind: "directors" | "notes" | "policies") => {
+        const page = root.querySelector<HTMLElement>(
+          `[data-measure-page="${kind}"]`,
+        );
+        const content = page?.querySelector<HTMLElement>(
+          '[data-afs-a4-content="true"]',
+        );
+
+        if (!content) return 900;
+
+        const contentStyle = window.getComputedStyle(content);
+        const innerHeight =
+          content.getBoundingClientRect().height -
+          Number.parseFloat(contentStyle.paddingTop || "0") -
+          Number.parseFloat(contentStyle.paddingBottom || "0");
+
+        const reportHeader = content.querySelector<HTMLElement>(
+          '[data-afs-report-header="true"]',
+        );
+        const heading = content.querySelector<HTMLElement>(
+          '[data-measure-page-heading="true"]',
+        );
+
+        const printSafetyReserve =
+          kind === "directors" ? 110 : kind === "policies" ? 32 : 12;
+
+return Math.max(
+  200,
+  innerHeight -
+    elementOuterHeight(reportHeader) -
+    elementOuterHeight(heading) -
+    printSafetyReserve,
+);
+      };
+
+      const directorsHeights = new Map<DirectorsReportSectionKey, number>();
+      root
+        .querySelectorAll<HTMLElement>("[data-measure-director-key]")
+        .forEach((element) => {
+          const key = element.dataset
+            .measureDirectorKey as DirectorsReportSectionKey;
+          directorsHeights.set(key, element.getBoundingClientRect().height);
+        });
+
+      const noteHeights = new Map<string, number>();
+      root
+        .querySelectorAll<HTMLElement>("[data-measure-note-key]")
+        .forEach((element) => {
+          const key = element.dataset.measureNoteKey || "";
+          noteHeights.set(key, element.getBoundingClientRect().height);
+        });
+
+      const accountingPolicyHeights = new Map<number, number>();
+      root
+        .querySelectorAll<HTMLElement>("[data-measure-policy-index]")
+        .forEach((element) => {
+          const index = Number(element.dataset.measurePolicyIndex || "-1");
+          if (index >= 0) {
+            accountingPolicyHeights.set(
+              index,
+              elementOuterHeight(element) + 8,
+            );
+          }
+        });
+
+      const nextDirectorsPages = paginateMeasuredItems(
+        activeDirectorsReportKeys,
+        directorsHeights,
+        readCapacity("directors"),
+      );
+
+      const nextNotesPages = paginateMeasuredItems(
+        activeNoteSectionKeys,
+        noteHeights,
+        readCapacity("notes"),
+      );
+
+      const policyIndexes = accountingPolicyPrintItems.map(
+        (_: any, index: number) => index,
+      );
+      const nextAccountingPolicyPages = paginateMeasuredItems(
+        policyIndexes,
+        accountingPolicyHeights,
+        readCapacity("policies"),
+      );
+
+      if (cancelled) return;
+
+      setMeasuredDirectorsPagination({
+        signature: directorsPaginationSignature,
+        pages: nextDirectorsPages,
+      });
+      setMeasuredNotesPagination({
+        signature: notesPaginationSignature,
+        pages: nextNotesPages,
+      });
+      setMeasuredAccountingPolicyPagination({
+        signature: accountingPolicyPaginationSignature,
+        pages: nextAccountingPolicyPages,
+      });
+    };
+
+    void measure();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    loading,
+    directorsPaginationSignature,
+    notesPaginationSignature,
+    accountingPolicyPaginationSignature,
+    activeDirectorsReportKeys,
+    activeNoteSectionKeys,
+  ]);
+
+  useLayoutEffect(() => {
+    if (
+      loading ||
+      measuredAccountingPolicyPagination.signature !==
+        accountingPolicyPaginationSignature
+    ) {
+      setAccountingPolicyLayoutVerified(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const verifyRenderedPolicyPages = async () => {
+      try {
+        if (document.fonts?.ready) {
+          await document.fonts.ready;
+        }
+      } catch {
+        // Continue with available fonts.
+      }
+
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+
+      if (cancelled || !accountingPoliciesPrintRef.current) return;
+
+      const pageElements = Array.from(
+        accountingPoliciesPrintRef.current.querySelectorAll<HTMLElement>(
+          "[data-accounting-policy-page-index]",
+        ),
+      );
+
+      const overflowingPageIndex = pageElements.findIndex((pageElement) => {
+        const content = pageElement.querySelector<HTMLElement>(
+          '[data-afs-a4-content="true"]',
+        );
+
+        if (!content) return false;
+
+        return content.scrollHeight > content.clientHeight + 1;
+      });
+
+      if (overflowingPageIndex < 0) {
+        setAccountingPolicyLayoutVerified(true);
+        return;
+      }
+
+      const currentPages = measuredAccountingPolicyPagination.pages.map(
+        (page) => [...page],
+      );
+      const overflowingPage = currentPages[overflowingPageIndex] || [];
+
+      if (overflowingPage.length <= 1) {
+        console.error(
+          "A single accounting policy subsection is taller than one A4 page.",
+          overflowingPage,
+        );
+        setAccountingPolicyLayoutVerified(true);
+        return;
+      }
+
+      const itemToMove = overflowingPage.pop();
+
+      if (itemToMove === undefined) {
+        setAccountingPolicyLayoutVerified(true);
+        return;
+      }
+
+      if (!currentPages[overflowingPageIndex + 1]) {
+        currentPages.push([]);
+      }
+
+      currentPages[overflowingPageIndex + 1].unshift(itemToMove);
+
+      setAccountingPolicyLayoutVerified(false);
+      setMeasuredAccountingPolicyPagination({
+        signature: accountingPolicyPaginationSignature,
+        pages: currentPages,
+      });
+    };
+
+    void verifyRenderedPolicyPages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    loading,
+    accountingPolicyPaginationSignature,
+    measuredAccountingPolicyPagination.signature,
+    measuredAccountingPolicyPagination.pages,
+  ]);
+
+  function renderAccountingPolicyPrintItem(item: any, index: number) {
+    const section = item.section;
+    const current =
+      activeAccountingPolicyTexts[section.key] ||
+      defaultAccountingPolicyTexts[section.key] || {
+        title: section.label || section.title || section.defaultTitle,
+        text: "",
+      };
+
+    const rawTitle = String(
+      current.title ||
+        section.label ||
+        section.title ||
+        section.defaultTitle,
+    );
+
+    const shortTitle = item.groupKey
+      ? rawTitle
+          .replace(`${item.groupLabel} - `, "")
+          .replace(`${item.groupLabel}: `, "")
+          .replace("Property, plant and equipment - ", "")
+          .replace("Financial instruments - ", "")
+          .replace("Leases - ", "")
+          .replace("Investment property - ", "")
+          .replace("Revenue - ", "")
+      : rawTitle;
+
+    return (
+      <div
+        key={`${section.key}-${index}`}
+        style={{
+          breakInside: "avoid",
+          pageBreakInside: "avoid",
+        }}
+      >
+        {item.showGroupHeading ? (
+          <h2 style={sectionHeadingStyle()}>
+            {item.policyNumber}. {item.groupKey ? item.groupLabel : rawTitle}
+          </h2>
+        ) : null}
+
+        {item.groupKey &&
+        shortTitle.trim().toLowerCase() !==
+          item.groupLabel.trim().toLowerCase() ? (
+          <h3 style={subsectionHeadingStyle()}>{shortTitle}</h3>
+        ) : null}
+
+        {renderDisclosureText(
+          String(current.text || "").replace(/timing differences/gi, "temporary differences"),
+          disclosureTokens,
+        ).map(
+          (paragraph, paragraphIndex) => (
+            <p
+              key={`${section.key}-${paragraphIndex}`}
+              style={paragraphStyle()}
+            >
+              {paragraph}
+            </p>
+          ),
+        )}
+      </div>
+    );
+  }
+
 
   return (
-  <main
-  className={`afsExportOnlyRoot ${isDraftPdf ? "afsDraftExport" : ""}`}
->
-  
-  <style jsx global>{`
-        @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
+    <AfsPrintStudioShell
+      engagementName={clientName}
+      yearEndLabel={`${entityType} · Financial year end ${yearEnd}${
+        printStudioSaveStatus === "saving"
+          ? " · Saving…"
+          : printStudioSaveStatus === "saved"
+          ? " · Saved"
+          : printStudioSaveStatus === "error"
+          ? " · Save error"
+          : ""
+      }`}
+      activeSectionId={activeSectionId}
+      sections={sections}
+      onSectionChange={goToSection}
+      exportDisabled={false}
+      reportOptions={currentContextualOptions.options}
+      reportOptionsTitle={currentContextualOptions.title}
+      reportOptionsDescription={currentContextualOptions.description}
+      emptyOptionsMessage={currentContextualOptions.emptyMessage}
+      reportOptionsContent={currentContextualOptions.content}
+      flightDeckContent={
+        !loading ? (
+          <AfsFlightDeck
+            issues={flightDeckIssues}
+            onJump={(target) => {
+              const element =
+                document.getElementById(target) ||
+                document.getElementById(`print-${target}`);
 
-        html.afs-export-route-html,
-        body.afs-export-route-body {
-          font-family: "Inter", Arial, sans-serif !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          background: #ffffff !important;
-          overflow: auto !important;
+              if (element) {
+                element.scrollIntoView({ behavior: "smooth", block: "center" });
+              }
+            }}
+          />
+        ) : null
+      }
+    >
+      <style>{`
+        body[data-afs-pdf-mode="true"] h1 {
+          font-weight: 700 !important;
+          letter-spacing: -0.01em !important;
         }
 
-        body.afs-export-route-body * {
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
+        body[data-afs-pdf-mode="true"] h2 {
+          font-weight: 700 !important;
         }
 
-        .afsExportOnlyRoot {
-  font-family: "Inter", Arial, sans-serif !important;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: geometricPrecision;
-          position: fixed;
-          inset: 0;
-          z-index: 2147483647;
-          width: 100vw;
-          min-height: 100vh;
-          margin: 0 !important;
-          padding: 0 !important;
-          overflow: auto;
-          background: #ffffff;
+        body[data-afs-pdf-mode="true"] h3,
+        body[data-afs-pdf-mode="true"] th {
+          font-weight: 600 !important;
         }
 
-        .afsExportOnlyRoot,
-        .afsExportOnlyRoot * {
-          font-family: "Inter", Arial, sans-serif !important;
-          font-variant-ligatures: none;
-        }
-
-        .afsExportOnlyRoot {
-          color: #1f2937 !important;
-        }
-
-        .afsExportOnlyRoot h1 {
-          font-weight: 500 !important;
-          letter-spacing: -0.004em !important;
-          color: #334155 !important;
-        }
-
-        .afsExportOnlyRoot h2 {
-          font-weight: 500 !important;
-          letter-spacing: -0.003em !important;
-          color: #334155 !important;
-        }
-
-        .afsExportOnlyRoot h3 {
-          font-weight: 500 !important;
-          color: #475569 !important;
-        }
-
-        .afsExportOnlyRoot th {
-          font-weight: 500 !important;
-          color: #334155 !important;
-        }
-
-        .afsExportOnlyRoot p,
-        .afsExportOnlyRoot td,
-        .afsExportOnlyRoot li,
-        .afsExportOnlyRoot span {
+        body[data-afs-pdf-mode="true"] p,
+        body[data-afs-pdf-mode="true"] td {
           font-weight: 400;
-          color: #1f2937;
-        }
-
-        .afsExportOnlyRoot strong,
-        .afsExportOnlyRoot b {
-          font-weight: 500 !important;
-          color: #334155 !important;
-        }
-
-        .afs-export-notes-page tbody tr:last-child td {
-          font-weight: 600 !important;
-        }
-
-.afsExportOnlyRoot article {
-  position: relative !important;
-}
-
-.afsDraftWatermark {
-  position: absolute;
-  top: 48%;
-  left: 50%;
-  transform: translate(-50%, -50%) rotate(-35deg);
-  z-index: 999999;
-  font-family: "Inter", Arial, sans-serif !important;
-  font-size: 82pt;
-  line-height: 1;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  color: rgba(90, 90, 90, 0.16);
-  pointer-events: none;
-  user-select: none;
-  white-space: nowrap;
-}
-
-        .afsExportOnlyRoot article {
-          box-shadow: none !important;
-        }
-
-        /* Running header: quiet, professional and subordinate to the report title. */
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child {
-          border-bottom: 0.45px solid #94a3b8 !important;
-          padding-bottom: 5px !important;
-          margin-bottom: 12px !important;
-          color: #475569 !important;
-        }
-
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child * {
-          font-weight: 400 !important;
-          color: #475569 !important;
-          letter-spacing: 0 !important;
-        }
-
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child > div:first-child {
-          font-weight: 500 !important;
-          color: #334155 !important;
-        }
-
-        /* Directors table: one clean header rule, no ruled-paper rows. */
-        #print-directors-report table tbody td {
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-        }
-
-        #print-directors-report table thead th {
-          border-top: 0 !important;
-          border-bottom: 0.6px solid #94a3b8 !important;
-          font-weight: 500 !important;
-        }
-
-        /* Final statements: body normal, hierarchy medium, not black-marker bold. */
-        #print-sfp table td,
-        #print-soci table td,
-        #print-sce table td,
-        #print-cash-flow table td,
-        #print-detailed-income table td {
-          font-weight: 400 !important;
-        }
-
-        #print-sfp table th,
-        #print-soci table th,
-        #print-sce table th,
-        #print-cash-flow table th,
-        #print-detailed-income table th {
-          font-weight: 500 !important;
-        }
-
-        #print-sfp table tr:has(td[style*="border"]) td,
-        #print-soci table tr:has(td[style*="border"]) td,
-        #print-sce table tr:has(td[style*="border"]) td,
-        #print-cash-flow table tr:has(td[style*="border"]) td,
-        #print-detailed-income table tr:has(td[style*="border"]) td {
-          font-weight: 500 !important;
-        }
-
-        /* General information needs breathing room. */
-        #print-general-info tbody tr td {
-          padding-top: 7px !important;
-          padding-bottom: 7px !important;
-          line-height: 1.42 !important;
-        }
-
-        #print-general-info tbody tr td:first-child {
-          font-weight: 500 !important;
-          color: #334155 !important;
-        }
-
-          .afsExportOnlyRoot {
-            counter-reset: afs-export-page;
-          }
-
-          .afsExportOnlyRoot article {
-            position: relative !important;
-            counter-increment: afs-export-page;
-          }
-
-          .afsExportOnlyRoot article::after {
-            content: counter(afs-export-page);
-            position: absolute;
-            right: 17mm;
-            bottom: 8mm;
-            font-family: "Inter", Arial, sans-serif !important;
-            font-size: 9.5px;
-            line-height: 1;
-            color: #475569;
-          }
-
-          .afsExportOnlyRoot.afsDraftExport article::before {
-  content: "DRAFT";
-  position: absolute;
-  top: 46%;
-  left: 50%;
-  transform: translate(-50%, -50%) rotate(-35deg);
-  z-index: 999998;
-  font-family: "Inter", Arial, sans-serif !important;
-  font-size: 84pt;
-  line-height: 1;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  color: rgba(100, 100, 100, 0.18);
-  pointer-events: none;
-  user-select: none;
-  white-space: nowrap;
-}
-
-          .afs-export-controlled-page,
-          .afsExportOnlyRoot [id^="print-"] {
-            break-before: page;
-            page-break-before: always;
-          }
-
-          .afsExportOnlyRoot [id="print-cover-page"] {
-            break-before: auto;
-            page-break-before: auto;
-          }
-
-          .afs-export-note-item {
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          .afs-directors-report-authorisation-page,
-          .afs-directors-report-authorisation-page section {
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-          }
-
-          .afsExportOnlyRoot h2,
-          .afsExportOnlyRoot h3 {
-            break-after: avoid !important;
-            page-break-after: avoid !important;
-          }
-
-          .afsExportOnlyRoot p {
-            orphans: 3;
-            widows: 3;
-          }
-
-          .afs-export-notes-page section,
-          .afs-export-notes-page .afs-export-note-item {
-            margin-bottom: 11px !important;
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-          }
-
-          .afs-export-notes-page h2,
-          .afs-export-notes-page h3 {
-            margin-top: 12px !important;
-            margin-bottom: 6px !important;
-            font-weight: 500 !important;
-            color: #334155 !important;
-          }
-
-          .afs-export-notes-page table {
-            border-collapse: collapse !important;
-            width: 100% !important;
-            table-layout: fixed !important;
-            margin: 3px 0 10px !important;
-          }
-
-          .afs-export-notes-page th,
-          .afs-export-notes-page td {
-            border-top: 0 !important;
-            border-bottom: 0 !important;
-            padding-top: 1.5px !important;
-            padding-bottom: 1.5px !important;
-            line-height: 1.22 !important;
-          }
-
-          .afs-export-notes-page thead th {
-            border-bottom: 0 !important;
-            font-weight: 800 !important;
-          }
-
-          .afs-export-notes-page tbody tr:last-child td {
-            border-top: 0 !important;
-            border-bottom: 0 !important;
-            font-weight: 800 !important;
-          }
-
-          .afs-export-notes-page th:nth-child(2),
-          .afs-export-notes-page th:nth-child(3),
-          .afs-export-notes-page td:nth-child(2),
-          .afs-export-notes-page td:nth-child(3) {
-            border-bottom: 1px solid transparent !important;
-          }
-
-          .afs-export-notes-page tbody tr:not(:last-child) td:nth-child(2),
-          .afs-export-notes-page tbody tr:not(:last-child) td:nth-child(3) {
-            border-bottom: 0 !important;
-          }
-
-          .afs-export-notes-page tbody tr:last-child td:nth-child(2),
-          .afs-export-notes-page tbody tr:last-child td:nth-child(3) {
-            border-top: 0.5px solid #94a3b8 !important;
-            border-bottom: 0.7px solid #64748b !important;
-          }
-
-          .afs-export-notes-page th:nth-child(2),
-          .afs-export-notes-page th:nth-child(3),
-          .afs-export-notes-page td:nth-child(2),
-          .afs-export-notes-page td:nth-child(3) {
-            width: 20mm !important;
-            max-width: 20mm !important;
-            white-space: nowrap !important;
-          }
-
-
-        /* FINAL CASEWARE-CALIBRATED OVERRIDES
-           Applied last so older inline/global rules cannot re-darken the export. */
-        .afsExportOnlyRoot,
-        .afsExportOnlyRoot * {
-          font-family: Arial, Helvetica, sans-serif !important;
-          letter-spacing: 0 !important;
-        }
-
-        .afsExportOnlyRoot {
-          color: #111 !important;
-        }
-
-        /* Running header */
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child {
-          margin-bottom: 8px !important;
-          padding-bottom: 4px !important;
-          border-bottom: 0 !important;
-        }
-
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child * {
-          color: #111 !important;
-          font-size: 9.1px !important;
-          line-height: 1.15 !important;
-          font-weight: 400 !important;
-        }
-
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > div:first-child > div:first-child {
-          font-size: 12px !important;
-          line-height: 1.1 !important;
-          font-weight: 700 !important;
-        }
-
-        /* Main page titles */
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > h1,
-        .afsExportOnlyRoot [id^="print-"]:not(#print-cover-page) article > h2 {
-          color: #111 !important;
-          font-size: 16px !important;
-          line-height: 1.1 !important;
-          font-weight: 700 !important;
-          margin: 0 0 8px !important;
-          padding: 0 0 4px !important;
-          border-bottom: 1.1px solid #111 !important;
-        }
-
-        /* Body text remains readable - do not globally shrink the report. */
-        .afsExportOnlyRoot p,
-        .afsExportOnlyRoot td,
-        .afsExportOnlyRoot li {
-          color: #111 !important;
-          font-size: 10.2px !important;
-          line-height: 1.32 !important;
-          font-weight: 400 !important;
-        }
-
-        .afsExportOnlyRoot th {
-          color: #111 !important;
-          font-size: 10px !important;
-          line-height: 1.2 !important;
-          font-weight: 600 !important;
-        }
-
-        .afsExportOnlyRoot strong,
-        .afsExportOnlyRoot b {
-          color: #111 !important;
-          font-weight: 600 !important;
-        }
-
-        /* General Information */
-        #print-general-info tbody tr td {
-          padding-top: 4px !important;
-          padding-bottom: 4px !important;
-          line-height: 1.32 !important;
-        }
-
-        #print-general-info tbody tr td:first-child {
-          width: 34% !important;
-          color: #111 !important;
-          font-weight: 600 !important;
-        }
-
-        /* Directors table: one header rule only. */
-        #print-directors-report table thead th {
-          color: #111 !important;
-          font-weight: 600 !important;
-          border-top: 0 !important;
-          border-bottom: 0.8px solid #111 !important;
-          padding-top: 2px !important;
-          padding-bottom: 3px !important;
-        }
-
-        #print-directors-report table tbody td {
-          border: 0 !important;
-          padding-top: 2px !important;
-          padding-bottom: 2px !important;
-        }
-
-        /* Statements */
-        #print-sfp table td,
-        #print-soci table td,
-        #print-sce table td,
-        #print-cash-flow table td,
-        #print-detailed-income table td {
-          font-size: 10px !important;
-          line-height: 1.2 !important;
-          font-weight: 400 !important;
-          padding-top: 1.5px !important;
-          padding-bottom: 1.5px !important;
-        }
-
-        #print-sfp table th,
-        #print-soci table th,
-        #print-sce table th,
-        #print-cash-flow table th,
-        #print-detailed-income table th {
-          font-size: 9.8px !important;
-          font-weight: 400 !important;
-        }
-
-        #print-sfp table tr:has(td[style*="border"]) td,
-        #print-soci table tr:has(td[style*="border"]) td,
-        #print-sce table tr:has(td[style*="border"]) td,
-        #print-cash-flow table tr:has(td[style*="border"]) td,
-        #print-detailed-income table tr:has(td[style*="border"]) td {
-          font-weight: 600 !important;
-        }
-
-        /* Accounting policies */
-        #print-policies h3,
-        #print-policies h4 {
-          color: #111 !important;
-          font-size: 10.5px !important;
-          line-height: 1.2 !important;
-          font-weight: 600 !important;
-          margin-top: 8px !important;
-          margin-bottom: 3px !important;
-        }
-
-        #print-policies p {
-          margin-bottom: 6px !important;
-        }
-
-        /* Notes - CaseWare rhythm, no marker effect. */
-        .afs-export-notes-page .afs-export-note-item,
-        .afs-export-notes-page section {
-          margin-bottom: 9px !important;
-        }
-
-        .afs-export-notes-page h2,
-        .afs-export-notes-page h3 {
-          color: #111 !important;
-          font-size: 10.8px !important;
-          line-height: 1.2 !important;
-          font-weight: 600 !important;
-          margin-top: 8px !important;
-          margin-bottom: 3px !important;
-        }
-
-        .afs-export-notes-page table {
-          margin-top: 1px !important;
-          margin-bottom: 6px !important;
-        }
-
-        .afs-export-notes-page th,
-        .afs-export-notes-page td {
-          font-size: 10px !important;
-          line-height: 1.2 !important;
-          padding-top: 1px !important;
-          padding-bottom: 1px !important;
-          border-top: 0 !important;
-          border-bottom: 0 !important;
-        }
-
-        .afs-export-notes-page thead th {
-          color: #111 !important;
-          font-weight: 600 !important;
-        }
-
-        .afs-export-notes-page tbody tr:last-child td {
-          font-weight: 600 !important;
-        }
-
-        .afs-export-notes-page tbody tr:last-child td:nth-child(2),
-        .afs-export-notes-page tbody tr:last-child td:nth-child(3) {
-          border-top: 0.7px solid #111 !important;
-          border-bottom: 0.9px solid #111 !important;
-        }
-
-        .afs-export-notes-page th:nth-child(2),
-        .afs-export-notes-page th:nth-child(3),
-        .afs-export-notes-page td:nth-child(2),
-        .afs-export-notes-page td:nth-child(3) {
-          width: 24mm !important;
-          max-width: 24mm !important;
-        }
-
-        @media screen {
-          body.afs-export-route-body {
-            background: #ffffff !important;
-          }
-
-          body.afs-export-route-body > *:not(script):not(style) {
-            background: #ffffff !important;
-          }
-
-          .afsExportOnlyRoot {
-            display: grid;
-            justify-content: center;
-            align-content: start;
-          }
-        }
-
-        @media print {
-          @page {
-            size: A4 portrait;
-            margin: 0;
-          }
-
-          html.afs-export-route-html,
-          body.afs-export-route-body {
-            width: 210mm !important;
-            min-width: 210mm !important;
-            max-width: 210mm !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: #ffffff !important;
-            overflow: visible !important;
-          }
-
-          body.afs-export-route-body * {
-            visibility: hidden !important;
-          }
-
-          body.afs-export-route-body .afsExportOnlyRoot,
-          body.afs-export-route-body .afsExportOnlyRoot * {
-            visibility: visible !important;
-          }
-
-          .afsExportOnlyRoot {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            right: auto !important;
-            bottom: auto !important;
-            z-index: 2147483647 !important;
-            width: 210mm !important;
-            min-width: 210mm !important;
-            max-width: 210mm !important;
-            min-height: auto !important;
-            height: auto !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: visible !important;
-            background: #ffffff !important;
-            display: block !important;
-          }
-
-          .afsExportOnlyRoot > div,
-          .afsExportOnlyRoot [id^="print-"] {
-            width: 210mm !important;
-            min-width: 210mm !important;
-            max-width: 210mm !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            display: block !important;
-            page-break-after: auto !important;
-            break-after: auto !important;
-            page-break-before: auto !important;
-            break-before: auto !important;
-          }
-
-          .afsExportOnlyRoot table {
-            width: 100% !important;
-            table-layout: fixed;
-          }
-
-          .afsExportOnlyRoot tr,
-          .afsExportOnlyRoot thead,
-          .afsExportOnlyRoot tbody {
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          .afsExportOnlyRoot button,
-          .afsExportOnlyRoot input,
-          .afsExportOnlyRoot select,
-          .afsExportOnlyRoot textarea,
-          .afsExportOnlyRoot [data-work-only="true"],
-          .afsExportOnlyRoot [data-editable="true"],
-          .afsExportOnlyRoot [data-note-off="true"] {
-            display: none !important;
-          }
-
-
-          .afsExportOnlyRoot article {
-  width: 210mm !important;
-  min-height: 297mm !important;
-  height: 297mm !important;
-  margin: 0 !important;
-  overflow: hidden !important;
-  page-break-after: always !important;
-  break-after: page !important;
-}
-
-          .afsExportOnlyRoot article:last-of-type {
-            page-break-after: auto !important;
-            break-after: auto !important;
-          }
-
-          .afsExportOnlyRoot [id^="print-"] {
-            page-break-before: always !important;
-            break-before: page !important;
-          }
-
-          .afsExportOnlyRoot [id="print-cover-page"] {
-            page-break-before: auto !important;
-            break-before: auto !important;
-          }
-
-          .afsExportOnlyRoot #print-notes,
-          .afsExportOnlyRoot #print-notes > div {
-            page-break-before: auto !important;
-            break-before: auto !important;
-          }
-
-          .afsExportOnlyRoot #print-notes > div + div {
-            page-break-before: always !important;
-            break-before: page !important;
-          }
-
-          .afs-export-note-item {
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-          }
-
-          .afs-export-compiler-page {
-            page-break-before: always !important;
-            break-before: page !important;
-          }
-
-          .afs-export-compiler-page article {
-            width: 210mm !important;
-            min-height: 297mm !important;
-            height: 297mm !important;
-            overflow: hidden !important;
-            page-break-after: always !important;
-            break-after: page !important;
-          }
-
-          .afs-export-compiler-page article::after {
-            content: counter(afs-export-page);
-          }
-
-
         }
       `}</style>
+
+      {!loading ? (
+        <div
+          ref={paginationMeasureRef}
+          data-afs-pagination-measure="true"
+          aria-hidden="true"
+          style={{
+            position: "fixed",
+            left: "-100000px",
+            top: 0,
+            width: "210mm",
+            height: 0,
+            overflow: "visible",
+            visibility: "hidden",
+            pointerEvents: "none",
+            zIndex: -1,
+          }}
+        >
+          <div data-measure-page="directors">
+            <AfsA4Page {...reportHeaderProps}>
+              <section
+                style={{
+                  fontSize: 11,
+                  lineHeight: 1.45,
+                  color: "#111827",
+                }}
+              >
+                <h1
+                  data-measure-page-heading="true"
+                  style={pageHeadingStyle()}
+                >
+                  {reportTitle(entityType)} — continued
+                </h1>
+              </section>
+            </AfsA4Page>
+          </div>
+
+          <div data-measure-page="notes">
+            <AfsA4Page {...reportHeaderProps}>
+              <h1
+                data-measure-page-heading="true"
+                style={pageHeadingStyle()}
+              >
+                Notes to the Financial Statements — continued
+              </h1>
+            </AfsA4Page>
+          </div>
+
+          <div data-measure-page="policies">
+            <AfsA4Page {...reportHeaderProps}>
+              <h1
+                data-measure-page-heading="true"
+                style={pageHeadingStyle()}
+              >
+                Accounting Policies — continued
+              </h1>
+            </AfsA4Page>
+          </div>
+
+          <div
+            style={{
+              width: "178mm",
+              fontFamily: "Arial, Helvetica, sans-serif",
+              fontSize: 11,
+              lineHeight: 1.45,
+            }}
+          >
+            {activeDirectorsReportKeys.map((key, index) => (
+              <div
+                key={`measure-director-${key}`}
+                data-measure-director-key={key}
+              >
+                <DirectorsReportBlock
+                  context={narrativeContext}
+                  sectionKeys={[key]}
+                  startNumber={index}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              width: "178mm",
+              fontFamily: "Arial, Helvetica, sans-serif",
+              fontSize: 11,
+              lineHeight: 1.45,
+              color: "#111827",
+            }}
+          >
+            {accountingPolicyPrintItems.map((item: any, index: number) => (
+              <div
+                key={`measure-policy-${index}`}
+                data-measure-policy-index={index}
+              >
+                {renderAccountingPolicyPrintItem(item, index)}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ width: "178mm" }}>
+            {activeNoteSectionKeys.map((key) => (
+              <div
+                key={`measure-note-${key}`}
+                data-measure-note-key={key}
+              >
+                <AfsStructuredNotesPanel
+                  engagementId={engagementId}
+                  noteSections={noteSections}
+                  reportOptions={reportOptions as any}
+                  toggleReportOption={() => undefined}
+                  noteData={noteData as any}
+                  trialBalanceLines={trialBalanceLines}
+                  clientSetup={clientSetup}
+                  currentHeading={currentHeading}
+                  priorHeading={priorHeading}
+                  activeNoteTexts={activeNoteTexts}
+                  defaultNoteTexts={defaultNoteTexts}
+                  disclosureTokens={disclosureTokens}
+                  hideComparatives={hideComparatives}
+                  structuredNotesState={effectiveStructuredNotesState}
+                  onStructuredNotesStateChange={() => undefined}
+                  forceReviewMode={true}
+                  sectionKeys={[key]}
+                  headingMode="none"
+                  rootId={`measure-note-${key}`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        id="afs-pagination-ready"
+        data-ready={paginationReady ? "true" : "false"}
+        style={{ display: "none" }}
+      />
+
       {loading ? (
         <AfsA4Page>
           <p style={{ fontSize: 12 }}>Loading Print Studio data...</p>
@@ -4883,27 +6042,59 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             <div id="print-cover-page">
               <AfsA4Page>
                 <section
-                  style={{
-                    minHeight: "245mm",
-                    display: "grid",
-                    alignContent: "center",
-                    justifyItems: "center",
-                    textAlign: "center",
-                    color: "#111827",
-                  }}
-                >
+  style={{
+    minHeight: "245mm",
+    display: "grid",
+    alignContent: "center",
+    justifyItems: "center",
+    textAlign: "center",
+    color: "#111827",
+  }}
+>
+  {reportOptions.showCoverLogo && clientLogoUrl ? (
+    <img
+      src={clientLogoUrl}
+      alt={`${clientName} logo`}
+      style={{
+        display: "block",
+        maxWidth: 240,
+        maxHeight: 90,
+        objectFit: "contain",
+        marginBottom: 24,
+      }}
+    />
+  ) : null}
+
                   <h1
                     style={{
-                      fontSize: 19,
+                      fontSize: 22,
                       lineHeight: 1.25,
-                      fontWeight: 500,
+                      fontWeight: 800,
                       margin: "0 0 22px",
                       textTransform: "uppercase",
                       letterSpacing: "-0.01em",
+                      borderBottom: "1.5px solid #111827",
+                      paddingBottom: 5,
                     }}
                   >
                     {clientName}
                   </h1>
+{tradingName &&
+tradingName.toLowerCase() !== clientName.toLowerCase() ? (
+  <div
+    style={{
+  marginTop: 8,
+  marginBottom: 22,
+  fontSize: 12,
+  fontWeight: 400,
+  color: "#4b5563",
+  letterSpacing: "0.2px",
+}}
+  >
+    Trading as {tradingName}
+  </div>
+) : null}
+
 
                   <div
                     style={{
@@ -4916,8 +6107,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   >
                     <div
                       style={{
-                        fontSize: 14.8,
-                        fontWeight: 500,
+                        fontSize: 17,
+                        fontWeight: 900,
                         textTransform: "uppercase",
                       }}
                     >
@@ -4954,58 +6145,32 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           {reportOptions.index ? (
             <div id="print-index">
               <AfsA4Page {...reportHeaderProps}>
-                <section
-                  className="afs-export-fixed-width"
-                  style={{
-                    fontSize: 11,
-                    color: "#111827",
-                    width: "100%",
-                    minWidth: 0,
-                    display: "block",
-                  }}
-                >
+                <section style={{ fontSize: 11, color: "#111827" }}>
                   <h1 style={pageHeadingStyle()}>Index</h1>
 
-                  <div style={{ display: "grid", gap: 0, width: "100%" }}>
-                    {indexRows.map((section) => (
-                      <div
-                        key={section.id}
-                        className="afs-export-row"
-                        style={{
-                          display: "flex",
-                          alignItems: "baseline",
-                          justifyContent: "space-between",
-                          gap: 24,
-                          width: "100%",
-                          padding: "5px 0",
-                          borderBottom: "0",
-                          fontSize: 11,
-                          lineHeight: 1.35,
-                        }}
-                      >
-                        <span
-                          className="afs-export-nowrap"
-                          style={{
-                            minWidth: 0,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                          }}
-                        >
-                          {section.label}
-                        </span>
-                        <span
-                          style={{
-                            flex: "0 0 36px",
-                            textAlign: "right",
-                            fontVariantNumeric: "tabular-nums",
-                          }}
-                        >
-                          {section.page}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <tbody>
+                      {visibleReportSections
+                        .filter((section) => section.id !== "cover-page")
+                        .map((section, index) => (
+                          <tr key={section.id}>
+                            <td style={{ padding: "5px 0" }}>
+                              {section.label}
+                            </td>
+                            <td
+                              style={{
+                                padding: "5px 0",
+                                width: 60,
+                                textAlign: "right",
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                            >
+                              {reportPageNumberMap[section.id] ?? "–"}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
                 </section>
               </AfsA4Page>
             </div>
@@ -5030,14 +6195,14 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                       {renderInfoRow("Registered name", clientName)}
                       {renderInfoRow(
                         "Trading name",
-                        getSetupValue(clientSetup, ["trading_name"]),
+                        getSetupValue(clientSetup, ["trading_name"])
                       )}
                       {renderInfoRow("Registration number", registrationNumber)}
                       {renderInfoRow("Entity type", entityType)}
                       {renderInfoRow("Financial year end", yearEnd)}
                       {renderInfoRow(
                         "Country of incorporation and domicile",
-                        country,
+                        country
                       )}
                       {renderInfoRow(
                         "Nature of business and principal activities",
@@ -5046,11 +6211,11 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           "principal_activities",
                           "business_activity",
                           "business_description",
-                        ]),
+                        ])
                       )}
                       {renderInfoRow(
                         roleLabel(entityType),
-                        directorsForDisplay.map(getPersonName),
+                        directorsForDisplay.map(getPersonName)
                       )}
                       {renderInfoRow(
                         "Registered office",
@@ -5061,7 +6226,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           "registeredAddress",
                           "registeredOffice",
                           "registeredOfficeAddress",
-                        ]),
+                        ])
                       )}
                       {renderInfoRow(
                         "Business address",
@@ -5072,7 +6237,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           "businessAddress",
                           "physicalAddress",
                           "tradingAddress",
-                        ]),
+                        ])
                       )}
                       {renderInfoRow(
                         "Postal address",
@@ -5081,7 +6246,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           "mailing_address",
                           "postalAddress",
                           "mailingAddress",
-                        ]),
+                        ])
                       )}
                       {renderInfoRow(
                         "Bankers",
@@ -5090,7 +6255,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           "banker",
                           "bank_name",
                           "bankName",
-                        ]),
+                        ])
                       )}
                       {renderInfoRow(
                         "Income tax reference number",
@@ -5101,7 +6266,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           "tax_number",
                           "incomeTaxReferenceNumber",
                           "taxReferenceNumber",
-                        ]),
+                        ])
                       )}
                       {renderInfoRow(
                         "VAT number",
@@ -5110,7 +6275,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           "vat_reference_number",
                           "vatNumber",
                           "vatReferenceNumber",
-                        ]),
+                        ])
                       )}
                       {renderInfoRow(
                         "PAYE number",
@@ -5118,7 +6283,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           "paye_number",
                           "paye_reference_number",
                           "payeNumber",
-                        ]),
+                        ])
                       )}
                       {renderInfoRow(
                         "UIF number",
@@ -5126,32 +6291,29 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                           "uif_number",
                           "uif_reference_number",
                           "uifNumber",
-                        ]),
+                        ])
                       )}
                       {renderInfoRow(
                         "Currency",
                         getSetupValue(clientSetup, [
                           "currency",
                           "presentation_currency",
-                        ]),
+                        ])
                       )}
                       {renderInfoRow(
                         "Legal framework",
                         getSetupValue(clientSetup, [
                           "legal_framework",
                           "companies_act_framework",
-                        ]),
+                        ])
                       )}
-                      {renderInfoRow(
-                        "Financial reporting framework",
-                        framework,
-                      )}
+                      {renderInfoRow("Financial reporting framework", framework)}
                       {renderInfoRow(
                         "Level of assurance",
                         getSetupValue(clientSetup, [
                           "level_of_assurance",
                           "engagement_type",
-                        ]),
+                        ])
                       )}
                       {renderInfoRow("Practitioners", practitionerFirm)}
                       {renderInfoRow("Preparer", practitionerName)}
@@ -5178,125 +6340,57 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             </div>
           ) : null}
 
-        {reportOptions.directorsReport ? (
-            <div id="print-directors-report">
-              <AfsA4Page {...reportHeaderProps}>
-                <section
-                  style={{ fontSize: 11, lineHeight: 1.45, color: "#111827" }}
-                >
-                  <h1 style={pageHeadingStyle()}>{reportTitle(entityType)}</h1>
+          {reportOptions.directorsReport ? (
+  <div id="print-directors-report">
+    {balancedDirectorsReportPageGroups.map((sectionKeys, pageIndex) => {
+      const previousSectionCount = balancedDirectorsReportPageGroups
+        .slice(0, pageIndex)
+        .reduce((total, page) => total + page.length, 0);
 
-                  <DirectorsReportBlock
-                    context={{
-                      ...narrativeContext,
+      return (
+        <AfsA4Page
+          key={`directors-report-page-${pageIndex}`}
+          {...reportHeaderProps}
+        >
+          <section
+            style={{
+              fontSize: 11,
+              lineHeight: 1.45,
+              color: "#111827",
+            }}
+          >
+            <h1 style={pageHeadingStyle()}>
+              {pageIndex === 0
+                ? reportTitle(entityType)
+                : `${reportTitle(entityType)} — continued`}
+            </h1>
 
-                      directorsReportGoingConcern: false,
-                      directorsReportLiquiditySolvency: false,
-                      directorsReportLitigation: false,
-                      directorsReportSocialEthics: false,
-                      directorsReportSubsidiaries: false,
-                      directorsReportAssociates: false,
-                      directorsReportJointVentures: false,
-                      directorsReportNonCurrentAssets: false,
-                      directorsReportAuthorisation: false,
-                      directorsReportOther1: false,
-                      directorsReportOther2: false,
-                      directorsReportOther3: false,
-                      directorsReportOther4: false,
-                      directorsReportOther5: false,
-                      directorsReportOther6: false,
-                      directorsReportOther7: false,
-                      directorsReportOther8: false,
-                      directorsReportOther9: false,
-                      directorsReportOther10: false,
-                    }}
-                  />
-                </section>
-              </AfsA4Page>
-
-              {showDirectorsReportContinuation ? (
-                <AfsA4Page {...reportHeaderProps}>
-                  <section
-                    style={{ fontSize: 11, lineHeight: 1.45, color: "#111827" }}
-                  >
-                    <h1 style={pageHeadingStyle()}>
-                      {reportTitle(entityType)} continued
-                    </h1>
-
-                    <DirectorsReportBlock
-                      startNumber={directorsReportContinuationStartNumber}
-                      context={{
-                        ...narrativeContext,
-
-                        directorsReportGeneralReview: false,
-                        directorsReportIncorporation: false,
-                        directorsReportNatureBusiness: false,
-                        directorsReportReviewActivities: false,
-                        directorsReportFinancialResults: false,
-                        directorsReportEventsAfter: false,
-                        directorsReportDividends: false,
-                        directorsReportShareCapital: false,
-                        directorsReportDirectors: false,
-                        directorsReportSecretary: false,
-                        directorsReportExternalAccountant: false,
-                        directorsReportInterestContracts: false,
-                        directorsReportBorrowingLimitations: false,
-                        directorsReportShareholder: false,
-
-                        directorsReportGoingConcern:
-                          reportOptions.directorsReportGoingConcern,
-                        directorsReportLiquiditySolvency:
-                          reportOptions.directorsReportLiquiditySolvency,
-                        directorsReportLitigation:
-                          reportOptions.directorsReportLitigation,
-                        directorsReportSocialEthics:
-                          reportOptions.directorsReportSocialEthics,
-                        directorsReportSubsidiaries:
-                          reportOptions.directorsReportSubsidiaries,
-                        directorsReportAssociates:
-                          reportOptions.directorsReportAssociates,
-                        directorsReportJointVentures:
-                          reportOptions.directorsReportJointVentures,
-                        directorsReportNonCurrentAssets:
-                          reportOptions.directorsReportNonCurrentAssets,
-                        directorsReportAuthorisation:
-                          reportOptions.directorsReportAuthorisation,
-                      }}
-                    />
-                  </section>
-                </AfsA4Page>
-              ) : null}
-            </div>
-          ) : null}
+            <DirectorsReportBlock
+              context={narrativeContext}
+              sectionKeys={sectionKeys}
+              startNumber={previousSectionCount}
+            />
+          </section>
+        </AfsA4Page>
+      );
+    })}
+  </div>
+) : null}
 
           {reportOptions.compilerReport ? (
-            <div id="print-compiler-report" className="afs-export-compiler-page">
-              <article
-                style={{
-                  position: "relative",
-                  width: "210mm",
-                  minHeight: "297mm",
-                  margin: "0 auto",
-                  background: "#ffffff",
-                  boxSizing: "border-box",
-                  pageBreakAfter: "always",
-                  breakAfter: "page",
-                }}
-              >
-                <div
+            <div id="print-compiler-report">
+              <AfsA4Page>
+                <section
                   style={{
-                    width: "100%",
-                    minHeight: "297mm",
-                    padding: "16mm 17mm 16mm",
-                    boxSizing: "border-box",
-                    fontFamily:
-                      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                    fontFamily: "Arial, Helvetica, sans-serif",
+                    fontSize: 11,
+                    lineHeight: 1.45,
                     color: "#111827",
                   }}
                 >
                   <CompilationReportBlock context={narrativeContext} />
-                </div>
-              </article>
+                </section>
+              </AfsA4Page>
             </div>
           ) : null}
 
@@ -5308,11 +6402,11 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   currencyLabel="Figures in Rand"
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
-                  hidePriorYear={hideComparativeFigures}
                   rows={sfpRows.filter(
                   (row: any) =>
                     String(row?.label || "").trim().toLowerCase() !== "rounding",
                 )}
+                hidePriorYear={hideComparatives}
                 />
               </AfsA4Page>
             </div>
@@ -5326,8 +6420,8 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                   currencyLabel="Figures in Rand"
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
-                  hidePriorYear={hideComparativeFigures}
                   rows={sociRows}
+                hidePriorYear={hideComparatives}
                 />
               </AfsA4Page>
             </div>
@@ -5344,9 +6438,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           {reportOptions.cashFlow ? (
             <div id="print-cash-flow">
               <AfsA4Page {...reportHeaderProps}>
-                {activeSectionId === "cash-flow" &&
-                cashFlowViewMode === "work" &&
-                !isPrintExportMode ? (
+                {activeSectionId === "cash-flow" && cashFlowViewMode === "work" ? (
                   <section style={{ fontSize: 10, color: "#111827" }}>
                     <h1 style={pageHeadingStyle()}>Cash Flow Workbench</h1>
                     <p
@@ -5356,13 +6448,13 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                         lineHeight: 1.4,
                       }}
                     >
-                      Complete the current and prior year cash flow fields
-                      below. The printable cash flow statement is shown in AFS
-                      view.
+                      Capture or override only the cash-flow fields that require
+                      adjustment. The AFS view remains the printable statement.
                     </p>
+
                     <AfsStatementOverrideSettings
                       mode="cashFlow"
-                      overrides={statementOverrides}
+                      overrides={effectiveStatementOverrides}
                       onChange={updateStatementOverride}
                       engineChecks={engineChecks}
                     />
@@ -5373,127 +6465,89 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                     currencyLabel="Figures in Rand"
                     currentHeading={currentHeading}
                     priorHeading={priorHeading}
-                  hidePriorYear={hideComparativeFigures}
-                    rows={exportCashFlowRows}
-                  />
+                    rows={cashFlowRows}
+                  hidePriorYear={hideComparatives}
+                />
                 )}
               </AfsA4Page>
             </div>
           ) : null}
 
           {reportOptions.accountingPolicies ? (
-            <div id="print-accounting-policies">
-              <AfsA4Page {...reportHeaderProps}>
-                <section
-                  style={{ fontSize: 9.2, lineHeight: 1.24, color: "#111827" }}
-                >
-                  <h1 style={pageHeadingStyle()}>Accounting Policies</h1>
+            <div
+              id="print-accounting-policies"
+              ref={accountingPoliciesPrintRef}
+            >
+              {accountingPolicyPageGroups.map(
+                (policyIndexes: number[], pageIndex: number) => (
+                  <div
+                    key={`accounting-policies-page-${pageIndex}`}
+                    data-accounting-policy-page-index={pageIndex}
+                  >
+                    <AfsA4Page {...reportHeaderProps}>
+                    <section
+                      style={{
+                        fontSize: 11,
+                        lineHeight: 1.45,
+                        color: "#111827",
+                      }}
+                    >
+                      <h1 style={pageHeadingStyle()}>
+                        {pageIndex === 0
+                          ? "Accounting Policies"
+                          : "Accounting Policies — continued"}
+                      </h1>
 
-                  {buildAccountingPolicyPrintItems().map((item, index) => {
-                    if (item.type === "group") {
-                      return (
-                        <div key={item.groupKey}>
-                          <h2 style={sectionHeadingStyle()}>
-                            {index + 1}. {item.groupLabel}
-                          </h2>
-
-                          {item.sections.map((section) => {
-                            const current = activeAccountingPolicyTexts[
-                              section.key
-                            ] ||
-                              defaultAccountingPolicyTexts[section.key] || {
-                                title: section.title || section.defaultTitle,
-                                text: "",
-                              };
-
-                            const shortTitle = String(
-                              current.title ||
-                                section.label ||
-                                section.title ||
-                                section.defaultTitle,
-                            )
-                              .replace(`${item.groupLabel} - `, "")
-                              .replace(`${item.groupLabel}: `, "")
-                              .replace("Property, plant and equipment - ", "")
-                              .replace("Financial instruments - ", "")
-                              .replace("Leases - ", "")
-                              .replace("Investment property - ", "")
-                              .replace("Revenue - ", "");
-
-                            return (
-                              <div key={section.key}>
-                                <h3 style={subsectionHeadingStyle()}>
-                                  {shortTitle}
-                                </h3>
-
-                                {renderDisclosureText(
-                                  current.text,
-                                  disclosureTokens,
-                                ).map((paragraph, paragraphIndex) => (
-                                  <p
-                                    key={`${section.key}-${paragraphIndex}`}
-                                    style={paragraphStyle()}
-                                  >
-                                    {paragraph}
-                                  </p>
-                                ))}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    }
-
-                    const current = activeAccountingPolicyTexts[
-                      item.section.key
-                    ] ||
-                      defaultAccountingPolicyTexts[item.section.key] || {
-                        title:
-                          item.section.label ||
-                          item.section.title ||
-                          item.section.defaultTitle,
-                        text: "",
-                      };
-
-                    return (
-                      <div key={item.section.key}>
-                        <h2 style={sectionHeadingStyle()}>
-                          {index + 1}.{" "}
-                          {current.title ||
-                            item.section.label ||
-                            item.section.title ||
-                            item.section.defaultTitle}
-                        </h2>
-
-                        {renderDisclosureText(
-                          current.text,
-                          disclosureTokens,
-                        ).map((paragraph, paragraphIndex) => (
-                          <p
-                            key={`${item.section.key}-${paragraphIndex}`}
-                            style={paragraphStyle()}
-                          >
-                            {paragraph}
-                          </p>
-                        ))}
-                      </div>
-                    );
-                  })}
-                </section>
-              </AfsA4Page>
+                      {policyIndexes.map((policyIndex: number) =>
+                        renderAccountingPolicyPrintItem(
+                          accountingPolicyPrintItems[policyIndex],
+                          policyIndex,
+                        ),
+                      )}
+                    </section>
+                    </AfsA4Page>
+                  </div>
+                ),
+              )}
             </div>
           ) : null}
 
           {reportOptions.notes ? (
             <div id="print-notes">
-              {printableNotePages.map((notePage, notePageIndex) => (
-                <div
-                  key={`print-notes-page-${notePageIndex}`}
-                  id={notePageIndex === 0 ? "print-notes-page-1" : `print-notes-page-${notePageIndex + 1}`}
-                  className="afs-export-controlled-page"
+              {notesPageGroups.map((sectionKeys, pageIndex) => (
+                <AfsA4Page
+                  key={`notes-page-${pageIndex}`}
+                  {...reportHeaderProps}
                 >
-                  {renderPrintableNotesPage(notePage, notePageIndex)}
-                </div>
+                  <AfsStructuredNotesPanel
+                    engagementId={engagementId}
+                    noteSections={noteSections}
+                    reportOptions={reportOptions as any}
+                    toggleReportOption={(key: string, checked: boolean) =>
+                      toggleReportOption(
+                        key as keyof ReportOptions,
+                        checked,
+                      )
+                    }
+                    noteData={noteData as any}
+                    trialBalanceLines={trialBalanceLines}
+                    clientSetup={clientSetup}
+                    currentHeading={currentHeading}
+                    priorHeading={priorHeading}
+                    activeNoteTexts={activeNoteTexts}
+                    defaultNoteTexts={defaultNoteTexts}
+                    disclosureTokens={disclosureTokens}
+                    hideComparatives={hideComparatives}
+                    structuredNotesState={effectiveStructuredNotesState}
+                    onStructuredNotesStateChange={
+                      saveStructuredNotesStateEverywhere
+                    }
+                    forceReviewMode={isPdfExportMode}
+                    sectionKeys={sectionKeys}
+                    headingMode={pageIndex === 0 ? "main" : "continued"}
+                    rootId={`print-notes-page-${pageIndex + 1}`}
+                  />
+                </AfsA4Page>
               ))}
             </div>
           ) : null}
@@ -5501,16 +6555,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           {reportOptions.detailedIncomeStatement ? (
             <div id="print-detailed-income">
               <AfsA4Page {...reportHeaderProps}>
-                <div className="afs-export-fixed-width" style={{ width: "100%", minWidth: 0, display: "block" }}>
-                <AfsStatementTable
-                  title="Detailed Income Statement"
-                  currencyLabel="Figures in Rand"
-                  currentHeading={currentHeading}
-                  priorHeading={priorHeading}
-                  hidePriorYear={hideComparativeFigures}
-                  rows={alignDetailedIncomeRowsToSoci(detailedIncomeRows, sociRows)}
-                />
-                </div>
+                {renderEditableDetailedIncomeStatement()}
               </AfsA4Page>
             </div>
           ) : null}
@@ -5519,14 +6564,15 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
             <div id="print-tax-computation">
               <AfsA4Page {...reportHeaderProps}>
                 <section
-                  style={{ fontSize: 11.2, lineHeight: 1.42, color: "#111827" }}
+                  style={{ fontSize: 11, lineHeight: 1.45, color: "#111827" }}
                 >
                   <h1 style={pageHeadingStyle()}>Tax Computation</h1>
 
                   {(() => {
-                    const profitBeforeTax = Number(
-                      engineChecks.profitBeforeTax || 0,
+                    const profitBeforeTax = Math.round(
+                      Number(engineChecks.profitBeforeTax || 0)
                     );
+
                     const taxRateRaw = getSetupValue(clientSetup, [
                       "tax_rate",
                       "income_tax_rate",
@@ -5535,6 +6581,7 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                       "incomeTaxRate",
                       "companyTaxRate",
                     ]);
+
                     const assessedLossRaw = getSetupValue(clientSetup, [
                       "assessed_loss",
                       "assessed_loss_brought_forward",
@@ -5543,142 +6590,315 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
                     ]);
 
                     const taxRate = Number(taxRateRaw || 27);
-                    const assessedLoss = Number(assessedLossRaw || 0);
-                    const taxableIncomeBeforeLoss = profitBeforeTax;
-                    const lossUtilised = Math.min(
-                      Math.max(taxableIncomeBeforeLoss, 0),
-                      Math.max(assessedLoss, 0),
+                    const assessedLossBroughtForward = Math.abs(
+                      Number(assessedLossRaw || 0)
                     );
+
+                    const deferredTaxAssetCurrent = Math.round(
+                      (noteData.currentTaxReceivable || [])
+                        .filter((line: any) =>
+                          String(line.label || "").toLowerCase().includes("deferred tax")
+                        )
+                        .reduce(
+                          (sum: number, line: any) => sum + Number(line.current || 0),
+                          0,
+                        )
+                    );
+
+                    const deferredTaxLiabilityCurrent = Math.round(
+                      (noteData.currentTaxPayable || [])
+                        .filter((line: any) =>
+                          String(line.label || "").toLowerCase().includes("deferred tax")
+                        )
+                        .reduce(
+                          (sum: number, line: any) => sum + Number(line.current || 0),
+                          0,
+                        )
+                    );
+
+                    const taxExpenseMapped = Math.round(
+                      (noteData.taxation || []).reduce(
+                        (sum: number, line: any) => sum + Number(line.current || 0),
+                        0,
+                      )
+                    );
+
+                    const inferredDeferredTaxCredit =
+                      deferredTaxAssetCurrent - deferredTaxLiabilityCurrent;
+
+                    const taxExpenseCreditPerSoci =
+                      taxExpenseMapped !== 0
+                        ? taxExpenseMapped
+                        : inferredDeferredTaxCredit !== 0
+                          ? -inferredDeferredTaxCredit
+                          : 0;
+
+                    const taxableIncomeBeforeAssessedLoss = profitBeforeTax;
+                    const taxableIncomeAfterAssessedLoss =
+                      taxableIncomeBeforeAssessedLoss - assessedLossBroughtForward;
+
                     const taxableIncome = Math.max(
                       0,
-                      taxableIncomeBeforeLoss - lossUtilised,
+                      taxableIncomeAfterAssessedLoss
                     );
-                    const normalTax = Math.round(
-                      taxableIncome * (taxRate / 100),
-                    );
-                    const expectedTax = Math.round(
-                      Math.max(profitBeforeTax, 0) * (taxRate / 100),
-                    );
-                    const taxDifference = normalTax - expectedTax;
 
-                    const taxRows: Array<{
-                      label: string;
-                      current: number;
-                      strong?: boolean;
-                      rule?: boolean;
-                    }> = [
-                      {
-                        label: "Profit / (loss) before taxation",
-                        current: profitBeforeTax,
-                        strong: true,
-                      },
-                      {
-                        label: `Tax calculated at ${taxRate}%`,
-                        current: expectedTax,
-                      },
-                      {
-                        label: "Permanent / non-taxable differences",
-                        current: 0,
-                      },
-                      {
-                        label: "Assessed loss utilised",
-                        current: -Math.abs(lossUtilised),
-                      },
-                      {
-                        label: "Taxable income",
-                        current: taxableIncome,
-                        strong: true,
-                        rule: true,
-                      },
-                      {
-                        label: "Current tax",
-                        current: normalTax,
-                        strong: true,
-                        rule: true,
-                      },
-                      {
-                        label: "Tax rate reconciliation difference",
-                        current: taxDifference,
-                      },
+                    const assessedLossCarriedForward = Math.max(
+                      0,
+                      -taxableIncomeAfterAssessedLoss
+                    );
+
+                    const normalTax = Math.round(
+                      taxableIncome * (taxRate / 100)
+                    );
+
+                    const normalTaxExpense = normalTax;
+                    const deferredTaxCredit =
+                      taxExpenseCreditPerSoci - normalTaxExpense;
+
+                    const taxBalanceRows: Array<
+                      [string, number, "normal" | "bold"]
+                    > = [];
+
+                    const currentTaxReceivable = Math.round(
+                      (noteData.currentTaxReceivable || [])
+                        .filter((line: any) =>
+                          !String(line.label || "").toLowerCase().includes("deferred tax")
+                        )
+                        .reduce(
+                          (sum: number, line: any) => sum + Number(line.current || 0),
+                          0,
+                        )
+                    );
+
+                    const currentTaxPayable = Math.round(
+                      (noteData.currentTaxPayable || [])
+                        .filter((line: any) =>
+                          !String(line.label || "").toLowerCase().includes("deferred tax")
+                        )
+                        .reduce(
+                          (sum: number, line: any) => sum + Number(line.current || 0),
+                          0,
+                        )
+                    );
+
+                    const priorCurrentTaxReceivable = Math.round(
+                      (noteData.currentTaxReceivable || [])
+                        .filter((line: any) =>
+                          !String(line.label || "").toLowerCase().includes("deferred tax")
+                        )
+                        .reduce(
+                          (sum: number, line: any) => sum + Number(line.prior || 0),
+                          0,
+                        )
+                    );
+
+                    const priorCurrentTaxPayable = Math.round(
+                      (noteData.currentTaxPayable || [])
+                        .filter((line: any) =>
+                          !String(line.label || "").toLowerCase().includes("deferred tax")
+                        )
+                        .reduce(
+                          (sum: number, line: any) => sum + Number(line.prior || 0),
+                          0,
+                        )
+                    );
+
+                    const openingCurrentTaxBalance =
+                      priorCurrentTaxPayable - priorCurrentTaxReceivable;
+                    const closingCurrentTaxBalance =
+                      currentTaxPayable - currentTaxReceivable;
+
+                    const hasDeferredTaxOnly =
+                      normalTax === 0 &&
+                      deferredTaxCredit !== 0 &&
+                      currentTaxPayable === 0 &&
+                      currentTaxReceivable === 0 &&
+                      priorCurrentTaxPayable === 0 &&
+                      priorCurrentTaxReceivable === 0;
+
+                    const hasCurrentTaxBalance =
+                      !hasDeferredTaxOnly &&
+                      (openingCurrentTaxBalance !== 0 ||
+                        closingCurrentTaxBalance !== 0 ||
+                        normalTax !== 0);
+
+                    if (hasCurrentTaxBalance) {
+                      const taxPaidOrCredits =
+                        openingCurrentTaxBalance + normalTax - closingCurrentTaxBalance;
+
+                      taxBalanceRows.push(
+                        [
+                          "Amount owing / (prepaid) at beginning of year",
+                          openingCurrentTaxBalance,
+                          "normal",
+                        ],
+                        ["Normal tax per calculation", normalTax, "normal"],
+                        [
+                          "Tax paid / tax credits recognised",
+                          -taxPaidOrCredits,
+                          "normal",
+                        ],
+                        [
+                          "Amount owing / (prepaid) at end of year",
+                          closingCurrentTaxBalance,
+                          "bold",
+                        ],
+                      );
+                    }
+
+                    const topRows: Array<[string, number, "normal" | "bold"]> =
+                      [
+                        [
+                          "Profit / (loss) before taxation",
+                          profitBeforeTax,
+                          "normal",
+                        ],
+                        [
+                          "Assessed loss brought forward",
+                          -assessedLossBroughtForward,
+                          "normal",
+                        ],
+                        [
+                          "Taxable income / (assessed loss)",
+                          taxableIncomeAfterAssessedLoss,
+                          "bold",
+                        ],
+                        [
+                          "Taxable income subject to normal tax",
+                          taxableIncome,
+                          "normal",
+                        ],
+                        [`Normal tax at ${taxRate}%`, normalTax, "bold"],
+                      ];
+
+                    const assessedLossRows: Array<
+                      [string, number, "normal" | "bold"]
+                    > = [
+                      [
+                        "Calculated tax profit / (loss) for the year",
+                        taxableIncomeBeforeAssessedLoss,
+                        "normal",
+                      ],
+                      [
+                        "Assessed loss brought forward",
+                        assessedLossBroughtForward,
+                        "normal",
+                      ],
+                      [
+                        "Total assessed loss carried forward",
+                        assessedLossCarriedForward,
+                        "bold",
+                      ],
                     ];
 
+                    const expenseRows: Array<
+                      [string, number, "normal" | "bold"]
+                    > = [
+                      ["Normal tax expense", normalTaxExpense, "normal"],
+                    ];
+
+                    if (deferredTaxCredit !== 0) {
+                      expenseRows.push([
+                        deferredTaxCredit < 0
+                          ? "Deferred tax credit recognised"
+                          : "Deferred tax expense recognised",
+                        deferredTaxCredit,
+                        "normal",
+                      ]);
+                    }
+
+                    expenseRows.push([
+                      "Income tax expense / (credit) per SOCI",
+                      taxExpenseCreditPerSoci,
+                      "bold",
+                    ]);
+
+                    const renderRows = (
+                      rows: Array<[string, number, "normal" | "bold"]>
+                    ) =>
+                      rows.map(([label, amount, rowType]) => (
+                        <tr key={String(label)}>
+                          <td
+                            style={{
+                              padding: "4px 0",
+                              fontWeight: rowType === "bold" ? 800 : 400,
+                            }}
+                          >
+                            {label}
+                          </td>
+                          <td
+                            style={{
+                              padding: "4px 0",
+                              textAlign: "right",
+                              width: 120,
+                              fontWeight: rowType === "bold" ? 800 : 400,
+                              borderTop:
+                                rowType === "bold"
+                                  ? "1px solid #111827"
+                                  : "0",
+                            }}
+                          >
+                            {taxAmount(Number(amount))}
+                          </td>
+                        </tr>
+                      ));
+
                     return (
-                      <>
-                        <table
-                          style={{
-                            width: "100%",
-                            borderCollapse: "collapse",
-                            fontSize: 10.2,
-                            marginTop: 8,
-                          }}
-                        >
-                          <thead>
-                            <tr>
-                              <th
-                                style={{
-                                  textAlign: "left",
-                                  borderBottom: "0.8px solid #64748b",
-                                  padding: "3px 0",
-                                }}
-                              >
-                                Description
-                              </th>
-                              <th
-                                style={{
-                                  textAlign: "right",
-                                  borderBottom: "0.8px solid #64748b",
-                                  padding: "3px 0",
-                                  width: 110,
-                                }}
-                              >
-                                {currentHeading}
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {taxRows.map((row) => (
-                              <tr key={String(row.label || "").trim().toLowerCase() === "total" ? "" : row.label}>
+                      <table
+                        style={{
+                          width: "100%",
+                          borderCollapse: "collapse",
+                          fontSize: 10.5,
+                          marginTop: 10,
+                        }}
+                      >
+                        <tbody>
+                          {renderRows(topRows)}
+
+                          <tr>
+                            <td
+                              colSpan={2}
+                              style={{
+                                padding: "14px 0 4px",
+                                fontWeight: 800,
+                              }}
+                            >
+                              Summary of assessed loss
+                            </td>
+                          </tr>
+                          {renderRows(assessedLossRows)}
+
+                          <tr>
+                            <td
+                              colSpan={2}
+                              style={{
+                                padding: "14px 0 4px",
+                                fontWeight: 800,
+                              }}
+                            >
+                              Reconciliation of income tax expense / (credit)
+                            </td>
+                          </tr>
+                          {renderRows(expenseRows)}
+
+                          {taxBalanceRows.length ? (
+                            <>
+                              <tr>
                                 <td
+                                  colSpan={2}
                                   style={{
-                                    padding: "3px 0",
-                                    fontWeight: row.strong ? 800 : 400,
+                                    padding: "14px 0 4px",
+                                    fontWeight: 800,
                                   }}
                                 >
-                                  {String(row.label || "").trim().toLowerCase() === "total" ? "" : row.label}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "3px 0",
-                                    textAlign: "right",
-                                    fontWeight: row.strong ? 800 : 400,
-                                    borderTop: row.rule
-                                      ? "1px solid #111827"
-                                      : undefined,
-                                    borderBottom: row.rule
-                                      ? "2px solid #111827"
-                                      : undefined,
-                                  }}
-                                >
-                                  {taxAmount(Number(row.current))}
+                                  Reconciliation of current tax balance
                                 </td>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-
-                        <p
-                          style={{
-                            marginTop: 12,
-                            fontSize: 10.2,
-                            lineHeight: 1.35,
-                            color: "#374151",
-                          }}
-                        >
-                          Tax computation is prepared from the mapped profit
-                          before tax and the tax settings captured in Client
-                          Setup.
-                        </p>
-                      </>
+                              {renderRows(taxBalanceRows)}
+                            </>
+                          ) : null}
+                        </tbody>
+                      </table>
                     );
                   })()}
                 </section>
@@ -5687,7 +6907,6 @@ const title = `${authorisationNumber}. ${cleanAuthorisationTitle}`;
           ) : null}
         </>
       )}
-
-    </main>
+    </AfsPrintStudioShell>
   );
 }

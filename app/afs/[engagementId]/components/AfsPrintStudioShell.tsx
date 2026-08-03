@@ -92,20 +92,7 @@ export default function AfsPrintStudioShell({
     (section) => section.group === "settings",
   );
 
-  const zoomClass =
-    zoom === "85"
-      ? "afsZoom85"
-      : zoom === "90"
-        ? "afsZoom90"
-        : zoom === "100"
-          ? "afsZoom100"
-          : zoom === "110"
-            ? "afsZoom110"
-            : zoom === "125"
-              ? "afsZoom125"
-              : zoom === "150"
-                ? "afsZoom150"
-                : "afsZoomFit";
+  const zoomClass = "afsZoomFit";
 
   useEffect(() => {
     const clearExportMode = () => {
@@ -296,12 +283,6 @@ export default function AfsPrintStudioShell({
               style={styles.select}
             >
               <option value="fit">Fit page</option>
-              <option value="85">85%</option>
-              <option value="90">90%</option>
-              <option value="100">100%</option>
-              <option value="110">110%</option>
-              <option value="125">125%</option>
-              <option value="150">150%</option>
             </select>
 
  <label style={styles.draftToggle}>
@@ -425,31 +406,21 @@ export default function AfsPrintStudioShell({
         .afsZoomFit > * {
           transform: scale(0.96);
           transform-origin: top center;
+          margin-bottom: 0;
         }
-        .afsZoom85 > * {
-          transform: scale(0.85);
-          transform-origin: top center;
-        }
-        .afsZoom90 > * {
-          transform: scale(0.9);
-          transform-origin: top center;
-        }
+
         .afsZoom100 > * {
           transform: scale(1);
           transform-origin: top center;
+          margin-bottom: 0;
         }
+
         .afsZoom110 > * {
           transform: scale(1.1);
           transform-origin: top center;
+          margin-bottom: 30mm;
         }
-        .afsZoom125 > * {
-          transform: scale(1.25);
-          transform-origin: top center;
-        }
-        .afsZoom150 > * {
-          transform: scale(1.5);
-          transform-origin: top center;
-        }
+
 
         @media print {
           @page {

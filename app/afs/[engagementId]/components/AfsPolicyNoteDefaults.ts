@@ -62,7 +62,7 @@ export const accountingPolicySections: EditableDisclosureSection[] = [
     "Basis of preparation and summary of significant accounting policies",
     "general",
     "General",
-    "The annual financial statements have been prepared in accordance with IFRS for SMEs and the requirements of the Companies Act of South Africa. They have been prepared on the historical cost basis, except where otherwise stated, and are presented in South African Rand."
+    "The annual financial statements have been prepared in accordance with IFRS for SMEs and the requirements of the Companies Act 71 of 2008, as amended. They have been prepared on the historical cost basis, except where otherwise stated, and are presented in South African Rand."
   ),
   section(
     "policyJudgementsEstimates",
@@ -226,7 +226,7 @@ export const accountingPolicySections: EditableDisclosureSection[] = [
     "Taxation",
     "tax",
     "Taxation",
-    "Current tax is the expected tax payable or receivable on taxable income or loss for the year, using tax rates enacted or substantively enacted at the reporting date. Deferred tax is recognised for timing differences where applicable."
+    "Current tax is the expected tax payable or receivable on taxable income or loss for the year, using tax rates enacted or substantively enacted at the reporting date. Deferred tax is recognised for temporary differences, unused tax losses and unused tax credits to the extent required by IFRS for SMEs."
   ),
   section(
     "policyImpairment",
@@ -257,6 +257,8 @@ export const noteSections: EditableDisclosureSection[] = [
   section("notesOtherFinancialLiabilities", "notesOtherFinancialLiabilities", "Other financial liabilities", "equity", "Equity and liabilities"),
   section("notesTradePayables", "notesTradePayables", "Trade and other payables", "equity", "Equity and liabilities"),
   section("notesCurrentTaxPayable", "notesCurrentTaxPayable", "Current tax payable", "equity", "Equity and liabilities"),
+  section("notesGoingConcern", "notesGoingConcern", "Going concern", "equity", "Equity and liabilities", "The going-concern assessment and any material uncertainties are disclosed where relevant."),
+  section("notesRelatedParties", "notesRelatedParties", "Related parties", "equity", "Equity and liabilities", "Related-party relationships, transactions, balances and commitments are disclosed where applicable."),
 
   section("notesRevenue", "notesRevenue", "Revenue", "profit-loss", "Profit or loss"),
   section("notesOtherIncome", "notesOtherIncome", "Other income", "profit-loss", "Profit or loss"),

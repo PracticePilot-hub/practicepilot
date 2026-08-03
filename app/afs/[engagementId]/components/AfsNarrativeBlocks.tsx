@@ -109,7 +109,7 @@ function isTrust(context: NarrativeContext) {
 function governingAct(context: NarrativeContext) {
   if (isCloseCorporation(context)) return "the Close Corporations Act of South Africa";
   if (isTrust(context)) return "the applicable trust deed and legislation";
-  return "the Companies Act of South Africa";
+  return "the Companies Act 71 of 2008, as amended";
 }
 
 function frameworkLabel(context: NarrativeContext) {
@@ -454,7 +454,7 @@ export function DirectorsResponsibilitiesBlock({ context }: { context: Narrative
         </p>
       ) : (
         <p style={styles.paragraph}>
-          The {body} are responsible for ensuring that the entity complies with the requirements of the Companies Act of South Africa insofar as they relate to annual financial statements. The {body} have considered the solvency and liquidity position of the entity and are satisfied that the entity will be able to meet its obligations as they become due in the ordinary course of business, unless otherwise disclosed in this report.
+          The {body} are responsible for ensuring that the entity complies with the requirements of the Companies Act 71 of 2008, as amended, insofar as they relate to annual financial statements. The {body} have considered the solvency and liquidity position of the entity and are satisfied that the entity will be able to meet its obligations as they become due in the ordinary course of business, unless otherwise disclosed in this report.
         </p>
       )}
 
