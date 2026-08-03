@@ -10,6 +10,12 @@ export const dynamic = "force-dynamic";
 
 type PriceListType = "BULK" | "INDIVIDUAL";
 
+type ExtractedItem = {
+  item_code: string;
+  description: string;
+  supplier_ex_vat: number;
+};
+
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey =
@@ -37,6 +43,12 @@ function normaliseHeader(value: any) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function normaliseDescriptionKey(value: string) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
 function parseMoney(value: any) {
   if (value === null || value === undefined || value === "") return null;
 
@@ -56,17 +68,13 @@ function parseMoney(value: any) {
 }
 
 function normalisePriceListType(value: FormDataEntryValue | null): PriceListType {
-  const normalised = String(value || "BULK").trim().toUpperCase();
-
-  if (normalised === "INDIVIDUAL") {
-    return "INDIVIDUAL";
-  }
-
-  return "BULK";
+  return String(value || "BULK").trim().toUpperCase() === "INDIVIDUAL"
+    ? "INDIVIDUAL"
+    : "BULK";
 }
 
-function findHeaderRow(rows: any[][]) {
-  for (let rowIndex = 0; rowIndex < Math.min(rows.length, 30); rowIndex++) {
+function findHeaderRow(rows: any[][], priceListType: PriceListType) {
+  for (let rowIndex = 0; rowIndex < Math.min(rows.length, 40); rowIndex++) {
     const normalised = rows[rowIndex].map(normaliseHeader);
 
     const hasCode = normalised.some(
@@ -95,7 +103,11 @@ function findHeaderRow(rows: any[][]) {
         cell.includes("inclvat")
     );
 
-    if (hasCode && hasDescription && hasPrice) {
+    if (
+      hasDescription &&
+      hasPrice &&
+      (priceListType === "INDIVIDUAL" || hasCode)
+    ) {
       return rowIndex;
     }
   }
@@ -127,14 +139,25 @@ function findColumnIndex(headers: any[], candidates: string[]) {
   return -1;
 }
 
-function extractItemsFromWorkbook(workbook: XLSX.WorkBook) {
-  const allItems: {
-    item_code: string;
-    description: string;
-    supplier_ex_vat: number;
-  }[] = [];
+function buildIndividualInternalCode(
+  description: string,
+  sheetIndex: number,
+  rowIndex: number
+) {
+  const descriptionKey = normaliseDescriptionKey(description)
+    .slice(0, 18)
+    .toUpperCase();
 
-  for (const sheetName of workbook.SheetNames) {
+  return `IND-${descriptionKey || "ITEM"}-${sheetIndex + 1}-${rowIndex + 1}`;
+}
+
+function extractItemsFromWorkbook(
+  workbook: XLSX.WorkBook,
+  priceListType: PriceListType
+) {
+  const allItems: ExtractedItem[] = [];
+
+  workbook.SheetNames.forEach((sheetName, sheetIndex) => {
     const sheet = workbook.Sheets[sheetName];
 
     const rows = XLSX.utils.sheet_to_json<any[]>(sheet, {
@@ -143,11 +166,11 @@ function extractItemsFromWorkbook(workbook: XLSX.WorkBook) {
       raw: false,
     });
 
-    if (!rows || rows.length === 0) continue;
+    if (!rows || rows.length === 0) return;
 
-    const headerRowIndex = findHeaderRow(rows);
+    const headerRowIndex = findHeaderRow(rows, priceListType);
 
-    if (headerRowIndex < 0) continue;
+    if (headerRowIndex < 0) return;
 
     const headers = rows[headerRowIndex];
 
@@ -180,16 +203,17 @@ function extractItemsFromWorkbook(workbook: XLSX.WorkBook) {
       "Supplier Inc VAT",
     ]);
 
-    if (codeIndex < 0 || descriptionIndex < 0) continue;
+    if (descriptionIndex < 0) return;
+    if (priceListType === "BULK" && codeIndex < 0) return;
 
     for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex++) {
       const row = rows[rowIndex];
 
-      const itemCode = cleanText(row[codeIndex]).toUpperCase();
       const description = cleanText(row[descriptionIndex]);
+      const suppliedCode =
+        codeIndex >= 0 ? cleanText(row[codeIndex]).toUpperCase() : "";
 
-      if (!itemCode || !description) continue;
-      if (itemCode.toLowerCase().includes("item")) continue;
+      if (!description) continue;
       if (description.toLowerCase().includes("description")) continue;
 
       const exclVatAmount =
@@ -207,6 +231,13 @@ function extractItemsFromWorkbook(workbook: XLSX.WorkBook) {
       }
 
       if (supplierExVat === null || supplierExVat <= 0) continue;
+      if (priceListType === "BULK" && !suppliedCode) continue;
+
+      const itemCode =
+        priceListType === "INDIVIDUAL"
+          ? suppliedCode ||
+            buildIndividualInternalCode(description, sheetIndex, rowIndex)
+          : suppliedCode;
 
       allItems.push({
         item_code: itemCode,
@@ -214,19 +245,17 @@ function extractItemsFromWorkbook(workbook: XLSX.WorkBook) {
         supplier_ex_vat: Math.round(supplierExVat * 100) / 100,
       });
     }
-  }
+  });
 
-  const deduped = new Map<
-    string,
-    {
-      item_code: string;
-      description: string;
-      supplier_ex_vat: number;
-    }
-  >();
+  const deduped = new Map<string, ExtractedItem>();
 
   for (const item of allItems) {
-    deduped.set(item.item_code, item);
+    const dedupeKey =
+      priceListType === "INDIVIDUAL"
+        ? normaliseDescriptionKey(item.description)
+        : item.item_code;
+
+    deduped.set(dedupeKey, item);
   }
 
   return Array.from(deduped.values());
@@ -269,13 +298,17 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const workbook = XLSX.read(arrayBuffer, { type: "array" });
 
-    const items = extractItemsFromWorkbook(workbook);
+    const items = extractItemsFromWorkbook(workbook, priceListType);
 
     if (items.length === 0) {
+      const expectedColumns =
+        priceListType === "INDIVIDUAL"
+          ? "Item Description and Pricing exclVAT or Pricing INCL VAT."
+          : "Item Code, Item Description, and Pricing exclVAT or Pricing INCL VAT.";
+
       return NextResponse.json(
         {
-          error:
-            "No supplier items found. Expected columns: Item Code, Item Description, Pricing exclVAT or Pricing INCL VAT.",
+          error: `No supplier items found. Expected columns: ${expectedColumns}`,
         },
         { status: 400 }
       );
