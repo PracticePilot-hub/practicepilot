@@ -8,6 +8,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
+type PriceListType = "BULK" | "INDIVIDUAL";
+
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey =
@@ -51,6 +53,16 @@ function parseMoney(value: any) {
   const parsed = Number(cleaned);
 
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalisePriceListType(value: FormDataEntryValue | null): PriceListType {
+  const normalised = String(value || "BULK").trim().toUpperCase();
+
+  if (normalised === "INDIVIDUAL") {
+    return "INDIVIDUAL";
+  }
+
+  return "BULK";
 }
 
 function findHeaderRow(rows: any[][]) {
@@ -204,11 +216,14 @@ function extractItemsFromWorkbook(workbook: XLSX.WorkBook) {
     }
   }
 
-  const deduped = new Map<string, {
-    item_code: string;
-    description: string;
-    supplier_ex_vat: number;
-  }>();
+  const deduped = new Map<
+    string,
+    {
+      item_code: string;
+      description: string;
+      supplier_ex_vat: number;
+    }
+  >();
 
   for (const item of allItems) {
     deduped.set(item.item_code, item);
@@ -233,6 +248,9 @@ export async function POST(req: NextRequest) {
 
     const file = formData.get("file");
     const priceMonth = String(formData.get("priceMonth") || "");
+    const priceListType = normalisePriceListType(
+      formData.get("priceListType")
+    );
 
     if (!priceMonth) {
       return NextResponse.json(
@@ -271,8 +289,9 @@ export async function POST(req: NextRequest) {
       .insert({
         price_month: monthDate,
         file_name: file.name,
+        price_list_type: priceListType,
       })
-      .select("id, price_month, file_name")
+      .select("id, price_month, file_name, price_list_type")
       .single();
 
     if (uploadResult.error) {
@@ -296,16 +315,25 @@ export async function POST(req: NextRequest) {
       .insert(rowsToInsert);
 
     if (insertResult.error) {
+      await supabase
+        .from("cubechem_price_uploads")
+        .delete()
+        .eq("id", uploadId);
+
       return NextResponse.json(
         { error: insertResult.error.message },
         { status: 500 }
       );
     }
 
+    const typeLabel =
+      priceListType === "INDIVIDUAL" ? "individual" : "bulk";
+
     return NextResponse.json({
       upload: uploadResult.data,
       itemCount: rowsToInsert.length,
-      message: `${rowsToInsert.length} supplier items uploaded for ${monthDate}.`,
+      priceListType,
+      message: `${rowsToInsert.length} ${typeLabel} supplier items uploaded for ${monthDate}.`,
     });
   } catch (error) {
     console.error("CubeChem supplier upload error:", error);

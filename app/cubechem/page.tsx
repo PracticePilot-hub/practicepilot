@@ -116,6 +116,9 @@ export default function CubeChemPage() {
   const [currentUserEmail, setCurrentUserEmail] = useState("");
 
   const [supplierFile, setSupplierFile] = useState<File | null>(null);
+  const [supplierPriceListType, setSupplierPriceListType] = useState<
+    "BULK" | "INDIVIDUAL"
+  >("BULK");
 
   const [uploadMonth, setUploadMonth] = useState("2026-06");
   const [compareFromMonth, setCompareFromMonth] = useState("2026-05");
@@ -473,6 +476,7 @@ export default function CubeChemPage() {
       const formData = new FormData();
       formData.append("file", supplierFile);
       formData.append("priceMonth", uploadMonth);
+      formData.append("priceListType", supplierPriceListType);
 
       const res = await fetch("/api/cubechem/upload-supplier", {
         method: "POST",
@@ -488,9 +492,13 @@ export default function CubeChemPage() {
         throw new Error(data.error || "Supplier upload failed.");
       }
 
+      const typeLabel =
+        supplierPriceListType === "INDIVIDUAL" ? "individual" : "bulk";
+
       setMessage(
-        `${uploadLabel} Abyx price list uploaded. ${data.itemCount} items saved.`
+        `${uploadLabel} Abyx ${typeLabel} price list uploaded. ${data.itemCount} items saved.`
       );
+      setSupplierFile(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Supplier upload failed.");
     } finally {
@@ -1341,8 +1349,25 @@ export default function CubeChemPage() {
             </label>
 
             <label style={{ ...labelStyle, marginTop: "16px" }}>
+              Price List Type
+              <select
+                value={supplierPriceListType}
+                onChange={(e) =>
+                  setSupplierPriceListType(
+                    e.target.value as "BULK" | "INDIVIDUAL"
+                  )
+                }
+                style={inputStyle}
+              >
+                <option value="BULK">Bulk / Case Prices</option>
+                <option value="INDIVIDUAL">Individual Unit Prices</option>
+              </select>
+            </label>
+
+            <label style={{ ...labelStyle, marginTop: "16px" }}>
               Abyx Excel File
               <input
+                key={`${uploadMonth}-${supplierPriceListType}-${supplierFile?.name || "empty"}`}
                 type="file"
                 accept=".xlsx,.xls"
                 onChange={(e) => setSupplierFile(e.target.files?.[0] || null)}
@@ -1363,7 +1388,13 @@ export default function CubeChemPage() {
                 cursor: supplierLoading ? "not-allowed" : "pointer",
               }}
             >
-              {supplierLoading ? "Uploading..." : `Upload ${uploadLabel}`}
+              {supplierLoading
+                ? "Uploading..."
+                : `Upload ${uploadLabel} ${
+                    supplierPriceListType === "INDIVIDUAL"
+                      ? "Individual"
+                      : "Bulk"
+                  } Prices`}
             </button>
           </div>
 
