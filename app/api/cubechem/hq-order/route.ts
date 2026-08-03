@@ -7,6 +7,16 @@ import {
 
 export const dynamic = "force-dynamic";
 
+type PriceListType = "BULK" | "INDIVIDUAL";
+
+type UploadRow = {
+  id: string;
+  price_month: string;
+  file_name: string;
+  uploaded_at: string;
+  price_list_type: PriceListType;
+};
+
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey =
@@ -29,6 +39,26 @@ function roundRand(value: number) {
 
 function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+async function getLatestUpload(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  monthDate: string,
+  priceListType: PriceListType
+) {
+  const result = await supabase
+    .from("cubechem_price_uploads")
+    .select("id, price_month, file_name, uploaded_at, price_list_type")
+    .eq("price_month", monthDate)
+    .eq("price_list_type", priceListType)
+    .order("uploaded_at", { ascending: false })
+    .limit(1);
+
+  if (result.error) {
+    throw new Error(result.error.message);
+  }
+
+  return (result.data?.[0] || null) as UploadRow | null;
 }
 
 export async function POST(req: NextRequest) {
@@ -65,33 +95,26 @@ export async function POST(req: NextRequest) {
     const monthDate = toMonthDate(priceMonth);
     const supabase = getSupabaseAdmin();
 
-    const uploadResult = await supabase
-      .from("cubechem_price_uploads")
-      .select("id, price_month, file_name, uploaded_at")
-      .eq("price_month", monthDate)
-      .order("uploaded_at", { ascending: false })
-      .limit(1);
+    const [bulkUpload, individualUpload] = await Promise.all([
+      getLatestUpload(supabase, monthDate, "BULK"),
+      getLatestUpload(supabase, monthDate, "INDIVIDUAL"),
+    ]);
 
-    if (uploadResult.error) {
+    if (!bulkUpload && !individualUpload) {
       return NextResponse.json(
-        { error: uploadResult.error.message },
-        { status: 500 }
-      );
-    }
-
-    const upload = uploadResult.data?.[0];
-
-    if (!upload) {
-      return NextResponse.json(
-        { error: `No Abyx supplier upload found for ${monthDate}.` },
+        { error: `No Abyx supplier uploads found for ${monthDate}.` },
         { status: 400 }
       );
     }
 
+    const uploadIds = [bulkUpload?.id, individualUpload?.id].filter(
+      (value): value is string => Boolean(value)
+    );
+
     const itemsResult = await supabase
       .from("cubechem_price_items")
-      .select("item_code, description, supplier_ex_vat")
-      .eq("upload_id", upload.id)
+      .select("upload_id, item_code, description, supplier_ex_vat")
+      .in("upload_id", uploadIds)
       .order("item_code", { ascending: true });
 
     if (itemsResult.error) {
@@ -119,20 +142,37 @@ export async function POST(req: NextRequest) {
       )
     );
 
+    const uploadTypeById = new Map<string, PriceListType>();
+
+    if (bulkUpload) {
+      uploadTypeById.set(bulkUpload.id, "BULK");
+    }
+
+    if (individualUpload) {
+      uploadTypeById.set(individualUpload.id, "INDIVIDUAL");
+    }
+
     const rows = (itemsResult.data || []).map((item: any) => {
       const itemCode = String(item.item_code || "").toUpperCase();
       const supplierExVat = Number(item.supplier_ex_vat || 0);
+      const priceListType =
+        uploadTypeById.get(String(item.upload_id)) || "BULK";
 
       const abyxPackAmount = roundMoney(supplierExVat * 1.15);
       const ccdPretoriaAmount = roundRand(
         abyxPackAmount * (1 + hqMarkupPercent / 100)
       );
 
-      const isFrequent = frequentCodes.has(itemCode);
+      const isFrequent =
+        priceListType === "BULK" && frequentCodes.has(itemCode);
 
       return {
+        rowId: `${priceListType}-${itemCode}`,
         itemCode,
         description: item.description,
+        priceListType,
+        purchaseOption:
+          priceListType === "INDIVIDUAL" ? "Individual Unit" : "Bulk / Case",
         isFrequent,
         groupName: isFrequent ? "Frequent Items" : "Rest of Items",
         abyxPackAmount,
@@ -146,14 +186,27 @@ export async function POST(req: NextRequest) {
         return a.isFrequent ? -1 : 1;
       }
 
-      return String(a.itemCode).localeCompare(String(b.itemCode));
+      if (a.priceListType !== b.priceListType) {
+        return a.priceListType === "BULK" ? -1 : 1;
+      }
+
+      return String(a.description).localeCompare(String(b.description));
     });
 
     return NextResponse.json({
-      upload,
+      uploads: {
+        bulk: bulkUpload,
+        individual: individualUpload,
+      },
       priceMonth: monthDate,
       hqMarkupPercent,
       itemCount: sortedRows.length,
+      bulkCount: sortedRows.filter(
+        (row: any) => row.priceListType === "BULK"
+      ).length,
+      individualCount: sortedRows.filter(
+        (row: any) => row.priceListType === "INDIVIDUAL"
+      ).length,
       frequentCount: sortedRows.filter((row: any) => row.isFrequent).length,
       restCount: sortedRows.filter((row: any) => !row.isFrequent).length,
       rows: sortedRows,
