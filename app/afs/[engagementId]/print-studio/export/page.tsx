@@ -6,30 +6,30 @@ import { createClient } from "@supabase/supabase-js";
 import AfsPrintStudioShell, {
   AfsReportOption,
   AfsStudioSection,
-} from "../components/AfsPrintStudioShell";
-import AfsA4Page from "../components/AfsA4Page";
+} from "../../components/AfsPrintStudioShell";
+import AfsA4Page from "../../components/AfsA4Page";
 import AfsStatementTable, {
   AfsStatementRow,
-} from "../components/AfsStatementTable";
-import AfsDirectorsReportSettings from "../components/AfsDirectorsReportSettings";
-import AfsEditableDisclosureSettings from "../components/AfsEditableDisclosureSettings";
-import AfsStatementOverrideSettings from "../components/AfsStatementOverrideSettings";
-import AfsStructuredNotesPanel from "./AfsStructuredNotesPanel";
+} from "../../components/AfsStatementTable";
+import AfsDirectorsReportSettings from "../../components/AfsDirectorsReportSettings";
+import AfsEditableDisclosureSettings from "../../components/AfsEditableDisclosureSettings";
+import AfsStatementOverrideSettings from "../../components/AfsStatementOverrideSettings";
+import AfsStructuredNotesPanel from "../AfsStructuredNotesPanel";
 import AfsFlightDeck, {
   buildAfsFlightDeckIssuesFromEngine,
-} from "./AfsFlightDeck";
+} from "../AfsFlightDeck";
 import {
   DirectorsResponsibilitiesBlock,
   DirectorsReportBlock,
   CompilationReportBlock,
   buildDefaultDirectorsReportTexts,
   getActiveDirectorsReportSectionKeys,
-} from "../components/AfsNarrativeBlocks";
+} from "../../components/AfsNarrativeBlocks";
 
 import type {
   DirectorsReportSectionKey,
   DirectorsReportTextOverrides,
-} from "../components/AfsNarrativeBlocks";
+} from "../../components/AfsNarrativeBlocks";
 import {
   accountingPolicySections,
   noteSections,
@@ -37,12 +37,12 @@ import {
   buildDefaultNoteTexts,
   renderDisclosureText,
   EditableDisclosureTextMap,
-} from "../components/AfsPolicyNoteDefaults";
+} from "../../components/AfsPolicyNoteDefaults";
 import {
   buildAfsPrintStatementEngine,
   AfsStatementOverrides,
   AfsNoteKey,
-} from "../components/AfsPrintStatementEngine";
+} from "../../components/AfsPrintStatementEngine";
 
 type EngagementData = {
   id: string;
@@ -86,6 +86,44 @@ const supabase =
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
+}
+
+
+function formatAfsDisplayDate(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!isoMatch) return raw;
+
+  const [, year, month, day] = isoMatch;
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+
+  return date.toLocaleDateString("en-ZA", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function professionalStatementLabel(value: unknown) {
+  const label = String(value || "").trim();
+
+  const exactLabels: Record<string, string> = {
+    "Cost Of Sales": "Cost of sales",
+    "Share Capital": "Share capital",
+    "Retained Income / Accumulated Loss": "Accumulated loss",
+    "Retained income / accumulated loss": "Accumulated loss",
+  };
+
+  return exactLabels[label] || label;
+}
+
+function applyProfessionalStatementLabels(rows: AfsStatementRow[]) {
+  return (rows || []).map((row: any) => ({
+    ...row,
+    label: professionalStatementLabel(row?.label),
+  }));
 }
 
 type TrialBalanceLine = {
@@ -244,6 +282,8 @@ type ReportOptions = {
   notesFinanceCosts: boolean;
   notesTaxation: boolean;
   notesCashUsedInOperations: boolean;
+  notesGoingConcern: boolean;
+  notesRelatedParties: boolean;
 
   directorsReportGeneralReview: boolean;
   directorsReportIncorporation: boolean;
@@ -381,6 +421,8 @@ const defaultReportOptions: ReportOptions = {
   notesFinanceCosts: false,
   notesTaxation: false,
   notesCashUsedInOperations: true,
+  notesGoingConcern: false,
+  notesRelatedParties: false,
 
   directorsReportGeneralReview: true,
   directorsReportIncorporation: true,
@@ -1390,9 +1432,53 @@ export default function AfsPrintStudioPage() {
     searchParams.get("export") === "1" ||
     searchParams.get("pdf") === "true";
 
+  const isDraftPdfExport =
+    searchParams.get("draft") === "1" ||
+    searchParams.get("draft") === "true" ||
+    searchParams.get("draftPdf") === "1" ||
+    searchParams.get("watermark") === "draft";
+
   const [loading, setLoading] = useState(true);
   const [activeSectionId, setActiveSectionId] = useState("cover-page");
   const [cashFlowViewMode, setCashFlowViewMode] = useState<"afs" | "work">("afs");
+  const [notesViewMode, setNotesViewMode] = useState<"review" | "edit">("review");
+
+  useEffect(() => {
+    const handleNotesModeChange = (event: Event) => {
+      const nextMode = (event as CustomEvent<"review" | "edit">).detail;
+      if (nextMode !== "review" && nextMode !== "edit") return;
+
+      setNotesViewMode(nextMode);
+
+      try {
+        window.localStorage.setItem(`afs-notes-mode:${engagementId}`, nextMode);
+        window.localStorage.setItem("afs-notes-mode-global", nextMode);
+      } catch {
+        // The live state still changes even if storage is unavailable.
+      }
+    };
+
+    window.addEventListener("afs-notes-mode-change", handleNotesModeChange);
+    return () => {
+      window.removeEventListener("afs-notes-mode-change", handleNotesModeChange);
+    };
+  }, [engagementId]);
+
+  useEffect(() => {
+    if (!engagementId) return;
+
+    try {
+      const savedMode =
+        window.localStorage.getItem(`afs-notes-mode:${engagementId}`) ||
+        window.localStorage.getItem("afs-notes-mode-global");
+
+      if (savedMode === "review" || savedMode === "edit") {
+        setNotesViewMode(savedMode);
+      }
+    } catch {
+      // Continue with the default AFS view.
+    }
+  }, [engagementId]);
   const [detailedIncomeInlineDrafts, setDetailedIncomeInlineDrafts] = useState<Record<string, string>>({});
   const [detailedIncomeEditingRowId, setDetailedIncomeEditingRowId] = useState<string | null>(null);
   const [structuredNotesState, setStructuredNotesState] =
@@ -1406,6 +1492,12 @@ export default function AfsPrintStudioPage() {
     document.body.setAttribute("data-afs-pdf-mode", "true");
     document.body.setAttribute("data-afs-pdf-ready", loading ? "false" : "true");
 
+    if (isDraftPdfExport) {
+      document.body.setAttribute("data-afs-draft-pdf", "true");
+    } else {
+      document.body.removeAttribute("data-afs-draft-pdf");
+    }
+
     window.dispatchEvent(
       new CustomEvent("afs-print-export-mode", { detail: true }),
     );
@@ -1415,11 +1507,12 @@ export default function AfsPrintStudioPage() {
       document.body.classList.remove("afsPdfExportMode");
       document.body.removeAttribute("data-afs-pdf-mode");
       document.body.removeAttribute("data-afs-pdf-ready");
+      document.body.removeAttribute("data-afs-draft-pdf");
       window.dispatchEvent(
         new CustomEvent("afs-print-export-mode", { detail: false }),
       );
     };
-  }, [isPdfExportMode, loading]);
+  }, [isPdfExportMode, isDraftPdfExport, loading]);
 
   useEffect(() => {
     if (!engagementId) return;
@@ -1472,6 +1565,10 @@ export default function AfsPrintStudioPage() {
     useState<DirectorsReportTextOverrides | null>(null);
   const [accountingPolicyTexts, setAccountingPolicyTexts] =
     useState<EditableDisclosureTextMap | null>(null);
+  const [accountingPolicyEditorTexts, setAccountingPolicyEditorTexts] =
+    useState<EditableDisclosureTextMap | null>(null);
+  const pendingAccountingPolicyTextsRef =
+    useRef<EditableDisclosureTextMap | null>(null);
   const [noteTexts, setNoteTexts] =
     useState<EditableDisclosureTextMap | null>(null);
   const [statementOverrides, setStatementOverrides] =
@@ -1622,6 +1719,7 @@ export default function AfsPrintStudioPage() {
           Object.keys(savedAccountingPolicyTexts).length > 0
         ) {
           setAccountingPolicyTexts(savedAccountingPolicyTexts);
+          setAccountingPolicyEditorTexts(savedAccountingPolicyTexts);
         }
 
         if (
@@ -1945,6 +2043,23 @@ const clientLogoUrl = cleanString(
       "Year-end not set"
   );
 
+
+  const displayYearEnd = formatAfsDisplayDate(yearEnd);
+
+  const legalFrameworkRaw = String(
+    getSetupValue(clientSetup, [
+      "legal_framework",
+      "companies_act_framework",
+    ]) || ""
+  );
+
+  const legalFrameworkDisplay =
+    !legalFrameworkRaw ||
+    legalFrameworkRaw.trim().toLowerCase() ===
+      "companies act of south africa"
+      ? "Companies Act 71 of 2008, as amended"
+      : legalFrameworkRaw;
+
   const registrationNumber =
     String(
       getSetupValue(clientSetup, [
@@ -2091,7 +2206,7 @@ const clientLogoUrl = cleanString(
   const baseNarrativeContext = {
     clientName,
     entityType,
-    yearEnd,
+    yearEnd: displayYearEnd,
     registrationNumber,
     bodyLabel,
     bodyLabelCapitalised,
@@ -2155,20 +2270,8 @@ const clientLogoUrl = cleanString(
     ]
   );
 
-  const activeDirectorsReportTexts = useMemo(() => {
-    const source = directorsReportTexts || defaultDirectorsReportTexts;
-
-    return Object.fromEntries(
-      Object.entries(source || {}).map(([key, value]: [string, any]) => [
-        key,
-        {
-          ...value,
-          title: String(value?.title || "").replace(/\.\s*\.+/g, "."),
-          text: String(value?.text || "").replace(/\.\s*\.+/g, "."),
-        },
-      ]),
-    ) as DirectorsReportTextOverrides;
-  }, [directorsReportTexts, defaultDirectorsReportTexts]);
+  const activeDirectorsReportTexts =
+    directorsReportTexts || defaultDirectorsReportTexts;
 
   const defaultAccountingPolicyTexts = useMemo(
     () => buildDefaultAccountingPolicyTexts(),
@@ -2177,6 +2280,20 @@ const clientLogoUrl = cleanString(
 
   const activeAccountingPolicyTexts =
     accountingPolicyTexts || defaultAccountingPolicyTexts;
+
+  const activeAccountingPolicyEditorTexts =
+    accountingPolicyEditorTexts ||
+    accountingPolicyTexts ||
+    defaultAccountingPolicyTexts;
+
+  function commitPendingAccountingPolicyEdits() {
+    const pending = pendingAccountingPolicyTextsRef.current;
+    if (!pending) return;
+
+    pendingAccountingPolicyTextsRef.current = null;
+    setAccountingPolicyTexts(pending);
+    saveAccountingPolicyTextsEverywhere(pending);
+  }
 
   const defaultNoteTexts = useMemo(() => buildDefaultNoteTexts(), []);
   const activeNoteTexts = noteTexts || defaultNoteTexts;
@@ -2285,8 +2402,13 @@ useEffect(() => {
   }
 
   function updateAccountingPolicyTitle(key: string, value: string) {
-    setAccountingPolicyTexts((current) => {
-      const base = current || activeAccountingPolicyTexts;
+    setAccountingPolicyEditorTexts((current) => {
+      const base =
+        current ||
+        accountingPolicyTexts ||
+        activeAccountingPolicyTexts ||
+        defaultAccountingPolicyTexts;
+
       const next = {
         ...base,
         [key]: {
@@ -2298,14 +2420,19 @@ useEffect(() => {
         },
       };
 
-      saveAccountingPolicyTextsEverywhere(next);
+      pendingAccountingPolicyTextsRef.current = next;
       return next;
     });
   }
 
   function updateAccountingPolicyText(key: string, value: string) {
-    setAccountingPolicyTexts((current) => {
-      const base = current || activeAccountingPolicyTexts;
+    setAccountingPolicyEditorTexts((current) => {
+      const base =
+        current ||
+        accountingPolicyTexts ||
+        activeAccountingPolicyTexts ||
+        defaultAccountingPolicyTexts;
+
       const next = {
         ...base,
         [key]: {
@@ -2317,27 +2444,33 @@ useEffect(() => {
         },
       };
 
-      saveAccountingPolicyTextsEverywhere(next);
+      pendingAccountingPolicyTextsRef.current = next;
       return next;
     });
   }
 
   function resetAccountingPolicySection(key: string) {
-    setAccountingPolicyTexts((current) => {
-      const base = current || activeAccountingPolicyTexts;
-      const next = {
-        ...base,
-        [key]: defaultAccountingPolicyTexts[key],
-      };
+    const base =
+      accountingPolicyEditorTexts ||
+      accountingPolicyTexts ||
+      activeAccountingPolicyTexts;
 
-      saveAccountingPolicyTextsEverywhere(next);
-      return next;
-    });
+    const next = {
+      ...base,
+      [key]: defaultAccountingPolicyTexts[key],
+    };
+
+    pendingAccountingPolicyTextsRef.current = null;
+    setAccountingPolicyEditorTexts(next);
+    setAccountingPolicyTexts(next);
+    saveAccountingPolicyTextsEverywhere(next);
   }
 
   function resetAllAccountingPolicySections() {
-    saveAccountingPolicyTextsEverywhere(defaultAccountingPolicyTexts);
+    pendingAccountingPolicyTextsRef.current = null;
+    setAccountingPolicyEditorTexts(defaultAccountingPolicyTexts);
     setAccountingPolicyTexts(defaultAccountingPolicyTexts);
+    saveAccountingPolicyTextsEverywhere(defaultAccountingPolicyTexts);
   }
 
   function updateNoteTitle(key: string, value: string) {
@@ -3879,11 +4012,6 @@ if (
     historicalCashFlowData,
   ]);
 
-  const flightDeckIssues = useMemo(
-    () => buildAfsFlightDeckIssuesFromEngine(statementEngine),
-    [statementEngine],
-  );
-
   const correctedEquityStatements = useMemo(() => {
   const sfpRows = (statementEngine.sfpRows || []).map((row: any) => ({
     ...row,
@@ -3997,10 +4125,63 @@ if (
   };
 }, [statementEngine.sfpRows, statementEngine.sceRows]);
 
-const sfpRows = correctedEquityStatements.sfpRows;
-const sociRows = statementEngine.sociRows;
-const sceRows = correctedEquityStatements.sceRows;
-const cashFlowRows = statementEngine.cashFlowRows;
+const sfpRows = applyProfessionalStatementLabels(
+  correctedEquityStatements.sfpRows,
+);
+const sociRows = applyProfessionalStatementLabels(
+  statementEngine.sociRows,
+);
+const sceRows = applyProfessionalStatementLabels(
+  correctedEquityStatements.sceRows,
+);
+const cashFlowRows = applyProfessionalStatementLabels(
+  statementEngine.cashFlowRows,
+);
+
+const renderedSfpBalanceDifference = useMemo(() => {
+  const findAmount = (
+    rows: AfsStatementRow[],
+    label: string,
+    side: "current" | "prior",
+  ) => {
+    const row = (rows || []).find(
+      (item: any) =>
+        String(item?.label || "").trim().toLowerCase() ===
+        label.toLowerCase(),
+    ) as any;
+
+    return Math.round(Number(row?.[side] || 0));
+  };
+
+  return {
+    current:
+      findAmount(sfpRows, "Total assets", "current") -
+      findAmount(sfpRows, "Total equity and liabilities", "current"),
+    prior:
+      findAmount(sfpRows, "Total assets", "prior") -
+      findAmount(sfpRows, "Total equity and liabilities", "prior"),
+  };
+}, [sfpRows]);
+
+const flightDeckIssues = useMemo(() => {
+  const issues = buildAfsFlightDeckIssuesFromEngine(statementEngine);
+
+  if (
+    renderedSfpBalanceDifference.current !== 0 ||
+    renderedSfpBalanceDifference.prior !== 0
+  ) {
+    return issues;
+  }
+
+  return issues.filter((issue: any) => {
+    const issueText = JSON.stringify(issue || {}).toLowerCase();
+    const isStatementOfFinancialPositionIssue =
+      issueText.includes("statement of financial position") ||
+      issueText.includes('"sfp"');
+
+    return !isStatementOfFinancialPositionIssue;
+  });
+}, [statementEngine, renderedSfpBalanceDifference]);
 
   function consolidateDetailedIncomeRows(rows: AfsStatementRow[]) {
     const result: AfsStatementRow[] = [];
@@ -4356,6 +4537,18 @@ const cashFlowRows = statementEngine.cashFlowRows;
     return (
       <section style={{ fontSize: 10, lineHeight: 1.25, color: "#111827" }}>
         <h1 style={pageHeadingStyle()}>Detailed Income Statement</h1>
+        <div
+          style={{
+            margin: "-6px 0 12px",
+            fontSize: 9.5,
+            lineHeight: 1.35,
+            fontWeight: 700,
+            color: "#475569",
+          }}
+        >
+          Supplementary information not forming part of the annual financial
+          statements
+        </div>
 
         <div
           style={{
@@ -4641,7 +4834,7 @@ const cashFlowRows = statementEngine.cashFlowRows;
     { id: "cash-flow", label: "Statement of Cash Flows", shortLabel: "Cash Flow", group: "report", hidden: !reportOptions.cashFlow },
     { id: "accounting-policies", label: "Accounting Policies", shortLabel: "Policies", group: "report", hidden: !reportOptions.accountingPolicies },
     { id: "notes", label: "Notes to the Financial Statements", shortLabel: "Notes", group: "report", hidden: !reportOptions.notes },
-    { id: "detailed-income", label: "Detailed Income Statement", shortLabel: "Detailed IS", group: "report", hidden: !reportOptions.detailedIncomeStatement },
+    { id: "detailed-income", label: "Detailed Income Statement — Supplementary information", shortLabel: "Detailed IS", group: "report", hidden: !reportOptions.detailedIncomeStatement },
     { id: "tax-computation", label: "Tax Computation", shortLabel: "Tax", group: "report", hidden: !reportOptions.taxComputation },
     { id: "report-options", label: "AFS Report Options", shortLabel: "Options", group: "settings" },
   ];
@@ -4652,7 +4845,7 @@ const cashFlowRows = statementEngine.cashFlowRows;
     showReportHeader: true,
     clientName,
     registrationNumber: registrationNumber || undefined,
-    yearEndLabel: `Annual financial statements for the year ended ${yearEnd}`,
+    yearEndLabel: `Annual financial statements for the year ended ${displayYearEnd}`,
   };
 
   const visibleReportSections = sections.filter(
@@ -4754,6 +4947,8 @@ const cashFlowRows = statementEngine.cashFlowRows;
       notesFinanceCosts: noteData.financeCosts,
       notesTaxation: noteData.taxation,
       notesCashUsedInOperations: noteData.cashUsedInOperations,
+      notesGoingConcern: [],
+      notesRelatedParties: [],
     };
 
     return map[key] || [];
@@ -4896,40 +5091,32 @@ const cashFlowRows = statementEngine.cashFlowRows;
   }
 
   function renderSceCustomTable() {
-     const openingShare = sceValue("sce-share-opening");
-const openingRetained = sceValue("sce-retained-opening");
-const priorProfit = sceValue("sce-prior-profit");
-const priorOther = sceValue("sce-prior-other-movement");
-const priorClosingRetained = sceValue("sce-prior-closing-retained");
+    const openingShare = sceValue("sce-share-opening");
+    const openingRetained = sceValue("sce-retained-opening");
+    const priorProfit = sceValue("sce-prior-profit");
+    const priorOther = sceValue("sce-prior-other-movement");
+    const priorClosingRetained = sceValue("sce-prior-closing-retained");
 
-const engineCurrentProfit = sceValue("sce-current-profit");
-const engineCurrentOther = sceValue("sce-current-other-movement");
+    const currentClosingRetained = sceValue("sce-retained-closing");
+    const closingShare = sceValue("sce-share-closing");
 
-const currentClosingRetained = sceValue("sce-retained-closing");
-const closingShare = sceValue("sce-share-closing");
+    /*
+      The SCE must use the exact current-year result displayed in the SOCI.
+      Any small transfer/rounding difference is shown as an equity movement
+      rather than recalculating or changing the SOCI result.
+    */
+    const sociCurrentProfitRow = (sociRows || []).find((row: any) =>
+      String(row?.label || "").trim().toLowerCase() ===
+      "profit / (loss) for the year",
+    );
 
-const roundingTolerance = Math.max(
-  0,
-  Math.round(Number(statementOverrides.roundingTolerance ?? 5)),
-);
+    const currentProfit = Math.round(
+      Number((sociCurrentProfitRow as any)?.current || 0),
+    );
 
-const currentRetainedDifference =
-  currentClosingRetained -
-  priorClosingRetained -
-  engineCurrentProfit;
-
-const absorbCurrentDifference =
-  Math.abs(currentRetainedDifference) <= roundingTolerance
-    ? currentRetainedDifference
-    : 0;
-
-const currentProfit =
-  engineCurrentProfit + absorbCurrentDifference;
-
-const currentOther =
-  absorbCurrentDifference !== 0
-    ? 0
-    : engineCurrentOther;
+    const currentOther = Math.round(
+      currentClosingRetained - priorClosingRetained - currentProfit,
+    );
 
     const priorShareMovement = 0;
     const priorClosingShare = openingShare + priorShareMovement;
@@ -5122,6 +5309,208 @@ const currentOther =
     );
   }
 
+  function updatePpePolicyDisclosure(
+    rowKey: string,
+    field: "method" | "usefulLife" | "residualValue",
+    value: string,
+  ) {
+    const currentDisclosures =
+      structuredNotesState?.ppeClassDisclosures &&
+      typeof structuredNotesState.ppeClassDisclosures === "object"
+        ? structuredNotesState.ppeClassDisclosures
+        : {};
+
+    saveStructuredNotesStateEverywhere({
+      ...structuredNotesState,
+      ppeClassDisclosures: {
+        ...currentDisclosures,
+        [rowKey]: {
+          ...(currentDisclosures[rowKey] || {}),
+          [field]: value,
+        },
+      },
+    });
+  }
+
+  function renderPpePolicyDisclosureEditor() {
+    const ppeClassCatalog = [
+      { key: "land", label: "Land" },
+      { key: "buildings", label: "Buildings" },
+      { key: "leaseholdProperty", label: "Leasehold property" },
+      { key: "plantAndMachinery", label: "Plant and machinery" },
+      { key: "furnitureAndFittings", label: "Furniture and fittings" },
+      { key: "motorVehicles", label: "Motor vehicles" },
+      { key: "officeEquipment", label: "Office equipment" },
+      { key: "computerEquipment", label: "Computer equipment" },
+      { key: "leaseholdImprovements", label: "Leasehold improvements" },
+      { key: "rightOfUseAssets", label: "Right-of-use assets" },
+      { key: "otherPpe1", label: "Other PPE 1" },
+      { key: "otherPpe2", label: "Other PPE 2" },
+      { key: "otherPpe3", label: "Other PPE 3" },
+      { key: "otherPpe4", label: "Other PPE 4" },
+    ];
+
+    const normalisePpeLabel = (value: unknown) =>
+      String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+
+    const ppeInputs =
+      structuredNotesState?.ppeInputs &&
+      typeof structuredNotesState.ppeInputs === "object"
+        ? structuredNotesState.ppeInputs
+        : {};
+
+    const savedRows = Array.isArray(structuredNotesState?.ppeRows)
+      ? structuredNotesState.ppeRows
+      : [];
+
+    const mappedLabels = new Set(
+      (noteData.propertyPlantEquipment || [])
+        .map((line: any) => normalisePpeLabel(line?.label))
+        .filter(Boolean),
+    );
+
+    const hasAnyCapturedAmount = (value: unknown): boolean => {
+      if (value === null || value === undefined || value === "") return false;
+      if (typeof value === "number") return value !== 0;
+      if (typeof value === "string") {
+        const numberValue = Number(value.replace(/\s|,/g, ""));
+        return Number.isFinite(numberValue) ? numberValue !== 0 : value.trim() !== "";
+      }
+      if (Array.isArray(value)) return value.some(hasAnyCapturedAmount);
+      if (typeof value === "object") {
+        return Object.values(value as Record<string, unknown>).some(
+          hasAnyCapturedAmount,
+        );
+      }
+      return false;
+    };
+
+    const activeRows = ppeClassCatalog.filter((catalogRow) => {
+      const savedRow = savedRows.find(
+        (row: any) => String(row?.key || "") === catalogRow.key,
+      );
+
+      return (
+        hasAnyCapturedAmount(ppeInputs[catalogRow.key]) ||
+        hasAnyCapturedAmount(savedRow) ||
+        mappedLabels.has(normalisePpeLabel(catalogRow.label))
+      );
+    });
+
+    if (!activeRows.length) return null;
+
+    const disclosures =
+      structuredNotesState?.ppeClassDisclosures &&
+      typeof structuredNotesState.ppeClassDisclosures === "object"
+        ? structuredNotesState.ppeClassDisclosures
+        : {};
+
+    return (
+      <div
+        style={{
+          marginTop: 12,
+          borderTop: "1px solid #cbd5e1",
+          paddingTop: 12,
+          display: "grid",
+          gap: 8,
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 900, color: "#111827" }}>
+            Depreciation methods and useful lives by asset class
+          </div>
+          <div
+            style={{
+              marginTop: 3,
+              fontSize: 10,
+              lineHeight: 1.35,
+              color: "#64748b",
+            }}
+          >
+            Complete each asset class separately. These disclosures print in
+            the Property, plant and equipment accounting policy and never in
+            the PPE note.
+          </div>
+        </div>
+
+        {activeRows.map((row) => {
+          const values = disclosures[row.key] || {};
+
+          const fieldStyle = {
+            width: "100%",
+            boxSizing: "border-box" as const,
+            padding: "6px 7px",
+            fontSize: 10,
+            background: "#EAF3FF",
+            border: "1px solid #7A9FC8",
+            outlineColor: "#2563EB",
+            color: "#111827",
+          };
+
+          return (
+            <div
+              key={`policy-ppe-${row.key}`}
+              style={{
+                border: "1px solid #cbd5e1",
+                background: "#ffffff",
+                padding: 8,
+                display: "grid",
+                gap: 6,
+              }}
+            >
+              <div style={{ fontSize: 10, fontWeight: 900, color: "#111827" }}>
+                {row.label}
+              </div>
+              <input
+                type="text"
+                value={String(values.method || "")}
+                placeholder="Depreciation method, e.g. straight-line"
+                onChange={(event) =>
+                  updatePpePolicyDisclosure(
+                    row.key,
+                    "method",
+                    event.target.value,
+                  )
+                }
+                style={fieldStyle}
+              />
+              <input
+                type="text"
+                value={String(values.usefulLife || "")}
+                placeholder="Useful life / depreciation rate"
+                onChange={(event) =>
+                  updatePpePolicyDisclosure(
+                    row.key,
+                    "usefulLife",
+                    event.target.value,
+                  )
+                }
+                style={fieldStyle}
+              />
+              <input
+                type="text"
+                value={String(values.residualValue || "")}
+                placeholder="Residual value / basis"
+                onChange={(event) =>
+                  updatePpePolicyDisclosure(
+                    row.key,
+                    "residualValue",
+                    event.target.value,
+                  )
+                }
+                style={fieldStyle}
+              />
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   function contextualOptions() {
     if (activeSectionId === "report-options") {
       return {
@@ -5249,17 +5638,39 @@ const currentOther =
         emptyMessage: "No accounting policy settings available.",
         options: [],
         content: (
-          <AfsEditableDisclosureSettings
-            sections={accountingPolicySections}
-            reportOptions={reportOptions}
-            toggleReportOption={toggleReportOption}
-            texts={activeAccountingPolicyTexts}
-            defaults={defaultAccountingPolicyTexts}
-            onChangeTitle={updateAccountingPolicyTitle}
-            onChangeText={updateAccountingPolicyText}
-            onReset={resetAccountingPolicySection}
-            onResetAll={resetAllAccountingPolicySections}
-          />
+          <div
+            onBlur={(event) => {
+              const nextTarget = event.relatedTarget as Node | null;
+
+              if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
+                commitPendingAccountingPolicyEdits();
+              }
+            }}
+            onClickCapture={(event) => {
+              const target = event.target as HTMLElement;
+              const button = target.closest("button");
+              const label = String(button?.textContent || "").trim().toLowerCase();
+
+              if (label === "close") {
+                commitPendingAccountingPolicyEdits();
+              }
+            }}
+          >
+            <AfsEditableDisclosureSettings
+              sections={accountingPolicySections}
+              reportOptions={reportOptions}
+              toggleReportOption={toggleReportOption}
+              texts={activeAccountingPolicyEditorTexts}
+              defaults={defaultAccountingPolicyTexts}
+              onChangeTitle={updateAccountingPolicyTitle}
+              onChangeText={updateAccountingPolicyText}
+              onReset={resetAccountingPolicySection}
+              onResetAll={resetAllAccountingPolicySections}
+              groupExtras={{
+                ppe: renderPpePolicyDisclosureEditor(),
+              }}
+            />
+          </div>
         ),
       };
     }
@@ -5291,6 +5702,14 @@ const currentOther =
             onChangeText={updateNoteText}
             onReset={resetNoteSection}
             onResetAll={resetAllNoteSections}
+            notesMode={notesViewMode}
+            onNotesModeChange={(nextMode) => {
+              window.dispatchEvent(
+                new CustomEvent("afs-notes-mode-change", {
+                  detail: nextMode,
+                }),
+              );
+            }}
           />
         ),
       };
@@ -5525,12 +5944,29 @@ function elementOuterHeight(element: HTMLElement | null) {
     notesPageGroups.length,
   ]);
 
+  const [pdfReadinessFallback, setPdfReadinessFallback] = useState(false);
+
+  useEffect(() => {
+    setPdfReadinessFallback(false);
+
+    const timer = window.setTimeout(() => {
+      setPdfReadinessFallback(true);
+    }, 5000);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    directorsPaginationSignature,
+    notesPaginationSignature,
+    accountingPolicyPaginationSignature,
+  ]);
+
   const paginationReady =
-    measuredDirectorsPagination.signature === directorsPaginationSignature &&
-    measuredNotesPagination.signature === notesPaginationSignature &&
-    measuredAccountingPolicyPagination.signature ===
-      accountingPolicyPaginationSignature &&
-    accountingPolicyLayoutVerified;
+    pdfReadinessFallback ||
+    (measuredDirectorsPagination.signature === directorsPaginationSignature &&
+      measuredNotesPagination.signature === notesPaginationSignature &&
+      measuredAccountingPolicyPagination.signature ===
+        accountingPolicyPaginationSignature &&
+      accountingPolicyLayoutVerified);
 
   useLayoutEffect(() => {
     if (loading) return;
@@ -5770,6 +6206,65 @@ return Math.max(
     measuredAccountingPolicyPagination.pages,
   ]);
 
+  const ppePolicyDisclosureRows = useMemo(() => {
+    const disclosures =
+      structuredNotesState?.ppeClassDisclosures &&
+      typeof structuredNotesState.ppeClassDisclosures === "object"
+        ? structuredNotesState.ppeClassDisclosures
+        : {};
+
+    const savedRows = Array.isArray(structuredNotesState?.ppeRows)
+      ? structuredNotesState.ppeRows
+      : [];
+
+    const standardLabels: Record<string, string> = {
+      land: "Land",
+      buildings: "Buildings",
+      leaseholdProperty: "Leasehold property",
+      plantAndMachinery: "Plant and machinery",
+      furnitureAndFittings: "Furniture and fittings",
+      motorVehicles: "Motor vehicles",
+      officeEquipment: "Office equipment",
+      computerEquipment: "Computer equipment",
+      leaseholdImprovements: "Leasehold improvements",
+      rightOfUseAssets: "Right-of-use assets",
+      otherPpe1: "Other PPE 1",
+      otherPpe2: "Other PPE 2",
+      otherPpe3: "Other PPE 3",
+      otherPpe4: "Other PPE 4",
+    };
+
+    const labelByKey = new Map<string, string>();
+    savedRows.forEach((row: any) => {
+      const key = String(row?.key || "").trim();
+      const label = String(row?.label || "").trim();
+      if (key && label) labelByKey.set(key, label);
+    });
+
+    const displayLabel = (key: string) =>
+      labelByKey.get(key) ||
+      standardLabels[key] ||
+      key
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replaceAll("-", " ")
+        .replaceAll("_", " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/^\w/, (character) => character.toUpperCase());
+
+    return Object.entries(disclosures)
+      .map(([key, raw]: [string, any]) => ({
+        key,
+        label: displayLabel(key),
+        method: String(raw?.method || "").trim(),
+        usefulLife: String(raw?.usefulLife || "").trim(),
+        residualValue: String(raw?.residualValue || "").trim(),
+      }))
+      .filter(
+        (row) => row.method || row.usefulLife || row.residualValue,
+      );
+  }, [structuredNotesState]);
+
   function renderAccountingPolicyPrintItem(item: any, index: number) {
     const section = item.section;
     const current =
@@ -5830,6 +6325,63 @@ return Math.max(
             </p>
           ),
         )}
+
+        {section.key === "policyPpeDepreciation" &&
+        ppePolicyDisclosureRows.length > 0 ? (
+          <div style={{ marginTop: 8 }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 10.5,
+                margin: "4px 0 9px",
+              }}
+            >
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid #111827", padding: "3px 4px 3px 0" }}>
+                    Asset class
+                  </th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid #111827", padding: "3px 4px" }}>
+                    Depreciation method
+                  </th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid #111827", padding: "3px 4px" }}>
+                    Useful life / rate
+                  </th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid #111827", padding: "3px 0 3px 4px" }}>
+                    Residual value / basis
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {ppePolicyDisclosureRows.map((row) => (
+                  <tr key={`ppe-policy-disclosure-${row.key}`}>
+                    <td style={{ padding: "3px 4px 3px 0", borderBottom: "1px solid #e5e7eb", fontWeight: 700 }}>
+                      {row.label}
+                    </td>
+                    <td style={{ padding: "3px 4px", borderBottom: "1px solid #e5e7eb" }}>
+                      {row.method || "–"}
+                    </td>
+                    <td style={{ padding: "3px 4px", borderBottom: "1px solid #e5e7eb" }}>
+                      {row.usefulLife || "–"}
+                    </td>
+                    <td style={{ padding: "3px 0 3px 4px", borderBottom: "1px solid #e5e7eb" }}>
+                      {row.residualValue || "–"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {ppePolicyDisclosureRows.some(
+              (row) => row.key === "leaseholdImprovements",
+            ) ? (
+              <p style={paragraphStyle()}>
+                Leasehold improvements are depreciated over the shorter of their
+                useful lives and the remaining lease term, where applicable.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -5838,7 +6390,7 @@ return Math.max(
   return (
     <AfsPrintStudioShell
       engagementName={clientName}
-      yearEndLabel={`${entityType} · Financial year end ${yearEnd}${
+      yearEndLabel={`${entityType} · Financial year end ${displayYearEnd}${
         printStudioSaveStatus === "saving"
           ? " · Saving…"
           : printStudioSaveStatus === "saved"
@@ -5891,6 +6443,22 @@ return Math.max(
         body[data-afs-pdf-mode="true"] p,
         body[data-afs-pdf-mode="true"] td {
           font-weight: 400;
+        }
+
+        body[data-afs-draft-pdf="true"]::before {
+          content: "DRAFT";
+          position: fixed;
+          top: 44%;
+          left: 50%;
+          transform: translate(-50%, -50%) rotate(-32deg);
+          z-index: 999999;
+          font-family: Arial, Helvetica, sans-serif;
+          font-size: 96px;
+          font-weight: 800;
+          letter-spacing: 12px;
+          color: rgba(100, 116, 139, 0.16);
+          pointer-events: none;
+          white-space: nowrap;
         }
       `}</style>
 
@@ -6199,7 +6767,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       )}
                       {renderInfoRow("Registration number", registrationNumber)}
                       {renderInfoRow("Entity type", entityType)}
-                      {renderInfoRow("Financial year end", yearEnd)}
+                      {renderInfoRow("Financial year end", displayYearEnd)}
                       {renderInfoRow(
                         "Country of incorporation and domicile",
                         country
@@ -6302,19 +6870,11 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       )}
                       {renderInfoRow(
                         "Legal framework",
-                        getSetupValue(clientSetup, [
-                          "legal_framework",
-                          "companies_act_framework",
-                        ])
+                        legalFrameworkDisplay
                       )}
                       {renderInfoRow("Financial reporting framework", framework)}
-                      {renderInfoRow(
-                        "Level of assurance",
-                        getSetupValue(clientSetup, [
-                          "level_of_assurance",
-                          "engagement_type",
-                        ])
-                      )}
+                      {renderInfoRow("Nature of engagement", "Compilation")}
+                      {renderInfoRow("Assurance provided", "None")}
                       {renderInfoRow("Practitioners", practitionerFirm)}
                       {renderInfoRow("Preparer", practitionerName)}
                     </tbody>
@@ -6436,41 +6996,57 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
           ) : null}
 
           {reportOptions.cashFlow ? (
-            <div id="print-cash-flow">
-              <AfsA4Page {...reportHeaderProps}>
-                {activeSectionId === "cash-flow" && cashFlowViewMode === "work" ? (
-                  <section style={{ fontSize: 10, color: "#111827" }}>
-                    <h1 style={pageHeadingStyle()}>Cash Flow Workbench</h1>
-                    <p
-                      style={{
-                        margin: "0 0 10px",
-                        color: "#64748b",
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      Capture or override only the cash-flow fields that require
-                      adjustment. The AFS view remains the printable statement.
-                    </p>
+            activeSectionId === "cash-flow" &&
+            cashFlowViewMode === "work" &&
+            !isPdfExportMode ? (
+              <div
+                id="print-cash-flow"
+                style={{
+                  width: "210mm",
+                  minHeight: "297mm",
+                  margin: "0 auto 18px",
+                  padding: "18mm 16mm",
+                  boxSizing: "border-box",
+                  background: "#ffffff",
+                  boxShadow: "0 2px 8px rgba(15, 23, 42, 0.14)",
+                  overflow: "visible",
+                }}
+              >
+                <section style={{ fontSize: 10, color: "#111827" }}>
+                  <h1 style={pageHeadingStyle()}>Cash Flow Workbench</h1>
+                  <p
+                    style={{
+                      margin: "0 0 10px",
+                      color: "#64748b",
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    Capture or override only the cash-flow fields that require
+                    adjustment. The AFS view remains the printable statement.
+                  </p>
 
-                    <AfsStatementOverrideSettings
-                      mode="cashFlow"
-                      overrides={effectiveStatementOverrides}
-                      onChange={updateStatementOverride}
-                      engineChecks={engineChecks}
-                    />
-                  </section>
-                ) : (
+                  <AfsStatementOverrideSettings
+                    mode="cashFlow"
+                    overrides={effectiveStatementOverrides}
+                    onChange={updateStatementOverride}
+                    engineChecks={engineChecks}
+                  />
+                </section>
+              </div>
+            ) : (
+              <div id="print-cash-flow">
+                <AfsA4Page {...reportHeaderProps}>
                   <AfsStatementTable
                     title="Statement of Cash Flows"
                     currencyLabel="Figures in Rand"
                     currentHeading={currentHeading}
                     priorHeading={priorHeading}
                     rows={cashFlowRows}
-                  hidePriorYear={hideComparatives}
-                />
-                )}
-              </AfsA4Page>
-            </div>
+                    hidePriorYear={hideComparatives}
+                  />
+                </AfsA4Page>
+              </div>
+            )
           ) : null}
 
           {reportOptions.accountingPolicies ? (
@@ -6513,43 +7089,113 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
           ) : null}
 
           {reportOptions.notes ? (
-            <div id="print-notes">
-              {notesPageGroups.map((sectionKeys, pageIndex) => (
-                <AfsA4Page
-                  key={`notes-page-${pageIndex}`}
-                  {...reportHeaderProps}
-                >
-                  <AfsStructuredNotesPanel
-                    engagementId={engagementId}
-                    noteSections={noteSections}
-                    reportOptions={reportOptions as any}
-                    toggleReportOption={(key: string, checked: boolean) =>
-                      toggleReportOption(
-                        key as keyof ReportOptions,
-                        checked,
-                      )
-                    }
-                    noteData={noteData as any}
-                    trialBalanceLines={trialBalanceLines}
-                    clientSetup={clientSetup}
-                    currentHeading={currentHeading}
-                    priorHeading={priorHeading}
-                    activeNoteTexts={activeNoteTexts}
-                    defaultNoteTexts={defaultNoteTexts}
-                    disclosureTokens={disclosureTokens}
-                    hideComparatives={hideComparatives}
-                    structuredNotesState={effectiveStructuredNotesState}
-                    onStructuredNotesStateChange={
-                      saveStructuredNotesStateEverywhere
-                    }
-                    forceReviewMode={isPdfExportMode}
-                    sectionKeys={sectionKeys}
-                    headingMode={pageIndex === 0 ? "main" : "continued"}
-                    rootId={`print-notes-page-${pageIndex + 1}`}
-                  />
-                </AfsA4Page>
-              ))}
-            </div>
+            activeSectionId === "notes" &&
+            notesViewMode === "edit" &&
+            !isPdfExportMode ? (
+              <div
+                id="print-notes"
+                style={{
+                  display: "grid",
+                  gap: 16,
+                  alignContent: "start",
+                  justifyItems: "center",
+                }}
+              >
+                {activeNoteSectionKeys.map((sectionKey, pageIndex) => (
+                  <div
+                    key={`notes-work-page-${sectionKey}`}
+                    data-notes-work-page-index={pageIndex}
+                    style={{
+                      width: "210mm",
+                      minHeight: "297mm",
+                    }}
+                  >
+                    <AfsA4Page {...reportHeaderProps}>
+                      <AfsStructuredNotesPanel
+                        engagementId={engagementId}
+                        noteSections={noteSections}
+                        reportOptions={reportOptions as any}
+                        toggleReportOption={(key: string, checked: boolean) =>
+                          toggleReportOption(
+                            key as keyof ReportOptions,
+                            checked,
+                          )
+                        }
+                        noteData={noteData as any}
+                        trialBalanceLines={trialBalanceLines}
+                        clientSetup={clientSetup}
+                        currentHeading={currentHeading}
+                        priorHeading={priorHeading}
+                        activeNoteTexts={activeNoteTexts}
+                        defaultNoteTexts={defaultNoteTexts}
+                        disclosureTokens={disclosureTokens}
+                        hideComparatives={hideComparatives}
+                        structuredNotesState={effectiveStructuredNotesState}
+                        onStructuredNotesStateChange={
+                          saveStructuredNotesStateEverywhere
+                        }
+                        forceReviewMode={false}
+                        sectionKeys={[sectionKey]}
+                        headingMode={
+                          pageIndex === 0 ? "main" : "continued"
+                        }
+                        rootId={`print-notes-work-page-${pageIndex + 1}`}
+                      />
+                    </AfsA4Page>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div
+                id="print-notes"
+                style={{
+                  display: "grid",
+                  gap: 16,
+                  alignContent: "start",
+                  justifyItems: "center",
+                }}
+              >
+                {notesPageGroups.map((sectionKeys, pageIndex) => (
+                  <div
+                    key={`notes-page-${pageIndex}`}
+                    data-notes-page-index={pageIndex}
+                    style={{
+                      width: "210mm",
+                      minHeight: "297mm",
+                    }}
+                  >
+                    <AfsA4Page {...reportHeaderProps}>
+                      <AfsStructuredNotesPanel
+                      engagementId={engagementId}
+                      noteSections={noteSections}
+                      reportOptions={reportOptions as any}
+                      toggleReportOption={(key: string, checked: boolean) =>
+                        toggleReportOption(
+                          key as keyof ReportOptions,
+                          checked,
+                        )
+                      }
+                      noteData={noteData as any}
+                      trialBalanceLines={trialBalanceLines}
+                      clientSetup={clientSetup}
+                      currentHeading={currentHeading}
+                      priorHeading={priorHeading}
+                      activeNoteTexts={activeNoteTexts}
+                      defaultNoteTexts={defaultNoteTexts}
+                      disclosureTokens={disclosureTokens}
+                      hideComparatives={hideComparatives}
+                      structuredNotesState={effectiveStructuredNotesState}
+                      onStructuredNotesStateChange={saveStructuredNotesStateEverywhere}
+                      forceReviewMode={isPdfExportMode}
+                      sectionKeys={sectionKeys}
+                      headingMode={pageIndex === 0 ? "main" : "continued"}
+                      rootId={`print-notes-page-${pageIndex + 1}`}
+                    />
+                    </AfsA4Page>
+                  </div>
+                ))}
+              </div>
+            )
           ) : null}
 
           {reportOptions.detailedIncomeStatement ? (
