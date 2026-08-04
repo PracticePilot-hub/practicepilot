@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
+import CubeChemShell from "./components/CubeChemShell";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -1278,21 +1279,27 @@ export default function CubeChemPage() {
 
   if (accessLoading) {
     return (
-      <main style={{ minHeight: "100vh", background: "#f8fafc", padding: "32px" }}>
-        <div style={{ maxWidth: "900px", margin: "0 auto" }}>
+  <CubeChemShell
+    title="Supplier Uploads"
+    description="Upload monthly Abyx bulk and individual supplier price lists."
+  >
+    <div style={{ maxWidth: "1500px" }}>
           <div style={cardStyle}>
             <h1 style={pageTitleStyle}>CubeChem Price Manager</h1>
             <p style={pageTextStyle}>Checking CubeChem access...</p>
           </div>
         </div>
-      </main>
+      </CubeChemShell>
     );
   }
 
   if (!accessAllowed) {
     return (
-      <main style={{ minHeight: "100vh", background: "#f8fafc", padding: "32px" }}>
-        <div style={{ maxWidth: "900px", margin: "0 auto" }}>
+  <CubeChemShell
+    title="Supplier Uploads"
+    description="Upload monthly Abyx bulk and individual supplier price lists."
+  >
+    <div style={{ maxWidth: "1500px" }}>
           <div style={cardStyle}>
             <h1 style={pageTitleStyle}>Access denied</h1>
             <p style={pageTextStyle}>
@@ -1303,13 +1310,16 @@ export default function CubeChemPage() {
             )}
           </div>
         </div>
-      </main>
+        </CubeChemShell>
     );
   }
 
   return (
-    <main style={{ minHeight: "100vh", background: "#f8fafc", padding: "32px" }}>
-      <div style={{ maxWidth: "1900px", margin: "0 auto" }}>
+    <CubeChemShell
+      title="Supplier Uploads"
+      description="Upload monthly Abyx bulk and individual supplier price lists."
+    >
+      <div style={{ maxWidth: "1500px" }}>
        <div style={{ marginBottom: "28px" }}>
   <h1 style={pageTitleStyle}>CubeChem Price Manager</h1>
   <p style={pageTextStyle}>
@@ -2117,7 +2127,7 @@ export default function CubeChemPage() {
           </section>
         )}
       </div>
-    </main>
+    </CubeChemShell>
   );
 }
 

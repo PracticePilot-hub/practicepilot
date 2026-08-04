@@ -57,6 +57,10 @@ function isActivePath(pathname: string, href: string) {
     return pathname.startsWith("/compliance/paia");
   }
 
+  if (href === "/billing") {
+    return pathname.startsWith("/billing") || pathname.startsWith("/admin/paia-billing");
+  }
+
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -82,13 +86,20 @@ export default function TopNav() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [afsMenuOpen, setAfsMenuOpen] = useState(false);
+  const [billingMenuOpen, setBillingMenuOpen] = useState(false);
   const [afsMenuPosition, setAfsMenuPosition] = useState<MenuPosition>({
+    top: 54,
+    left: 0,
+  });
+  const [billingMenuPosition, setBillingMenuPosition] = useState<MenuPosition>({
     top: 54,
     left: 0,
   });
 
   const afsButtonRef = useRef<HTMLButtonElement | null>(null);
   const afsMenuRef = useRef<HTMLDivElement | null>(null);
+  const billingButtonRef = useRef<HTMLButtonElement | null>(null);
+  const billingMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,9 +171,28 @@ export default function TopNav() {
     });
   }
 
+  function calculateBillingMenuPosition() {
+    const button = billingButtonRef.current;
+    if (!button) return;
+
+    const rect = button.getBoundingClientRect();
+
+    setBillingMenuPosition({
+      top: Math.round(rect.bottom + 2),
+      left: Math.round(rect.left),
+    });
+  }
+
   function toggleAfsMenu() {
     calculateAfsMenuPosition();
+    setBillingMenuOpen(false);
     setAfsMenuOpen((current) => !current);
+  }
+
+  function toggleBillingMenu() {
+    calculateBillingMenuPosition();
+    setAfsMenuOpen(false);
+    setBillingMenuOpen((current) => !current);
   }
 
   useEffect(() => {
@@ -199,6 +229,41 @@ export default function TopNav() {
       window.removeEventListener("scroll", onWindowChange, true);
     };
   }, [afsMenuOpen]);
+
+  useEffect(() => {
+    if (!billingMenuOpen) return;
+
+    calculateBillingMenuPosition();
+
+    function onDocumentMouseDown(event: MouseEvent) {
+      const target = event.target as Node;
+
+      if (billingButtonRef.current?.contains(target)) return;
+      if (billingMenuRef.current?.contains(target)) return;
+
+      setBillingMenuOpen(false);
+    }
+
+    function onEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setBillingMenuOpen(false);
+    }
+
+    function onWindowChange() {
+      calculateBillingMenuPosition();
+    }
+
+    document.addEventListener("mousedown", onDocumentMouseDown);
+    document.addEventListener("keydown", onEscape);
+    window.addEventListener("resize", onWindowChange);
+    window.addEventListener("scroll", onWindowChange, true);
+
+    return () => {
+      document.removeEventListener("mousedown", onDocumentMouseDown);
+      document.removeEventListener("keydown", onEscape);
+      window.removeEventListener("resize", onWindowChange);
+      window.removeEventListener("scroll", onWindowChange, true);
+    };
+  }, [billingMenuOpen]);
 
   const navItems = useMemo<NavItem[]>(() => {
     const role = profile?.role || "";
@@ -263,6 +328,13 @@ export default function TopNav() {
         href: "/cubechem",
         show: accessEnabled && canAccessCubeChem(email),
       },
+      {
+        label: "Billing",
+        href: "/billing",
+        show:
+          accessEnabled &&
+          (admin || Boolean(profile?.can_access_paia)),
+      },
     ];
   }, [profile]);
 
@@ -295,6 +367,27 @@ export default function TopNav() {
     },
   ];
 
+  const billingDropdownItems = [
+    {
+      label: "PAIA Billing",
+      href: "/admin/paia-billing",
+      description: "Manage franchisee PAIA charges and invoice batches",
+      enabled: true,
+    },
+    {
+      label: "AFS Billing",
+      href: "/admin/afs-billing",
+      description: "Coming soon",
+      enabled: false,
+    },
+    {
+      label: "CRM Billing",
+      href: "/admin/crm-billing",
+      description: "Coming soon",
+      enabled: false,
+    },
+  ];
+
   return (
     <>
       <header style={styles.shell}>
@@ -322,6 +415,29 @@ export default function TopNav() {
                         }}
                         aria-haspopup="menu"
                         aria-expanded={afsMenuOpen}
+                      >
+                        <span>{item.label}</span>
+                        <span style={styles.chevron}>⌄</span>
+                      </button>
+                    );
+                  }
+
+                  if (
+                    item.href === "/billing" &&
+                    isAdminRole(profile?.role || "")
+                  ) {
+                    return (
+                      <button
+                        key={item.href}
+                        ref={billingButtonRef}
+                        type="button"
+                        onClick={toggleBillingMenu}
+                        style={{
+                          ...styles.navLinkButton,
+                          ...(active ? styles.navLinkActive : {}),
+                        }}
+                        aria-haspopup="menu"
+                        aria-expanded={billingMenuOpen}
                       >
                         <span>{item.label}</span>
                         <span style={styles.chevron}>⌄</span>
@@ -398,6 +514,64 @@ export default function TopNav() {
           })}
         </div>
       ) : null}
+
+      {billingMenuOpen ? (
+        <div
+          ref={billingMenuRef}
+          style={{
+            ...styles.afsDropdownMenu,
+            top: billingMenuPosition.top,
+            left: billingMenuPosition.left,
+          }}
+          role="menu"
+        >
+          {billingDropdownItems.map((dropdownItem) => {
+            const dropdownActive = isActivePath(
+              pathname,
+              dropdownItem.href
+            );
+
+            if (!dropdownItem.enabled) {
+              return (
+                <div
+                  key={dropdownItem.href}
+                  style={styles.afsDropdownDisabled}
+                >
+                  <span style={styles.afsDropdownLabel}>
+                    {dropdownItem.label}
+                  </span>
+                  <span style={styles.afsDropdownDescription}>
+                    {dropdownItem.description}
+                  </span>
+                </div>
+              );
+            }
+
+            return (
+              <Link
+                key={dropdownItem.href}
+                href={dropdownItem.href}
+                onClick={() => setBillingMenuOpen(false)}
+                style={{
+                  ...styles.afsDropdownItem,
+                  ...(dropdownActive
+                    ? styles.afsDropdownItemActive
+                    : {}),
+                }}
+                role="menuitem"
+              >
+                <span style={styles.afsDropdownLabel}>
+                  {dropdownItem.label}
+                </span>
+                <span style={styles.afsDropdownDescription}>
+                  {dropdownItem.description}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      ) : null}
+
     </>
   );
 }

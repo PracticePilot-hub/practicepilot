@@ -15,6 +15,17 @@ type UserProfile = {
   can_access_paia?: boolean;
 };
 
+type OrganisationBilling = {
+  id: string;
+  name: string;
+  status: string;
+  access_enabled: boolean;
+  paia_free_manuals_allowed: number;
+  paia_free_manuals_used: number;
+  paia_manual_price: number;
+  paia_billing_enabled: boolean;
+};
+
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -52,17 +63,22 @@ function isGlobalAdmin(role: string) {
 
 function getBearerToken(request: Request) {
   const authHeader = request.headers.get("authorization") || "";
-  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-  return token || "";
+  return authHeader.replace(/^Bearer\s+/i, "").trim();
 }
 
-async function getCurrentProfile(request: Request, supabase: ReturnType<typeof getSupabaseAdmin>) {
+async function getCurrentProfile(
+  request: Request,
+  supabase: ReturnType<typeof getSupabaseAdmin>
+) {
   const token = getBearerToken(request);
 
   if (!token) {
     return {
       profile: null as UserProfile | null,
-      response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
+      response: NextResponse.json(
+        { error: "Not authenticated." },
+        { status: 401 }
+      ),
     };
   }
 
@@ -74,7 +90,10 @@ async function getCurrentProfile(request: Request, supabase: ReturnType<typeof g
   if (userError || !user) {
     return {
       profile: null as UserProfile | null,
-      response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
+      response: NextResponse.json(
+        { error: "Not authenticated." },
+        { status: 401 }
+      ),
     };
   }
 
@@ -87,7 +106,10 @@ async function getCurrentProfile(request: Request, supabase: ReturnType<typeof g
   if (profileError || !profile) {
     return {
       profile: null as UserProfile | null,
-      response: NextResponse.json({ error: "Could not load user profile." }, { status: 403 }),
+      response: NextResponse.json(
+        { error: "Could not load user profile." },
+        { status: 403 }
+      ),
     };
   }
 
@@ -97,14 +119,20 @@ async function getCurrentProfile(request: Request, supabase: ReturnType<typeof g
   if (!userProfile.access_enabled) {
     return {
       profile: null as UserProfile | null,
-      response: NextResponse.json({ error: "User access is blocked." }, { status: 403 }),
+      response: NextResponse.json(
+        { error: "User access is blocked." },
+        { status: 403 }
+      ),
     };
   }
 
   if (!globalAdmin && !userProfile.can_access_paia) {
     return {
       profile: null as UserProfile | null,
-      response: NextResponse.json({ error: "No access to PAIA Manuals." }, { status: 403 }),
+      response: NextResponse.json(
+        { error: "No access to PAIA Manuals." },
+        { status: 403 }
+      ),
     };
   }
 
@@ -114,28 +142,54 @@ async function getCurrentProfile(request: Request, supabase: ReturnType<typeof g
   };
 }
 
-async function getOrganisations(supabase: ReturnType<typeof getSupabaseAdmin>) {
+async function getOrganisations(
+  supabase: ReturnType<typeof getSupabaseAdmin>
+) {
   const { data, error } = await supabase
     .from("organisations")
-    .select("id, name, status, access_enabled")
+    .select(
+      `
+        id,
+        name,
+        status,
+        access_enabled,
+        paia_free_manuals_allowed,
+        paia_free_manuals_used,
+        paia_manual_price,
+        paia_billing_enabled
+      `
+    )
     .order("name", { ascending: true });
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return data ?? [];
+  return (data ?? []) as OrganisationBilling[];
 }
 
 async function getOrganisationById(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   organisationId: string | null
 ) {
-  if (!organisationId) return null;
+  if (!organisationId) {
+    return null;
+  }
 
   const { data, error } = await supabase
     .from("organisations")
-    .select("id, name, status, access_enabled")
+    .select(
+      `
+        id,
+        name,
+        status,
+        access_enabled,
+        paia_free_manuals_allowed,
+        paia_free_manuals_used,
+        paia_manual_price,
+        paia_billing_enabled
+      `
+    )
     .eq("id", organisationId)
     .maybeSingle();
 
@@ -143,48 +197,126 @@ async function getOrganisationById(
     throw new Error(error.message);
   }
 
-  return data ?? null;
+  return (data ?? null) as OrganisationBilling | null;
+}
+
+async function reserveFreeManual(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  organisation: OrganisationBilling
+) {
+  const allowed = Number(organisation.paia_free_manuals_allowed || 0);
+  const used = Number(organisation.paia_free_manuals_used || 0);
+
+  if (used >= allowed) {
+    return false;
+  }
+
+  const { data, error } = await supabase
+    .from("organisations")
+    .update({
+      paia_free_manuals_used: used + 1,
+    })
+    .eq("id", organisation.id)
+    .eq("paia_free_manuals_used", used)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return Boolean(data);
+}
+
+async function releaseFreeManual(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  organisationId: string
+) {
+  const organisation = await getOrganisationById(
+    supabase,
+    organisationId
+  );
+
+  if (!organisation) {
+    return;
+  }
+
+  const used = Number(organisation.paia_free_manuals_used || 0);
+
+  if (used <= 0) {
+    return;
+  }
+
+  await supabase
+    .from("organisations")
+    .update({
+      paia_free_manuals_used: used - 1,
+    })
+    .eq("id", organisationId)
+    .eq("paia_free_manuals_used", used);
 }
 
 export async function GET(request: Request) {
   try {
     const supabase = getSupabaseAdmin();
 
-    const { profile, response } = await getCurrentProfile(request, supabase);
+    const { profile, response } = await getCurrentProfile(
+      request,
+      supabase
+    );
 
-   if (response) return response;
+    if (response) {
+      return response;
+    }
 
-if (!profile) {
-  return NextResponse.json(
-    { error: "Could not load user profile." },
-    { status: 403 }
-  );
-}
+    if (!profile) {
+      return NextResponse.json(
+        { error: "Could not load user profile." },
+        { status: 403 }
+      );
+    }
 
     const url = new URL(request.url);
-    const requestedClientId = String(url.searchParams.get("clientId") || "").trim();
+    const requestedClientId = String(
+      url.searchParams.get("clientId") || ""
+    ).trim();
 
     const globalAdmin = isGlobalAdmin(profile.role);
 
-    const organisations = globalAdmin ? await getOrganisations(supabase) : [];
+    const organisations = globalAdmin
+      ? await getOrganisations(supabase)
+      : [];
+
     const currentOrganisation = globalAdmin
       ? null
-      : await getOrganisationById(supabase, profile.organisation_id);
+      : await getOrganisationById(
+          supabase,
+          profile.organisation_id
+        );
 
-    let clientIdToUse = "";
-
-    if (globalAdmin) {
-      clientIdToUse = requestedClientId;
-    } else {
-      clientIdToUse = profile.organisation_id || "";
-    }
+    const clientIdToUse = globalAdmin
+      ? requestedClientId
+      : profile.organisation_id || "";
 
     if (!clientIdToUse) {
       return NextResponse.json({
         manuals: [],
         organisations,
         currentOrganisation,
+        selectedOrganisation: null,
       });
+    }
+
+    const selectedOrganisation = await getOrganisationById(
+      supabase,
+      clientIdToUse
+    );
+
+    if (!selectedOrganisation) {
+      return NextResponse.json(
+        { error: "The selected firm/client could not be found." },
+        { status: 404 }
+      );
     }
 
     const { data, error } = await supabase
@@ -194,40 +326,56 @@ if (!profile) {
       .order("created_at", { ascending: false });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json(
+        { error: error.message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
       manuals: data ?? [],
       organisations,
       currentOrganisation,
+      selectedOrganisation,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to load PAIA manuals.";
+
     return NextResponse.json(
-      { error: error?.message ?? "Failed to load PAIA manuals." },
+      { error: message },
       { status: 500 }
     );
   }
 }
 
 export async function POST(request: Request) {
+  let reservedFreeManual = false;
+  let organisationIdForRollback = "";
+
   try {
     const body = await request.json();
     const supabase = getSupabaseAdmin();
 
-    const { profile, response } = await getCurrentProfile(request, supabase);
+    const { profile, response } = await getCurrentProfile(
+      request,
+      supabase
+    );
 
-    if (response) return response;
+    if (response) {
+      return response;
+    }
 
-if (!profile) {
-  return NextResponse.json(
-    { error: "Could not load user profile." },
-    { status: 403 }
-  );
-}
+    if (!profile) {
+      return NextResponse.json(
+        { error: "Could not load user profile." },
+        { status: 403 }
+      );
+    }
 
     const globalAdmin = isGlobalAdmin(profile.role);
-
     const entityName = String(body.entity_name ?? "").trim();
 
     if (!entityName) {
@@ -237,7 +385,9 @@ if (!profile) {
       );
     }
 
-    const requestedClientId = String(body.client_id || body.clientId || "").trim();
+    const requestedClientId = String(
+      body.client_id || body.clientId || ""
+    ).trim();
 
     const clientIdToUse = globalAdmin
       ? requestedClientId
@@ -245,9 +395,53 @@ if (!profile) {
 
     if (!clientIdToUse) {
       return NextResponse.json(
-        { error: "A firm/client must be selected before creating a PAIA manual." },
+        {
+          error:
+            "A firm/client must be selected before creating a PAIA manual.",
+        },
         { status: 400 }
       );
+    }
+
+    const organisation = await getOrganisationById(
+      supabase,
+      clientIdToUse
+    );
+
+    if (!organisation) {
+      return NextResponse.json(
+        { error: "The selected firm/client could not be found." },
+        { status: 404 }
+      );
+    }
+
+    if (!organisation.access_enabled) {
+      return NextResponse.json(
+        { error: "The selected firm/client is blocked." },
+        { status: 403 }
+      );
+    }
+
+    organisationIdForRollback = organisation.id;
+
+    let isFreeManual = true;
+    let billingAmount = 0;
+    let billingStatus = "free";
+
+    if (organisation.paia_billing_enabled) {
+      reservedFreeManual = await reserveFreeManual(
+        supabase,
+        organisation
+      );
+
+      isFreeManual = reservedFreeManual;
+
+      if (!reservedFreeManual) {
+        billingAmount = Number(
+          organisation.paia_manual_price || 0
+        );
+        billingStatus = "uninvoiced";
+      }
     }
 
     const { data, error } = await supabase
@@ -256,16 +450,26 @@ if (!profile) {
         client_id: clientIdToUse,
 
         manual_name:
-          String(body.manual_name ?? "").trim() || `${entityName} PAIA Manual`,
+          String(body.manual_name ?? "").trim() ||
+          `${entityName} PAIA Manual`,
+
         entity_name: entityName,
-        entity_registration_number: clean(body.entity_registration_number),
+        entity_registration_number: clean(
+          body.entity_registration_number
+        ),
         vat_number: clean(body.vat_number),
         entity_type: clean(body.entity_type),
         industry: clean(body.industry),
 
-        information_officer_name: clean(body.information_officer_name),
-        information_officer_position: clean(body.information_officer_position),
-        information_officer_email: clean(body.information_officer_email),
+        information_officer_name: clean(
+          body.information_officer_name
+        ),
+        information_officer_position: clean(
+          body.information_officer_position
+        ),
+        information_officer_email: clean(
+          body.information_officer_email
+        ),
         information_officer_telephone: clean(
           body.information_officer_telephone
         ),
@@ -277,22 +481,64 @@ if (!profile) {
         website: clean(body.website),
 
         date_compiled:
-          body.date_compiled || new Date().toISOString().slice(0, 10),
+          body.date_compiled ||
+          new Date().toISOString().slice(0, 10),
+
         next_review_date: body.next_review_date || null,
         version_number: "1.0",
         status: "draft",
+
+        is_free_manual: isFreeManual,
+        billing_amount: billingAmount,
+        billing_status: billingStatus,
+        created_by_user_id: profile.user_id,
       })
       .select("*")
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      if (reservedFreeManual) {
+        await releaseFreeManual(
+          supabase,
+          organisationIdForRollback
+        );
+      }
+
+      return NextResponse.json(
+        { error: error.message },
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json({ manual: data });
-  } catch (error: any) {
+    return NextResponse.json({
+      manual: data,
+      billing: {
+        is_free_manual: isFreeManual,
+        billing_amount: billingAmount,
+        billing_status: billingStatus,
+      },
+    });
+  } catch (error: unknown) {
+    if (reservedFreeManual && organisationIdForRollback) {
+      try {
+        const supabase = getSupabaseAdmin();
+
+        await releaseFreeManual(
+          supabase,
+          organisationIdForRollback
+        );
+      } catch {
+        // Best-effort rollback only.
+      }
+    }
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to create PAIA manual.";
+
     return NextResponse.json(
-      { error: error?.message ?? "Failed to create PAIA manual." },
+      { error: message },
       { status: 500 }
     );
   }

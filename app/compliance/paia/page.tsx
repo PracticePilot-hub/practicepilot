@@ -15,6 +15,11 @@ type PaiaManual = {
   date_compiled: string | null;
   version_number: string | null;
   status: string | null;
+  created_at: string | null;
+  is_free_manual: boolean;
+  billing_amount: number;
+  billing_status: string | null;
+  invoice_number: string | null;
 };
 
 type Organisation = {
@@ -22,6 +27,10 @@ type Organisation = {
   name: string;
   status: string;
   access_enabled: boolean;
+  paia_free_manuals_allowed: number;
+  paia_free_manuals_used: number;
+  paia_manual_price: number;
+  paia_billing_enabled: boolean;
 };
 
 type UserProfile = {
@@ -99,6 +108,14 @@ function dateValue(value: string | null) {
   if (!value) return 0;
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatMoney(value: number | null | undefined) {
+  return new Intl.NumberFormat("en-ZA", {
+    style: "currency",
+    currency: "ZAR",
+    minimumFractionDigits: 2,
+  }).format(Number(value || 0));
 }
 
 async function getAuthToken() {
@@ -232,7 +249,11 @@ export default function PaiaManualsPage() {
 
       setManuals(json.manuals ?? []);
       setOrganisations(json.organisations ?? []);
-      setCurrentOrganisation(json.currentOrganisation ?? null);
+      setCurrentOrganisation(
+        json.selectedOrganisation ??
+          json.currentOrganisation ??
+          null
+      );
     } catch (err: any) {
       setError(err?.message ?? "Could not load PAIA manuals.");
       setManuals([]);
@@ -308,6 +329,30 @@ export default function PaiaManualsPage() {
 
     if (!clientIdToUse) {
       setError("Please choose a firm/client before creating a PAIA manual.");
+      return;
+    }
+
+    const freeManualsAllowed = Number(
+      selectedOrganisation?.paia_free_manuals_allowed || 0
+    );
+    const freeManualsUsed = Number(
+      selectedOrganisation?.paia_free_manuals_used || 0
+    );
+    const billingEnabled =
+      selectedOrganisation?.paia_billing_enabled !== false;
+    const hasFreeManual =
+      billingEnabled && freeManualsUsed < freeManualsAllowed;
+    const manualPrice = Number(
+      selectedOrganisation?.paia_manual_price || 0
+    );
+
+    const confirmationMessage = !billingEnabled
+      ? `Create a new PAIA manual for ${form.entity_name.trim()}?`
+      : hasFreeManual
+        ? `This will use ${selectedOrganisation?.name || "the firm's"} one free PAIA manual. The free allowance cannot be restored or transferred. Continue?`
+        : `Creating this PAIA manual will incur a charge of ${formatMoney(manualPrice)} to ${selectedOrganisation?.name || "the firm"}. Continue?`;
+
+    if (!window.confirm(confirmationMessage)) {
       return;
     }
 
@@ -434,6 +479,47 @@ export default function PaiaManualsPage() {
           <form onSubmit={createManual} style={s.card}>
             <div style={s.cardBody}>
               <h2 style={s.h2}>New PAIA manual</h2>
+
+              {selectedOrganisation ? (
+                <div
+                  style={
+                    selectedOrganisation.paia_billing_enabled === false
+                      ? s.billingNoticeNeutral
+                      : Number(selectedOrganisation.paia_free_manuals_used || 0) <
+                          Number(selectedOrganisation.paia_free_manuals_allowed || 0)
+                        ? s.billingNoticeFree
+                        : s.billingNoticeCharge
+                  }
+                >
+                  {selectedOrganisation.paia_billing_enabled === false ? (
+                    <>
+                      <strong>PAIA billing is disabled for this firm.</strong>
+                      <span>No charge will be recorded when a manual is created.</span>
+                    </>
+                  ) : Number(selectedOrganisation.paia_free_manuals_used || 0) <
+                    Number(selectedOrganisation.paia_free_manuals_allowed || 0) ? (
+                    <>
+                      <strong>Your first PAIA manual is free.</strong>
+                      <span>
+                        The next manual created will use the firm&apos;s free
+                        allowance. If it is used for a client, the allowance is
+                        still regarded as used.
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <strong>
+                        {formatMoney(selectedOrganisation.paia_manual_price)} per
+                        new PAIA manual
+                      </strong>
+                      <span>
+                        The charge is recorded when the manual is created, not
+                        when it is finalised.
+                      </span>
+                    </>
+                  )}
+                </div>
+              ) : null}
 
               <Field
                 label="Entity name"
@@ -563,9 +649,11 @@ export default function PaiaManualsPage() {
               <table style={s.table}>
                 <thead>
                   <tr>
+                    <th style={s.th}>No.</th>
                     <th style={s.th}>Entity</th>
                     <th style={s.th}>Type</th>
                     <th style={s.th}>Registration</th>
+                    <th style={s.th}>Created</th>
                     <th style={s.th}>Compiled</th>
                     <th style={s.th}>Version</th>
                     <th style={s.th}>Status</th>
@@ -574,13 +662,15 @@ export default function PaiaManualsPage() {
                 </thead>
 
                 <tbody>
-                  {filteredManuals.map((manual) => (
+                  {filteredManuals.map((manual, index) => (
                     <tr key={manual.id}>
+                      <td style={s.td}>{index + 1}</td>
                       <td style={s.tdStrong}>{manual.entity_name}</td>
                       <td style={s.td}>{manual.entity_type || "-"}</td>
                       <td style={s.td}>
                         {manual.entity_registration_number || "-"}
                       </td>
+                      <td style={s.td}>{formatDate(manual.created_at)}</td>
                       <td style={s.td}>{formatDate(manual.date_compiled)}</td>
                       <td style={s.td}>{manual.version_number || "1.0"}</td>
                       <td style={s.td}>
@@ -753,6 +843,39 @@ const s: Record<string, CSSProperties> = {
     border: "1px solid #d8e2ee",
     background: "#f8fafc",
     borderRadius: 10,
+    padding: 10,
+    fontSize: 12,
+    color: "#475569",
+  },
+  billingNoticeFree: {
+    marginTop: 10,
+    display: "grid",
+    gap: 4,
+    border: "1px solid #bbf7d0",
+    background: "#f0fdf4",
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 12,
+    color: "#166534",
+  },
+  billingNoticeCharge: {
+    marginTop: 10,
+    display: "grid",
+    gap: 4,
+    border: "1px solid #fed7aa",
+    background: "#fff7ed",
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 12,
+    color: "#9a3412",
+  },
+  billingNoticeNeutral: {
+    marginTop: 10,
+    display: "grid",
+    gap: 4,
+    border: "1px solid #d8e2ee",
+    background: "#f8fafc",
+    borderRadius: 8,
     padding: 10,
     fontSize: 12,
     color: "#475569",
