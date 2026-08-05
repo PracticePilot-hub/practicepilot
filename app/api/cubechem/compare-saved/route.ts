@@ -304,15 +304,16 @@ export async function POST(req: NextRequest) {
 
     const supplierUpload = await supabase
       .from("cubechem_price_uploads")
-      .select("id, price_month, file_name")
+      .select("id, price_month, file_name, price_list_type")
       .eq("price_month", toMonthDateValue)
+      .eq("price_list_type", "BULK")
       .order("uploaded_at", { ascending: false })
       .limit(1)
       .single();
 
     if (supplierUpload.error) {
       return NextResponse.json(
-        { error: "No Abyx supplier upload found for the compare-to month." },
+        { error: "No Abyx bulk supplier upload found for the compare-to month." },
         { status: 400 }
       );
     }

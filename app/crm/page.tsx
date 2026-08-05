@@ -2,30 +2,31 @@ import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
+const supabaseSecretKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
 
 if (!supabaseUrl) {
   throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
 }
 
 if (!supabaseSecretKey) {
-  throw new Error("Missing SUPABASE_SECRET_KEY");
+  throw new Error(
+    "Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY"
+  );
 }
 
 const supabase = createClient(supabaseUrl, supabaseSecretKey);
 
 type CRMContact = {
   contact_name: string | null;
-  email: string | null;
   is_primary: boolean | null;
 };
 
 type CRMClient = {
   id: string;
   client_name: string;
-  trading_name: string | null;
-  entity_type: string | null;
   registration_number: string | null;
+  id_passport_number: string | null;
   crm_client_contacts: CRMContact[] | null;
 };
 
@@ -35,84 +36,95 @@ export default async function CRMHome() {
     .select(`
       id,
       client_name,
-      trading_name,
-      entity_type,
       registration_number,
+      id_passport_number,
       crm_client_contacts (
         contact_name,
-        email,
         is_primary
       )
     `)
     .order("client_name", { ascending: true });
 
+  const safeClients = ((clients || []) as CRMClient[]).filter(
+    (client) => client.client_name?.trim()
+  );
+
   return (
-    <main style={styles.page}>
-      <section style={styles.header}>
+    <div style={page}>
+      <div style={workingFileBar}>
+        <div style={workingFileLabel}>CRM WORKING FILE</div>
+        <div style={divider}>|</div>
+        <div style={workingFileTitle}>Client Database</div>
+        <div style={divider}>|</div>
+        <div style={workingFileMeta}>Practice client master</div>
+
+        <div style={countBadge}>{safeClients.length} clients</div>
+      </div>
+
+      <div style={sectionTopBar}>
         <div>
-          <p style={styles.eyebrow}>CRM</p>
-          <h1 style={styles.title}>Client Database</h1>
-          <p style={styles.subtitle}>
-            Global client master file for PracticePilot.
-          </p>
+          <div style={sectionTitle}>Client Database</div>
+          <div style={sectionSubtitle}>
+            Maintain the practice client master list.
+          </div>
         </div>
 
-        <Link href="/crm/new-client" style={styles.primaryButton}>
+        <Link href="/crm/new-client" style={primaryButton}>
           Add New Client
         </Link>
-      </section>
+      </div>
 
       {error ? (
-        <div style={styles.errorBox}>{error.message}</div>
+        <div style={errorBox}>{error.message}</div>
       ) : (
-        <section style={styles.card}>
-          <div style={styles.tableHeader}>
-            <h2 style={styles.cardTitle}>Clients</h2>
-            <span style={styles.count}>{clients?.length || 0} clients</span>
+        <section style={panel}>
+          <div style={panelHeader}>
+            <div>
+              <h1 style={heading}>Clients</h1>
+              <p style={headingSubtext}>
+                Select a client to open and maintain its full record.
+              </p>
+            </div>
           </div>
 
-          <div style={styles.tableWrap}>
-            <table style={styles.table}>
+          <div style={tableWrap}>
+            <table style={table}>
               <thead>
                 <tr>
-                  <th style={styles.th}>Client</th>
-                  <th style={styles.th}>Entity Type</th>
-                  <th style={styles.th}>Registration / ID</th>
-                  <th style={styles.th}>Primary Contact</th>
-                  <th style={styles.th}>Email</th>
-                  <th style={styles.th}>Services</th>
-                  <th style={styles.th}></th>
+                  <th style={th}>Client Name</th>
+                  <th style={th}>Registration / ID Number</th>
+                  <th style={th}>Primary Contact</th>
+                  <th style={thAction}></th>
                 </tr>
               </thead>
 
               <tbody>
-                {((clients || []) as CRMClient[]).map((client) => {
+                {safeClients.map((client) => {
                   const primaryContact =
-                    client.crm_client_contacts?.find((contact) => contact.is_primary) ||
+                    client.crm_client_contacts?.find(
+                      (contact) => contact.is_primary
+                    ) ||
                     client.crm_client_contacts?.[0] ||
                     null;
 
                   return (
                     <tr key={client.id}>
-                      <td style={styles.td}>
-                        <strong>{client.client_name}</strong>
-                        {client.trading_name && (
-                          <div style={styles.smallText}>
-                            Trading as: {client.trading_name}
-                          </div>
-                        )}
+                      <td style={tdClient}>{client.client_name}</td>
+
+                      <td style={td}>
+                        {client.registration_number ||
+                          client.id_passport_number ||
+                          "-"}
                       </td>
 
-                      <td style={styles.td}>{client.entity_type || "-"}</td>
-                      <td style={styles.td}>{client.registration_number || "-"}</td>
-                      <td style={styles.td}>{primaryContact?.contact_name || "-"}</td>
-                      <td style={styles.td}>{primaryContact?.email || "-"}</td>
-                      <td style={styles.td}>-</td>
+                      <td style={td}>
+                        {primaryContact?.contact_name || "-"}
+                      </td>
 
-                      <td style={styles.td}>
+                      <td style={tdAction}>
                         <Link
                           href={`/crm/edit-client?id=${client.id}`}
-                          style={styles.linkButton}
+                          style={editLink}
                         >
                           Edit
                         </Link>
@@ -121,9 +133,9 @@ export default async function CRMHome() {
                   );
                 })}
 
-                {(!clients || clients.length === 0) && (
+                {safeClients.length === 0 && (
                   <tr>
-                    <td style={styles.emptyCell} colSpan={7}>
+                    <td style={emptyCell} colSpan={4}>
                       No CRM clients found yet.
                     </td>
                   </tr>
@@ -133,118 +145,182 @@ export default async function CRMHome() {
           </div>
         </section>
       )}
-    </main>
+    </div>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: "100vh",
-    background: "#f3f8fc",
-    padding: "36px",
-    color: "#0b2f4f",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "24px",
-    marginBottom: "28px",
-  },
-  eyebrow: {
-    margin: 0,
-    color: "#00a6b4",
-    fontSize: "12px",
-    fontWeight: 900,
-    letterSpacing: "0.12em",
-    textTransform: "uppercase",
-  },
-  title: {
-    margin: "6px 0 0",
-    fontSize: "34px",
-    letterSpacing: "-0.04em",
-  },
-  subtitle: {
-    margin: "8px 0 0",
-    color: "#526173",
-    fontSize: "15px",
-  },
-  primaryButton: {
-    background: "#0b5cab",
-    color: "#ffffff",
-    textDecoration: "none",
-    borderRadius: "12px",
-    padding: "13px 18px",
-    fontSize: "14px",
-    fontWeight: 900,
-  },
-  errorBox: {
-    background: "#fff1f2",
-    border: "1px solid #fecdd3",
-    color: "#991b1b",
-    padding: "16px",
-    borderRadius: "14px",
-    fontWeight: 700,
-  },
-  card: {
-    background: "#ffffff",
-    border: "1px solid #dbe5ee",
-    borderRadius: "20px",
-    boxShadow: "0 16px 40px rgba(11,47,79,0.08)",
-    overflow: "hidden",
-  },
-  tableHeader: {
-    padding: "20px 22px",
-    borderBottom: "1px solid #e5edf4",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  cardTitle: {
-    margin: 0,
-    fontSize: "20px",
-  },
-  count: {
-    fontSize: "13px",
-    fontWeight: 800,
-    color: "#526173",
-  },
-  tableWrap: {
-    overflowX: "auto",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    fontSize: "14px",
-  },
-  th: {
-    textAlign: "left",
-    padding: "14px 16px",
-    background: "#f8fbfd",
-    borderBottom: "1px solid #e5edf4",
-    color: "#526173",
-    fontSize: "12px",
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-  },
-  td: {
-    padding: "14px 16px",
-    borderBottom: "1px solid #eef3f7",
-    verticalAlign: "top",
-  },
-  smallText: {
-    marginTop: "4px",
-    color: "#6b7788",
-    fontSize: "12px",
-  },
-  linkButton: {
-    color: "#0b5cab",
-    fontWeight: 900,
-    textDecoration: "none",
-  },
-  emptyCell: {
-    padding: "28px",
-    textAlign: "center",
-    color: "#6b7788",
-  },
+const page: React.CSSProperties = {
+  minHeight: "100vh",
+  padding: "8px 10px 28px",
+  background: "#eef2f5",
+  color: "#10233a",
+};
+
+const workingFileBar: React.CSSProperties = {
+  minHeight: "42px",
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  padding: "0 10px",
+  border: "1px solid #d2d9e2",
+  background: "#ffffff",
+};
+
+const workingFileLabel: React.CSSProperties = {
+  fontSize: "11px",
+  fontWeight: 900,
+  letterSpacing: "0.08em",
+  color: "#1d4ed8",
+};
+
+const divider: React.CSSProperties = {
+  color: "#94a3b8",
+};
+
+const workingFileTitle: React.CSSProperties = {
+  fontWeight: 800,
+  color: "#111827",
+};
+
+const workingFileMeta: React.CSSProperties = {
+  color: "#64748b",
+  fontSize: "12px",
+};
+
+const countBadge: React.CSSProperties = {
+  marginLeft: "auto",
+  padding: "4px 8px",
+  borderRadius: 999,
+  background: "#e8eefc",
+  color: "#1d4ed8",
+  fontSize: "11px",
+  fontWeight: 800,
+};
+
+const sectionTopBar: React.CSSProperties = {
+  minHeight: "58px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "16px",
+  marginTop: "8px",
+  padding: "10px 12px",
+  border: "1px solid #d2d9e2",
+  background: "#ffffff",
+};
+
+const sectionTitle: React.CSSProperties = {
+  fontSize: "15px",
+  fontWeight: 800,
+  color: "#111827",
+};
+
+const sectionSubtitle: React.CSSProperties = {
+  marginTop: "3px",
+  fontSize: "12px",
+  color: "#64748b",
+};
+
+const primaryButton: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 16px",
+  border: "1px solid #0f172a",
+  borderRadius: 0,
+  background: "#0f172a",
+  color: "#ffffff",
+  textDecoration: "none",
+  fontSize: "13px",
+  fontWeight: 800,
+};
+
+const errorBox: React.CSSProperties = {
+  padding: "12px 14px",
+  marginTop: "8px",
+  border: "1px solid #dc2626",
+  background: "#fff1f2",
+  color: "#991b1b",
+  fontWeight: 700,
+};
+
+const panel: React.CSSProperties = {
+  marginTop: "8px",
+  border: "1px solid #d2d9e2",
+  borderRadius: 0,
+  background: "#ffffff",
+};
+
+const panelHeader: React.CSSProperties = {
+  padding: "14px 12px",
+  borderBottom: "1px solid #d2d9e2",
+};
+
+const heading: React.CSSProperties = {
+  margin: 0,
+  fontSize: "22px",
+  fontWeight: 500,
+  color: "#111827",
+};
+
+const headingSubtext: React.CSSProperties = {
+  margin: "5px 0 0",
+  color: "#64748b",
+  fontSize: "13px",
+};
+
+const tableWrap: React.CSSProperties = {
+  overflowX: "auto",
+};
+
+const table: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  fontSize: "13px",
+};
+
+const th: React.CSSProperties = {
+  textAlign: "left",
+  padding: "10px 12px",
+  background: "#f7f8fa",
+  borderBottom: "1px solid #d2d9e2",
+  color: "#475569",
+  fontSize: "11px",
+  fontWeight: 800,
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+};
+
+const thAction: React.CSSProperties = {
+  ...th,
+  width: "72px",
+};
+
+const td: React.CSSProperties = {
+  padding: "9px 12px",
+  borderBottom: "1px solid #e5eaf0",
+  verticalAlign: "middle",
+  color: "#10233a",
+};
+
+const tdClient: React.CSSProperties = {
+  ...td,
+  fontWeight: 800,
+  color: "#0f2942",
+};
+
+const tdAction: React.CSSProperties = {
+  ...td,
+  textAlign: "right",
+  whiteSpace: "nowrap",
+};
+
+const editLink: React.CSSProperties = {
+  color: "#1d4ed8",
+  fontWeight: 800,
+  textDecoration: "none",
+};
+
+const emptyCell: React.CSSProperties = {
+  padding: "24px",
+  textAlign: "center",
+  color: "#64748b",
 };

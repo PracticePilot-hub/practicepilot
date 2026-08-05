@@ -27,12 +27,17 @@ type UserProfile = {
 };
 
 function isInternalRole(role: string) {
-  return role === "Super Admin" || role === "Admin" || role === "Staff";
+  return (
+    role === "Super Admin" ||
+    role === "Admin" ||
+    role === "Staff" ||
+    role === "Client Manager"
+  );
 }
 
 function getFirstAllowedClientModule(profile: UserProfile) {
-  if (profile.can_access_projects) return "/project-management";
   if (profile.can_access_crm) return "/crm";
+  if (profile.can_access_projects) return "/project-management";
   if (profile.can_access_accounting) return "/accounting-system";
   if (profile.can_access_afs) return "/afs";
   if (profile.can_access_secretarial) return "/secretarial";
@@ -279,6 +284,7 @@ const [userOptions, setUserOptions] = useState<UserOption[]>([]);
   const [clientMap, setClientMap] = useState<Record<string, string>>({});
   const [serviceColours, setServiceColours] = useState<Record<string, ServiceColourRow>>({});
   const [selectedTask, setSelectedTask] = useState<WorkItem | null>(null);
+  const [selectedDayDate, setSelectedDayDate] = useState<string | null>(null);
   const [isEditingTask, setIsEditingTask] = useState(false);
 const [editTaskTitle, setEditTaskTitle] = useState("");
 const [editTaskDueDate, setEditTaskDueDate] = useState("");
@@ -912,6 +918,27 @@ setManualMeetingLocation("");
     return days;
   }, [visibleMonth, workItems]);
 
+  const selectedDayItems = useMemo(() => {
+    if (!selectedDayDate) return [];
+
+    return workItems
+      .filter((item) => item.dueDate === selectedDayDate)
+      .sort((a, b) => {
+        const aTime = a.meetingStartTime || "99:99";
+        const bTime = b.meetingStartTime || "99:99";
+        return aTime.localeCompare(bTime);
+      });
+  }, [selectedDayDate, workItems]);
+
+  const hourlySlots = useMemo(
+    () =>
+      Array.from({ length: 13 }, (_, index) => {
+        const hour = index + 7;
+        return `${String(hour).padStart(2, "0")}:00`;
+      }),
+    []
+  );
+
   function goToPreviousMonth() {
     setVisibleMonth(
       new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1)
@@ -1239,37 +1266,75 @@ async function saveTaskEdits() {
           </div>
 
           <div style={styles.calendarGrid}>
-            {calendarDays.map((day, index) => (
-              <div key={day.date || `blank-${index}`} style={styles.calendarDay}>
-                {day.day && <div style={styles.dayNumber}>{day.day}</div>}
+            {calendarDays.map((day, index) => {
+              const typeSummary = Array.from(
+                day.items.reduce((map, item) => {
+                  const current = map.get(item.type);
 
-                {day.items.slice(0, 3).map((item) => {
-                  const badge = getCalendarBadge(item.status);
+                  if (current) {
+                    current.count += 1;
+                  } else {
+                    map.set(item.type, {
+                      type: item.type,
+                      count: 1,
+                      colour: item.serviceColour,
+                    });
+                  }
 
-                  return (
-                    <button
-                      key={item.id}
-                      style={{
-                        ...styles.calendarItem,
-                        background: item.serviceColour,
-                        color: item.serviceTextColour,
-                      }}
-                      onClick={() => openTask(item)}
-                    >
-                      <span style={styles.calendarItemText}>
-                        {getWorkItemHeading(item)}, Period: {item.periodLabel}
-                      </span>
+                  return map;
+                }, new Map<string, { type: string; count: number; colour: string }>())
+              ).map(([, value]) => value);
 
-                      {badge && <span style={styles.statusBadge}>{badge}</span>}
-                    </button>
-                  );
-                })}
+              return (
+                <button
+                  key={day.date || `blank-${index}`}
+                  type="button"
+                  disabled={!day.date}
+                  style={{
+                    ...styles.calendarDay,
+                    ...(!day.date ? styles.blankCalendarDay : {}),
+                  }}
+                  onClick={() => day.date && setSelectedDayDate(day.date)}
+                >
+                  {day.day && (
+                    <>
+                      <div style={styles.dayNumber}>{day.day}</div>
 
-                {day.items.length > 3 && (
-                  <div style={styles.moreItems}>+{day.items.length - 3} more</div>
-                )}
-              </div>
-            ))}
+                      <div style={styles.dayMarkers}>
+                        {typeSummary.slice(0, 6).map((summary) => (
+                          <span
+                            key={summary.type}
+                            style={styles.dayMarkerRow}
+                            title={`${summary.count} ${summary.type} item(s)`}
+                          >
+                            <span
+                              style={{
+                                ...styles.dayMarkerDot,
+                                background: summary.colour,
+                              }}
+                            />
+                            <span style={styles.dayMarkerLabel}>
+                              {summary.type}
+                            </span>
+                            {summary.count > 1 && (
+                              <span style={styles.dayMarkerCount}>
+                                {summary.count}
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+
+                      {day.items.length > 0 && (
+                        <div style={styles.dayTotal}>
+                          {day.items.length} item{day.items.length === 1 ? "" : "s"}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -1382,7 +1447,7 @@ async function saveTaskEdits() {
               <div style={styles.emptySmall}>No open work due up to this month.</div>
             )}
 
-            {workListItems.map((item) => (
+            {workListItems.slice(0, 8).map((item) => (
               <button
                 key={item.id}
                 style={styles.workItem}
@@ -1397,9 +1462,129 @@ async function saveTaskEdits() {
                 <span style={styles.statusPill}>{item.status}</span>
               </button>
             ))}
+
+            {workListItems.length > 8 && (
+              <a href="/crm/tasks" style={styles.viewAllTasks}>
+                View all {workListItems.length} tasks
+              </a>
+            )}
           </div>
         </aside>
       </section>
+
+      {selectedDayDate && (
+        <div
+          style={styles.dayModalOverlay}
+          onClick={() => setSelectedDayDate(null)}
+        >
+          <div
+            style={styles.dayModal}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={styles.dayModalHeader}>
+              <div>
+                <p style={styles.eyebrow}>Day calendar</p>
+                <h2 style={styles.dayModalTitle}>
+                  {formatDisplayDate(selectedDayDate)}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                style={styles.closeButton}
+                onClick={() => setSelectedDayDate(null)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.hourlyCalendar}>
+              {hourlySlots.map((slot) => {
+                const slotHour = slot.slice(0, 2);
+                const meetings = selectedDayItems.filter(
+                  (item) =>
+                    item.type === "Meeting" &&
+                    (item.meetingStartTime || "").slice(0, 2) === slotHour
+                );
+
+                return (
+                  <div key={slot} style={styles.hourRow}>
+                    <div style={styles.hourLabel}>{slot}</div>
+
+                    <div style={styles.hourContent}>
+                      {meetings.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          style={{
+                            ...styles.hourMeeting,
+                            borderLeftColor: item.serviceColour,
+                          }}
+                          onClick={() => {
+                            setSelectedDayDate(null);
+                            openTask(item);
+                          }}
+                        >
+                          <strong>{item.title}</strong>
+                          <span>
+                            {item.meetingStartTime || slot}
+                            {item.meetingEndTime
+                              ? ` – ${item.meetingEndTime}`
+                              : ""}
+                            {item.meetingLocation
+                              ? ` · ${item.meetingLocation}`
+                              : ""}
+                          </span>
+                          <span>{item.client}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={styles.unscheduledSection}>
+              <div style={styles.unscheduledHeader}>
+                Tasks and deadlines for this day
+              </div>
+
+              {selectedDayItems.filter((item) => item.type !== "Meeting")
+                .length === 0 ? (
+                <div style={styles.emptySmall}>
+                  No non-meeting tasks due on this day.
+                </div>
+              ) : (
+                selectedDayItems
+                  .filter((item) => item.type !== "Meeting")
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      style={styles.unscheduledTask}
+                      onClick={() => {
+                        setSelectedDayDate(null);
+                        openTask(item);
+                      }}
+                    >
+                      <span
+                        style={{
+                          ...styles.dayMarkerDot,
+                          background: item.serviceColour,
+                        }}
+                      />
+                      <span style={styles.unscheduledTaskText}>
+                        <strong>{getWorkItemHeading(item)}</strong>
+                        <small>Period: {item.periodLabel}</small>
+                      </span>
+                      <span style={styles.statusPill}>{item.status}</span>
+                    </button>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeEntry && runningTask && (
         <button
@@ -1530,13 +1715,16 @@ async function saveTaskEdits() {
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "100vh",
-    background: "#f3f8fc",
-    padding: "36px",
-    color: "#0b2f4f",
+    background: "#eef2f5",
+    padding: "8px 10px 28px",
+    color: "#10233a",
   },
   header: {
-    marginBottom: "28px",
-    maxWidth: "720px",
+    marginBottom: "8px",
+    padding: "14px 12px",
+    border: "1px solid #d2d9e2",
+    background: "#ffffff",
+    maxWidth: "none",
   },
   headerActions: {
     display: "flex",
@@ -1546,49 +1734,52 @@ const styles: Record<string, CSSProperties> = {
   },
   eyebrow: {
     margin: 0,
-    color: "#00a6b4",
-    fontSize: "12px",
+    color: "#1d4ed8",
+    fontSize: "11px",
     fontWeight: 900,
-    letterSpacing: "0.12em",
+    letterSpacing: "0.08em",
     textTransform: "uppercase",
   },
   title: {
     margin: "6px 0 0",
-    fontSize: "34px",
-    letterSpacing: "-0.04em",
+    fontSize: "24px",
+    fontWeight: 500,
+    letterSpacing: "-0.02em",
+    color: "#111827",
   },
   subtitle: {
-    margin: "8px 0 0",
-    color: "#526173",
-    fontSize: "15px",
+    margin: "6px 0 0",
+    color: "#64748b",
+    fontSize: "13px",
   },
   topGrid: {
     display: "grid",
-    gridTemplateColumns: "1fr 420px",
-    gap: "22px",
+    gridTemplateColumns: "minmax(0, 1fr) 410px",
+    gap: "8px",
     alignItems: "start",
   },
   calendarCard: {
     background: "#ffffff",
-    border: "1px solid #dbe5ee",
-    borderRadius: "20px",
-    boxShadow: "0 16px 40px rgba(11,47,79,0.08)",
+    border: "1px solid #d2d9e2",
+    borderRadius: 0,
+    boxShadow: "none",
     overflow: "hidden",
   },
   workListCard: {
     background: "#ffffff",
-    border: "1px solid #dbe5ee",
-    borderRadius: "20px",
-    boxShadow: "0 16px 40px rgba(11,47,79,0.08)",
-    paddingBottom: "18px",
+    border: "1px solid #d2d9e2",
+    borderRadius: 0,
+    boxShadow: "none",
+    paddingBottom: "10px",
   },
   cardHeader: {
-    padding: "18px 20px",
-    borderBottom: "1px solid #e5edf4",
+    padding: "10px 12px",
+    borderBottom: "1px solid #d2d9e2",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    gap: "14px",
+    gap: "10px",
+    background: "#f7f8fa",
   },
   monthControls: {
     display: "flex",
@@ -1598,90 +1789,114 @@ const styles: Record<string, CSSProperties> = {
   monthButton: {
     width: "30px",
     height: "30px",
-    borderRadius: "999px",
-    border: "1px solid #dbe5ee",
+    borderRadius: 0,
+    border: "1px solid #cfd7e1",
     background: "#ffffff",
-    color: "#0b2f4f",
-    fontSize: "20px",
-    fontWeight: 900,
+    color: "#111827",
+    fontSize: "18px",
+    fontWeight: 800,
     cursor: "pointer",
   },
   thisMonthButton: {
     height: "30px",
-    borderRadius: "999px",
-    border: "1px solid #dbe5ee",
+    borderRadius: 0,
+    border: "1px solid #cfd7e1",
     background: "#ffffff",
-    color: "#0b2f4f",
-    padding: "0 12px",
-    fontSize: "12px",
-    fontWeight: 900,
+    color: "#111827",
+    padding: "0 10px",
+    fontSize: "11px",
+    fontWeight: 800,
     cursor: "pointer",
   },
   cardTitle: {
     margin: 0,
-    fontSize: "20px",
+    fontSize: "16px",
+    fontWeight: 700,
+    color: "#111827",
   },
   cardBadge: {
-    fontSize: "12px",
-    fontWeight: 900,
-    color: "#007986",
-    background: "#eaf8fa",
-    borderRadius: "999px",
-    padding: "6px 10px",
+    fontSize: "10px",
+    fontWeight: 800,
+    color: "#1d4ed8",
+    background: "#e8eefc",
+    borderRadius: 999,
+    padding: "4px 8px",
     whiteSpace: "nowrap",
   },
   weekHeader: {
     display: "grid",
     gridTemplateColumns: "repeat(7, 1fr)",
-    background: "#f8fbfd",
-    borderBottom: "1px solid #e5edf4",
+    background: "#0f172a",
+    borderBottom: "1px solid #0f172a",
   },
   weekDay: {
-    padding: "12px",
-    fontSize: "12px",
-    fontWeight: 900,
-    color: "#526173",
+    padding: "9px 8px",
+    fontSize: "11px",
+    fontWeight: 800,
+    color: "#ffffff",
     textTransform: "uppercase",
-    letterSpacing: "0.06em",
+    letterSpacing: "0.04em",
   },
   calendarGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(7, 1fr)",
   },
   calendarDay: {
-    minHeight: "112px",
-    borderRight: "1px solid #eef3f7",
-    borderBottom: "1px solid #eef3f7",
-    padding: "10px",
+    minHeight: "110px",
+    border: "none",
+    borderRight: "1px solid #e5eaf0",
+    borderBottom: "1px solid #e5eaf0",
+    padding: "7px",
+    background: "#ffffff",
+    color: "#10233a",
+    textAlign: "left",
+    cursor: "pointer",
+    overflow: "hidden",
+  },
+  blankCalendarDay: {
+    background: "#f8fafc",
+    cursor: "default",
   },
   dayNumber: {
     fontSize: "13px",
     fontWeight: 900,
-    marginBottom: "8px",
+    marginBottom: "7px",
   },
-  calendarItem: {
-    width: "100%",
-    textAlign: "left",
-    background: "#0b5cab",
-    color: "#ffffff",
-    border: "none",
-    borderRadius: "8px",
-    padding: "6px 7px",
-    fontSize: "11px",
-    fontWeight: 900,
-    marginBottom: "5px",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    cursor: "pointer",
+  dayMarkers: {
+    display: "grid",
+    gap: "4px",
+  },
+  dayMarkerRow: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: "6px",
+    gap: "5px",
+    minWidth: 0,
   },
-  calendarItemText: {
+  dayMarkerDot: {
+    width: "9px",
+    height: "9px",
+    borderRadius: "50%",
+    flex: "0 0 auto",
+  },
+  dayMarkerLabel: {
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+    color: "#334155",
+    fontSize: "10px",
+    fontWeight: 700,
+  },
+  dayMarkerCount: {
+    marginLeft: "auto",
+    color: "#64748b",
+    fontSize: "9px",
+    fontWeight: 800,
+  },
+  dayTotal: {
+    marginTop: "6px",
+    color: "#64748b",
+    fontSize: "9px",
+    fontWeight: 700,
   },
   statusBadge: {
     background: "#ffffff",
@@ -1710,42 +1925,54 @@ taskInputRow: {
   borderBottom: "1px solid #eef3f7",
 },
   taskInput: {
-    height: "46px",
-    border: "1px solid #d5dde6",
-    borderRadius: "10px",
-    padding: "0 12px",
-    fontSize: "14px",
+    height: "38px",
+    border: "1px solid #cfd7e1",
+    borderRadius: 0,
+    padding: "0 10px",
+    fontSize: "13px",
     outline: "none",
   },
   smallButton: {
-  background: "#0b5cab",
+  background: "#0f172a",
   color: "#ffffff",
-  border: "none",
-  borderRadius: "10px",
-  padding: "13px 14px",
-  fontSize: "13px",
-  fontWeight: 900,
+  border: "1px solid #0f172a",
+  borderRadius: 0,
+  padding: "10px 12px",
+  fontSize: "12px",
+  fontWeight: 800,
   cursor: "pointer",
   width: "100%",
 },
   workList: {
-    padding: "8px 18px 0",
+    padding: "4px 12px 0",
   },
   workItem: {
     width: "100%",
     display: "flex",
     justifyContent: "space-between",
-    gap: "12px",
-    padding: "14px 0",
+    gap: "10px",
+    padding: "10px 0",
     border: "none",
-    borderBottom: "1px solid #eef3f7",
+    borderBottom: "1px solid #e5eaf0",
     background: "transparent",
-    color: "#0b2f4f",
+    color: "#10233a",
     textAlign: "left",
     cursor: "pointer",
   },
   workItemText: {
     minWidth: 0,
+  },
+  viewAllTasks: {
+    display: "block",
+    marginTop: "8px",
+    padding: "9px 10px",
+    border: "1px solid #cfd7e1",
+    background: "#f8fafc",
+    color: "#1d4ed8",
+    textAlign: "center",
+    textDecoration: "none",
+    fontSize: "12px",
+    fontWeight: 800,
   },
   smallText: {
     marginTop: "4px",
@@ -1754,10 +1981,11 @@ taskInputRow: {
   },
   statusPill: {
     alignSelf: "start",
-    background: "#eaf8fa",
-    color: "#007986",
-    borderRadius: "999px",
-    padding: "5px 9px",
+    background: "#f1f5f9",
+    color: "#334155",
+    border: "1px solid #cfd7e1",
+    borderRadius: 0,
+    padding: "4px 7px",
     fontSize: "11px",
     fontWeight: 900,
     whiteSpace: "nowrap",
@@ -1830,6 +2058,102 @@ taskInputRow: {
     fontSize: "11px",
     fontWeight: 900,
     whiteSpace: "nowrap",
+  },
+  dayModalOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 25000,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "24px",
+    background: "rgba(15, 23, 42, 0.48)",
+  },
+  dayModal: {
+    width: "min(980px, 96vw)",
+    maxHeight: "90vh",
+    overflowY: "auto",
+    border: "1px solid #94a3b8",
+    background: "#ffffff",
+    boxShadow: "0 24px 60px rgba(15, 23, 42, 0.28)",
+  },
+  dayModalHeader: {
+    position: "sticky",
+    top: 0,
+    zIndex: 2,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "12px 14px",
+    borderBottom: "1px solid #d2d9e2",
+    background: "#ffffff",
+  },
+  dayModalTitle: {
+    margin: "4px 0 0",
+    fontSize: "22px",
+    fontWeight: 600,
+    color: "#111827",
+  },
+  hourlyCalendar: {
+    borderBottom: "1px solid #d2d9e2",
+  },
+  hourRow: {
+    display: "grid",
+    gridTemplateColumns: "72px minmax(0, 1fr)",
+    minHeight: "56px",
+    borderBottom: "1px solid #e5eaf0",
+  },
+  hourLabel: {
+    padding: "10px",
+    borderRight: "1px solid #d2d9e2",
+    background: "#f7f8fa",
+    color: "#475569",
+    fontSize: "11px",
+    fontWeight: 800,
+  },
+  hourContent: {
+    display: "grid",
+    gap: "5px",
+    padding: "5px 8px",
+  },
+  hourMeeting: {
+    display: "grid",
+    gap: "2px",
+    padding: "7px 9px",
+    border: "1px solid #d2d9e2",
+    borderLeft: "5px solid #0f172a",
+    borderRadius: 0,
+    background: "#ffffff",
+    color: "#10233a",
+    textAlign: "left",
+    cursor: "pointer",
+  },
+  unscheduledSection: {
+    padding: "12px 14px 16px",
+  },
+  unscheduledHeader: {
+    marginBottom: "8px",
+    fontSize: "13px",
+    fontWeight: 900,
+    color: "#111827",
+  },
+  unscheduledTask: {
+    width: "100%",
+    display: "grid",
+    gridTemplateColumns: "12px minmax(0, 1fr) auto",
+    alignItems: "center",
+    gap: "8px",
+    padding: "9px 0",
+    border: "none",
+    borderBottom: "1px solid #e5eaf0",
+    background: "#ffffff",
+    color: "#10233a",
+    textAlign: "left",
+    cursor: "pointer",
+  },
+  unscheduledTaskText: {
+    display: "grid",
+    gap: "2px",
   },
   floatingTimer: {
     position: "fixed",

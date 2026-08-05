@@ -51,7 +51,7 @@ function isActivePath(pathname: string, href: string) {
     return pathname === "/" || pathname.startsWith("/dashboard");
   }
 
-  if (href === "/afs") return pathname.startsWith("/afs");
+    if (href === "/afs") return pathname.startsWith("/afs");
 
   if (href === "/compliance/paia") {
     return pathname.startsWith("/compliance/paia");
@@ -276,12 +276,21 @@ export default function TopNav() {
       {
         label: "PilotHub",
         href: "/dashboard",
-        show: accessEnabled && internal,
+        show:
+          accessEnabled &&
+          (internal || Boolean(profile?.can_access_crm)),
       },
       {
         label: "CRM",
         href: "/crm",
         show: accessEnabled && Boolean(profile?.can_access_crm),
+      },
+      {
+        label: "Proposals",
+        href: "/proposals",
+        show:
+          accessEnabled &&
+          (internal || role === "Client Manager"),
       },
       {
         label: "Accounting",
