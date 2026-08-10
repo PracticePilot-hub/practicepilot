@@ -1,10 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 type ProposalStatus = "Draft" | "Sent" | "Accepted" | "Declined";
+
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+if (!supabaseAnonKey) throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 type Proposal = {
   id: string;
@@ -34,6 +44,7 @@ type ProposalService = {
 
 export default function ProposalDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const proposalId = String(params?.id || "");
 
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -41,6 +52,7 @@ export default function ProposalDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusSaving, setStatusSaving] = useState(false);
+  const [creatingEngagement, setCreatingEngagement] = useState(false);
 
   const money = useMemo(
     () =>
@@ -122,6 +134,46 @@ export default function ProposalDetailPage() {
       setStatusSaving(false);
     }
   }
+
+  async function createEngagement() {
+    try {
+      setCreatingEngagement(true);
+      setError("");
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        throw new Error("Your login session could not be confirmed.");
+      }
+
+      const response = await fetch("/api/engagements/from-proposal", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          proposalId,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || "Unable to create engagement.");
+      }
+
+      router.push(`/engagements/${result.engagement_id}`);
+    } catch (createError: any) {
+      setError(createError?.message || "Unable to create engagement.");
+    } finally {
+      setCreatingEngagement(false);
+    }
+  }
+
 
   if (loading) {
     return <main style={styles.page}>Loading proposal...</main>;
@@ -280,6 +332,30 @@ export default function ProposalDetailPage() {
               )
             )}
           </div>
+
+
+          {proposal.status === "Accepted" ? (
+            <div style={styles.engagementAction}>
+              <div style={styles.engagementActionTitle}>Proposal accepted</div>
+              <p style={styles.engagementActionText}>
+                Generate the engagement directly from this accepted proposal.
+              </p>
+
+              <button
+                type="button"
+                onClick={createEngagement}
+                disabled={creatingEngagement}
+                style={{
+                  ...styles.createEngagementButton,
+                  ...(creatingEngagement ? styles.disabledButton : {}),
+                }}
+              >
+                {creatingEngagement
+                  ? "Creating engagement..."
+                  : "Create Engagement"}
+              </button>
+            </div>
+          ) : null}
         </aside>
       </section>
     </main>
@@ -473,6 +549,36 @@ const styles: Record<string, CSSProperties> = {
     background: "#e2e8f0",
     borderColor: "#94a3b8",
     cursor: "default",
+  },
+  engagementAction: {
+    marginTop: 18,
+    paddingTop: 16,
+    borderTop: "1px solid #dbe3ef",
+  },
+  engagementActionTitle: {
+    marginBottom: 5,
+    fontSize: 13,
+    fontWeight: 900,
+  },
+  engagementActionText: {
+    margin: "0 0 12px",
+    fontSize: 12,
+    lineHeight: 1.5,
+    color: "#64748b",
+  },
+  createEngagementButton: {
+    width: "100%",
+    minHeight: 40,
+    border: "1px solid #0f172a",
+    background: "#0f172a",
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  disabledButton: {
+    opacity: 0.6,
+    cursor: "not-allowed",
   },
   errorBox: {
     marginBottom: 16,
