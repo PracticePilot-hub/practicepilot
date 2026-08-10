@@ -70,10 +70,11 @@ type ColumnOption = {
 };
 
 type ImportMode =
-  | "Current and prior year final balances"
-  | "Current year only"
-  | "Opening balance + monthly movements"
-  | "Monthly closing balances";
+  | "Final TB — current and prior year"
+  | "Opening balance + annual movement"
+  | "Rolled-over figures + current-year final TB"
+  | "Rolled-over figures + annual movement"
+  | "Current-year final TB only";
 
 type AmountLayout = "Single signed amount column" | "Debit and credit columns";
 
@@ -91,19 +92,19 @@ export default function TrialBalancePanel({
 
   const [startRowIndex, setStartRowIndex] = useState(0);
   const [importMode, setImportMode] =
-    useState<ImportMode>("Current and prior year final balances");
+    useState<ImportMode>("Final TB — current and prior year");
 
   const [codeColumn, setCodeColumn] = useState(0);
   const [nameColumn, setNameColumn] = useState(1);
 
   const [openingColumn, setOpeningColumn] = useState(2);
+  const [annualMovementColumn, setAnnualMovementColumn] = useState(3);
   const [amountLayout, setAmountLayout] =
     useState<AmountLayout>("Single signed amount column");
   const [sourceBalanceColumn, setSourceBalanceColumn] = useState(3);
   const [debitColumn, setDebitColumn] = useState(3);
   const [creditColumn, setCreditColumn] = useState(4);
   const [priorYearColumn, setPriorYearColumn] = useState(2);
-  const [closingBalancePeriod, setClosingBalancePeriod] = useState(12);
   const [savingLineId, setSavingLineId] = useState<string | null>(null);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [creatingAccount, setCreatingAccount] = useState(false);
@@ -117,9 +118,6 @@ export default function TrialBalancePanel({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
 
-  const [periodColumns, setPeriodColumns] = useState<number[]>([
-    2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
-  ]);
 
   const activeLines = previewLines.length > 0 ? previewLines : trialBalanceLines;
 
@@ -328,12 +326,12 @@ export default function TrialBalancePanel({
       setCodeColumn(0);
       setNameColumn(1);
       setOpeningColumn(2);
+      setAnnualMovementColumn(3);
       setAmountLayout("Single signed amount column");
       setSourceBalanceColumn(3);
       setDebitColumn(3);
       setCreditColumn(4);
       setPriorYearColumn(2);
-      setClosingBalancePeriod(12);
       setPreviewLines([]);
       setShowMapping(true);
     } catch (error: any) {
@@ -366,44 +364,51 @@ export default function TrialBalancePanel({
     let currentYearBalance = 0;
     let priorYearBalance = 0;
 
-    const periods = Array.from({ length: 12 }).map(() => 0);
+    const existingLine = trialBalanceLines.find(
+      (line) =>
+        String(line.account_code || "").trim() ===
+        String(accountCode || "").trim()
+    );
 
-    if (importMode === "Current and prior year final balances") {
-      currentYearBalance =
-        amountLayout === "Debit and credit columns"
-          ? numberOrZero(getCell(row, debitColumn)) -
-            numberOrZero(getCell(row, creditColumn))
-          : numberOrZero(getCell(row, sourceBalanceColumn));
+    const rolledForwardBalance = existingLine
+      ? getFinalBalance(existingLine)
+      : 0;
 
+    const readFinalBalance = () =>
+      amountLayout === "Debit and credit columns"
+        ? numberOrZero(getCell(row, debitColumn)) -
+          numberOrZero(getCell(row, creditColumn))
+        : numberOrZero(getCell(row, sourceBalanceColumn));
+
+    if (importMode === "Final TB — current and prior year") {
+      currentYearBalance = readFinalBalance();
       priorYearBalance = numberOrZero(getCell(row, priorYearColumn));
     }
 
-    if (importMode === "Current year only") {
-      currentYearBalance =
-        amountLayout === "Debit and credit columns"
-          ? numberOrZero(getCell(row, debitColumn)) -
-            numberOrZero(getCell(row, creditColumn))
-          : numberOrZero(getCell(row, sourceBalanceColumn));
-
+    if (importMode === "Current-year final TB only") {
+      currentYearBalance = readFinalBalance();
       priorYearBalance = 0;
     }
 
-    if (importMode === "Opening balance + monthly movements") {
+    if (importMode === "Opening balance + annual movement") {
       openingBalance = numberOrZero(getCell(row, openingColumn));
-
-      periodColumns.forEach((columnIndex, index) => {
-        periods[index] = numberOrZero(getCell(row, columnIndex));
-      });
-
-      currentYearBalance = periods.reduce((sum, value) => sum + value, 0);
+      priorYearBalance = openingBalance;
+      currentYearBalance =
+        openingBalance + numberOrZero(getCell(row, annualMovementColumn));
     }
 
-    if (importMode === "Monthly closing balances") {
-      periodColumns.forEach((columnIndex, index) => {
-        periods[index] = numberOrZero(getCell(row, columnIndex));
-      });
+    if (importMode === "Rolled-over figures + current-year final TB") {
+      openingBalance = rolledForwardBalance;
+      priorYearBalance = rolledForwardBalance;
+      currentYearBalance = readFinalBalance();
+    }
 
-      currentYearBalance = periods[closingBalancePeriod - 1] || 0;
+    if (importMode === "Rolled-over figures + annual movement") {
+      openingBalance = rolledForwardBalance;
+      priorYearBalance = rolledForwardBalance;
+      currentYearBalance =
+        rolledForwardBalance +
+        numberOrZero(getCell(row, annualMovementColumn));
     }
 
     return {
@@ -424,32 +429,35 @@ export default function TrialBalancePanel({
       current_year_balance: currentYearBalance,
       prior_year_balance: priorYearBalance,
 
-      period_1: periods[0],
-      period_2: periods[1],
-      period_3: periods[2],
-      period_4: periods[3],
-      period_5: periods[4],
-      period_6: periods[5],
-      period_7: periods[6],
-      period_8: periods[7],
-      period_9: periods[8],
-      period_10: periods[9],
-      period_11: periods[10],
-      period_12: periods[11],
+      period_1: 0,
+      period_2: 0,
+      period_3: 0,
+      period_4: 0,
+      period_5: 0,
+      period_6: 0,
+      period_7: 0,
+      period_8: 0,
+      period_9: 0,
+      period_10: 0,
+      period_11: 0,
+      period_12: 0,
 
       import_basis:
-        importMode === "Opening balance + monthly movements" ||
-        importMode === "Monthly closing balances"
-          ? "Monthly"
-          : "Yearly",
+        importMode === "Opening balance + annual movement" ||
+        importMode === "Rolled-over figures + annual movement"
+          ? "Opening + annual movement"
+          : importMode.includes("Rolled-over")
+            ? "Rolled-over final TB"
+            : "Final TB",
       amount_layout:
-        importMode === "Current and prior year final balances" ||
-        importMode === "Current year only"
+        importMode === "Final TB — current and prior year" ||
+        importMode === "Current-year final TB only" ||
+        importMode === "Rolled-over figures + current-year final TB"
           ? amountLayout
           : importMode,
 
-      mapping_category: null,
-      note_number: null,
+      mapping_category: existingLine?.mapping_category || null,
+      note_number: existingLine?.note_number || null,
     };
   }
 
@@ -501,13 +509,6 @@ export default function TrialBalancePanel({
     setShowMapping(false);
   }
 
-  function updatePeriodColumn(index: number, value: number) {
-    setPeriodColumns((current) => {
-      const next = [...current];
-      next[index] = value;
-      return next;
-    });
-  }
 
   async function saveManualAdjustment(line: TrialBalanceLine, value: string) {
     const manualAdjustment = numberOrZero(value);
@@ -1025,7 +1026,7 @@ export default function TrialBalancePanel({
               <div>
                 <h3 style={styles.modalTitle}>Import Trial Balance</h3>
                 <p style={styles.text}>
-                  Select the first row to import, then map the Excel columns.
+                  Choose the annual AFS import method, map the Excel columns and review the sample before importing.
                 </p>
               </div>
 
@@ -1037,101 +1038,229 @@ export default function TrialBalancePanel({
               </button>
             </div>
 
-            <div style={styles.mappingGrid}>
-              <label style={styles.label}>
-                Start importing from row
-                <select
-                  style={styles.input}
-                  value={startRowIndex}
-                  onChange={(e) => setStartRowIndex(Number(e.target.value))}
-                >
-                  {rawRows.slice(0, 30).map((row, index) => (
-                    <option key={index} value={index}>
-                      Row {index + 1}: {row.slice(0, 5).join(" | ")}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <div style={styles.importMethodSection}>
+              <div style={styles.sectionHeading}>1. What are you importing?</div>
+              <div style={styles.importMethodGrid}>
+                {[
+                  {
+                    value: "Final TB — current and prior year",
+                    title: "Final TB — current and prior year",
+                    description:
+                      "Use one Excel file containing both closing balances.",
+                  },
+                  {
+                    value: "Opening balance + annual movement",
+                    title: "Opening balance + annual movement",
+                    description:
+                      "Calculate closing balance from opening balance plus one full-year movement.",
+                  },
+                  {
+                    value: "Rolled-over figures + current-year final TB",
+                    title: "Rolled-over figures + current-year final TB",
+                    description:
+                      "Keep rolled-over comparatives and replace the current year with the imported final TB.",
+                  },
+                  {
+                    value: "Rolled-over figures + annual movement",
+                    title: "Rolled-over figures + annual movement",
+                    description:
+                      "Add one annual movement to the rolled-over opening balance.",
+                  },
+                  {
+                    value: "Current-year final TB only",
+                    title: "Current-year final TB only",
+                    description:
+                      "Use where no prior-year comparative is being imported.",
+                  },
+                ].map((option) => {
+                  const selected = importMode === option.value;
 
-              <label style={styles.label}>
-                Import type
-                <select
-                  style={styles.input}
-                  value={importMode}
-                  onChange={(e) => setImportMode(e.target.value as ImportMode)}
-                >
-                  <option value="Current and prior year final balances">
-                    Current and prior year final balances
-                  </option>
-                  <option value="Current year only">Current year only</option>
-                  <option value="Opening balance + monthly movements">
-                    Opening balance + monthly movements
-                  </option>
-                  <option value="Monthly closing balances">
-                    Monthly closing balances
-                  </option>
-                </select>
-              </label>
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() =>
+                        setImportMode(option.value as ImportMode)
+                      }
+                      style={{
+                        ...styles.importMethodButton,
+                        ...(selected
+                          ? styles.importMethodButtonActive
+                          : null),
+                      }}
+                    >
+                      <strong>{option.title}</strong>
+                      <span>{option.description}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-              {(importMode === "Current and prior year final balances" ||
-                importMode === "Current year only") && (
+            <div style={styles.mappingSection}>
+              <div style={styles.sectionHeading}>2. Map the Excel columns</div>
+
+              <div style={styles.mappingGrid}>
                 <label style={styles.label}>
-                  Amount layout
+                  Start importing from row
                   <select
                     style={styles.input}
-                    value={amountLayout}
-                    onChange={(e) => setAmountLayout(e.target.value as AmountLayout)}
+                    value={startRowIndex}
+                    onChange={(e) =>
+                      setStartRowIndex(Number(e.target.value))
+                    }
                   >
-                    <option value="Single signed amount column">
-                      Single signed amount column
-                    </option>
-                    <option value="Debit and credit columns">
-                      Debit and credit columns
-                    </option>
+                    {rawRows.slice(0, 30).map((row, index) => (
+                      <option key={index} value={index}>
+                        Row {index + 1}: {row.slice(0, 5).join(" | ")}
+                      </option>
+                    ))}
                   </select>
                 </label>
-              )}
 
-              <label style={styles.label}>
-                Account number column
-                <select
-                  style={styles.input}
-                  value={codeColumn}
-                  onChange={(e) => setCodeColumn(Number(e.target.value))}
-                >
-                  {columnOptions.map((column) => (
-                    <option key={column.index} value={column.index}>
-                      {column.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <label style={styles.label}>
+                  Account number column
+                  <select
+                    style={styles.input}
+                    value={codeColumn}
+                    onChange={(e) =>
+                      setCodeColumn(Number(e.target.value))
+                    }
+                  >
+                    {columnOptions.map((column) => (
+                      <option key={column.index} value={column.index}>
+                        {column.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-              <label style={styles.label}>
-                Account description column
-                <select
-                  style={styles.input}
-                  value={nameColumn}
-                  onChange={(e) => setNameColumn(Number(e.target.value))}
-                >
-                  {columnOptions.map((column) => (
-                    <option key={column.index} value={column.index}>
-                      {column.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <label style={styles.label}>
+                  Account description column
+                  <select
+                    style={styles.input}
+                    value={nameColumn}
+                    onChange={(e) =>
+                      setNameColumn(Number(e.target.value))
+                    }
+                  >
+                    {columnOptions.map((column) => (
+                      <option key={column.index} value={column.index}>
+                        {column.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-              {(importMode === "Current and prior year final balances" ||
-                importMode === "Current year only") &&
-                amountLayout === "Single signed amount column" && (
+                {(importMode === "Final TB — current and prior year" ||
+                  importMode === "Current-year final TB only" ||
+                  importMode ===
+                    "Rolled-over figures + current-year final TB") && (
                   <label style={styles.label}>
-                    Source balance column
+                    Amount layout
                     <select
                       style={styles.input}
-                      value={sourceBalanceColumn}
+                      value={amountLayout}
                       onChange={(e) =>
-                        setSourceBalanceColumn(Number(e.target.value))
+                        setAmountLayout(
+                          e.target.value as AmountLayout
+                        )
+                      }
+                    >
+                      <option value="Single signed amount column">
+                        Single signed amount column
+                      </option>
+                      <option value="Debit and credit columns">
+                        Debit and credit columns
+                      </option>
+                    </select>
+                  </label>
+                )}
+
+                {(importMode === "Final TB — current and prior year" ||
+                  importMode === "Current-year final TB only" ||
+                  importMode ===
+                    "Rolled-over figures + current-year final TB") &&
+                  amountLayout === "Single signed amount column" && (
+                    <label style={styles.label}>
+                      Current-year final balance column
+                      <select
+                        style={styles.input}
+                        value={sourceBalanceColumn}
+                        onChange={(e) =>
+                          setSourceBalanceColumn(
+                            Number(e.target.value)
+                          )
+                        }
+                      >
+                        {columnOptions.map((column) => (
+                          <option
+                            key={column.index}
+                            value={column.index}
+                          >
+                            {column.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+
+                {(importMode === "Final TB — current and prior year" ||
+                  importMode === "Current-year final TB only" ||
+                  importMode ===
+                    "Rolled-over figures + current-year final TB") &&
+                  amountLayout === "Debit and credit columns" && (
+                    <>
+                      <label style={styles.label}>
+                        Current-year debit column
+                        <select
+                          style={styles.input}
+                          value={debitColumn}
+                          onChange={(e) =>
+                            setDebitColumn(Number(e.target.value))
+                          }
+                        >
+                          {columnOptions.map((column) => (
+                            <option
+                              key={column.index}
+                              value={column.index}
+                            >
+                              {column.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label style={styles.label}>
+                        Current-year credit column
+                        <select
+                          style={styles.input}
+                          value={creditColumn}
+                          onChange={(e) =>
+                            setCreditColumn(Number(e.target.value))
+                          }
+                        >
+                          {columnOptions.map((column) => (
+                            <option
+                              key={column.index}
+                              value={column.index}
+                            >
+                              {column.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </>
+                  )}
+
+                {importMode === "Final TB — current and prior year" && (
+                  <label style={styles.label}>
+                    Prior-year final balance column
+                    <select
+                      style={styles.input}
+                      value={priorYearColumn}
+                      onChange={(e) =>
+                        setPriorYearColumn(Number(e.target.value))
                       }
                     >
                       {columnOptions.map((column) => (
@@ -1143,19 +1272,22 @@ export default function TrialBalancePanel({
                   </label>
                 )}
 
-              {(importMode === "Current and prior year final balances" ||
-                importMode === "Current year only") &&
-                amountLayout === "Debit and credit columns" && (
+                {importMode === "Opening balance + annual movement" && (
                   <>
                     <label style={styles.label}>
-                      Debit column
+                      Opening balance column
                       <select
                         style={styles.input}
-                        value={debitColumn}
-                        onChange={(e) => setDebitColumn(Number(e.target.value))}
+                        value={openingColumn}
+                        onChange={(e) =>
+                          setOpeningColumn(Number(e.target.value))
+                        }
                       >
                         {columnOptions.map((column) => (
-                          <option key={column.index} value={column.index}>
+                          <option
+                            key={column.index}
+                            value={column.index}
+                          >
                             {column.label}
                           </option>
                         ))}
@@ -1163,14 +1295,21 @@ export default function TrialBalancePanel({
                     </label>
 
                     <label style={styles.label}>
-                      Credit column
+                      Total annual movement column
                       <select
                         style={styles.input}
-                        value={creditColumn}
-                        onChange={(e) => setCreditColumn(Number(e.target.value))}
+                        value={annualMovementColumn}
+                        onChange={(e) =>
+                          setAnnualMovementColumn(
+                            Number(e.target.value)
+                          )
+                        }
                       >
                         {columnOptions.map((column) => (
-                          <option key={column.index} value={column.index}>
+                          <option
+                            key={column.index}
+                            value={column.index}
+                          >
                             {column.label}
                           </option>
                         ))}
@@ -1179,83 +1318,29 @@ export default function TrialBalancePanel({
                   </>
                 )}
 
-              {importMode === "Current and prior year final balances" && (
-                <label style={styles.label}>
-                  Prior year column
-                  <select
-                    style={styles.input}
-                    value={priorYearColumn}
-                    onChange={(e) => setPriorYearColumn(Number(e.target.value))}
-                  >
-                    {columnOptions.map((column) => (
-                      <option key={column.index} value={column.index}>
-                        {column.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-
-              {importMode === "Opening balance + monthly movements" && (
-                <label style={styles.label}>
-                  Opening balance column
-                  <select
-                    style={styles.input}
-                    value={openingColumn}
-                    onChange={(e) => setOpeningColumn(Number(e.target.value))}
-                  >
-                    {columnOptions.map((column) => (
-                      <option key={column.index} value={column.index}>
-                        {column.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-
-              {importMode === "Monthly closing balances" && (
-                <label style={styles.label}>
-                  Final balance month
-                  <select
-                    style={styles.input}
-                    value={closingBalancePeriod}
-                    onChange={(e) =>
-                      setClosingBalancePeriod(Number(e.target.value))
-                    }
-                  >
-                    {Array.from({ length: 12 }).map((_, index) => (
-                      <option key={index + 1} value={index + 1}>
-                        Period {index + 1}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </div>
-
-            {(importMode === "Opening balance + monthly movements" ||
-              importMode === "Monthly closing balances") && (
-              <div style={styles.monthGrid}>
-                {periodColumns.map((column, index) => (
-                  <label key={index} style={styles.label}>
-                    Period {index + 1}
+                {importMode ===
+                  "Rolled-over figures + annual movement" && (
+                  <label style={styles.label}>
+                    Total annual movement column
                     <select
                       style={styles.input}
-                      value={column}
+                      value={annualMovementColumn}
                       onChange={(e) =>
-                        updatePeriodColumn(index, Number(e.target.value))
+                        setAnnualMovementColumn(
+                          Number(e.target.value)
+                        )
                       }
                     >
-                      {columnOptions.map((option) => (
-                        <option key={option.index} value={option.index}>
-                          {option.label}
+                      {columnOptions.map((column) => (
+                        <option key={column.index} value={column.index}>
+                          {column.label}
                         </option>
                       ))}
                     </select>
                   </label>
-                ))}
+                )}
               </div>
-            )}
+            </div>
 
             <div style={styles.sampleBox}>
               <strong>Sample rows</strong>
@@ -1500,8 +1585,8 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap",
   },
   primaryButton: {
-    border: "none",
-    borderRadius: "12px",
+    border: "1px solid #1d4ed8",
+    borderRadius: "0px",
     padding: "10px 14px",
     background: "#2563eb",
     color: "white",
@@ -1511,8 +1596,8 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap",
   },
   secondaryButton: {
-    border: "1px solid #d1d5db",
-    borderRadius: "12px",
+    border: "1px solid #94a3b8",
+    borderRadius: "0px",
     padding: "10px 14px",
     background: "white",
     color: "#111827",
@@ -1561,7 +1646,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#fffbeb",
     border: "1px solid #fde68a",
     color: "#92400e",
-    borderRadius: "12px",
+    borderRadius: "0px",
     padding: "10px 12px",
     fontSize: "13px",
     fontWeight: 800,
@@ -1682,12 +1767,14 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: "16px",
   },
   modal: {
-    width: "min(1050px, 100%)",
-    maxHeight: "90vh",
+    width: "min(1180px, calc(100vw - 32px))",
+    maxWidth: "calc(100vw - 32px)",
+    maxHeight: "calc(100vh - 32px)",
     overflow: "auto",
     background: "white",
-    borderRadius: "18px",
-    padding: "18px",
+    border: "1px solid #94a3b8",
+    borderRadius: "0px",
+    padding: "16px",
     boxShadow: "0 24px 60px rgba(15, 23, 42, 0.25)",
   },
   modalHeader: {
@@ -1704,8 +1791,8 @@ const styles: Record<string, React.CSSProperties> = {
   closeButton: {
     border: "1px solid #e5e7eb",
     background: "white",
-    borderRadius: "10px",
-    width: "36px",
+    borderRadius: "0px",
+    width: "34px",
     height: "36px",
     cursor: "pointer",
     fontSize: "22px",
@@ -1713,18 +1800,52 @@ const styles: Record<string, React.CSSProperties> = {
   },
   mappingGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: "12px",
-    marginBottom: "16px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "10px",
   },
-  monthGrid: {
+  importMethodSection: {
+    borderTop: "1px solid #cbd5e1",
+    borderBottom: "1px solid #cbd5e1",
+    padding: "8px 0",
+    marginBottom: "8px",
+  },
+  mappingSection: {
+    borderBottom: "1px solid #cbd5e1",
+    paddingBottom: "8px",
+    marginBottom: "8px",
+  },
+  sectionHeading: {
+    fontSize: "11px",
+    fontWeight: 900,
+    color: "#0f172a",
+    marginBottom: "6px",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+  },
+  importMethodGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    gap: "12px",
-    marginBottom: "16px",
-    border: "1px solid #e5e7eb",
-    borderRadius: "14px",
-    padding: "12px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+    gap: "6px",
+  },
+  importMethodButton: {
+    minHeight: "58px",
+    display: "grid",
+    gap: "2px",
+    alignContent: "start",
+    textAlign: "left",
+    border: "1px solid #cbd5e1",
+    borderRadius: "0px",
+    background: "#ffffff",
+    padding: "8px",
+    color: "#0f172a",
+    cursor: "pointer",
+    fontSize: "11px",
+    lineHeight: 1.25,
+  },
+  importMethodButtonActive: {
+    border: "2px solid #0f172a",
+    background: "#f8fafc",
+    padding: "7px",
   },
   label: {
     display: "grid",
@@ -1735,9 +1856,9 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     width: "100%",
-    border: "1px solid #cbd5e1",
-    borderRadius: "10px",
-    padding: "10px 11px",
+    border: "1px solid #94a3b8",
+    borderRadius: "0px",
+    padding: "8px 9px",
     fontSize: "13px",
     outline: "none",
     color: "#111827",
@@ -1745,9 +1866,11 @@ const styles: Record<string, React.CSSProperties> = {
     boxSizing: "border-box",
   },
   sampleBox: {
-    border: "1px solid #e5e7eb",
-    borderRadius: "14px",
-    padding: "12px",
+    border: "1px solid #cbd5e1",
+    borderRadius: "0px",
+    padding: "8px",
+    maxHeight: "300px",
+    overflow: "auto",
     marginBottom: "16px",
   },
   sampleTableWrap: {
