@@ -8,6 +8,7 @@ const navItems = [
   { label: "Client Database", href: "/crm" },
   { label: "New Client", href: "/crm/new-client" },
   { label: "Tasks", href: "/crm/tasks" },
+  { label: "Secretarial", href: "/crm/secretarial" },
 ];
 
 export default function CRMLayout({ children }: { children: ReactNode }) {

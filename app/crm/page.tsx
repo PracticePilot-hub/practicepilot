@@ -5,14 +5,9 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseSecretKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
 
-if (!supabaseUrl) {
-  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-}
-
+if (!supabaseUrl) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
 if (!supabaseSecretKey) {
-  throw new Error(
-    "Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY"
-  );
+  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY");
 }
 
 const supabase = createClient(supabaseUrl, supabaseSecretKey);
@@ -57,7 +52,6 @@ export default async function CRMHome() {
         <div style={workingFileTitle}>Client Database</div>
         <div style={divider}>|</div>
         <div style={workingFileMeta}>Practice client master</div>
-
         <div style={countBadge}>{safeClients.length} clients</div>
       </div>
 
@@ -65,7 +59,7 @@ export default async function CRMHome() {
         <div>
           <div style={sectionTitle}>Client Database</div>
           <div style={sectionSubtitle}>
-            Maintain the practice client master list.
+            Open a client working file to view and manage the full relationship.
           </div>
         </div>
 
@@ -82,7 +76,7 @@ export default async function CRMHome() {
             <div>
               <h1 style={heading}>Clients</h1>
               <p style={headingSubtext}>
-                Select a client to open and maintain its full record.
+                Select a client to open its complete PracticePilot working file.
               </p>
             </div>
           </div>
@@ -109,7 +103,11 @@ export default async function CRMHome() {
 
                   return (
                     <tr key={client.id}>
-                      <td style={tdClient}>{client.client_name}</td>
+                      <td style={tdClient}>
+                        <Link href={`/crm/client/${client.id}`} style={clientLink}>
+                          {client.client_name}
+                        </Link>
+                      </td>
 
                       <td style={td}>
                         {client.registration_number ||
@@ -123,10 +121,10 @@ export default async function CRMHome() {
 
                       <td style={tdAction}>
                         <Link
-                          href={`/crm/edit-client?id=${client.id}`}
-                          style={editLink}
+                          href={`/crm/client/${client.id}`}
+                          style={viewLink}
                         >
-                          Edit
+                          View
                         </Link>
                       </td>
                     </tr>
@@ -173,9 +171,7 @@ const workingFileLabel: React.CSSProperties = {
   color: "#1d4ed8",
 };
 
-const divider: React.CSSProperties = {
-  color: "#94a3b8",
-};
+const divider: React.CSSProperties = { color: "#94a3b8" };
 
 const workingFileTitle: React.CSSProperties = {
   fontWeight: 800,
@@ -268,11 +264,13 @@ const headingSubtext: React.CSSProperties = {
 };
 
 const tableWrap: React.CSSProperties = {
-  overflowX: "auto",
+  width: "100%",
+  minWidth: 0,
 };
 
 const table: React.CSSProperties = {
   width: "100%",
+  tableLayout: "fixed",
   borderCollapse: "collapse",
   fontSize: "13px",
 };
@@ -299,6 +297,9 @@ const td: React.CSSProperties = {
   borderBottom: "1px solid #e5eaf0",
   verticalAlign: "middle",
   color: "#10233a",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 
 const tdClient: React.CSSProperties = {
@@ -313,7 +314,13 @@ const tdAction: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const editLink: React.CSSProperties = {
+const clientLink: React.CSSProperties = {
+  color: "#0f2942",
+  fontWeight: 800,
+  textDecoration: "none",
+};
+
+const viewLink: React.CSSProperties = {
   color: "#1d4ed8",
   fontWeight: 800,
   textDecoration: "none",
