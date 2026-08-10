@@ -1,6 +1,6 @@
-import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { randomUUID } from "crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -10,69 +10,110 @@ type UserProfile = {
   role: string;
   organisation_id: string | null;
   access_enabled: boolean;
-  can_access_secretarial: boolean | null;
+  can_access_secretarial: boolean;
 };
 
-type Body = {
+type CurrentProfileResult =
+  | { profile: UserProfile; response: null }
+  | { profile: null; response: NextResponse };
+
+type AllocationInput = {
+  shareholderId?: string;
+  numberOfShares?: string | number;
+  certificateNumber?: string;
+};
+
+type SaveIssueBody = {
   clientId?: string;
-  transactionType?: "transfer" | "cancellation";
-  fromShareholderId?: string;
-  toShareholderId?: string;
   shareClassId?: string;
-  numberOfShares?: number | string;
-  effectiveDate?: string;
-  reference?: string;
-  notes?: string;
+  issueDate?: string;
+  placeOfIssue?: string;
+  considerationPerShare?: string | number;
+  amountPaidPerShare?: string | number;
+  fullyPaid?: boolean;
+  transferRestriction?: string;
+  signatoryOneName?: string;
+  signatoryOneCapacity?: string;
+  signatoryTwoName?: string;
+  signatoryTwoCapacity?: string;
+  allocations?: AllocationInput[];
+
+  // Backwards-compatible single-certificate fields
+  shareholderId?: string;
+  certificateNumber?: string;
+  shareClass?: string;
+  seriesDesignation?: string;
+  numberOfShares?: string | number;
+  totalConsideration?: string | number;
+  amountPaid?: string | number;
 };
 
-function adminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
+function getSupabaseAdmin() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_SECRET_KEY ||
     process.env.SUPABASE_SERVICE_KEY;
 
-  if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL.");
-  if (!key) throw new Error("Missing server Supabase service key.");
+  if (!supabaseUrl) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL.");
+  if (!serviceRoleKey) {
+    throw new Error(
+      "Missing server Supabase key. Add SUPABASE_SERVICE_ROLE_KEY to .env.local and Vercel."
+    );
+  }
 
-  return createClient(url, key, {
+  return createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
-function bearer(request: Request) {
+function getBearerToken(request: Request) {
   return (request.headers.get("authorization") || "")
     .replace(/^Bearer\s+/i, "")
     .trim();
 }
 
-function isAdmin(role: string) {
+function isGlobalAdmin(role: string) {
   return role === "Super Admin" || role === "Admin";
 }
 
-async function currentProfile(request: Request, supabase: ReturnType<typeof adminClient>) {
-  const token = bearer(request);
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function optionalNumber(value: unknown) {
+  const text = cleanText(value);
+  if (!text) return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function getCurrentProfile(
+  request: Request,
+  supabase: ReturnType<typeof getSupabaseAdmin>
+): Promise<CurrentProfileResult> {
+  const token = getBearerToken(request);
 
   if (!token) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
     };
   }
 
   const {
     data: { user },
-    error: authError,
+    error: userError,
   } = await supabase.auth.getUser(token);
 
-  if (authError || !user) {
+  if (userError || !user) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
     };
   }
 
-  const { data, error } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
     .select(
       "id, user_id, role, organisation_id, access_enabled, can_access_secretarial"
@@ -80,21 +121,34 @@ async function currentProfile(request: Request, supabase: ReturnType<typeof admi
     .eq("user_id", user.id)
     .single();
 
-  if (error || !data) {
+  if (profileError || !profile) {
     return {
-      profile: null as UserProfile | null,
-      response: NextResponse.json({ error: "User profile not found." }, { status: 403 }),
+      profile: null,
+      response: NextResponse.json(
+        { error: "Could not load your user profile." },
+        { status: 403 }
+      ),
     };
   }
 
-  const profile = data as UserProfile;
+  const currentProfile = profile as UserProfile;
+
+  if (!currentProfile.access_enabled) {
+    return {
+      profile: null,
+      response: NextResponse.json(
+        { error: "Your PracticePilot access is disabled." },
+        { status: 403 }
+      ),
+    };
+  }
 
   if (
-    !profile.access_enabled ||
-    (!isAdmin(profile.role) && !profile.can_access_secretarial)
+    !isGlobalAdmin(currentProfile.role) &&
+    !currentProfile.can_access_secretarial
   ) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json(
         { error: "You do not have access to Secretarial." },
         { status: 403 }
@@ -102,471 +156,326 @@ async function currentProfile(request: Request, supabase: ReturnType<typeof admi
     };
   }
 
-  return { profile, response: null as NextResponse | null };
+  return { profile: currentProfile, response: null };
 }
 
-function numberValue(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
+async function resolveShareClass(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  organisationId: string,
+  clientId: string,
+  body: SaveIssueBody
+) {
+  const requestedId = cleanText(body.shareClassId);
 
-function signedMovement(type: string, shares: number) {
-  const normal = type.toLowerCase();
+  if (requestedId) {
+    const { data, error } = await supabase
+      .from("secretarial_share_classes")
+      .select("id, class_name, series_designation, authorised_shares, issued_shares")
+      .eq("id", requestedId)
+      .eq("organisation_id", organisationId)
+      .eq("client_id", clientId)
+      .eq("is_active", true)
+      .single();
 
-  if (normal === "issue" || normal === "transfer_in") return shares;
+    if (error || !data) {
+      throw new Error("The selected share class could not be found.");
+    }
 
-  if (
-    normal === "transfer_out" ||
-    normal === "redemption" ||
-    normal === "repurchase" ||
-    normal === "cancellation"
-  ) {
-    return -shares;
+    return data;
   }
 
-  return 0;
-}
+  // Legacy single-certificate support
+  const className = cleanText(body.shareClass);
+  const seriesDesignation = cleanText(body.seriesDesignation);
 
-async function holdingFor(
-  supabase: ReturnType<typeof adminClient>,
-  clientId: string,
-  shareholderId: string,
-  shareClassId: string
-) {
-  const { data, error } = await supabase
-    .from("secretarial_share_transactions")
-    .select("transaction_type, number_of_shares")
+  if (!className) throw new Error("Select a share class.");
+
+  let query = supabase
+    .from("secretarial_share_classes")
+    .select("id, class_name, series_designation, authorised_shares, issued_shares")
+    .eq("organisation_id", organisationId)
     .eq("client_id", clientId)
-    .eq("shareholder_id", shareholderId)
-    .eq("share_class_id", shareClassId);
+    .eq("class_name", className)
+    .eq("is_active", true);
 
+  query = seriesDesignation
+    ? query.eq("series_designation", seriesDesignation)
+    : query.is("series_designation", null);
+
+  const { data, error } = await query.maybeSingle();
   if (error) throw error;
+  if (data) return data;
 
-  return (data || []).reduce(
-    (total, row) =>
-      total +
-      signedMovement(
-        String(row.transaction_type || ""),
-        numberValue(row.number_of_shares)
-      ),
-    0
-  );
-}
-
-async function activeCertificatesFor(
-  supabase: ReturnType<typeof adminClient>,
-  clientId: string,
-  shareholderId: string,
-  shareClassId: string
-) {
-  const { data, error } = await supabase
-    .from("secretarial_share_certificates")
-    .select("id, certificate_number, number_of_shares, certificate_status")
-    .eq("client_id", clientId)
-    .eq("shareholder_id", shareholderId)
-    .eq("share_class_id", shareClassId)
-    .in("certificate_status", ["issued", "current"]);
-
-  if (error) throw error;
-  return data || [];
-}
-
-
-async function nextResolutionNumber(
-  supabase: ReturnType<typeof adminClient>,
-  clientId: string,
-  resolutionDate: string
-) {
-  const year = Number(String(resolutionDate).slice(0, 4)) || new Date().getFullYear();
-
-  const { count, error } = await supabase
-    .from("secretarial_resolutions")
-    .select("id", { count: "exact", head: true })
-    .eq("client_id", clientId)
-    .gte("resolution_date", `${year}-01-01`)
-    .lte("resolution_date", `${year}-12-31`);
-
-  if (error) throw error;
-
-  return `RES ${String((count || 0) + 1).padStart(3, "0")}/${year}`;
-}
-
-async function createShareTransactionResolution(args: {
-  supabase: ReturnType<typeof adminClient>;
-  organisationId: string;
-  clientId: string;
-  clientName: string;
-  transactionType: "transfer" | "cancellation";
-  effectiveDate: string;
-  groupId: string;
-  shares: number;
-  fromName: string;
-  toName?: string;
-  shareClassName: string;
-  reference?: string;
-}) {
-  const {
-    supabase,
-    organisationId,
-    clientId,
-    transactionType,
-    effectiveDate,
-    groupId,
-    shares,
-    fromName,
-    toName,
-    shareClassName,
-    reference,
-  } = args;
-
-  const resolutionNumber = await nextResolutionNumber(
-    supabase,
-    clientId,
-    effectiveDate
-  );
-
-  const isTransfer = transactionType === "transfer";
-
-  const title = isTransfer
-    ? "Share Transfer Resolution"
-    : "Share Cancellation Resolution";
-
-  const bodyText = isTransfer
-    ? `RESOLVED that the transfer of ${shares.toLocaleString("en-ZA")} ${shareClassName} from ${fromName} to ${toName || "the transferee"} be recorded, subject to the company's Memorandum of Incorporation and any applicable approvals, and that the securities register and related share certificates be updated accordingly.`
-    : `RESOLVED that ${shares.toLocaleString("en-ZA")} ${shareClassName} held by ${fromName} be cancelled / surrendered as recorded in the supporting transaction documents, and that the securities register, issued share position and related share certificates be updated accordingly.`;
-
-  const { data, error } = await supabase
-    .from("secretarial_resolutions")
+  const { data: created, error: createError } = await supabase
+    .from("secretarial_share_classes")
     .insert({
       organisation_id: organisationId,
       client_id: clientId,
-      resolution_number: resolutionNumber,
-      resolution_type: "board",
-      resolution_category: isTransfer ? "share_transfer" : "share_cancellation",
-      title,
-      resolution_date: effectiveDate,
-      related_area: "share_transactions",
-      transaction_group_id: groupId,
-      body_text: bodyText,
-      status: "generated",
+      class_name: className,
+      series_designation: seriesDesignation || null,
+      par_value_type: className.toLowerCase().includes("no-par")
+        ? "no_par_value"
+        : "par_value",
+      authorised_shares: 0,
+      issued_shares: 0,
     })
-    .select("id, resolution_number")
+    .select("id, class_name, series_designation, authorised_shares, issued_shares")
     .single();
 
-  if (error) throw error;
-  return data;
+  if (createError || !created) {
+    throw createError || new Error("Could not create the share class.");
+  }
+
+  return created;
 }
 
-export async function POST(request: Request) {
-  const supabase = adminClient();
+export async function POST(request: Request): Promise<NextResponse> {
+  const supabase = getSupabaseAdmin();
 
   try {
-    const { profile, response } = await currentProfile(request, supabase);
-    if (response || !profile) return response;
+    const authResult = await getCurrentProfile(request, supabase);
 
-    const body = (await request.json()) as Body;
-
-    const clientId = String(body.clientId || "").trim();
-    const transactionType = body.transactionType;
-    const fromShareholderId = String(body.fromShareholderId || "").trim();
-    const toShareholderId = String(body.toShareholderId || "").trim();
-    const shareClassId = String(body.shareClassId || "").trim();
-    const shares = numberValue(body.numberOfShares);
-    const effectiveDate =
-      String(body.effectiveDate || "").trim() ||
-      new Date().toISOString().slice(0, 10);
-    const reference = String(body.reference || "").trim();
-    const notes = String(body.notes || "").trim();
-
-    if (!clientId || !transactionType || !fromShareholderId || !shareClassId) {
-      return NextResponse.json(
-        { error: "Complete the required share transaction information." },
-        { status: 400 }
-      );
+    if (authResult.response) {
+      return authResult.response;
     }
 
-    if (shares <= 0) {
-      return NextResponse.json(
-        { error: "Number of shares must be greater than zero." },
-        { status: 400 }
-      );
-    }
+    const profile = authResult.profile;
 
-    if (transactionType === "transfer" && !toShareholderId) {
-      return NextResponse.json(
-        { error: "Select the shareholder receiving the shares." },
-        { status: 400 }
-      );
-    }
+    const body = (await request.json()) as SaveIssueBody;
+    const clientId = cleanText(body.clientId);
 
-    if (
-      transactionType === "transfer" &&
-      fromShareholderId === toShareholderId
-    ) {
+    if (!clientId) {
       return NextResponse.json(
-        { error: "The transferor and transferee cannot be the same shareholder." },
+        { error: "Open the Secretarial client before creating a share issue." },
         { status: 400 }
       );
     }
 
     const { data: client, error: clientError } = await supabase
       .from("crm_clients")
-      .select("id, organisation_id, client_name")
+      .select("id, client_name, organisation_id")
       .eq("id", clientId)
       .single();
 
-    if (clientError || !client) {
-      return NextResponse.json({ error: "Client not found." }, { status: 404 });
+    if (clientError || !client || !client.organisation_id) {
+      return NextResponse.json(
+        { error: "The selected CRM client could not be found." },
+        { status: 404 }
+      );
     }
 
     if (
-      !isAdmin(profile.role) &&
+      !isGlobalAdmin(profile.role) &&
       profile.organisation_id !== client.organisation_id
     ) {
-      return NextResponse.json({ error: "Access denied." }, { status: 403 });
+      return NextResponse.json(
+        { error: "You cannot create a matter for another organisation." },
+        { status: 403 }
+      );
     }
 
-    const currentFrom = await holdingFor(
+    const organisationId = client.organisation_id;
+    const shareClass = await resolveShareClass(
       supabase,
+      organisationId,
       clientId,
-      fromShareholderId,
-      shareClassId
+      body
     );
 
-    if (currentFrom < shares) {
+    const rawAllocations =
+      Array.isArray(body.allocations) && body.allocations.length
+        ? body.allocations
+        : [
+            {
+              shareholderId: body.shareholderId,
+              numberOfShares: body.numberOfShares,
+              certificateNumber: body.certificateNumber,
+            },
+          ];
+
+    const allocations = rawAllocations.map((allocation) => ({
+      shareholderId: cleanText(allocation.shareholderId),
+      numberOfShares: optionalNumber(allocation.numberOfShares),
+      certificateNumber: cleanText(allocation.certificateNumber),
+    }));
+
+    if (
+      allocations.some(
+        (allocation) =>
+          !allocation.shareholderId ||
+          !allocation.certificateNumber ||
+          !allocation.numberOfShares ||
+          allocation.numberOfShares <= 0
+      )
+    ) {
       return NextResponse.json(
         {
-          error: `The shareholder only holds ${currentFrom} share${
-            currentFrom === 1 ? "" : "s"
-          } in this class.`,
+          error:
+            "Every allocation needs an existing shareholder, certificate number and positive share quantity.",
         },
         { status: 400 }
       );
     }
 
-    const [{ data: fromHolder }, { data: toHolder }, { data: shareClassInfo }] =
-      await Promise.all([
-        supabase
-          .from("secretarial_shareholders")
-          .select("full_legal_name")
-          .eq("id", fromShareholderId)
-          .eq("client_id", clientId)
-          .single(),
-        transactionType === "transfer"
-          ? supabase
-              .from("secretarial_shareholders")
-              .select("full_legal_name")
-              .eq("id", toShareholderId)
-              .eq("client_id", clientId)
-              .single()
-          : Promise.resolve({ data: null, error: null }),
-        supabase
-          .from("secretarial_share_classes")
-          .select("class_name")
-          .eq("id", shareClassId)
-          .eq("client_id", clientId)
-          .single(),
-      ]);
+    const certificateNumbers = allocations.map(
+      (allocation) => allocation.certificateNumber
+    );
+    if (new Set(certificateNumbers).size !== certificateNumbers.length) {
+      return NextResponse.json(
+        { error: "Certificate numbers in this issue must be unique." },
+        { status: 400 }
+      );
+    }
 
-    const groupId = randomUUID();
-
-    const oldFromCertificates = await activeCertificatesFor(
-      supabase,
-      clientId,
-      fromShareholderId,
-      shareClassId
+    const shareholderIds = allocations.map(
+      (allocation) => allocation.shareholderId
     );
 
-    let oldToCertificates: Awaited<ReturnType<typeof activeCertificatesFor>> = [];
+    const { data: shareholderRows, error: shareholderError } = await supabase
+      .from("secretarial_shareholders")
+      .select("id, full_legal_name, id_registration_number")
+      .eq("organisation_id", organisationId)
+      .eq("client_id", clientId)
+      .eq("is_active", true)
+      .in("id", shareholderIds);
 
-    if (transactionType === "transfer") {
-      oldToCertificates = await activeCertificatesFor(
-        supabase,
-        clientId,
-        toShareholderId,
-        shareClassId
+    if (shareholderError) throw shareholderError;
+
+    if ((shareholderRows || []).length !== new Set(shareholderIds).size) {
+      return NextResponse.json(
+        {
+          error:
+            "One or more selected shareholders are not active shareholders of this client.",
+        },
+        { status: 400 }
       );
     }
 
-    if (transactionType === "transfer") {
-      const { error: transactionError } = await supabase
-        .from("secretarial_share_transactions")
-        .insert([
-          {
-            organisation_id: client.organisation_id,
-            client_id: clientId,
-            transaction_group_id: groupId,
-            transaction_type: "transfer_out",
-            transaction_date: effectiveDate,
-            number_of_shares: shares,
-            shareholder_id: fromShareholderId,
-            counterparty_shareholder_id: toShareholderId,
-            share_class_id: shareClassId,
-            transaction_reference: reference || null,
-            notes: notes || null,
-          },
-          {
-            organisation_id: client.organisation_id,
-            client_id: clientId,
-            transaction_group_id: groupId,
-            transaction_type: "transfer_in",
-            transaction_date: effectiveDate,
-            number_of_shares: shares,
-            shareholder_id: toShareholderId,
-            counterparty_shareholder_id: fromShareholderId,
-            share_class_id: shareClassId,
-            transaction_reference: reference || null,
-            notes: notes || null,
-          },
-        ]);
+    const shareholderById = new Map(
+      (shareholderRows || []).map((row: any) => [row.id, row])
+    );
 
-      if (transactionError) throw transactionError;
-    } else {
-      const { error: transactionError } = await supabase
-        .from("secretarial_share_transactions")
-        .insert({
-          organisation_id: client.organisation_id,
-          client_id: clientId,
-          transaction_group_id: groupId,
-          transaction_type: "cancellation",
-          transaction_date: effectiveDate,
-          number_of_shares: shares,
-          shareholder_id: fromShareholderId,
-          share_class_id: shareClassId,
-          transaction_reference: reference || null,
-          notes: notes || null,
-        });
+    const totalNewShares = allocations.reduce(
+      (sum, allocation) => sum + (allocation.numberOfShares || 0),
+      0
+    );
 
-      if (transactionError) throw transactionError;
+    const authorisedShares = Number(shareClass.authorised_shares || 0);
+    const issuedShares = Number(shareClass.issued_shares || 0);
+
+    if (
+      authorisedShares > 0 &&
+      issuedShares + totalNewShares > authorisedShares
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "This share issue would exceed the authorised shares for the selected class.",
+        },
+        { status: 400 }
+      );
     }
 
-    const certificateIds = [
-      ...oldFromCertificates.map((row) => row.id),
-      ...oldToCertificates.map((row) => row.id),
-    ];
+    const { data: existingCertificates, error: duplicateError } = await supabase
+      .from("secretarial_share_matters")
+      .select("certificate_number")
+      .eq("organisation_id", organisationId)
+      .eq("client_id", clientId)
+      .in("certificate_number", certificateNumbers);
 
-    if (certificateIds.length) {
-      const { error: certificateError } = await supabase
-        .from("secretarial_share_certificates")
-        .update({
-          certificate_status: "superseded",
-          superseded_at: new Date().toISOString(),
-          superseded_reason:
-            transactionType === "transfer"
-              ? "Shareholding changed by transfer."
-              : "Shareholding changed by cancellation / surrender.",
-          replacement_transaction_group_id: groupId,
-        })
-        .in("id", certificateIds);
+    if (duplicateError) throw duplicateError;
 
-      if (certificateError) throw certificateError;
+    if ((existingCertificates || []).length) {
+      return NextResponse.json(
+        {
+          error: `Certificate number ${
+            existingCertificates?.[0]?.certificate_number || ""
+          } already exists for this client.`,
+        },
+        { status: 409 }
+      );
     }
 
-    const afterFrom = currentFrom - shares;
-    const queueRows: Array<Record<string, unknown>> = [];
+    const issueBatchId = randomUUID();
+    const considerationPerShare = optionalNumber(body.considerationPerShare);
+    const amountPaidPerShare = optionalNumber(body.amountPaidPerShare);
 
-    if (afterFrom > 0) {
-      queueRows.push({
-        organisation_id: client.organisation_id,
+    const matterRows = allocations.map((allocation) => {
+      const quantity = allocation.numberOfShares || 0;
+      const totalConsideration =
+        considerationPerShare == null
+          ? null
+          : quantity * considerationPerShare;
+      const totalAmountPaid =
+        amountPaidPerShare == null ? null : quantity * amountPaidPerShare;
+
+      return {
+        organisation_id: organisationId,
         client_id: clientId,
-        transaction_group_id: groupId,
-        shareholder_id: fromShareholderId,
-        share_class_id: shareClassId,
-        previous_certificate_id: oldFromCertificates[0]?.id || null,
-        replacement_shares: afterFrom,
-        replacement_reason:
-          transactionType === "transfer"
-            ? "Replacement after share transfer"
-            : "Replacement after partial cancellation",
-        queue_status: "pending",
-      });
-    }
-
-    if (transactionType === "transfer") {
-      const currentTo = await holdingFor(
-        supabase,
-        clientId,
-        toShareholderId,
-        shareClassId
-      );
-
-      queueRows.push({
-        organisation_id: client.organisation_id,
-        client_id: clientId,
-        transaction_group_id: groupId,
-        shareholder_id: toShareholderId,
-        share_class_id: shareClassId,
-        previous_certificate_id: oldToCertificates[0]?.id || null,
-        replacement_shares: currentTo,
-        replacement_reason: "Replacement / new certificate after share transfer",
-        queue_status: "pending",
-      });
-    }
-
-    if (queueRows.length) {
-      const { error: queueError } = await supabase
-        .from("secretarial_certificate_replacement_queue")
-        .insert(queueRows);
-
-      if (queueError) throw queueError;
-    }
-
-    if (transactionType === "cancellation") {
-      const { data: shareClass, error: shareClassError } = await supabase
-        .from("secretarial_share_classes")
-        .select("id, issued_shares")
-        .eq("id", shareClassId)
-        .eq("client_id", clientId)
-        .single();
-
-      if (shareClassError || !shareClass) throw shareClassError;
-
-      const newIssued = Math.max(
-        0,
-        numberValue(shareClass.issued_shares) - shares
-      );
-
-      const { error: updateClassError } = await supabase
-        .from("secretarial_share_classes")
-        .update({ issued_shares: newIssued })
-        .eq("id", shareClassId);
-
-      if (updateClassError) throw updateClassError;
-    }
-
-    const resolution = await createShareTransactionResolution({
-      supabase,
-      organisationId: client.organisation_id,
-      clientId,
-      clientName: client.client_name,
-      transactionType,
-      effectiveDate,
-      groupId,
-      shares,
-      fromName: fromHolder?.full_legal_name || "the transferor / holder",
-      toName: toHolder?.full_legal_name || undefined,
-      shareClassName: shareClassInfo?.class_name || "shares",
-      reference,
+        matter_status: "draft",
+        current_step: 1,
+        issue_batch_id: issueBatchId,
+        certificate_number: allocation.certificateNumber,
+        shareholder_id: allocation.shareholderId,
+        share_class_id: shareClass.id,
+        number_of_shares: quantity,
+        issue_date: cleanText(body.issueDate) || null,
+        place_of_issue: cleanText(body.placeOfIssue) || null,
+        transfer_restriction:
+          cleanText(body.transferRestriction) ||
+          "The transfer of these shares is subject to the restrictions contained in the company's Memorandum of Incorporation.",
+        fully_paid: body.fullyPaid !== false,
+        consideration_per_share: considerationPerShare,
+        total_consideration: totalConsideration,
+        amount_paid: totalAmountPaid,
+        signatory_one_name: cleanText(body.signatoryOneName) || null,
+        signatory_one_capacity: cleanText(body.signatoryOneCapacity) || null,
+        signatory_two_name: cleanText(body.signatoryTwoName) || null,
+        signatory_two_capacity: cleanText(body.signatoryTwoCapacity) || null,
+        created_by_user_id: profile.id,
+        updated_by_user_id: profile.id,
+      };
     });
 
-    return NextResponse.json({
-      message:
-        transactionType === "transfer"
-          ? "Share transfer posted. Existing certificates were preserved in history and replacement certificates were queued."
-          : "Share cancellation posted. Existing certificates were preserved in history and replacement certificates were queued where required.",
-      transactionGroupId: groupId,
-      replacementCount: queueRows.length,
-      resolution,
-    });
+    const { data: matters, error: insertError } = await supabase
+      .from("secretarial_share_matters")
+      .insert(matterRows)
+      .select(
+        "id, certificate_number, shareholder_id, current_step, matter_status"
+      );
+
+    if (insertError || !matters) {
+      if (insertError?.code === "23505") {
+        return NextResponse.json(
+          { error: "One of the certificate numbers already exists." },
+          { status: 409 }
+        );
+      }
+      throw insertError || new Error("Could not create the share issue.");
+    }
+
+    return NextResponse.json(
+      {
+        message: "Share issue created.",
+        issueBatchId,
+        matters: matters.map((matter: any) => ({
+          id: matter.id,
+          certificateNumber: matter.certificate_number,
+          shareholderName:
+            shareholderById.get(matter.shareholder_id)?.full_legal_name ||
+            "Shareholder",
+        })),
+      },
+      { status: 201 }
+    );
   } catch (error) {
-    console.error("Secretarial share transaction failed:", error);
-
+    console.error("Create share issue failed:", error);
     return NextResponse.json(
       {
         error:
           error instanceof Error
             ? error.message
-            : "Could not post the share transaction.",
+            : "Could not create the share issue.",
       },
       { status: 500 }
     );

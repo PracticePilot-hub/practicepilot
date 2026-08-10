@@ -14,6 +14,10 @@ type UserProfile = {
   access_enabled: boolean;
 };
 
+type CurrentProfileResult =
+  | { profile: UserProfile; response: null }
+  | { profile: null; response: NextResponse };
+
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey =
@@ -49,12 +53,12 @@ function isGlobalAdmin(role: string) {
 async function getCurrentProfile(
   request: Request,
   supabase: ReturnType<typeof getSupabaseAdmin>
-) {
+): Promise<CurrentProfileResult> {
   const token = getBearerToken(request);
 
   if (!token) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json(
         { success: false, error: "Not authenticated." },
         { status: 401 }
@@ -69,7 +73,7 @@ async function getCurrentProfile(
 
   if (userError || !user) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json(
         { success: false, error: "Not authenticated." },
         { status: 401 }
@@ -94,7 +98,7 @@ async function getCurrentProfile(
 
   if (profileError || !profile) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json(
         { success: false, error: "Could not load user profile." },
         { status: 403 }
@@ -106,7 +110,7 @@ async function getCurrentProfile(
 
   if (!userProfile.access_enabled) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json(
         { success: false, error: "User access is blocked." },
         { status: 403 }
@@ -116,7 +120,7 @@ async function getCurrentProfile(
 
   return {
     profile: userProfile,
-    response: null as NextResponse | null,
+    response: null,
   };
 }
 
@@ -166,15 +170,17 @@ function engagementNumberFromProposal(proposalNumber: string) {
   return `ENG-${cleaned || Date.now()}`;
 }
 
-export async function POST(request: Request) {
+export async function POST(request: Request): Promise<NextResponse> {
   const supabase = getSupabaseAdmin();
 
   try {
-    const { profile, response } = await getCurrentProfile(request, supabase);
+    const authResult = await getCurrentProfile(request, supabase);
 
-    if (response || !profile) {
-      return response;
+    if (authResult.response) {
+      return authResult.response;
     }
+
+    const profile = authResult.profile;
 
     const body = await request.json();
     const proposalId = String(body?.proposalId || "").trim();

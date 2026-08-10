@@ -1,252 +1,187 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabase";
 
-type ClientRecord = {
+type ClientOption = {
   id: string;
-  client_name: string | null;
-  registration_number: string | null;
+  clientName: string;
+  registrationNumber: string;
 };
 
-type ShareholderRecord = {
+type ShareholderOption = {
   id: string;
-  full_legal_name: string;
-  id_registration_number: string | null;
-  holder_type: string;
+  fullLegalName: string;
+  idRegistrationNumber: string;
+  holderType: string;
 };
 
-type ShareClassRecord = {
-  id: string;
-  class_name: string;
-  series_designation: string | null;
-  authorised_shares: number | string | null;
-  issued_shares: number | string | null;
-};
 
-type AllocationRow = {
-  shareholderId: string;
-  shares: string;
-  certificateNumber: string;
-};
 
 const DEFAULT_TRANSFER_RESTRICTION =
   "The transfer of these shares is subject to the restrictions contained in the company’s Memorandum of Incorporation.";
 
-export default function NewShareCertificatePage() {
+function NewShareCertificateContent() {
   const searchParams = useSearchParams();
-  const clientId = searchParams.get("clientId") || "";
-  const preferredShareholderId = searchParams.get("shareholderId") || "";
+  const requestedClientId = searchParams.get("clientId") || "";
+  const requestedShareholderId = searchParams.get("shareholderId") || "";
 
-  const [client, setClient] = useState<ClientRecord | null>(null);
-  const [shareholders, setShareholders] = useState<ShareholderRecord[]>([]);
-  const [shareClasses, setShareClasses] = useState<ShareClassRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const [shareClassId, setShareClassId] = useState("");
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(true);
+  const [shareholders, setShareholders] = useState<ShareholderOption[]>([]);
+  const [shareholdersLoading, setShareholdersLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [saveMessage, setSaveMessage] = useState("");
+  const [savedMatterId, setSavedMatterId] = useState<string | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState(requestedClientId);
+  const [selectedShareholderId, setSelectedShareholderId] = useState(
+    requestedShareholderId
+  );
+  const [certificateNumber, setCertificateNumber] = useState("001");
+  const [shareClass, setShareClass] = useState(
+    "Ordinary no-par-value shares"
+  );
+  const [seriesDesignation, setSeriesDesignation] = useState("");
+  const [numberOfShares, setNumberOfShares] = useState("");
   const [issueDate, setIssueDate] = useState("");
   const [placeOfIssue, setPlaceOfIssue] = useState("Pretoria");
   const [considerationPerShare, setConsiderationPerShare] = useState("");
-  const [amountPaidPerShare, setAmountPaidPerShare] = useState("");
+  const [amountPaid, setAmountPaid] = useState("");
   const [fullyPaid, setFullyPaid] = useState(true);
   const [transferRestriction, setTransferRestriction] = useState(
     DEFAULT_TRANSFER_RESTRICTION
   );
-
   const [signatoryOneName, setSignatoryOneName] = useState("");
-  const [signatoryOneCapacity, setSignatoryOneCapacity] = useState("Director");
+  const [signatoryOneCapacity, setSignatoryOneCapacity] =
+    useState("Director");
   const [signatoryTwoName, setSignatoryTwoName] = useState("");
-  const [signatoryTwoCapacity, setSignatoryTwoCapacity] = useState("Director");
-
-  const [allocations, setAllocations] = useState<AllocationRow[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [savedMatters, setSavedMatters] = useState<
-    { id: string; certificateNumber: string; shareholderName: string }[]
-  >([]);
+  const [signatoryTwoCapacity, setSignatoryTwoCapacity] =
+    useState("Director");
 
   useEffect(() => {
-    async function load() {
-      if (!clientId) {
-        setLoading(false);
+    async function loadClientAndShareholders() {
+      if (!requestedClientId) {
+        setClients([]);
+        setShareholders([]);
+        setClientsLoading(false);
+        setShareholdersLoading(false);
         return;
       }
 
-      setLoading(true);
-      setError("");
+      setClientsLoading(true);
+      setShareholdersLoading(true);
 
-      const [clientResult, shareholderResult, classResult] = await Promise.all([
+      const [clientResult, shareholderResult] = await Promise.all([
         supabase
           .from("crm_clients")
           .select("id, client_name, registration_number")
-          .eq("id", clientId)
+          .eq("id", requestedClientId)
           .single(),
 
         supabase
           .from("secretarial_shareholders")
-          .select("id, full_legal_name, id_registration_number, holder_type")
-          .eq("client_id", clientId)
+          .select(
+            "id, full_legal_name, id_registration_number, holder_type, is_active"
+          )
+          .eq("client_id", requestedClientId)
           .eq("is_active", true)
           .order("full_legal_name", { ascending: true }),
-
-        supabase
-          .from("secretarial_share_classes")
-          .select(
-            "id, class_name, series_designation, authorised_shares, issued_shares"
-          )
-          .eq("client_id", clientId)
-          .eq("is_active", true)
-          .order("class_name", { ascending: true }),
       ]);
 
       if (clientResult.error || !clientResult.data) {
-        setError("The Secretarial client could not be loaded.");
-        setLoading(false);
-        return;
+        console.error("Could not load Secretarial client:", clientResult.error);
+        setClients([]);
+      } else {
+        setClients([
+          {
+            id: clientResult.data.id,
+            clientName: clientResult.data.client_name || "Unnamed client",
+            registrationNumber: clientResult.data.registration_number || "",
+          },
+        ]);
+        setSelectedClientId(clientResult.data.id);
       }
 
-      const loadedClient = clientResult.data as ClientRecord;
-      const loadedShareholders =
-        (shareholderResult.data || []) as ShareholderRecord[];
-      const loadedClasses = (classResult.data || []) as ShareClassRecord[];
-
-      setClient(loadedClient);
-      setShareholders(loadedShareholders);
-      setShareClasses(loadedClasses);
-
-      if (loadedClasses.length) {
-        setShareClassId(loadedClasses[0].id);
+      if (shareholderResult.error) {
+        console.error(
+          "Could not load Secretarial shareholders:",
+          shareholderResult.error
+        );
+        setShareholders([]);
+      } else {
+        setShareholders(
+          (shareholderResult.data || []).map((shareholder: any) => ({
+            id: shareholder.id,
+            fullLegalName: shareholder.full_legal_name || "Unnamed shareholder",
+            idRegistrationNumber: shareholder.id_registration_number || "",
+            holderType: shareholder.holder_type || "individual",
+          }))
+        );
       }
 
-      setAllocations(
-        loadedShareholders.map((shareholder, index) => ({
-          shareholderId: shareholder.id,
-          shares: "",
-          certificateNumber:
-            shareholder.id === preferredShareholderId
-              ? String(index + 1).padStart(3, "0")
-              : "",
-        }))
-      );
-
-      setLoading(false);
+      setClientsLoading(false);
+      setShareholdersLoading(false);
     }
 
-    load();
-  }, [clientId, preferredShareholderId]);
-
-  const selectedClass = useMemo(
-    () => shareClasses.find((row) => row.id === shareClassId) || null,
-    [shareClasses, shareClassId]
+    loadClientAndShareholders();
+  }, [requestedClientId]);
+  const selectedClient = useMemo(
+    () => clients.find((client) => client.id === selectedClientId) || null,
+    [clients, selectedClientId]
   );
 
-  const activeAllocations = useMemo(
+  const selectedShareholder = useMemo(
     () =>
-      allocations
-        .map((row) => ({
-          ...row,
-          quantity: Number(row.shares),
-        }))
-        .filter((row) => Number.isFinite(row.quantity) && row.quantity > 0),
-    [allocations]
+      shareholders.find(
+        (shareholder) => shareholder.id === selectedShareholderId
+      ) || null,
+    [shareholders, selectedShareholderId]
   );
 
-  const totalNewShares = useMemo(
-    () => activeAllocations.reduce((sum, row) => sum + row.quantity, 0),
-    [activeAllocations]
-  );
+  const displayCompanyName =
+    selectedClient?.clientName || "COMPANY NAME (PTY) LTD";
 
-  const totalIssuedAfter = useMemo(() => {
-    const current = Number(selectedClass?.issued_shares || 0);
-    return current + totalNewShares;
-  }, [selectedClass, totalNewShares]);
+  const displayRegistrationNumber =
+    selectedClient?.registrationNumber || "REGISTRATION NUMBER";
 
-  const authorisedShares = Number(selectedClass?.authorised_shares || 0);
-  const exceedsAuthorised =
-    authorisedShares > 0 && totalIssuedAfter > authorisedShares;
+  const displayShareholderName =
+    selectedShareholder?.fullLegalName || "SHAREHOLDER FULL NAME";
 
-  function updateAllocation(
-    shareholderId: string,
-    field: "shares" | "certificateNumber",
-    value: string
-  ) {
-    setAllocations((current) =>
-      current.map((row) =>
-        row.shareholderId === shareholderId ? { ...row, [field]: value } : row
-      )
-    );
-  }
+  const displayShareCount = numberOfShares.trim() || "NUMBER OF SHARES";
 
-  function allocateToShareholder(shareholderId: string) {
-    setAllocations((current) => {
-      const usedNumbers = new Set(
-        current
-          .map((row) => Number(row.certificateNumber))
-          .filter((value) => Number.isFinite(value) && value > 0)
-      );
+  const displayIssueDate = issueDate
+    ? new Date(`${issueDate}T00:00:00`).toLocaleDateString("en-ZA", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      })
+    : "DATE OF ISSUE";
 
-      let nextNumber = 1;
-      while (usedNumbers.has(nextNumber)) nextNumber += 1;
+  const calculatedTotalConsideration = useMemo(() => {
+    const qty = Number(numberOfShares);
+    const perShare = Number(considerationPerShare);
 
-      return current.map((row) =>
-        row.shareholderId === shareholderId
-          ? {
-              ...row,
-              shares: row.shares || "1",
-              certificateNumber:
-                row.certificateNumber || String(nextNumber).padStart(3, "0"),
-            }
-          : row
-      );
-    });
-  }
+    if (!Number.isFinite(qty) || !Number.isFinite(perShare)) return "";
+    if (qty <= 0 || perShare < 0) return "";
 
-  async function saveIssue() {
-    if (saving) return;
+    return (qty * perShare).toFixed(2);
+  }, [numberOfShares, considerationPerShare]);
 
-    setError("");
-    setMessage("");
+  const paymentStatusText = fullyPaid
+    ? "The shares are fully paid."
+    : amountPaid.trim()
+      ? `Amount paid: R ${Number(amountPaid).toFixed(2)}`
+      : "The shares are not fully paid.";
 
-    if (!clientId) {
-      setError("Open the client from Secretarial before starting a share issue.");
-      return;
-    }
+  async function saveDraft() {
+    if (saveStatus === "saving") return;
 
-    if (!shareClassId) {
-      setError("Select a share class.");
-      return;
-    }
-
-    if (!activeAllocations.length) {
-      setError("Allocate shares to at least one existing shareholder.");
-      return;
-    }
-
-    if (exceedsAuthorised) {
-      setError(
-        "This issue would exceed the authorised shares for the selected class."
-      );
-      return;
-    }
-
-    for (const allocation of activeAllocations) {
-      if (!allocation.certificateNumber.trim()) {
-        const shareholder = shareholders.find(
-          (row) => row.id === allocation.shareholderId
-        );
-        setError(
-          `Enter a certificate number for ${
-            shareholder?.full_legal_name || "each allocation"
-          }.`
-        );
-        return;
-      }
-    }
-
-    setSaving(true);
+    setSaveStatus("saving");
+    setSaveMessage("");
 
     try {
       const {
@@ -258,721 +193,1069 @@ export default function NewShareCertificatePage() {
         throw new Error("Your login session could not be confirmed.");
       }
 
-      const response = await fetch("/api/crm/secretarial/share-certificates", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          clientId,
-          shareClassId,
-          issueDate,
-          placeOfIssue,
-          considerationPerShare,
-          amountPaidPerShare,
-          fullyPaid,
-          transferRestriction,
-          signatoryOneName,
-          signatoryOneCapacity,
-          signatoryTwoName,
-          signatoryTwoCapacity,
-          allocations: activeAllocations.map((allocation) => ({
-            shareholderId: allocation.shareholderId,
-            numberOfShares: allocation.quantity,
-            certificateNumber: allocation.certificateNumber.trim(),
-          })),
-        }),
-      });
+      const response = await fetch(
+        "/api/crm/secretarial/share-certificates",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            clientId: selectedClientId,
+            shareholderId: selectedShareholderId,
+            certificateNumber,
+            shareholderName: selectedShareholder?.fullLegalName || "",
+            shareholderIdNumber:
+              selectedShareholder?.idRegistrationNumber || "",
+            shareClass,
+            seriesDesignation,
+            numberOfShares,
+            considerationPerShare,
+            totalConsideration: calculatedTotalConsideration,
+            amountPaid,
+            fullyPaid,
+            issueDate,
+            placeOfIssue,
+            transferRestriction,
+            signatoryOneName,
+            signatoryOneCapacity,
+            signatoryTwoName,
+            signatoryTwoCapacity,
+          }),
+        }
+      );
 
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || "Could not create the share issue.");
+        throw new Error(result.error || "Could not save the draft.");
       }
 
-      setSavedMatters(result.matters || []);
-      setMessage(
-        `${result.matters?.length || activeAllocations.length} certificate matter(s) created from one share issue.`
+      setSavedMatterId(result.matter?.id || null);
+      setSaveStatus("saved");
+      setSaveMessage("Share certificate draft saved.");
+
+      window.setTimeout(() => {
+        setSaveStatus((current) =>
+          current === "saved" ? "idle" : current
+        );
+      }, 2500);
+    } catch (error) {
+      console.error("Could not save share certificate draft:", error);
+
+      setSaveStatus("error");
+      setSaveMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not save the share certificate draft."
       );
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Could not create the share issue."
-      );
-    } finally {
-      setSaving(false);
     }
-  }
-
-  if (loading) {
-    return <div style={page}><div style={panel}>Loading Secretarial client file…</div></div>;
-  }
-
-  if (!clientId || !client) {
-    return (
-      <div style={page}>
-        <section style={panel}>
-          <h1 style={title}>Start from the Secretarial client file</h1>
-          <p style={muted}>
-            A share issue belongs to one company. Select the client first so
-            PracticePilot never asks you to capture the company again.
-          </p>
-          <Link href="/crm/secretarial" style={primaryButton}>
-            Back to Secretarial Clients
-          </Link>
-        </section>
-      </div>
-    );
   }
 
   return (
     <div style={page}>
-      <section style={workingBar}>
-        <span style={blueText}>SECRETARIAL</span>
-        <span style={divider}>|</span>
-        <Link
-          href={`/crm/secretarial/client/${clientId}?view=shareholders`}
-          style={crumb}
-        >
-          {client.client_name || "Client"}
-        </Link>
-        <span style={divider}>|</span>
-        <span>New Share Issue</span>
+      <section style={workingFileBar}>
+        <div style={workingFileText}>
+          <span style={eyebrow}>SECRETARIAL WORKING FILE</span>
+          <span style={divider}>|</span>
+          <Link href="/crm/secretarial" style={backLink}>
+            Secretarial
+          </Link>
+          <span style={divider}>|</span>
+          <Link
+            href="/crm/secretarial/share-certificates"
+            style={backLink}
+          >
+            Share Certificates
+          </Link>
+          <span style={divider}>|</span>
+          <strong>New Certificate</strong>
+        </div>
       </section>
 
       <section style={headerPanel}>
         <div>
-          <div style={miniLabel}>CLIENT LOCKED</div>
-          <h1 style={title}>New Share Issue</h1>
-          <div style={muted}>
-            {client.client_name} · {client.registration_number || "No registration number"}
-          </div>
+          <h1 style={title}>New Share Certificate</h1>
+          <p style={subtitle}>
+            Capture the complete certificate and share issue information.
+          </p>
         </div>
 
         <div style={headerActions}>
           <Link
-            href={`/crm/secretarial/client/${clientId}?view=share-certificates`}
+            href={
+              requestedClientId
+                ? `/crm/secretarial/client/${requestedClientId}?view=certificates`
+                : "/crm/secretarial"
+            }
             style={secondaryButton}
           >
             Cancel
           </Link>
           <button
             type="button"
-            onClick={saveIssue}
-            disabled={saving || !!savedMatters.length}
+            onClick={saveDraft}
+            disabled={
+              saveStatus === "saving" ||
+              Boolean(savedMatterId) ||
+              !selectedClientId ||
+              !selectedShareholderId
+            }
             style={{
               ...primaryButton,
-              opacity: saving || savedMatters.length ? 0.55 : 1,
+              ...(saveStatus === "saving" ||
+              savedMatterId ||
+              !selectedClientId ||
+              !selectedShareholderId
+                ? disabledPrimaryButton
+                : {}),
             }}
           >
-            {saving ? "Creating…" : savedMatters.length ? "Issue Created" : "Create Share Issue"}
+            {saveStatus === "saving"
+              ? "Saving..."
+              : savedMatterId
+                ? "Draft Saved"
+                : "Save Draft"}
           </button>
         </div>
       </section>
 
-      {error ? <div style={errorBanner}>{error}</div> : null}
-      {message ? <div style={successBanner}>{message}</div> : null}
+      {saveMessage ? (
+        <div
+          style={{
+            ...messageBar,
+            ...(saveStatus === "error" ? errorMessageBar : successMessageBar),
+          }}
+        >
+          {saveMessage}
+        </div>
+      ) : null}
 
-      {savedMatters.length ? (
-        <section style={panel}>
-          <PanelHeading
-            number="✓"
-            title="Share issue created"
-            subtitle="Each allocation has its own certificate matter, but the shareholders were selected from the permanent client master."
-          />
-          {savedMatters.map((matter) => (
-            <div key={matter.id} style={savedRow}>
-              <div>
-                <strong>{matter.shareholderName}</strong>
-                <div style={mutedSmall}>Certificate {matter.certificateNumber}</div>
-              </div>
-              <Link
-                href={`/crm/secretarial/share-certificates/${matter.id}`}
-                style={textLink}
-              >
-                Open Flight Map →
-              </Link>
-            </div>
-          ))}
-        </section>
-      ) : (
-        <>
-          <section style={panel}>
-            <PanelHeading
-              number="01"
-              title="Issue details"
-              subtitle="Capture the transaction once. These details apply to every allocation in this issue."
-            />
+      <section style={flightMapPanel}>
+        <div style={flightMapTitleRow}>
+          <div>
+            <h2 style={sectionTitle}>Share Certificate Flight Map</h2>
+            <p style={sectionSubtitle}>Step 1 of 9 · Company details</p>
+          </div>
+          <span style={draftBadge}>Draft</span>
+        </div>
 
-            <div style={formGrid3}>
-              <Field label="SHARE CLASS">
-                <select
-                  value={shareClassId}
-                  onChange={(event) => setShareClassId(event.target.value)}
-                  style={input}
+        <div style={flightMap}>
+          {[
+            "Company details",
+            "Share structure",
+            "Shareholder allocation",
+            "Resolution",
+            "Certificate generation",
+            "Review and approval",
+            "Register update",
+            "Document filing",
+            "Complete",
+          ].map((step, index) => {
+            const active = index === 0;
+
+            return (
+              <div key={step} style={flightStep}>
+                <div
+                  style={{
+                    ...stepMarker,
+                    ...(active ? activeStepMarker : {}),
+                  }}
                 >
-                  <option value="">Select share class</option>
-                  {shareClasses.map((row) => (
-                    <option key={row.id} value={row.id}>
-                      {row.class_name}
-                      {row.series_designation ? ` — ${row.series_designation}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+                  {index + 1}
+                </div>
+                <div
+                  style={{
+                    ...stepLabel,
+                    ...(active ? activeStepLabel : {}),
+                  }}
+                >
+                  {step}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
-              <Field label="DATE OF ISSUE">
+      <div style={workspace}>
+        <section style={formPanel}>
+          <div style={panelHeader}>
+            <h2 style={sectionTitle}>Certificate details</h2>
+            <p style={sectionSubtitle}>
+              The preview updates as the information is captured.
+            </p>
+          </div>
+
+          <div style={formBody}>
+            {!requestedClientId ? (
+              <div style={errorMessageBar}>
+                Open a client from Secretarial first, then create the share
+                certificate from that client's Share Certificates tab.
+              </div>
+            ) : null}
+
+            <div style={fieldGroup}>
+              <label style={label}>Company</label>
+              <input
+                value={
+                  clientsLoading
+                    ? "Loading client..."
+                    : selectedClient?.clientName || ""
+                }
+                readOnly
+                style={readOnlyInput}
+              />
+            </div>
+
+            <div style={twoColumnGrid}>
+              <div style={fieldGroup}>
+                <label style={label}>Registration number</label>
+                <input
+                  value={selectedClient?.registrationNumber || ""}
+                  readOnly
+                  placeholder="Pulled from CRM"
+                  style={readOnlyInput}
+                />
+              </div>
+
+              <div style={fieldGroup}>
+                <label style={label}>Certificate number</label>
+                <input
+                  value={certificateNumber}
+                  onChange={(event) => setCertificateNumber(event.target.value)}
+                  placeholder="001"
+                  style={input}
+                />
+              </div>
+            </div>
+
+            <div style={dividerLine} />
+
+            <div style={fieldGroup}>
+              <label style={label}>Shareholder</label>
+              <select
+                value={selectedShareholderId}
+                onChange={(event) =>
+                  setSelectedShareholderId(event.target.value)
+                }
+                style={input}
+                disabled={!requestedClientId || shareholdersLoading}
+              >
+                <option value="">
+                  {shareholdersLoading
+                    ? "Loading shareholders..."
+                    : shareholders.length
+                      ? "Select an existing shareholder"
+                      : "No shareholders captured yet"}
+                </option>
+                {shareholders.map((shareholder) => (
+                  <option key={shareholder.id} value={shareholder.id}>
+                    {shareholder.fullLegalName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {!shareholdersLoading && requestedClientId && !shareholders.length ? (
+              <div style={messageBar}>
+                No shareholders have been captured for this client yet.{" "}
+                <Link
+                  href={`/crm/secretarial/client/${requestedClientId}?view=shareholders`}
+                  style={backLink}
+                >
+                  Add shareholder first
+                </Link>
+              </div>
+            ) : null}
+
+            <div style={twoColumnGrid}>
+              <div style={fieldGroup}>
+                <label style={label}>ID / registration number</label>
+                <input
+                  value={selectedShareholder?.idRegistrationNumber || ""}
+                  readOnly
+                  placeholder="Pulled from Shareholders"
+                  style={readOnlyInput}
+                />
+              </div>
+
+              <div style={fieldGroup}>
+                <label style={label}>Holder type</label>
+                <input
+                  value={
+                    selectedShareholder?.holderType
+                      ? selectedShareholder.holderType
+                          .replaceAll("_", " ")
+                          .replace(/\b\w/g, (letter) => letter.toUpperCase())
+                      : ""
+                  }
+                  readOnly
+                  placeholder="Pulled from Shareholders"
+                  style={readOnlyInput}
+                />
+              </div>
+            </div>
+
+            <div style={twoColumnGrid}>
+              <div style={fieldGroup}>
+                <label style={label}>Class of shares</label>
+                <input
+                  value={shareClass}
+                  onChange={(event) => setShareClass(event.target.value)}
+                  style={input}
+                />
+              </div>
+
+              <div style={fieldGroup}>
+                <label style={label}>Series designation</label>
+                <input
+                  value={seriesDesignation}
+                  onChange={(event) =>
+                    setSeriesDesignation(event.target.value)
+                  }
+                  placeholder="Leave blank if not applicable"
+                  style={input}
+                />
+              </div>
+            </div>
+
+            <div style={twoColumnGrid}>
+              <div style={fieldGroup}>
+                <label style={label}>Number of shares</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={numberOfShares}
+                  onChange={(event) => setNumberOfShares(event.target.value)}
+                  placeholder="100"
+                  style={input}
+                />
+              </div>
+
+              <div style={fieldGroup}>
+                <label style={label}>Consideration per share</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={considerationPerShare}
+                  onChange={(event) =>
+                    setConsiderationPerShare(event.target.value)
+                  }
+                  placeholder="0.00"
+                  style={input}
+                />
+              </div>
+            </div>
+
+            <div style={twoColumnGrid}>
+              <div style={fieldGroup}>
+                <label style={label}>Total consideration</label>
+                <input
+                  value={
+                    calculatedTotalConsideration
+                      ? `R ${calculatedTotalConsideration}`
+                      : ""
+                  }
+                  readOnly
+                  placeholder="Calculated"
+                  style={readOnlyInput}
+                />
+              </div>
+
+              <div style={fieldGroup}>
+                <label style={label}>Amount paid</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={amountPaid}
+                  onChange={(event) => setAmountPaid(event.target.value)}
+                  placeholder="0.00"
+                  style={input}
+                />
+              </div>
+            </div>
+
+            <div style={checkboxRow}>
+              <input
+                id="fully-paid"
+                type="checkbox"
+                checked={fullyPaid}
+                onChange={(event) => setFullyPaid(event.target.checked)}
+              />
+              <label htmlFor="fully-paid" style={checkboxLabel}>
+                Shares are fully paid
+              </label>
+            </div>
+
+            <div style={twoColumnGrid}>
+              <div style={fieldGroup}>
+                <label style={label}>Date of issue</label>
                 <input
                   type="date"
                   value={issueDate}
                   onChange={(event) => setIssueDate(event.target.value)}
                   style={input}
                 />
-              </Field>
+              </div>
 
-              <Field label="PLACE OF ISSUE">
+              <div style={fieldGroup}>
+                <label style={label}>Place of issue</label>
                 <input
                   value={placeOfIssue}
                   onChange={(event) => setPlaceOfIssue(event.target.value)}
                   style={input}
                 />
-              </Field>
+              </div>
             </div>
 
-            <div style={formGrid2}>
-              <Field label="CONSIDERATION PER SHARE">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={considerationPerShare}
-                  onChange={(event) => setConsiderationPerShare(event.target.value)}
-                  style={input}
-                />
-              </Field>
-
-              <Field label="AMOUNT PAID PER SHARE">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={amountPaidPerShare}
-                  onChange={(event) => setAmountPaidPerShare(event.target.value)}
-                  style={input}
-                />
-              </Field>
-            </div>
-
-            <label style={checkboxRow}>
-              <input
-                type="checkbox"
-                checked={fullyPaid}
-                onChange={(event) => setFullyPaid(event.target.checked)}
-              />
-              Shares are fully paid
-            </label>
-
-            <Field label="TRANSFER RESTRICTION">
+            <div style={fieldGroup}>
+              <label style={label}>Transfer restriction</label>
               <textarea
                 value={transferRestriction}
-                onChange={(event) => setTransferRestriction(event.target.value)}
+                onChange={(event) =>
+                  setTransferRestriction(event.target.value)
+                }
+                rows={4}
                 style={textarea}
               />
-            </Field>
-          </section>
+            </div>
 
-          <section style={panel}>
-            <PanelHeading
-              number="02"
-              title="Allot shares"
-              subtitle="Choose from shareholders already captured in this client's Secretarial file. Nothing is re-entered."
-              action={
-                <Link
-                  href={`/crm/secretarial/client/${clientId}?view=shareholders`}
-                  style={secondaryButton}
-                >
-                  Add / Edit Shareholders
-                </Link>
-              }
-            />
+            <div style={dividerLine} />
 
-            {!shareholders.length ? (
-              <div style={emptyState}>
-                <strong>No shareholders have been captured yet.</strong>
-                <span>
-                  Add the shareholder master records first, then return here to allot shares.
-                </span>
-              </div>
-            ) : (
-              <>
-                <div style={tableHeader}>
-                  <div>SHAREHOLDER</div>
-                  <div>ID / REGISTRATION</div>
-                  <div>SHARES TO ALLOT</div>
-                  <div>CERTIFICATE NO.</div>
-                  <div>ACTION</div>
-                </div>
-
-                {shareholders.map((shareholder) => {
-                  const row =
-                    allocations.find(
-                      (allocation) =>
-                        allocation.shareholderId === shareholder.id
-                    ) || {
-                      shareholderId: shareholder.id,
-                      shares: "",
-                      certificateNumber: "",
-                    };
-
-                  const selected = Number(row.shares) > 0;
-
-                  return (
-                    <div
-                      key={shareholder.id}
-                      style={{
-                        ...tableRow,
-                        background: selected ? "#ecfdf3" : "#ffffff",
-                      }}
-                    >
-                      <div>
-                        <strong>{shareholder.full_legal_name}</strong>
-                        <div style={mutedSmall}>{shareholder.holder_type}</div>
-                      </div>
-                      <div>{shareholder.id_registration_number || "—"}</div>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={row.shares}
-                        onChange={(event) =>
-                          updateAllocation(
-                            shareholder.id,
-                            "shares",
-                            event.target.value
-                          )
-                        }
-                        style={compactInput}
-                        placeholder="0"
-                      />
-                      <input
-                        value={row.certificateNumber}
-                        onChange={(event) =>
-                          updateAllocation(
-                            shareholder.id,
-                            "certificateNumber",
-                            event.target.value
-                          )
-                        }
-                        style={compactInput}
-                        placeholder="e.g. 002"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => allocateToShareholder(shareholder.id)}
-                        style={textButton}
-                      >
-                        {selected ? "Selected" : "Allot shares"}
-                      </button>
-                    </div>
-                  );
-                })}
-
-                <div style={allocationSummary}>
-                  <div>
-                    <span style={miniLabel}>SHAREHOLDERS IN THIS ISSUE</span>
-                    <strong>{activeAllocations.length}</strong>
-                  </div>
-                  <div>
-                    <span style={miniLabel}>NEW SHARES</span>
-                    <strong>{totalNewShares.toLocaleString("en-ZA")}</strong>
-                  </div>
-                  <div>
-                    <span style={miniLabel}>ISSUED AFTER THIS ISSUE</span>
-                    <strong>{totalIssuedAfter.toLocaleString("en-ZA")}</strong>
-                  </div>
-                  <div>
-                    <span style={miniLabel}>AUTHORISED</span>
-                    <strong>
-                      {authorisedShares > 0
-                        ? authorisedShares.toLocaleString("en-ZA")
-                        : "Not captured"}
-                    </strong>
-                  </div>
-                </div>
-
-                {exceedsAuthorised ? (
-                  <div style={warningBanner}>
-                    This allocation exceeds the authorised shares for the selected class.
-                  </div>
-                ) : null}
-              </>
-            )}
-          </section>
-
-          <section style={panel}>
-            <PanelHeading
-              number="03"
-              title="Certificate signatories"
-              subtitle="Captured once for this issue and applied to the certificate matters created from it."
-            />
-
-            <div style={formGrid2}>
-              <Field label="AUTHORISED SIGNATORY 1">
+            <div style={twoColumnGrid}>
+              <div style={fieldGroup}>
+                <label style={label}>Authorised signatory 1</label>
                 <input
                   value={signatoryOneName}
-                  onChange={(event) => setSignatoryOneName(event.target.value)}
+                  onChange={(event) =>
+                    setSignatoryOneName(event.target.value)
+                  }
+                  placeholder="Full name"
                   style={input}
                 />
-              </Field>
-              <Field label="CAPACITY">
+              </div>
+
+              <div style={fieldGroup}>
+                <label style={label}>Capacity</label>
                 <input
                   value={signatoryOneCapacity}
                   onChange={(event) =>
                     setSignatoryOneCapacity(event.target.value)
                   }
+                  placeholder="Director"
                   style={input}
                 />
-              </Field>
-              <Field label="AUTHORISED SIGNATORY 2">
+              </div>
+            </div>
+
+            <div style={twoColumnGrid}>
+              <div style={fieldGroup}>
+                <label style={label}>Authorised signatory 2</label>
                 <input
                   value={signatoryTwoName}
-                  onChange={(event) => setSignatoryTwoName(event.target.value)}
+                  onChange={(event) =>
+                    setSignatoryTwoName(event.target.value)
+                  }
+                  placeholder="Full name"
                   style={input}
                 />
-              </Field>
-              <Field label="CAPACITY">
+              </div>
+
+              <div style={fieldGroup}>
+                <label style={label}>Capacity</label>
                 <input
                   value={signatoryTwoCapacity}
                   onChange={(event) =>
                     setSignatoryTwoCapacity(event.target.value)
                   }
+                  placeholder="Director"
                   style={input}
                 />
-              </Field>
+              </div>
             </div>
-          </section>
-        </>
-      )}
-    </div>
-  );
-}
+          </div>
+        </section>
 
-function PanelHeading({
-  number,
-  title,
-  subtitle,
-  action,
-}: {
-  number: string;
-  title: string;
-  subtitle: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div style={panelHeading}>
-      <div style={numberBox}>{number}</div>
-      <div style={{ flex: 1 }}>
-        <h2 style={sectionTitle}>{title}</h2>
-        <div style={muted}>{subtitle}</div>
+        <section style={previewPanel}>
+          <div style={panelHeader}>
+            <h2 style={sectionTitle}>Certificate preview</h2>
+            <p style={sectionSubtitle}>
+              Live preview only. PDF generation follows after layout approval.
+            </p>
+          </div>
+
+          <div style={previewViewport}>
+            <div style={certificateCanvas}>
+              <img
+                src="/secretarial/share-certificate-background.png"
+                alt="Share certificate background"
+                style={certificateBackground}
+              />
+
+              <div style={certificateNumberText}>
+                Certificate No. {certificateNumber || "001"}
+              </div>
+
+              <div style={companyName}>{displayCompanyName}</div>
+
+              <div style={registrationText}>
+                Registration number: {displayRegistrationNumber}
+              </div>
+
+              <div style={certificateHeading}>SHARE CERTIFICATE</div>
+
+              <div style={certificateTextArea}>
+                <div style={certificateBody}>This is to certify that</div>
+
+                <div style={shareholderText}>{displayShareholderName}</div>
+
+                <div style={certificateBody}>
+                  is the registered holder of
+                </div>
+
+                <div style={shareCountText}>
+                  {displayShareCount} {shareClass}
+                </div>
+
+                {seriesDesignation.trim() ? (
+                  <div style={smallCertificateLine}>
+                    Series: {seriesDesignation}
+                  </div>
+                ) : null}
+
+                <div style={certificateBody}>
+                  in the issued share capital of the company.
+                </div>
+
+                <div style={smallCertificateLine}>{paymentStatusText}</div>
+
+                <div style={restrictionText}>
+                  {transferRestriction || DEFAULT_TRANSFER_RESTRICTION}
+                </div>
+
+                <div style={issueText}>
+                  Issued at {placeOfIssue || "PLACE"} on {displayIssueDate}
+                </div>
+
+                <div style={signatureGrid}>
+                  <div style={signatureBlock}>
+                    <div style={signatureLine} />
+                    <div style={signatureName}>
+                      {signatoryOneName || "Authorised Signatory"}
+                    </div>
+                    <div style={signatureCaption}>
+                      {signatoryOneCapacity || "Capacity"}
+                    </div>
+                  </div>
+
+                  <div style={signatureBlock}>
+                    <div style={signatureLine} />
+                    <div style={signatureName}>
+                      {signatoryTwoName || "Authorised Signatory"}
+                    </div>
+                    <div style={signatureCaption}>
+                      {signatoryTwoCapacity || "Capacity"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
-      {action}
     </div>
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+
+export default function NewShareCertificatePage() {
   return (
-    <label style={field}>
-      <span style={fieldLabel}>{label}</span>
-      {children}
-    </label>
+    <Suspense
+      fallback={
+        <div
+          style={{
+            minHeight: "100%",
+            padding: "20px",
+            background: "#eef2f5",
+            color: "#0f1f33",
+            fontSize: "12px",
+            fontWeight: 800,
+          }}
+        >
+          Loading share certificate...
+        </div>
+      }
+    >
+      <NewShareCertificateContent />
+    </Suspense>
   );
 }
 
 const page: React.CSSProperties = {
-  padding: "10px 12px 30px",
+  minHeight: "100%",
+  padding: "8px 10px 28px",
   background: "#eef2f5",
-  minHeight: "100vh",
-  color: "#10233a",
+  color: "#0f1f33",
 };
 
-const workingBar: React.CSSProperties = {
+const workingFileBar: React.CSSProperties = {
+  minHeight: "38px",
   display: "flex",
-  gap: "10px",
   alignItems: "center",
-  minHeight: "42px",
-  padding: "0 12px",
-  border: "1px solid #d1dae5",
+  padding: "0 10px",
   background: "#ffffff",
-  marginBottom: "10px",
-  fontSize: "11px",
-  fontWeight: 800,
+  border: "1px solid #d8dee7",
 };
 
-const blueText: React.CSSProperties = { color: "#1758d5", fontWeight: 900 };
-const divider: React.CSSProperties = { color: "#94a3b8" };
-const crumb: React.CSSProperties = { color: "#10233a", textDecoration: "none" };
+const workingFileText: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "9px",
+  fontSize: "12px",
+};
+
+const eyebrow: React.CSSProperties = {
+  color: "#2457d6",
+  fontWeight: 900,
+  letterSpacing: "0.05em",
+};
+
+const divider: React.CSSProperties = {
+  color: "#94a3b8",
+};
+
+const backLink: React.CSSProperties = {
+  color: "#0f1f33",
+  textDecoration: "none",
+  fontWeight: 900,
+};
 
 const headerPanel: React.CSSProperties = {
+  marginTop: "8px",
+  minHeight: "72px",
+  padding: "12px 10px",
   display: "flex",
-  justifyContent: "space-between",
-  gap: "20px",
   alignItems: "center",
-  padding: "16px",
-  border: "1px solid #d1dae5",
+  justifyContent: "space-between",
+  gap: "16px",
   background: "#ffffff",
-  marginBottom: "10px",
+  border: "1px solid #d8dee7",
+};
+
+const title: React.CSSProperties = {
+  margin: 0,
+  fontSize: "16px",
+  lineHeight: 1.2,
+  fontWeight: 900,
+};
+
+const subtitle: React.CSSProperties = {
+  margin: "5px 0 0",
+  color: "#64748b",
+  fontSize: "12px",
+  lineHeight: 1.5,
 };
 
 const headerActions: React.CSSProperties = {
   display: "flex",
-  gap: "8px",
   alignItems: "center",
+  gap: "8px",
 };
 
-const panel: React.CSSProperties = {
-  border: "1px solid #d1dae5",
-  background: "#ffffff",
-  marginBottom: "10px",
+const primaryButton: React.CSSProperties = {
+  minHeight: "38px",
+  padding: "0 15px",
+  background: "#0f1f33",
+  color: "#ffffff",
+  fontSize: "12px",
+  fontWeight: 900,
+  border: "1px solid #07111f",
+  cursor: "pointer",
 };
 
-const panelHeading: React.CSSProperties = {
+const disabledPrimaryButton: React.CSSProperties = {
+  opacity: 0.55,
+  cursor: "not-allowed",
+};
+
+const messageBar: React.CSSProperties = {
+  marginTop: "8px",
+  minHeight: "38px",
+  padding: "9px 10px",
   display: "flex",
   alignItems: "center",
-  gap: "10px",
-  padding: "13px 14px",
-  borderBottom: "1px solid #d1dae5",
-};
-
-const numberBox: React.CSSProperties = {
-  width: "28px",
-  height: "28px",
-  display: "grid",
-  placeItems: "center",
-  border: "1px solid #cbd5e1",
-  fontSize: "9px",
+  fontSize: "12px",
   fontWeight: 900,
+  border: "1px solid",
 };
 
-const title: React.CSSProperties = {
-  margin: "2px 0 4px",
-  fontSize: "22px",
-  lineHeight: 1.1,
+const successMessageBar: React.CSSProperties = {
+  color: "#166534",
+  background: "#ecfdf3",
+  borderColor: "#bbf7d0",
+};
+
+const errorMessageBar: React.CSSProperties = {
+  color: "#991b1b",
+  background: "#fef2f2",
+  borderColor: "#fecaca",
+};
+
+const secondaryButton: React.CSSProperties = {
+  minHeight: "36px",
+  padding: "0 14px",
+  display: "inline-flex",
+  alignItems: "center",
+  background: "#ffffff",
+  color: "#0f1f33",
+  textDecoration: "none",
+  fontSize: "12px",
+  fontWeight: 900,
+  border: "1px solid #cbd5e1",
+};
+
+const flightMapPanel: React.CSSProperties = {
+  marginTop: "8px",
+  background: "#ffffff",
+  border: "1px solid #d8dee7",
+};
+
+const flightMapTitleRow: React.CSSProperties = {
+  padding: "12px 10px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  borderBottom: "1px solid #d8dee7",
 };
 
 const sectionTitle: React.CSSProperties = {
   margin: 0,
-  fontSize: "15px",
+  fontSize: "16px",
+  fontWeight: 900,
 };
 
-const muted: React.CSSProperties = {
-  color: "#5e718a",
+const sectionSubtitle: React.CSSProperties = {
+  margin: "5px 0 0",
+  color: "#64748b",
+  fontSize: "12px",
+};
+
+const draftBadge: React.CSSProperties = {
+  minHeight: "24px",
+  padding: "0 9px",
+  display: "inline-flex",
+  alignItems: "center",
+  color: "#475569",
+  background: "#f8fafc",
+  border: "1px solid #cbd5e1",
   fontSize: "10px",
-  marginTop: "3px",
-};
-
-const mutedSmall: React.CSSProperties = {
-  color: "#64748b",
-  fontSize: "8px",
-  marginTop: "3px",
-};
-
-const miniLabel: React.CSSProperties = {
-  display: "block",
-  color: "#64748b",
-  fontSize: "8px",
   fontWeight: 900,
-  letterSpacing: "0.06em",
-  marginBottom: "4px",
 };
 
-const formGrid3: React.CSSProperties = {
+const flightMap: React.CSSProperties = {
+  padding: "12px 10px",
   display: "grid",
-  gridTemplateColumns: "1.4fr 1fr 1fr",
-  gap: "10px",
-  padding: "14px 14px 0",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: "8px 18px",
 };
 
-const formGrid2: React.CSSProperties = {
+const flightStep: React.CSSProperties = {
+  minHeight: "36px",
   display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: "10px",
-  padding: "14px 14px 0",
+  gridTemplateColumns: "26px minmax(0, 1fr)",
+  alignItems: "center",
+  columnGap: "8px",
 };
 
-const field: React.CSSProperties = {
+const stepMarker: React.CSSProperties = {
+  width: "24px",
+  height: "24px",
   display: "flex",
-  flexDirection: "column",
-  gap: "5px",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#64748b",
+  background: "#ffffff",
+  border: "1px solid #cbd5e1",
+  borderRadius: "50%",
+  fontSize: "10px",
+  fontWeight: 900,
 };
 
-const fieldLabel: React.CSSProperties = {
-  fontSize: "9px",
+const activeStepMarker: React.CSSProperties = {
+  color: "#ffffff",
+  background: "#2457d6",
+  borderColor: "#2457d6",
+};
+
+const stepLabel: React.CSSProperties = {
+  color: "#64748b",
+  fontSize: "11px",
+  fontWeight: 800,
+};
+
+const activeStepLabel: React.CSSProperties = {
+  color: "#0f1f33",
   fontWeight: 900,
-  color: "#31445c",
+};
+
+const workspace: React.CSSProperties = {
+  marginTop: "8px",
+  display: "grid",
+  gridTemplateColumns: "390px minmax(0, 1fr)",
+  gap: "8px",
+  alignItems: "start",
+};
+
+const formPanel: React.CSSProperties = {
+  background: "#ffffff",
+  border: "1px solid #d8dee7",
+};
+
+const previewPanel: React.CSSProperties = {
+  minWidth: 0,
+  background: "#ffffff",
+  border: "1px solid #d8dee7",
+};
+
+const panelHeader: React.CSSProperties = {
+  padding: "12px 10px",
+  borderBottom: "1px solid #d8dee7",
+};
+
+const formBody: React.CSSProperties = {
+  padding: "12px 10px 14px",
+};
+
+const fieldGroup: React.CSSProperties = {
+  marginBottom: "11px",
+};
+
+const label: React.CSSProperties = {
+  display: "block",
+  marginBottom: "5px",
+  color: "#334155",
+  fontSize: "11px",
+  fontWeight: 900,
 };
 
 const input: React.CSSProperties = {
-  minHeight: "38px",
-  padding: "8px 10px",
-  border: "1px solid #c9d4e2",
+  width: "100%",
+  minHeight: "36px",
+  padding: "7px 9px",
+  boxSizing: "border-box",
   background: "#ffffff",
+  color: "#0f1f33",
+  border: "1px solid #cbd5e1",
   borderRadius: 0,
-  fontSize: "11px",
-  color: "#10233a",
+  fontSize: "12px",
+  outline: "none",
 };
 
-const compactInput: React.CSSProperties = {
-  minHeight: "34px",
-  width: "100%",
-  padding: "6px 8px",
-  border: "1px solid #c9d4e2",
-  borderRadius: 0,
-  fontSize: "10px",
-  color: "#10233a",
-  background: "#ffffff",
+const readOnlyInput: React.CSSProperties = {
+  ...input,
+  background: "#f8fafc",
+  color: "#64748b",
 };
 
 const textarea: React.CSSProperties = {
   ...input,
-  minHeight: "78px",
-  margin: "0 14px 14px",
-  width: "calc(100% - 28px)",
+  minHeight: "88px",
   resize: "vertical",
+  fontFamily: "inherit",
+};
+
+const twoColumnGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: "10px",
 };
 
 const checkboxRow: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "7px",
-  padding: "12px 14px",
-  fontSize: "10px",
-  fontWeight: 800,
+  gap: "8px",
+  margin: "0 0 13px",
 };
 
-const tableHeader: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1.35fr 1fr 180px 180px 120px",
-  gap: "10px",
-  padding: "9px 12px",
-  borderBottom: "1px solid #d1dae5",
-  background: "#f5f7fa",
-  fontSize: "8px",
+const checkboxLabel: React.CSSProperties = {
+  color: "#334155",
+  fontSize: "11px",
   fontWeight: 900,
-  color: "#586b84",
 };
 
-const tableRow: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1.35fr 1fr 180px 180px 120px",
-  gap: "10px",
-  alignItems: "center",
-  padding: "10px 12px",
-  borderBottom: "1px solid #e1e6ed",
-  fontSize: "10px",
+const dividerLine: React.CSSProperties = {
+  height: "1px",
+  margin: "4px 0 13px",
+  background: "#e2e8f0",
 };
 
-const allocationSummary: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-  borderTop: "1px solid #d1dae5",
-  marginTop: "8px",
+const previewViewport: React.CSSProperties = {
+  padding: "12px",
+  overflow: "hidden",
+  background: "#f8fafc",
 };
 
-const savedRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  padding: "12px 14px",
-  borderBottom: "1px solid #e1e6ed",
-  fontSize: "10px",
+const certificateCanvas: React.CSSProperties = {
+  position: "relative",
+  width: "100%",
+  aspectRatio: "1.414 / 1",
+  overflow: "hidden",
+  background: "#ffffff",
+  boxShadow: "0 3px 12px rgba(15, 31, 51, 0.12)",
 };
 
-const emptyState: React.CSSProperties = {
+const certificateBackground: React.CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+};
+
+const certificateNumberText: React.CSSProperties = {
+  position: "absolute",
+  top: "5.8%",
+  right: "7.2%",
+  color: "#364152",
+  fontSize: "1.05vw",
+  fontWeight: 700,
+};
+
+const companyName: React.CSSProperties = {
+  position: "absolute",
+  top: "12%",
+  left: "17%",
+  right: "12%",
+  textAlign: "center",
+  color: "#111827",
+  fontFamily: "Georgia, 'Times New Roman', serif",
+  fontSize: "2vw",
+  fontWeight: 700,
+  letterSpacing: "0.04em",
+};
+
+const registrationText: React.CSSProperties = {
+  position: "absolute",
+  top: "19%",
+  left: "18%",
+  right: "12%",
+  textAlign: "center",
+  color: "#4b5563",
+  fontSize: "0.9vw",
+};
+
+const certificateHeading: React.CSSProperties = {
+  position: "absolute",
+  top: "27%",
+  left: "18%",
+  right: "12%",
+  textAlign: "center",
+  color: "#1f2937",
+  fontFamily: "Georgia, 'Times New Roman', serif",
+  fontSize: "2.3vw",
+  fontWeight: 700,
+  letterSpacing: "0.14em",
+};
+
+const certificateTextArea: React.CSSProperties = {
+  position: "absolute",
+  top: "36.5%",
+  left: "13.5%",
+  right: "8.5%",
+  bottom: "7.5%",
   display: "flex",
   flexDirection: "column",
-  gap: "6px",
-  padding: "18px 14px",
-  color: "#64748b",
-  fontSize: "10px",
+  justifyContent: "flex-start",
 };
 
-const primaryButton: React.CSSProperties = {
-  display: "inline-block",
-  padding: "11px 15px",
-  border: "1px solid #10233a",
-  background: "#10233a",
-  color: "#ffffff",
-  textDecoration: "none",
-  fontSize: "10px",
-  fontWeight: 900,
-  cursor: "pointer",
-  borderRadius: 0,
+const certificateBody: React.CSSProperties = {
+  color: "#374151",
+  textAlign: "center",
+  fontFamily: "Georgia, 'Times New Roman', serif",
+  fontSize: "1vw",
+  lineHeight: 1.4,
 };
 
-const secondaryButton: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 13px",
-  border: "1px solid #c9d4e2",
-  background: "#ffffff",
-  color: "#10233a",
-  textDecoration: "none",
-  fontSize: "9px",
-  fontWeight: 900,
-  borderRadius: 0,
+const shareholderText: React.CSSProperties = {
+  color: "#111827",
+  textAlign: "center",
+  fontFamily: "Georgia, 'Times New Roman', serif",
+  fontSize: "1.55vw",
+  fontWeight: 700,
+  letterSpacing: "0.04em",
+  borderBottom: "1px solid #9ca3af",
+  paddingBottom: "0.35vw",
+  margin: "0.55vw 3vw",
 };
 
-const textLink: React.CSSProperties = {
-  color: "#1758d5",
-  fontSize: "9px",
-  fontWeight: 900,
-  textDecoration: "none",
+const shareCountText: React.CSSProperties = {
+  color: "#111827",
+  textAlign: "center",
+  fontFamily: "Georgia, 'Times New Roman', serif",
+  fontSize: "1.15vw",
+  fontWeight: 700,
+  margin: "0.5vw 2.5vw",
 };
 
-const textButton: React.CSSProperties = {
-  border: 0,
-  background: "transparent",
-  padding: 0,
-  color: "#1758d5",
-  fontSize: "9px",
-  fontWeight: 900,
-  cursor: "pointer",
-  textAlign: "left",
+const smallCertificateLine: React.CSSProperties = {
+  color: "#374151",
+  textAlign: "center",
+  fontFamily: "Georgia, 'Times New Roman', serif",
+  fontSize: "0.76vw",
+  lineHeight: 1.3,
+  marginTop: "0.22vw",
 };
 
-const successBanner: React.CSSProperties = {
-  padding: "11px 13px",
-  border: "1px solid #b7efc9",
-  background: "#ecfdf3",
-  color: "#166534",
-  fontSize: "10px",
-  fontWeight: 900,
-  marginBottom: "10px",
+const restrictionText: React.CSSProperties = {
+  color: "#6b7280",
+  textAlign: "center",
+  fontFamily: "Georgia, 'Times New Roman', serif",
+  fontSize: "0.7vw",
+  lineHeight: 1.28,
+  margin: "0.35vw 1.2vw 0",
 };
 
-const errorBanner: React.CSSProperties = {
-  padding: "11px 13px",
-  border: "1px solid #fecaca",
-  background: "#fff1f2",
-  color: "#991b1b",
-  fontSize: "10px",
-  fontWeight: 900,
-  marginBottom: "10px",
+const issueText: React.CSSProperties = {
+  marginTop: "0.35vw",
+  color: "#374151",
+  textAlign: "center",
+  fontFamily: "Georgia, 'Times New Roman', serif",
+  fontSize: "0.9vw",
 };
 
-const warningBanner: React.CSSProperties = {
-  padding: "10px 12px",
-  borderTop: "1px solid #fde68a",
-  background: "#fffbeb",
-  color: "#92400e",
-  fontSize: "9px",
-  fontWeight: 900,
+const signatureGrid: React.CSSProperties = {
+  position: "absolute",
+  left: 0,
+  right: 0,
+  bottom: 0,
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: "4vw",
+};
+
+const signatureBlock: React.CSSProperties = {
+  textAlign: "center",
+};
+
+const signatureLine: React.CSSProperties = {
+  height: "1px",
+  background: "#6b7280",
+};
+
+const signatureName: React.CSSProperties = {
+  marginTop: "0.3vw",
+  minHeight: "0.75vw",
+  color: "#111827",
+  fontSize: "0.78vw",
+  fontWeight: 700,
+};
+
+const signatureCaption: React.CSSProperties = {
+  marginTop: "0.1vw",
+  color: "#6b7280",
+  fontSize: "0.66vw",
 };

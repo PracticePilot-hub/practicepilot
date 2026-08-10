@@ -15,6 +15,10 @@ type UserProfile = {
   access_enabled: boolean;
 };
 
+type CurrentProfileResult =
+  | { profile: UserProfile; response: null }
+  | { profile: null; response: NextResponse };
+
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey =
@@ -48,12 +52,12 @@ function isGlobalAdmin(role: string) {
 async function getCurrentProfile(
   request: Request,
   supabase: ReturnType<typeof getSupabaseAdmin>
-) {
+): Promise<CurrentProfileResult> {
   const token = getBearerToken(request);
 
   if (!token) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json(
         { success: false, error: "Not authenticated." },
         { status: 401 }
@@ -68,7 +72,7 @@ async function getCurrentProfile(
 
   if (userError || !user) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json(
         { success: false, error: "Not authenticated." },
         { status: 401 }
@@ -94,7 +98,7 @@ async function getCurrentProfile(
 
   if (profileError || !profile) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json(
         { success: false, error: "Could not load user profile." },
         { status: 403 }
@@ -106,7 +110,7 @@ async function getCurrentProfile(
 
   if (!current.access_enabled) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json(
         { success: false, error: "User access is blocked." },
         { status: 403 }
@@ -114,7 +118,7 @@ async function getCurrentProfile(
     };
   }
 
-  return { profile: current, response: null as NextResponse | null };
+  return { profile: current, response: null };
 }
 
 function canAccessOrganisation(
@@ -232,7 +236,7 @@ function buildBillingRows(args: {
   });
 }
 
-export async function GET(request: Request, context: any) {
+export async function GET(request: Request, context: any): Promise<NextResponse> {
   const supabase = getSupabaseAdmin();
 
   try {
@@ -245,8 +249,13 @@ export async function GET(request: Request, context: any) {
       );
     }
 
-    const { profile, response } = await getCurrentProfile(request, supabase);
-    if (response || !profile) return response;
+    const authResult = await getCurrentProfile(request, supabase);
+
+    if (authResult.response) {
+      return authResult.response;
+    }
+
+    const profile = authResult.profile;
 
     const { data: engagement, error: engagementError } = await supabase
       .from("engagements")
@@ -321,7 +330,7 @@ export async function GET(request: Request, context: any) {
   }
 }
 
-export async function PATCH(request: Request, context: any) {
+export async function PATCH(request: Request, context: any): Promise<NextResponse> {
   const supabase = getSupabaseAdmin();
 
   try {
@@ -334,8 +343,13 @@ export async function PATCH(request: Request, context: any) {
       );
     }
 
-    const { profile, response } = await getCurrentProfile(request, supabase);
-    if (response || !profile) return response;
+    const authResult = await getCurrentProfile(request, supabase);
+
+    if (authResult.response) {
+      return authResult.response;
+    }
+
+    const profile = authResult.profile;
 
     const { data: engagement, error: engagementError } = await supabase
       .from("engagements")

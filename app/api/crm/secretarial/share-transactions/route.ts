@@ -13,6 +13,10 @@ type UserProfile = {
   can_access_secretarial: boolean | null;
 };
 
+type CurrentProfileResult =
+  | { profile: UserProfile; response: null }
+  | { profile: null; response: NextResponse };
+
 type Body = {
   clientId?: string;
   transactionType?: "transfer" | "cancellation";
@@ -50,12 +54,15 @@ function isAdmin(role: string) {
   return role === "Super Admin" || role === "Admin";
 }
 
-async function currentProfile(request: Request, supabase: ReturnType<typeof adminClient>) {
+async function currentProfile(
+  request: Request,
+  supabase: ReturnType<typeof adminClient>
+): Promise<CurrentProfileResult> {
   const token = bearer(request);
 
   if (!token) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
     };
   }
@@ -67,7 +74,7 @@ async function currentProfile(request: Request, supabase: ReturnType<typeof admi
 
   if (authError || !user) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
     };
   }
@@ -82,7 +89,7 @@ async function currentProfile(request: Request, supabase: ReturnType<typeof admi
 
   if (error || !data) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json({ error: "User profile not found." }, { status: 403 }),
     };
   }
@@ -94,7 +101,7 @@ async function currentProfile(request: Request, supabase: ReturnType<typeof admi
     (!isAdmin(profile.role) && !profile.can_access_secretarial)
   ) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json(
         { error: "You do not have access to Secretarial." },
         { status: 403 }
@@ -102,7 +109,7 @@ async function currentProfile(request: Request, supabase: ReturnType<typeof admi
     };
   }
 
-  return { profile, response: null as NextResponse | null };
+  return { profile, response: null };
 }
 
 function numberValue(value: unknown) {
@@ -257,12 +264,17 @@ async function createShareTransactionResolution(args: {
   return data;
 }
 
-export async function POST(request: Request) {
+export async function POST(request: Request): Promise<NextResponse> {
   const supabase = adminClient();
 
   try {
-    const { profile, response } = await currentProfile(request, supabase);
-    if (response || !profile) return response;
+    const authResult = await currentProfile(request, supabase);
+
+    if (authResult.response) {
+      return authResult.response;
+    }
+
+    const profile = authResult.profile;
 
     const body = (await request.json()) as Body;
 
