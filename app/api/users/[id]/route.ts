@@ -99,6 +99,10 @@ export async function PATCH(req: Request, context: any) {
     updateData.can_access_paia = Boolean(body.canAccessPaia);
   }
 
+  if (body.canAccessProposals !== undefined) {
+    updateData.can_access_proposals = Boolean(body.canAccessProposals);
+  }
+
   if (body.canEditProjects !== undefined) {
     updateData.can_edit_projects = Boolean(body.canEditProjects);
   }
@@ -121,6 +125,7 @@ export async function PATCH(req: Request, context: any) {
       updateData.can_access_budgeting = true;
       updateData.can_access_management_reports = true;
       updateData.can_access_paia = true;
+      updateData.can_access_proposals = true;
     }
 
     if (nextRole === "Client Viewer") {
@@ -133,15 +138,19 @@ export async function PATCH(req: Request, context: any) {
       updateData.can_access_budgeting = false;
       updateData.can_access_management_reports = false;
       updateData.can_access_paia = false;
+      updateData.can_access_proposals = false;
     }
 
     if (nextRole === "Client Manager") {
-  // Client Managers may be given module access, but the tick boxes must remain the source of truth.
-  // Do not force Projects on just because the role is Client Manager.
-  if (body.canEditProjects === undefined && updateData.can_access_projects === false) {
-    updateData.can_edit_projects = false;
-  }
-}
+      // Client Managers may be given module access, but the tick boxes remain
+      // the source of truth. Do not force Projects or Proposals on by role.
+      if (
+        body.canEditProjects === undefined &&
+        updateData.can_access_projects === false
+      ) {
+        updateData.can_edit_projects = false;
+      }
+    }
   }
 
   if (updateData.can_access_projects === false) {

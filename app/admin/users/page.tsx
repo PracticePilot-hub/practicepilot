@@ -30,6 +30,7 @@ type UserProfile = {
   can_access_secretarial?: boolean;
   can_access_management_reports?: boolean;
   can_access_paia?: boolean;
+  can_access_proposals?: boolean;
 
   organisations?: {
     id: string;
@@ -44,7 +45,8 @@ type ModuleKey =
   | "secretarial"
   | "projects"
   | "managementReports"
-  | "paia";
+  | "paia"
+  | "proposals";
 
 type ModuleAccessState = Record<ModuleKey, boolean>;
 
@@ -81,6 +83,7 @@ const moduleOptions: { key: ModuleKey; label: string }[] = [
   { key: "projects", label: "Projects" },
   { key: "managementReports", label: "Management Reports" },
   { key: "paia", label: "PAIA Manuals" },
+  { key: "proposals", label: "Proposals" },
 ];
 
 const emptyModules: ModuleAccessState = {
@@ -91,6 +94,7 @@ const emptyModules: ModuleAccessState = {
   projects: false,
   managementReports: false,
   paia: false,
+  proposals: false,
 };
 
 const allModules: ModuleAccessState = {
@@ -101,6 +105,7 @@ const allModules: ModuleAccessState = {
   projects: true,
   managementReports: true,
   paia: true,
+  proposals: true,
 };
 
 function isInternalRoleValue(value: string) {
@@ -120,6 +125,7 @@ function modulesFromUser(user: UserProfile): ModuleAccessState {
     projects: Boolean(user.can_access_projects),
     managementReports: Boolean(user.can_access_management_reports),
     paia: Boolean(user.can_access_paia),
+    proposals: Boolean(user.can_access_proposals),
   };
 }
 
@@ -366,6 +372,7 @@ async function loadSecurePage() {
         canAccessBudgeting: false,
         canAccessManagementReports: modules.managementReports,
         canAccessPaia: modules.paia,
+        canAccessProposals: modules.proposals,
       }),
     });
 
@@ -473,6 +480,7 @@ async function loadSecurePage() {
         canAccessBudgeting: false,
         canAccessManagementReports: editModules.managementReports,
         canAccessPaia: editModules.paia,
+        canAccessProposals: editModules.proposals,
       }),
     });
 
