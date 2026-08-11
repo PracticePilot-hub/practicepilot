@@ -25,6 +25,7 @@ type UserProfile = {
   can_access_projects?: boolean;
   can_access_management_reports?: boolean;
   can_access_paia?: boolean;
+  can_access_proposals?: boolean;
 };
 
 type NavItem = {
@@ -288,9 +289,7 @@ export default function TopNav() {
       {
         label: "Proposals",
         href: "/proposals",
-        show:
-          accessEnabled &&
-          (internal || role === "Client Manager"),
+        show: accessEnabled && Boolean(profile?.can_access_proposals),
       },
       {
         label: "Accounting",
