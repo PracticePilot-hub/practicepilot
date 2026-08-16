@@ -180,29 +180,11 @@ export default function AdminUsersPage() {
       setOrganisationId("");
     }
 
+    // Module access is independent from role.
+    // Only PracticePilot admin roles automatically receive all modules.
     if (isAdminRole) {
       setModules(allModules);
       setCanEditProjects(true);
-      return;
-    }
-
-    if (role === "Staff") {
-      setCanEditProjects(false);
-      return;
-    }
-
-    if (role === "Client Viewer") {
-      setCanEditProjects(false);
-      setModules(emptyModules);
-      return;
-    }
-
-    if (role === "Client Manager") {
-      setCanEditProjects(true);
-      setModules({
-        ...emptyModules,
-        projects: true,
-      });
     }
   }, [role, isInternalRole, isAdminRole]);
 
@@ -211,28 +193,12 @@ export default function AdminUsersPage() {
       setEditOrganisationId("");
     }
 
+    // Never replace a user's saved module permissions merely because
+    // the Edit form loaded their role. The checkboxes must reflect
+    // modulesFromUser(user) exactly.
     if (isEditAdminRole) {
       setEditModules(allModules);
       setEditCanEditProjects(true);
-      return;
-    }
-
-    if (editRole === "Staff") {
-      return;
-    }
-
-    if (editRole === "Client Viewer") {
-      setEditCanEditProjects(false);
-      setEditModules(emptyModules);
-      return;
-    }
-
-    if (editRole === "Client Manager") {
-      setEditCanEditProjects(true);
-      setEditModules({
-        ...emptyModules,
-        projects: true,
-      });
     }
   }, [editRole, isEditInternalRole, isEditAdminRole]);
 

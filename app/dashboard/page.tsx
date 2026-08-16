@@ -30,8 +30,7 @@ function isInternalRole(role: string) {
   return (
     role === "Super Admin" ||
     role === "Admin" ||
-    role === "Staff" ||
-    role === "Client Manager"
+    role === "Staff"
   );
 }
 
