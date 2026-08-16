@@ -55,7 +55,7 @@ function fieldStyle() {
     textAlign: "right" as const,
     background: "#EAF3FF",
     outlineColor: "#2563EB",
-    color: "#111827",
+    color: "#111827", 
   };
 }
 
@@ -576,16 +576,9 @@ export default function AfsStatementOverrideSettings({
 
             <div style={sectionTitleStyle()}>Financing activities</div>
             <CashField
-              label="Shareholder loans raised"
+              label="Directors / shareholders loan movement"
               currentKey="cashLoansRaisedCurrent"
               priorKey="cashLoansRaisedPrior"
-              overrides={overrides}
-              onChange={onChange}
-            />
-            <CashField
-              label="Shareholder loans repaid"
-              currentKey="cashLoansRepaidCurrent"
-              priorKey="cashLoansRepaidPrior"
               overrides={overrides}
               onChange={onChange}
             />

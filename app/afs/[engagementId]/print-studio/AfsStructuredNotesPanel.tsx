@@ -2,6 +2,8 @@
 
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
+  buildSharedAssetFinanceRows,
+  buildSharedBankOverdraftRows,
   buildSharedOtherFinancialLiabilityRows,
   buildSharedShareholderLoanRows,
 } from "./AfsSharedStructuredNoteData";
@@ -93,30 +95,67 @@ type PpeTab =
 
 const NOTE_KEY_MAP: Record<string, string> = {
   notesPropertyPlantEquipment: "propertyPlantEquipment",
+  notesRightOfUseAssets: "rightOfUseAssets",
   notesGoodwill: "goodwill",
   notesInvestmentProperty: "investmentProperty",
   notesIntangibleAssets: "intangibleAssets",
   notesBiologicalAssets: "biologicalAssets",
+  notesInvestmentsSubsidiaries: "investmentsSubsidiaries",
+  notesInvestmentsAssociates: "investmentsAssociates",
+  notesInvestmentsJointVentures: "investmentsJointVentures",
+  notesOtherInvestments: "otherInvestments",
+  notesOtherFinancialAssets: "otherFinancialAssets",
   notesOtherNonCurrentAssets: "otherNonCurrentAssets",
   notesLoansReceivable: "loansReceivable",
   notesInventories: "inventories",
+  notesContractAssets: "contractAssets",
   notesTradeReceivables: "tradeReceivables",
+  notesTaxStatutoryReceivables: "taxStatutoryReceivables",
   notesCurrentTaxReceivable: "currentTaxReceivable",
   notesCashAndCashEquivalents: "cashAndCashEquivalents",
+  notesAssetsHeldForSale: "assetsHeldForSale",
+
   notesShareCapital: "shareCapital",
   notesRetainedIncome: "retainedIncome",
+  notesReserves: "reserves",
+  notesNonControllingInterests: "nonControllingInterests",
+  notesOtherEquity: "otherEquity",
+
+  notesProvisions: "provisions",
+  notesEmployeeBenefitObligations: "employeeBenefitObligations",
+  notesDeferredIncomeGrants: "deferredIncomeGrants",
+  notesGroupRelatedPartyBorrowings: "groupRelatedPartyBorrowings",
   notesShareholdersLoans: "shareholdersLoans",
+  notesBorrowings: "borrowings",
+  notesAssetFinance: "assetFinance",
+  notesLeaseLiabilities: "leaseLiabilities",
   notesOtherFinancialLiabilities: "otherFinancialLiabilities",
+  notesSupplierFinance: "supplierFinance",
+  notesDeferredTaxLiability: "deferredTax",
+  notesBankOverdraft: "bankOverdraft",
   notesTradePayables: "tradePayables",
+  notesContractLiabilities: "contractLiabilities",
+  notesDividendPayable: "dividendPayable",
+  notesTaxStatutoryPayables: "taxStatutoryPayables",
   notesCurrentTaxPayable: "currentTaxPayable",
+  notesLiabilitiesHeldForSale: "liabilitiesHeldForSale",
+
   notesRevenue: "revenue",
-  notesOtherIncome: "otherIncome",
+  notesCostOfSales: "costOfSales",
+  notesOtherOperatingIncome: "otherOperatingIncome",
+  notesInvestmentIncome: "investmentIncome",
   notesOperatingExpenses: "operatingExpenses",
   notesFinanceCosts: "financeCosts",
+  notesOtherGainsLosses: "otherGainsLosses",
   notesTaxation: "taxation",
+  notesOtherComprehensiveIncome: "otherComprehensiveIncome",
+  notesDiscontinuedOperations: "discontinuedOperations",
+
   notesCashUsedInOperations: "cashUsedInOperations",
   notesGoingConcern: "goingConcern",
   notesRelatedParties: "relatedParties",
+  notesCommitmentsContingencies: "commitmentsContingencies",
+  notesEventsAfterReportingPeriod: "eventsAfterReportingPeriod",
 };
 
 const DEFAULT_PPE_ROWS: PpeRow[] = [
@@ -151,12 +190,6 @@ const DEFAULT_PPE_ROWS: PpeRow[] = [
   {
     key: "leaseholdImprovements",
     label: "Leasehold improvements",
-    current: {},
-    prior: {},
-  },
-  {
-    key: "rightOfUseAssets",
-    label: "Right-of-use assets",
     current: {},
     prior: {},
   },
@@ -202,27 +235,22 @@ function clean(value: unknown) {
 }
 
 function mappingStartsWith(line: any, prefixes: string[]) {
-  const values = [
-    line.mapping_code,
-    line.lead_schedule_number,
-    line.lead_schedule_key,
-    line.mapping_leaf_id,
-  ]
-    .map((value) => String(value || "").trim().toLowerCase())
-    .filter(Boolean);
+  /*
+    NON-NEGOTIABLE:
+    Structured-note classification is driven by mapping_code only.
+  */
+  const value = String(line?.mapping_code || "").trim().toLowerCase();
+  if (!value) return false;
 
-  return values.some((value) =>
-    prefixes.some((prefix) => {
-      const cleanPrefix = String(prefix || "").trim().toLowerCase();
-      return (
-        value === cleanPrefix ||
-        value.startsWith(`${cleanPrefix}.`) ||
-        value.startsWith(`${cleanPrefix} `) ||
-        value.includes(` ${cleanPrefix}.`) ||
-        value.includes(` ${cleanPrefix} `)
-      );
-    })
-  );
+  return prefixes.some((prefix) => {
+    const cleanPrefix = String(prefix || "").trim().toLowerCase();
+    return (
+      value === cleanPrefix ||
+      value.startsWith(`${cleanPrefix}.`) ||
+      value.startsWith(`${cleanPrefix}-`) ||
+      value.startsWith(`${cleanPrefix} `)
+    );
+  });
 }
 
 
@@ -258,38 +286,11 @@ function lineAmount(line: any, period: "current" | "prior") {
 }
 
 function isPpeLine(line: any) {
-  const text = [
-    line.lead_schedule_key,
-    line.lead_schedule_number,
-    line.mapping_code,
-    line.mapping_label,
-    line.mapping_path,
-    line.mapping_section,
-    line.mapping_category,
-    line.account_name,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  return (
-    text.includes("ppe") ||
-    text.includes("property, plant") ||
-    text.includes("property plant") ||
-    text.includes("plant and equipment") ||
-    text.includes("305")
-  );
+  return mappingStartsWith(line, ["305"]);
 }
 
 function normalisedMappingCode(line: any) {
-  return clean(
-    line?.mapping_code ||
-      line?.lead_schedule_number ||
-      line?.lead_schedule_key ||
-      line?.mapping_leaf_id,
-  )
-    .replace(/^sfp[\s.:/-]*/i, "")
-    .replace(/^500[\s.:/-]*/i, "");
+  return clean(line?.mapping_code);
 }
 
 function ppeClassKeyFromLine(line: any) {
@@ -352,9 +353,6 @@ function ppeClassKeyFromLine(line: any) {
     { prefixes: ["305.132"], key: "otherPpe4", label: "Other PPE 4", balanceType: "accumulatedDepreciation" },
     { prefixes: ["305.133"], key: "otherPpe4", label: "Other PPE 4", balanceType: "impairment" },
 
-    { prefixes: ["306.10"], key: "rightOfUseAssets", label: "Right-of-use assets", balanceType: "cost" },
-    { prefixes: ["306.20"], key: "rightOfUseAssets", label: "Right-of-use assets", balanceType: "accumulatedDepreciation" },
-    { prefixes: ["306.30"], key: "rightOfUseAssets", label: "Right-of-use assets", balanceType: "impairment" },
   ];
 
   const match = codeMap.find((entry) =>
@@ -525,6 +523,18 @@ function buildPpeRows(lines: any[], savedRows: PpeRow[] = []) {
 
     const row = map.get(klass.key);
     if (!row) return;
+
+    /*
+      Other PPE 1-4 may be renamed in Mapping using the
+      "Financial statement description" field. Pull that saved mapping_label
+      through to the PPE note.
+    */
+    if (
+      String(klass.key).startsWith("otherPpe") &&
+      clean(line?.mapping_label)
+    ) {
+      row.label = clean(line.mapping_label);
+    }
 
     const currentClosing = lineAmount(line, "current");
     const priorClosing = lineAmount(line, "prior");
@@ -799,7 +809,7 @@ function isShareholderLoanLine(line: any) {
     548 / 500.548 = shareholder / director / member loans.
     Do not include accounts because of account names or wording.
   */
-  return mappingStartsWith(line, ["548", "500.548"]);
+  return mappingStartsWith(line, ["548"]);
 }
 
 function shareholderLoanLabel(line: any) {
@@ -1624,7 +1634,14 @@ function PpeStructuredNote({
             </TabButton>
           </div>
 
-          {tab === "summary" ? <PpeSummaryTable rows={populatedRows} /> : null}
+          {tab === "summary" ? (
+            <PpeSummaryTable
+              rows={populatedRows}
+              edit
+              state={state}
+              update={update}
+            />
+          ) : null}
           {tab === "current-cost" ? (
             <PpeMovementEditor
               rows={populatedRows}
@@ -1753,7 +1770,17 @@ function TabButton({
   );
 }
 
-function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
+function PpeSummaryTable({
+  rows,
+  edit = false,
+  state,
+  update,
+}: {
+  rows: PpeRow[];
+  edit?: boolean;
+  state?: StructuredState;
+  update?: (path: string[], value: any) => void;
+}) {
   const { currentHeading, priorHeading } = useNotesDisplay();
 
   return (
@@ -1790,7 +1817,25 @@ function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
         {rows.map((row) => (
           <tr key={row.key}>
             <td style={styles.tdLeft}>
-              {displayNoteLineLabel(row.label)}
+              {edit && String(row.key).startsWith("otherPpe") && update ? (
+                <input
+                  type="text"
+                  value={row.label}
+                  onChange={(event) =>
+                    update(
+                      ["ppeClassLabels", row.key],
+                      event.target.value,
+                    )
+                  }
+                  style={{
+                    ...inputStyle(),
+                    padding: "2px 4px",
+                    fontSize: 10.2,
+                  }}
+                />
+              ) : (
+                displayNoteLineLabel(row.label)
+              )}
             </td>
             <td style={styles.tdRight}>
               {amount(closingCost(row.current))}
@@ -1914,7 +1959,25 @@ function PpeMovementEditor({
                   lineHeight: 1.2,
                 }}
               >
-                {displayNoteLineLabel(row.label)}
+                {String(row.key).startsWith("otherPpe") ? (
+                  <input
+                    type="text"
+                    value={row.label}
+                    onChange={(event) =>
+                      update(
+                        ["ppeClassLabels", row.key],
+                        event.target.value,
+                      )
+                    }
+                    style={{
+                      ...inputStyle(),
+                      padding: "2px 4px",
+                      fontSize: 10.2,
+                    }}
+                  />
+                ) : (
+                  displayNoteLineLabel(row.label)
+                )}
               </td>
               {movements.map((movement) => (
                 <PpeInput
@@ -2909,6 +2972,272 @@ const terms =
   );
 }
 
+
+function MappedBorrowingNote({
+  rows,
+  trialBalanceLines,
+  edit,
+  state,
+  update,
+  stateKey,
+  buildRows,
+  defaultTerms,
+  relationshipLabel = "Lender / facility type",
+}: {
+  rows: AmountLine[];
+  trialBalanceLines: any[];
+  edit: boolean;
+  state: StructuredState;
+  update: (path: string[], value: any) => void;
+  stateKey: string;
+  buildRows: (trialBalanceLines: any[], fallbackRows?: AmountLine[]) => AmountLine[];
+  defaultTerms: string;
+  relationshipLabel?: string;
+}) {
+  const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
+  const visibleRows = splitRows(buildRows(trialBalanceLines, rows));
+  const totalCurrent = visibleRows.reduce(
+    (sum, row) => sum + toNumber(row.current),
+    0,
+  );
+  const totalPrior = visibleRows.reduce(
+    (sum, row) => sum + toNumber(row.prior),
+    0,
+  );
+
+  if (visibleRows.length === 0 && !edit) return null;
+
+  return (
+    <>
+      <table style={styles.table}>
+        <colgroup>
+          <col style={{ width: "auto" }} />
+          <col style={{ width: 76 }} />
+          {!hideComparatives ? <col style={{ width: 76 }} /> : null}
+        </colgroup>
+        <thead>
+          <tr>
+            <th style={styles.thLeft}>Description</th>
+            <th style={styles.thRight}>{currentHeading}</th>
+            {!hideComparatives ? (
+              <th style={styles.thRight}>{priorHeading}</th>
+            ) : null}
+          </tr>
+        </thead>
+        <tbody>
+          {visibleRows.map((row, index) => {
+            const key = row.id || row.label || String(index);
+            const familyState = state?.[stateKey] || {};
+            const savedLabel = familyState?.[key]?.label;
+            const displayLabel =
+              savedLabel !== undefined ? String(savedLabel) : row.label;
+
+            const savedTerms = familyState?.[key]?.terms;
+            const terms =
+              savedTerms !== undefined ? String(savedTerms) : defaultTerms;
+
+            const savedRelationship = familyState?.[key]?.relationship;
+            const relationship =
+              savedRelationship !== undefined ? String(savedRelationship) : "";
+
+            const interest = familyState?.[key]?.interest || "";
+            const repayment = familyState?.[key]?.repayment || "";
+            const security = familyState?.[key]?.security || "";
+
+            return (
+              <FragmentWithKey key={key}>
+                <tr>
+                  <td style={styles.tdLeft}>
+                    {edit ? (
+                      <input
+                        value={displayLabel}
+                        onChange={(event) =>
+                          update([stateKey, key, "label"], event.target.value)
+                        }
+                        style={inputStyle()}
+                      />
+                    ) : (
+                      displayLabel
+                    )}
+                  </td>
+                  <td style={styles.tdRight}>{amount(row.current)}</td>
+                  {!hideComparatives ? (
+                    <td style={styles.tdRight}>{amount(row.prior)}</td>
+                  ) : null}
+                </tr>
+                <tr>
+                  <td
+                    colSpan={hideComparatives ? 2 : 3}
+                    style={styles.loanTermsCell}
+                  >
+                    {edit ? (
+                      <div style={styles.loanTermsGrid}>
+                        <label>
+                          <span style={styles.smallLabel}>
+                            Terms for {displayLabel}
+                          </span>
+                          <input
+                            value={terms}
+                            onChange={(event) =>
+                              update([stateKey, key, "terms"], event.target.value)
+                            }
+                            style={inputStyle()}
+                          />
+                        </label>
+
+                        <label>
+                          <span style={styles.smallLabel}>
+                            {relationshipLabel}
+                          </span>
+                          <input
+                            value={relationship}
+                            onChange={(event) =>
+                              update(
+                                [stateKey, key, "relationship"],
+                                event.target.value,
+                              )
+                            }
+                            style={inputStyle()}
+                          />
+                        </label>
+
+                        <label>
+                          <span style={styles.smallLabel}>Interest</span>
+                          <input
+                            value={interest}
+                            onChange={(event) =>
+                              update(
+                                [stateKey, key, "interest"],
+                                event.target.value,
+                              )
+                            }
+                            style={inputStyle()}
+                          />
+                        </label>
+
+                        <label>
+                          <span style={styles.smallLabel}>Repayment</span>
+                          <input
+                            value={repayment}
+                            onChange={(event) =>
+                              update(
+                                [stateKey, key, "repayment"],
+                                event.target.value,
+                              )
+                            }
+                            style={inputStyle()}
+                          />
+                        </label>
+
+                        <label>
+                          <span style={styles.smallLabel}>Security</span>
+                          <input
+                            value={security}
+                            onChange={(event) =>
+                              update(
+                                [stateKey, key, "security"],
+                                event.target.value,
+                              )
+                            }
+                            style={inputStyle()}
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                      <div>
+                        {relationship ? (
+                          <p style={styles.paragraph}>
+                            {relationshipLabel}: {relationship}
+                          </p>
+                        ) : null}
+                        {terms ? <p style={styles.paragraph}>{terms}</p> : null}
+                        {interest ? (
+                          <p style={styles.paragraph}>Interest: {interest}</p>
+                        ) : null}
+                        {repayment ? (
+                          <p style={styles.paragraph}>
+                            Repayment terms: {repayment}
+                          </p>
+                        ) : null}
+                        {security ? (
+                          <p style={styles.paragraph}>Security: {security}</p>
+                        ) : null}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              </FragmentWithKey>
+            );
+          })}
+
+          {visibleRows.length > 0 ? (
+            <tr>
+              <td data-total-label="true" style={styles.totalLabel}>
+                &nbsp;
+              </td>
+              <td data-total-amount="true" style={styles.totalAmount}>
+                {amount(totalCurrent)}
+              </td>
+              {!hideComparatives ? (
+                <td data-total-amount="true" style={styles.totalAmount}>
+                  {amount(totalPrior)}
+                </td>
+              ) : null}
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+
+      {edit ? (
+        <EditableTextBlock
+          label="Additional disclosure wording"
+          value={state?.[stateKey]?.extraText || ""}
+          edit
+          onChange={(value) => update([stateKey, "extraText"], value)}
+        />
+      ) : state?.[stateKey]?.extraText ? (
+        <p style={styles.paragraph}>{state[stateKey].extraText}</p>
+      ) : null}
+    </>
+  );
+}
+
+function AssetFinanceNote(props: {
+  rows: AmountLine[];
+  trialBalanceLines: any[];
+  edit: boolean;
+  state: StructuredState;
+  update: (path: string[], value: any) => void;
+}) {
+  return (
+    <MappedBorrowingNote
+      {...props}
+      stateKey="assetFinance"
+      buildRows={buildSharedAssetFinanceRows}
+      defaultTerms="The asset finance liability is recognised in accordance with the underlying finance agreement."
+      relationshipLabel="Financier / facility type"
+    />
+  );
+}
+
+function BankOverdraftNote(props: {
+  rows: AmountLine[];
+  trialBalanceLines: any[];
+  edit: boolean;
+  state: StructuredState;
+  update: (path: string[], value: any) => void;
+}) {
+  return (
+    <MappedBorrowingNote
+      {...props}
+      stateKey="bankOverdraft"
+      buildRows={buildSharedBankOverdraftRows}
+      defaultTerms="The bank overdraft is repayable in accordance with the banking facility terms."
+      relationshipLabel="Bank / facility type"
+    />
+  );
+}
+
 function ShareholderLoansNote({
   rows,
   trialBalanceLines,
@@ -2958,14 +3287,19 @@ function ShareholderLoansNote({
           const key = row.id || row.label || String(index);
           const savedLabel = state.shareholderLoans?.[key]?.label || "";
           const displayLabel = savedLabel || row.label;
+          const savedTerms = state.shareholderLoans?.[key]?.terms;
           const terms =
-            state.shareholderLoans?.[key]?.terms ||
-            "The loan is unsecured, bears no interest and has no fixed repayment terms.";
+            savedTerms !== undefined
+              ? String(savedTerms)
+              : "The loan is unsecured, bears no interest and has no fixed repayment terms.";
           const interest = state.shareholderLoans?.[key]?.interest || "";
           const repayment = state.shareholderLoans?.[key]?.repayment || "";
           const security = state.shareholderLoans?.[key]?.security || "";
+          const savedRelationship = state.shareholderLoans?.[key]?.relationship;
           const relationship =
-            state.shareholderLoans?.[key]?.relationship || "Shareholder / director / member";
+            savedRelationship !== undefined
+              ? String(savedRelationship)
+              : "Shareholder / director / member";
 
           return (
             <FragmentWithKey key={key}>
@@ -3906,53 +4240,6 @@ function buildOperatingExpenseDetailRows(
   trialBalanceLines: any[],
   fallbackRows: AmountLine[],
 ): AmountLine[] {
-  const sourceRows: AmountLine[] = [];
-
-  (trialBalanceLines || []).forEach((line, index) => {
-    const text = operatingExpenseSearchText(line);
-
-    const excluded =
-      text.includes("cost of sales") ||
-      text.includes("cost-of-sales") ||
-      text.includes("taxation") ||
-      text.includes("income tax") ||
-      text.includes("tax expense") ||
-      text.includes("finance cost") ||
-      text.includes("interest expense") ||
-      text.includes("revenue") ||
-      text.includes("sales") ||
-      text.includes("turnover") ||
-      text.includes("other income") ||
-      text.includes("operating income");
-
-    const included =
-      text.includes("operating expense") ||
-      text.includes("operating expenses") ||
-      text.includes("expense");
-
-    if (!included || excluded) return;
-
-    const currentRaw = lineAmount(line, "current");
-    const priorRaw = lineAmount(line, "prior");
-    const current = currentRaw > 0 ? -Math.abs(currentRaw) : currentRaw;
-    const prior = priorRaw > 0 ? -Math.abs(priorRaw) : priorRaw;
-
-    if (roundAmount(current) === 0 && roundAmount(prior) === 0) return;
-
-    sourceRows.push({
-      id: String(line.account_code || line.id || `operating-expense-${index}`),
-      label:
-        clean(line.account_name) ||
-        clean(line.description) ||
-        clean(line.mapping_label) ||
-        `Operating expense ${index + 1}`,
-      current,
-      prior,
-    });
-  });
-
-  const rowsToGroup = sourceRows.length > 0 ? sourceRows : fallbackRows;
-
   const grouped = new Map<string, AmountLine>();
 
   const addToGroup = (
@@ -3961,113 +4248,61 @@ function buildOperatingExpenseDetailRows(
     current: number,
     prior: number,
   ) => {
-    const existing = grouped.get(id) || {
-      id,
-      label,
-      current: 0,
-      prior: 0,
-    };
-
+    const existing = grouped.get(id) || { id, label, current: 0, prior: 0 };
     existing.current += current;
     existing.prior += prior;
     grouped.set(id, existing);
   };
 
-  rowsToGroup.forEach((row) => {
-    const label = String(row.label || "").toLowerCase();
-    const current = toNumber(row.current);
-    const prior = toNumber(row.prior);
+  (trialBalanceLines || [])
+    .filter((line) => mappingStartsWith(line, ["750"]))
+    .forEach((line) => {
+      const code = normalisedMappingCode(line);
+      const currentRaw = lineAmount(line, "current");
+      const priorRaw = lineAmount(line, "prior");
+      const current = currentRaw > 0 ? -Math.abs(currentRaw) : currentRaw;
+      const prior = priorRaw > 0 ? -Math.abs(priorRaw) : priorRaw;
 
-    if (
-      label.includes("salary") ||
-      label.includes("salaries") ||
-      label.includes("wage") ||
-      label.includes("staff") ||
-      label.includes("employee") ||
-      label.includes("training") ||
-      label.includes("uniform")
-    ) {
-      addToGroup("employee-costs", "Employee costs", current, prior);
-      return;
-    }
+      if (roundAmount(current) === 0 && roundAmount(prior) === 0) return;
 
-    if (
-      label.includes("rent") ||
-      label.includes("cleaning") ||
-      label.includes("repair") ||
-      label.includes("maintenance") ||
-      label.includes("lease") ||
-      label.includes("leasing")
-    ) {
+      if (["750.20", "750.21", "750.28", "750.29"].some((p) => code === p || code.startsWith(`${p}.`))) {
+        addToGroup("employee-costs", "Employee costs", current, prior);
+        return;
+      }
+
+      if (["750.18", "750.19", "750.30", "750.31", "750.32", "750.33"].some((p) => code === p || code.startsWith(`${p}.`))) {
+        addToGroup("occupancy-costs", "Rent and occupancy costs", current, prior);
+        return;
+      }
+
+      if (["750.14", "750.141"].some((p) => code === p || code.startsWith(`${p}.`))) {
+        addToGroup("depreciation", "Depreciation and amortisation", current, prior);
+        return;
+      }
+
+      if (["750.10", "750.11", "750.16"].some((p) => code === p || code.startsWith(`${p}.`))) {
+        addToGroup("professional-fees", "Professional and consulting fees", current, prior);
+        return;
+      }
+
+      if (["750.40", "750.41"].some((p) => code === p || code.startsWith(`${p}.`))) {
+        addToGroup("advertising", "Advertising and promotion", current, prior);
+        return;
+      }
+
       addToGroup(
-        "occupancy-costs",
-        "Rent and occupancy costs",
+        code || "other-operating-expenses",
+        clean(line.mapping_label) || clean(line.account_name) || "Other operating expenses",
         current,
         prior,
       );
-      return;
-    }
+    });
 
-    if (label.includes("depreciation") || label.includes("amortisation")) {
-      addToGroup("depreciation", "Depreciation and amortisation", current, prior);
-      return;
-    }
+  const rows = Array.from(grouped.values())
+    .filter((row) => roundAmount(row.current) !== 0 || roundAmount(row.prior) !== 0)
+    .sort((a, b) => a.label.localeCompare(b.label));
 
-    if (label.includes("royalt")) {
-      addToGroup("royalties", "Royalties", current, prior);
-      return;
-    }
-
-    if (
-      label.includes("accounting") ||
-      label.includes("consult") ||
-      label.includes("legal") ||
-      label.includes("professional")
-    ) {
-      addToGroup(
-        "professional-fees",
-        "Professional and consulting fees",
-        current,
-        prior,
-      );
-      return;
-    }
-
-    if (label.includes("advert") || label.includes("promotion")) {
-      addToGroup(
-        "advertising",
-        "Advertising and promotion",
-        current,
-        prior,
-      );
-      return;
-    }
-
-    addToGroup(
-      "other-operating-expenses",
-      "Other operating expenses",
-      current,
-      prior,
-    );
-  });
-
-  const order = [
-    "employee-costs",
-    "occupancy-costs",
-    "depreciation",
-    "royalties",
-    "professional-fees",
-    "advertising",
-    "other-operating-expenses",
-  ];
-
-  return order
-    .map((key) => grouped.get(key))
-    .filter(
-      (row): row is AmountLine =>
-        Boolean(row) &&
-        (roundAmount(row?.current) !== 0 || roundAmount(row?.prior) !== 0),
-    );
+  return rows.length > 0 ? rows : fallbackRows;
 }
 
 function OperatingExpensesNote({
@@ -4224,60 +4459,124 @@ export default function AfsStructuredNotesPanel({
     onStructuredNotesStateChange,
   );
   const isEditing = mode === "edit" && !forceReviewMode;
-  const ppeRows = buildPpeRows(trialBalanceLines, state.ppeRows || []);
+
+  const ppeRows = buildPpeRows(trialBalanceLines, state.ppeRows || []).map(
+    (row) => {
+      const savedLabel =
+        state?.ppeClassLabels &&
+        typeof state.ppeClassLabels === "object"
+          ? clean(state.ppeClassLabels[row.key])
+          : "";
+
+      return savedLabel ? { ...row, label: savedLabel } : row;
+    },
+  );
 
   const sectionKeySignature = (sectionKeys || []).join("|");
 
   const sectionsWithNumbers = useMemo(() => {
     let noteNumber = 0;
 
+    const hasMappedTrialBalance = (prefixes: string[]) =>
+      (trialBalanceLines || []).some(
+        (line: any) =>
+          mappingStartsWith(line, prefixes) &&
+          (Math.round(lineAmount(line, "current")) !== 0 ||
+            Math.round(lineAmount(line, "prior")) !== 0),
+      );
+
+    const goingConcernHasContent = Object.values(
+      state.goingConcernAssessment || {},
+    ).some((item) => String(item || "").trim());
+
+    const relatedPartiesHaveContent = (
+      Array.isArray(state.relatedPartyRows) ? state.relatedPartyRows : []
+    ).some((row: any) =>
+      [
+        row?.name,
+        row?.relationship,
+        row?.transaction,
+        row?.current,
+        row?.prior,
+        row?.terms,
+        row?.interest,
+        row?.security,
+        row?.commitments,
+      ].some((item) => String(item ?? "").trim()),
+    );
+
+    const commitmentsHaveContent = Object.values(
+      state.commitmentsContingencies || {},
+    ).some((item) => String(item ?? "").trim());
+
+    const eventsAfterReportingHaveContent = Object.values(
+      state.eventsAfterReportingPeriod || {},
+    ).some((item) => String(item ?? "").trim());
+
     const numberedSections = noteSections
       .map((section) => {
         const configuredActive = Boolean(reportOptions[section.optionKey]);
         const dataKey = NOTE_KEY_MAP[section.key];
         const rows = dataKey ? noteData[dataKey] || [] : [];
+        const mappedRowsHaveContent = splitRows(rows).length > 0;
 
-        const goingConcernHasContent = Object.values(
-          state.goingConcernAssessment || {},
-        ).some((item) => String(item || "").trim());
+        let specialHasContent = false;
 
-        const relatedPartiesHaveContent = (
-          Array.isArray(state.relatedPartyRows) ? state.relatedPartyRows : []
-        ).some((row: any) =>
-          [
-            row?.name,
-            row?.relationship,
-            row?.transaction,
-            row?.current,
-            row?.prior,
-            row?.terms,
-            row?.commitments,
-          ].some((item) => String(item || "").trim()),
-        );
+        if (section.key === "notesPropertyPlantEquipment") {
+          specialHasContent = hasMappedTrialBalance(["305"]);
+        } else if (section.key === "notesShareholdersLoans") {
+          specialHasContent = hasMappedTrialBalance(["548"]);
+        } else if (section.key === "notesBorrowings") {
+          specialHasContent = hasMappedTrialBalance(["550", "551", "610"]);
+        } else if (section.key === "notesAssetFinance") {
+          specialHasContent = hasMappedTrialBalance([
+            "550.40",
+            "550.50",
+            "610.30",
+            "610.40",
+          ]);
+        } else if (section.key === "notesLeaseLiabilities") {
+          specialHasContent = hasMappedTrialBalance(["555", "615"]);
+        } else if (section.key === "notesOtherFinancialLiabilities") {
+          specialHasContent = hasMappedTrialBalance(["560", "590", "625"]);
+        } else if (section.key === "notesBankOverdraft") {
+          specialHasContent = hasMappedTrialBalance(["620"]);
+        } else if (section.key === "notesGoingConcern") {
+          specialHasContent = goingConcernHasContent;
+        } else if (section.key === "notesRelatedParties") {
+          specialHasContent = relatedPartiesHaveContent;
+        } else if (section.key === "notesCommitmentsContingencies") {
+          specialHasContent = commitmentsHaveContent;
+        } else if (section.key === "notesEventsAfterReportingPeriod") {
+          specialHasContent = eventsAfterReportingHaveContent;
+        }
 
-        const customDisclosureHasContent =
-          section.key === "notesGoingConcern"
-            ? goingConcernHasContent
-            : section.key === "notesRelatedParties"
-              ? relatedPartiesHaveContent
-              : true;
+        const hasPrintableContent =
+          mappedRowsHaveContent || specialHasContent;
 
+        /*
+          AFS / review mode:
+          an empty note never prints and never consumes a note number.
+
+          Work mode:
+          a switched-on empty note remains visible so the accountant can work
+          on it, but it does not receive a final note number until it contains
+          mapped data or a real disclosure.
+        */
         const active =
-          configuredActive && (isEditing || customDisclosureHasContent);
+          configuredActive && (isEditing || hasPrintableContent);
 
-        const hasData =
-          splitRows(rows).length > 0 ||
-          section.key === "notesPropertyPlantEquipment" ||
-          (configuredActive && customDisclosureHasContent);
+        const numberedActive =
+          configuredActive && hasPrintableContent;
 
-        if (!configuredActive && !isEditing && !hasData) return null;
         if (!active && !isEditing) return null;
-        if (active) noteNumber += 1;
+
+        if (numberedActive) noteNumber += 1;
 
         return {
           section,
           active,
-          noteNumber: active ? noteNumber : null,
+          noteNumber: numberedActive ? noteNumber : null,
           rows,
         };
       })
@@ -4299,6 +4598,8 @@ export default function AfsStructuredNotesPanel({
     noteSections,
     reportOptions,
     noteData,
+    trialBalanceLines,
+    state,
     sectionKeySignature,
   ]);
 
@@ -4387,11 +4688,7 @@ export default function AfsStructuredNotesPanel({
         const displayTitle =
           section.key === "notesCashUsedInOperations"
             ? "Cash generated from operations"
-            : section.key === "notesCurrentTaxReceivable" && hasDeferredTaxRows(rows)
-              ? "Deferred tax asset"
-              : section.key === "notesCurrentTaxPayable" && hasDeferredTaxRows(rows)
-                ? "Deferred tax liability"
-                : title;
+            : title;
 
         if (section.key === "notesPropertyPlantEquipment") {
           return (
@@ -4442,7 +4739,19 @@ export default function AfsStructuredNotesPanel({
             key={section.key}
             id={noteNumber ? `afs-note-${noteNumber}` : undefined}
             data-note-active={active ? "true" : "false"}
-            style={active ? styles.noteSection : styles.noteSectionOff}
+            style={
+              active
+                ? {
+                    ...styles.noteSection,
+                    ...(isEditing
+                      ? {
+                          breakInside: "auto",
+                          pageBreakInside: "auto",
+                        }
+                      : {}),
+                  }
+                : styles.noteSectionOff
+            }
           >
             <div style={styles.headingRow}>
               <h2 style={active ? styles.noteHeading : styles.noteHeadingOff}>
@@ -4525,6 +4834,22 @@ export default function AfsStructuredNotesPanel({
                   />
                 ) : section.key === "notesOtherFinancialLiabilities" ? (
                   <OtherFinancialLiabilitiesNote
+                    rows={rows}
+                    trialBalanceLines={trialBalanceLines}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                  />
+                ) : section.key === "notesAssetFinance" ? (
+                  <AssetFinanceNote
+                    rows={rows}
+                    trialBalanceLines={trialBalanceLines}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                  />
+                ) : section.key === "notesBankOverdraft" ? (
+                  <BankOverdraftNote
                     rows={rows}
                     trialBalanceLines={trialBalanceLines}
                     edit={isEditing}

@@ -2,6 +2,7 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { PRACTICEPILOT_LEGAL } from "../../../lib/practicepilotLegal";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,16 @@ function getBearerToken(request: Request) {
     .trim();
 }
 
+function getIpAddress(request: Request) {
+  const forwardedFor = request.headers.get("x-forwarded-for");
+
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0]?.trim() || null;
+  }
+
+  return request.headers.get("x-real-ip") || null;
+}
+
 async function getCurrentProfile(
   request: Request,
   supabase: ReturnType<typeof getSupabaseAdmin>
@@ -51,7 +62,10 @@ async function getCurrentProfile(
   if (!token) {
     return {
       profile: null as UserProfile | null,
-      response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
+      response: NextResponse.json(
+        { error: "Not authenticated." },
+        { status: 401 }
+      ),
     };
   }
 
@@ -63,7 +77,10 @@ async function getCurrentProfile(
   if (userError || !user) {
     return {
       profile: null as UserProfile | null,
-      response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
+      response: NextResponse.json(
+        { error: "Not authenticated." },
+        { status: 401 }
+      ),
     };
   }
 
@@ -99,7 +116,10 @@ async function getCurrentProfile(
     return {
       profile: null as UserProfile | null,
       response: NextResponse.json(
-        { error: "PracticePilot administrators must use the AFS Billing Admin page." },
+        {
+          error:
+            "PracticePilot administrators must use the AFS Billing Admin page.",
+        },
         { status: 403 }
       ),
     };
@@ -115,7 +135,10 @@ async function getCurrentProfile(
     };
   }
 
-  return { profile: userProfile, response: null as NextResponse | null };
+  return {
+    profile: userProfile,
+    response: null as NextResponse | null,
+  };
 }
 
 export async function GET(request: Request) {
@@ -124,6 +147,7 @@ export async function GET(request: Request) {
     const { profile, response } = await getCurrentProfile(request, supabase);
 
     if (response) return response;
+
     if (!profile?.organisation_id) {
       return NextResponse.json(
         { error: "Could not determine your organisation." },
@@ -165,7 +189,10 @@ export async function GET(request: Request) {
       .single();
 
     if (summaryError) {
-      return NextResponse.json({ error: summaryError.message }, { status: 500 });
+      return NextResponse.json(
+        { error: summaryError.message },
+        { status: 500 }
+      );
     }
 
     const { data: items, error: itemsError } = await supabase
@@ -188,7 +215,10 @@ export async function GET(request: Request) {
       .order("triggered_at", { ascending: false });
 
     if (itemsError) {
-      return NextResponse.json({ error: itemsError.message }, { status: 500 });
+      return NextResponse.json(
+        { error: itemsError.message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
@@ -196,12 +226,21 @@ export async function GET(request: Request) {
       summary: summaryData,
       items: items ?? [],
       canManagePlan: profile.role === "Client Manager",
+      legal: {
+        saasAgreementVersion: PRACTICEPILOT_LEGAL.saasAgreementVersion,
+        privacyNoticeVersion: PRACTICEPILOT_LEGAL.privacyNoticeVersion,
+        dpaVersion: PRACTICEPILOT_LEGAL.dpaVersion,
+        acceptanceText: PRACTICEPILOT_LEGAL.acceptanceText,
+        documents: PRACTICEPILOT_LEGAL.documents,
+      },
     });
   } catch (error: unknown) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Failed to load AFS billing.",
+          error instanceof Error
+            ? error.message
+            : "Failed to load AFS billing.",
       },
       { status: 500 }
     );
@@ -214,6 +253,7 @@ export async function POST(request: Request) {
     const { profile, response } = await getCurrentProfile(request, supabase);
 
     if (response) return response;
+
     if (!profile?.organisation_id) {
       return NextResponse.json(
         { error: "Could not determine your organisation." },
@@ -223,14 +263,19 @@ export async function POST(request: Request) {
 
     if (profile.role !== "Client Manager") {
       return NextResponse.json(
-        { error: "Only the Client Manager can choose the AFS billing plan." },
+        {
+          error:
+            "Only the Client Manager can choose the AFS billing plan.",
+        },
         { status: 403 }
       );
     }
 
     const body = await request.json();
+
     const plan = body?.plan;
     const licenceCount = Number(body?.licence_count || 0);
+    const termsAccepted = body?.terms_accepted === true;
 
     if (plan !== "flex" && plan !== "unlimited") {
       return NextResponse.json(
@@ -249,11 +294,30 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!termsAccepted) {
+      return NextResponse.json(
+        {
+          error:
+            "You must accept the PracticePilot subscription terms before activating an AFS plan.",
+        },
+        { status: 400 }
+      );
+    }
+
     const organisationId = profile.organisation_id;
 
     const { data: organisation, error: organisationError } = await supabase
       .from("organisations")
-      .select("id,afs_plan,afs_free_credits_total")
+      .select(`
+        id,
+        name,
+        afs_plan,
+        afs_free_credits_total,
+        afs_pricing_tier,
+        afs_flex_monthly_fee,
+        afs_flex_extra_price,
+        afs_unlimited_user_price
+      `)
       .eq("id", organisationId)
       .single();
 
@@ -296,16 +360,103 @@ export async function POST(request: Request) {
 
     const activateNow = freeRemaining === 0;
 
+    const monthlyPrice =
+      plan === "flex"
+        ? Number(
+            organisation.afs_flex_monthly_fee ??
+              PRACTICEPILOT_LEGAL.flex.monthlyPrice
+          )
+        : Number(
+            organisation.afs_unlimited_user_price ??
+              PRACTICEPILOT_LEGAL.unlimited.monthlyPricePerLicence
+          );
+
+    const usagePrice =
+      plan === "flex"
+        ? Number(
+            organisation.afs_flex_extra_price ??
+              PRACTICEPILOT_LEGAL.flex.additionalAfsPrice
+          )
+        : null;
+
+    const ipAddress = getIpAddress(request);
+    const userAgent = request.headers.get("user-agent");
+
+    /*
+     * IMPORTANT:
+     * The acceptance is written BEFORE the subscription is activated.
+     * If this insert fails, the plan is not activated.
+     */
+    const { data: acceptance, error: acceptanceError } = await supabase
+      .from("practicepilot_terms_acceptances")
+      .insert({
+        organisation_id: organisationId,
+        accepted_by_user_id: profile.user_id,
+        accepted_by_email: profile.email,
+        accepted_by_name: null,
+
+        product: "afs",
+        plan,
+        licence_count: plan === "unlimited" ? licenceCount : null,
+
+        monthly_price: monthlyPrice,
+        usage_price: usagePrice,
+
+        saas_agreement_version:
+          PRACTICEPILOT_LEGAL.saasAgreementVersion,
+        privacy_notice_version:
+          PRACTICEPILOT_LEGAL.privacyNoticeVersion,
+        dpa_version: PRACTICEPILOT_LEGAL.dpaVersion,
+
+        billing_cutoff_day:
+          PRACTICEPILOT_LEGAL.billingCutoffDay,
+        billing_day: PRACTICEPILOT_LEGAL.billingDay,
+        payment_terms_days:
+          PRACTICEPILOT_LEGAL.paymentTermsDays,
+
+        ip_address: ipAddress,
+        user_agent: userAgent,
+
+        acceptance_text:
+          PRACTICEPILOT_LEGAL.acceptanceText,
+      })
+      .select("id,accepted_at")
+      .single();
+
+    if (acceptanceError || !acceptance) {
+      return NextResponse.json(
+        {
+          error:
+            acceptanceError?.message ||
+            "Could not record acceptance of the PracticePilot terms.",
+        },
+        { status: 500 }
+      );
+    }
+
+    /*
+     * Only after the legal acceptance has been recorded do we activate
+     * the selected plan.
+     */
     const { error: updateOrganisationError } = await supabase
       .from("organisations")
       .update({
         afs_plan: plan,
         afs_billing_enabled: activateNow,
-        afs_unlimited_licence_count: plan === "unlimited" ? licenceCount : 0,
+        afs_unlimited_licence_count:
+          plan === "unlimited" ? licenceCount : 0,
       })
       .eq("id", organisationId);
 
     if (updateOrganisationError) {
+      /*
+       * Roll back the acceptance record because the plan was not activated.
+       */
+      await supabase
+        .from("practicepilot_terms_acceptances")
+        .delete()
+        .eq("id", acceptance.id);
+
       return NextResponse.json(
         { error: updateOrganisationError.message },
         { status: 500 }
@@ -315,15 +466,28 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       plan,
-      licenceCount: plan === "unlimited" ? licenceCount : 0,
+      licenceCount:
+        plan === "unlimited" ? licenceCount : 0,
       freeCreditsRemaining: freeRemaining,
       billingStartsNow: activateNow,
+      legalAcceptance: {
+        id: acceptance.id,
+        acceptedAt: acceptance.accepted_at,
+        saasAgreementVersion:
+          PRACTICEPILOT_LEGAL.saasAgreementVersion,
+        privacyNoticeVersion:
+          PRACTICEPILOT_LEGAL.privacyNoticeVersion,
+        dpaVersion:
+          PRACTICEPILOT_LEGAL.dpaVersion,
+      },
     });
   } catch (error: unknown) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Failed to save AFS plan.",
+          error instanceof Error
+            ? error.message
+            : "Failed to save AFS plan.",
       },
       { status: 500 }
     );

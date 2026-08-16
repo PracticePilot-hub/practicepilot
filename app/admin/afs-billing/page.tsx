@@ -1,4 +1,4 @@
-// Path: app/admin/paia-billing/page.tsx
+// Path: app/admin/afs-billing/page.tsx
 
 "use client";
 
@@ -10,39 +10,52 @@ type Organisation = {
   name: string;
   status: string;
   access_enabled: boolean;
-  paia_manual_price: number;
-  paia_billing_enabled: boolean;
+  afs_billing_enabled: boolean;
+  afs_plan: string | null;
+  afs_pricing_tier: string | null;
+  afs_flex_monthly_fee: number | null;
+  afs_flex_extra_price: number | null;
+  afs_unlimited_user_price: number | null;
+  afs_unlimited_licence_count: number | null;
 };
 
 type BillingItem = {
   id: string;
-  client_id: string;
+  organisation_id: string;
   organisation_name: string;
-  entity_name: string;
-  entity_registration_number: string | null;
-  created_at: string | null;
-  is_free_manual: boolean;
+  engagement_id: string | null;
+  client_id: string | null;
+  client_name: string | null;
+  financial_year_end: string | null;
+  billing_plan: string | null;
+  pricing_tier: string | null;
+  charge_type: string | null;
   billing_amount: number;
   billing_status: string | null;
   invoice_number: string | null;
   invoiced_at: string | null;
+  paid_at: string | null;
+  triggered_at: string | null;
+  invoice_line_id: string | null;
 };
 
 type BillingSummary = {
-  totalManuals: number;
-  freeManuals: number;
+  totalEvents: number;
+  freeEvents: number;
+  coveredEvents: number;
   totalCharges: number;
   uninvoicedAmount: number;
-  uninvoicedManuals: number;
+  uninvoicedEvents: number;
   invoicedAmount: number;
-  invoicedManuals: number;
+  invoicedEvents: number;
   paidAmount: number;
-  paidManuals: number;
+  paidEvents: number;
 };
 
 type BillingStatusFilter =
   | ""
   | "free"
+  | "covered"
   | "uninvoiced"
   | "invoiced"
   | "paid";
@@ -76,8 +89,20 @@ function formatMoney(value: number | null | undefined) {
 }
 
 function normaliseStatus(item: BillingItem) {
-  if (item.is_free_manual) return "free";
-  return String(item.billing_status || "uninvoiced").trim().toLowerCase();
+  return String(item.billing_status || "uninvoiced")
+    .trim()
+    .toLowerCase();
+}
+
+function planLabel(plan: string | null) {
+  if (!plan) return "-";
+
+  const value = plan.toLowerCase();
+
+  if (value === "flex") return "AFS Flex";
+  if (value === "unlimited") return "AFS Unlimited";
+
+  return plan;
 }
 
 async function getAuthToken() {
@@ -85,7 +110,7 @@ async function getAuthToken() {
   return data.session?.access_token || "";
 }
 
-export default function PaiaBillingAdminPage() {
+export default function AfsBillingAdminPage() {
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [items, setItems] = useState<BillingItem[]>([]);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
@@ -102,6 +127,7 @@ export default function PaiaBillingAdminPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -142,7 +168,7 @@ export default function PaiaBillingAdminPage() {
       }
 
       const response = await fetch(
-        `/api/admin/paia-billing${params.toString() ? `?${params.toString()}` : ""}`,
+        `/api/admin/afs-billing${params.toString() ? `?${params.toString()}` : ""}`,
         {
           cache: "no-store",
           headers: {
@@ -154,7 +180,7 @@ export default function PaiaBillingAdminPage() {
       const json = await response.json();
 
       if (!response.ok) {
-        throw new Error(json.error || "Could not load PAIA billing.");
+        throw new Error(json.error || "Could not load AFS billing.");
       }
 
       setOrganisations(json.organisations ?? []);
@@ -164,7 +190,7 @@ export default function PaiaBillingAdminPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "Could not load PAIA billing."
+          : "Could not load AFS billing."
       );
     } finally {
       setLoading(false);
@@ -177,7 +203,7 @@ export default function PaiaBillingAdminPage() {
   );
 
   const selectedOrganisationIds = useMemo(
-    () => new Set(selectedItems.map((item) => item.client_id)),
+    () => new Set(selectedItems.map((item) => item.organisation_id)),
     [selectedItems]
   );
 
@@ -194,8 +220,8 @@ export default function PaiaBillingAdminPage() {
     () =>
       items.filter(
         (item) =>
-          !item.is_free_manual &&
-          normaliseStatus(item) === "uninvoiced"
+          normaliseStatus(item) === "uninvoiced" &&
+          !item.invoice_line_id
       ),
     [items]
   );
@@ -206,8 +232,8 @@ export default function PaiaBillingAdminPage() {
 
   function toggleItem(item: BillingItem) {
     if (
-      item.is_free_manual ||
-      normaliseStatus(item) !== "uninvoiced"
+      normaliseStatus(item) !== "uninvoiced" ||
+      item.invoice_line_id
     ) {
       return;
     }
@@ -222,14 +248,14 @@ export default function PaiaBillingAdminPage() {
       );
 
       const existingOrganisationId =
-        currentItems[0]?.client_id || "";
+        currentItems[0]?.organisation_id || "";
 
       if (
         existingOrganisationId &&
-        existingOrganisationId !== item.client_id
+        existingOrganisationId !== item.organisation_id
       ) {
         setError(
-          "Select manuals from one franchisee only for each QuickBooks invoice."
+          "Select AFS charges from one organisation only for each QuickBooks invoice."
         );
         return current;
       }
@@ -247,7 +273,7 @@ export default function PaiaBillingAdminPage() {
 
     if (!organisationId) {
       setError(
-        "Choose one franchisee before selecting all manuals for a QuickBooks invoice."
+        "Choose one organisation before selecting all AFS charges for a QuickBooks invoice."
       );
       return;
     }
@@ -256,22 +282,85 @@ export default function PaiaBillingAdminPage() {
     setSelectedIds(selectableItems.map((item) => item.id));
   }
 
-  async function createInvoiceBatch() {
+  async function generateSubscriptionCharges() {
+    setError(null);
+    setSuccess(null);
+    setGenerating(true);
+
+    try {
+      const token = await getAuthToken();
+
+      if (!token) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const response = await fetch("/api/admin/afs-billing", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: "generate_subscription_charges",
+        }),
+      });
+
+      const json = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          json.error || "Could not generate AFS subscription charges."
+        );
+      }
+
+      const createdCount = Number(json.created_count || 0);
+
+      if (createdCount > 0) {
+        setSuccess(
+          `${createdCount} subscription charge(s) generated successfully.`
+        );
+      } else {
+        setSuccess(
+          "No new subscription charges were required for the current billing periods."
+        );
+      }
+
+      await loadBilling();
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not generate AFS subscription charges."
+      );
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function recordQuickBooksInvoice() {
     setError(null);
     setSuccess(null);
 
     if (!selectedIds.length) {
-      setError("Select at least one uninvoiced PAIA manual.");
+      setError("Select at least one uninvoiced AFS charge.");
       return;
     }
 
     if (selectedOrganisationIds.size !== 1) {
-      setError("A QuickBooks invoice may only contain charges from one franchisee.");
+      setError(
+        "A QuickBooks invoice may only contain AFS charges from one organisation."
+      );
       return;
     }
 
     if (!invoiceNumber.trim()) {
-      setError("Invoice number is required.");
+      setError("QuickBooks invoice number is required.");
+      return;
+    }
+
+    if (!invoiceDate) {
+      setError("QuickBooks invoice date is required.");
       return;
     }
 
@@ -285,16 +374,16 @@ export default function PaiaBillingAdminPage() {
         return;
       }
 
-      const response = await fetch("/api/admin/paia-billing", {
+      const response = await fetch("/api/admin/afs-billing", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          manual_ids: selectedIds,
+          event_ids: selectedIds,
           invoice_number: invoiceNumber.trim(),
-          invoiced_at: invoiceDate,
+          invoice_date: invoiceDate,
         }),
       });
 
@@ -307,10 +396,12 @@ export default function PaiaBillingAdminPage() {
       }
 
       setSuccess(
-        `${selectedIds.length} manual(s) linked to QuickBooks invoice ${invoiceNumber.trim()}.`
+        `${selectedIds.length} AFS charge(s) linked to QuickBooks invoice ${invoiceNumber.trim()}. Due date: ${formatDate(json.invoice?.due_date || null)}.`
       );
+
       setSelectedIds([]);
       setInvoiceNumber("");
+
       await loadBilling();
     } catch (err: unknown) {
       setError(
@@ -335,12 +426,28 @@ export default function PaiaBillingAdminPage() {
       <section style={s.hero}>
         <div>
           <p style={s.eyebrow}>PracticePilot</p>
-          <h1 style={s.title}>PAIA Billing Admin</h1>
+          <h1 style={s.title}>AFS Billing Admin</h1>
         </div>
 
-        <p style={s.sub}>
-          Review PAIA charges and link them to the actual QuickBooks invoice.
-        </p>
+        <div style={s.heroActions}>
+          <p style={s.sub}>
+            Review AFS charges and link them to the actual QuickBooks invoice.
+          </p>
+
+          <button
+            type="button"
+            onClick={generateSubscriptionCharges}
+            disabled={generating}
+            style={{
+              ...s.generateButton,
+              opacity: generating ? 0.6 : 1,
+            }}
+          >
+            {generating
+              ? "Generating..."
+              : "Generate subscription charges"}
+          </button>
+        </div>
       </section>
 
       {error ? <div style={s.error}>{error}</div> : null}
@@ -348,27 +455,27 @@ export default function PaiaBillingAdminPage() {
 
       <section style={s.summaryGrid}>
         <SummaryCard
-          label="Total manuals"
-          value={String(summary?.totalManuals || 0)}
-          note={`${summary?.freeManuals || 0} free`}
+          label="AFS events"
+          value={String(summary?.totalEvents || 0)}
+          note={`${summary?.freeEvents || 0} free · ${summary?.coveredEvents || 0} covered`}
         />
 
         <SummaryCard
           label="Uninvoiced"
           value={formatMoney(summary?.uninvoicedAmount)}
-          note={`${summary?.uninvoicedManuals || 0} manual(s)`}
+          note={`${summary?.uninvoicedEvents || 0} charge(s)`}
         />
 
         <SummaryCard
           label="Invoiced"
           value={formatMoney(summary?.invoicedAmount)}
-          note={`${summary?.invoicedManuals || 0} manual(s)`}
+          note={`${summary?.invoicedEvents || 0} charge(s)`}
         />
 
         <SummaryCard
           label="Paid"
           value={formatMoney(summary?.paidAmount)}
-          note={`${summary?.paidManuals || 0} manual(s)`}
+          note={`${summary?.paidEvents || 0} charge(s)`}
         />
       </section>
 
@@ -377,7 +484,7 @@ export default function PaiaBillingAdminPage() {
           <div>
             <h2 style={s.h2}>Filters</h2>
             <div style={s.resultText}>
-              Refine the billing register before linking charges to a QuickBooks invoice.
+              Refine the AFS billing register before linking charges to a QuickBooks invoice.
             </div>
           </div>
 
@@ -392,7 +499,7 @@ export default function PaiaBillingAdminPage() {
 
         <div style={s.filters}>
           <label style={s.fieldWrap}>
-            <span style={s.label}>Franchisee</span>
+            <span style={s.label}>Organisation</span>
             <select
               value={organisationId}
               onChange={(event) =>
@@ -400,12 +507,13 @@ export default function PaiaBillingAdminPage() {
               }
               style={s.input}
             >
-              <option value="">All franchisees</option>
+              <option value="">All organisations</option>
+
               {organisations.map((organisation) => (
                 <option key={organisation.id} value={organisation.id}>
                   {organisation.name}
-                  {organisation.paia_billing_enabled === false
-                    ? " - Billing disabled"
+                  {organisation.afs_plan
+                    ? ` - ${planLabel(organisation.afs_plan)}`
                     : ""}
                 </option>
               ))}
@@ -425,6 +533,7 @@ export default function PaiaBillingAdminPage() {
             >
               <option value="">All</option>
               <option value="free">Free</option>
+              <option value="covered">Covered</option>
               <option value="uninvoiced">Uninvoiced</option>
               <option value="invoiced">Invoiced</option>
               <option value="paid">Paid</option>
@@ -455,14 +564,14 @@ export default function PaiaBillingAdminPage() {
 
       <section style={s.invoicePanel}>
         <div>
-          <div style={s.headerLabel}>Selected franchisee</div>
+          <div style={s.headerLabel}>Selected organisation</div>
           <div style={s.headerValue}>
             {selectedItems[0]?.organisation_name || "None selected"}
           </div>
         </div>
 
         <div>
-          <div style={s.headerLabel}>Selected manuals</div>
+          <div style={s.headerLabel}>Selected charges</div>
           <div style={s.headerValue}>{selectedIds.length}</div>
         </div>
 
@@ -493,7 +602,7 @@ export default function PaiaBillingAdminPage() {
 
         <button
           type="button"
-          onClick={createInvoiceBatch}
+          onClick={recordQuickBooksInvoice}
           disabled={saving || !selectedIds.length}
           style={{
             ...s.primaryButton,
@@ -507,7 +616,7 @@ export default function PaiaBillingAdminPage() {
       <section style={s.card}>
         <div style={s.sectionHeader}>
           <div>
-            <h2 style={s.h2}>PAIA billing register</h2>
+            <h2 style={s.h2}>AFS billing register</h2>
             <div style={s.resultText}>
               Showing {items.length} item(s)
             </div>
@@ -515,86 +624,127 @@ export default function PaiaBillingAdminPage() {
         </div>
 
         {loading ? (
-          <div style={s.empty}>Loading PAIA billing...</div>
+          <div style={s.empty}>Loading AFS billing...</div>
         ) : items.length === 0 ? (
           <div style={s.empty}>
-            No PAIA billing items match the selected filters.
+            No AFS billing items match the selected filters.
           </div>
         ) : (
-          <table style={s.table}>
-            <thead>
-              <tr>
-                <th style={s.checkTh}>
-                  <input
-                    type="checkbox"
-                    checked={allSelectableSelected}
-                    onChange={toggleAllSelectable}
-                    aria-label="Select all uninvoiced manuals"
-                  />
-                </th>
-                <th style={s.th}>No.</th>
-                <th style={s.th}>Franchisee</th>
-                <th style={s.th}>Entity</th>
-                <th style={s.th}>Registration</th>
-                <th style={s.th}>Created</th>
-                <th style={s.th}>Status</th>
-                <th style={s.thRight}>Amount</th>
-                <th style={s.th}>Invoice</th>
-                <th style={s.th}>Invoice date</th>
-              </tr>
-            </thead>
+          <div style={s.tableWrap}>
+            <table style={s.table}>
+              <thead>
+                <tr>
+                  <th style={s.checkTh}>
+                    <input
+                      type="checkbox"
+                      checked={allSelectableSelected}
+                      onChange={toggleAllSelectable}
+                      aria-label="Select all uninvoiced AFS charges"
+                    />
+                  </th>
+                  <th style={s.th}>No.</th>
+                  <th style={s.th}>Organisation</th>
+                  <th style={s.th}>Client</th>
+                  <th style={s.th}>Year end</th>
+                  <th style={s.th}>Plan</th>
+                  <th style={s.th}>Charge type</th>
+                  <th style={s.th}>Created</th>
+                  <th style={s.th}>Status</th>
+                  <th style={s.thRight}>Amount</th>
+                  <th style={s.th}>Invoice</th>
+                  <th style={s.th}>Invoice date</th>
+                </tr>
+              </thead>
 
-            <tbody>
-              {items.map((item, index) => {
-                const status = normaliseStatus(item);
-                const selectable =
-                  !item.is_free_manual && status === "uninvoiced";
+              <tbody>
+                {items.map((item, index) => {
+                  const status = normaliseStatus(item);
+                  const selectable =
+                    status === "uninvoiced" &&
+                    !item.invoice_line_id;
 
-                return (
-                  <tr key={item.id}>
-                    <td style={s.checkTd}>
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(item.id)}
-                        disabled={!selectable}
-                        onChange={() => toggleItem(item)}
-                        aria-label={`Select ${item.entity_name}`}
-                      />
-                    </td>
-                    <td style={s.td}>{index + 1}</td>
-                    <td style={s.td}>{item.organisation_name}</td>
-                    <td style={s.tdStrong}>{item.entity_name}</td>
-                    <td style={s.td}>
-                      {item.entity_registration_number || "-"}
-                    </td>
-                    <td style={s.td}>{formatDate(item.created_at)}</td>
-                    <td style={s.td}>
-                      <span
-                        style={{
-                          ...s.status,
-                          ...(status === "free"
-                            ? s.statusFree
-                            : status === "invoiced"
-                              ? s.statusInvoiced
-                              : status === "paid"
-                                ? s.statusPaid
-                                : s.statusUninvoiced),
-                        }}
-                      >
-                        {status}
-                      </span>
-                    </td>
-                    <td style={s.tdRight}>
-                      {formatMoney(item.billing_amount)}
-                    </td>
-                    <td style={s.td}>{item.invoice_number || "-"}</td>
-                    <td style={s.td}>{formatDate(item.invoiced_at)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                  return (
+                    <tr key={item.id}>
+                      <td style={s.checkTd}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(item.id)}
+                          disabled={!selectable}
+                          onChange={() => toggleItem(item)}
+                          aria-label={`Select ${item.client_name || "AFS charge"}`}
+                        />
+                      </td>
+
+                      <td style={s.td}>{index + 1}</td>
+
+                      <td style={s.td}>
+                        {item.organisation_name}
+                      </td>
+
+                      <td style={s.tdStrong}>
+                        {item.client_name || "-"}
+                      </td>
+
+                      <td style={s.td}>
+                        {formatDate(item.financial_year_end)}
+                      </td>
+
+                      <td style={s.td}>
+                        {planLabel(item.billing_plan)}
+                      </td>
+
+                      <td style={s.td}>
+                        {item.charge_type || "-"}
+                      </td>
+
+                      <td style={s.td}>
+                        {formatDate(item.triggered_at)}
+                      </td>
+
+                      <td style={s.td}>
+                        <span
+                          style={{
+                            ...s.status,
+                            ...(status === "free"
+                              ? s.statusFree
+                              : status === "covered"
+                                ? s.statusCovered
+                                : status === "invoiced"
+                                  ? s.statusInvoiced
+                                  : status === "paid"
+                                    ? s.statusPaid
+                                    : s.statusUninvoiced),
+                          }}
+                        >
+                          {status}
+                        </span>
+                      </td>
+
+                      <td style={s.tdRight}>
+                        {formatMoney(item.billing_amount)}
+                      </td>
+
+                      <td style={s.td}>
+                        {item.invoice_number || "-"}
+                      </td>
+
+                      <td style={s.td}>
+                        {formatDate(item.invoiced_at)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
+      </section>
+
+      <section style={s.note}>
+        <strong>Subscription billing:</strong> use Generate subscription charges to create
+        the applicable Flex or Unlimited subscription charge for each active billing period.
+        The generated charge then appears in this register and can be linked to the actual
+        QuickBooks invoice together with any other AFS charges.
       </section>
     </main>
   );
@@ -653,12 +803,29 @@ const s: Record<string, CSSProperties> = {
     lineHeight: 1.05,
     color: "#0f172a",
   },
+  heroActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+  },
   sub: {
     margin: 0,
-    maxWidth: 720,
+    maxWidth: 620,
     fontSize: 13,
     color: "#667085",
     textAlign: "right",
+  },
+  generateButton: {
+    minHeight: 31,
+    border: "1px solid #0f766e",
+    borderRadius: 2,
+    background: "#0f766e",
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: 850,
+    cursor: "pointer",
+    padding: "0 12px",
+    whiteSpace: "nowrap",
   },
   summaryGrid: {
     display: "grid",
@@ -760,7 +927,7 @@ const s: Record<string, CSSProperties> = {
   invoicePanel: {
     display: "grid",
     gridTemplateColumns:
-      "1.1fr 120px 140px 1fr 160px 180px",
+      "1.1fr 120px 140px 1fr 160px 190px",
     gap: 6,
     alignItems: "end",
     background: "#ffffff",
@@ -783,7 +950,7 @@ const s: Record<string, CSSProperties> = {
     color: "#0f172a",
   },
   primaryButton: {
-    height: 31,
+    minHeight: 31,
     border: "1px solid #1769e0",
     borderRadius: 2,
     background: "#1769e0",
@@ -792,10 +959,16 @@ const s: Record<string, CSSProperties> = {
     fontWeight: 850,
     cursor: "pointer",
     padding: "0 12px",
+    whiteSpace: "nowrap",
+  },
+  tableWrap: {
+    width: "100%",
+    overflowX: "auto",
   },
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    minWidth: 1180,
   },
   checkTh: {
     width: 36,
@@ -869,6 +1042,10 @@ const s: Record<string, CSSProperties> = {
     background: "#dcfce7",
     color: "#166534",
   },
+  statusCovered: {
+    background: "#e0e7ff",
+    color: "#3730a3",
+  },
   statusUninvoiced: {
     background: "#ffedd5",
     color: "#9a3412",
@@ -906,5 +1083,14 @@ const s: Record<string, CSSProperties> = {
     color: "#667085",
     fontSize: 13,
     background: "#ffffff",
+  },
+  note: {
+    background: "#ffffff",
+    border: "1px solid #d8e2ee",
+    borderRadius: 2,
+    padding: "9px 11px",
+    fontSize: 12,
+    lineHeight: 1.5,
+    color: "#667085",
   },
 };

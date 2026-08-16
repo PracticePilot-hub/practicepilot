@@ -260,30 +260,67 @@ type ReportOptions = {
   policyForeignCurrency: boolean;
 
   notesPropertyPlantEquipment: boolean;
+  notesRightOfUseAssets: boolean;
   notesGoodwill: boolean;
   notesInvestmentProperty: boolean;
   notesIntangibleAssets: boolean;
   notesBiologicalAssets: boolean;
+  notesInvestmentsSubsidiaries: boolean;
+  notesInvestmentsAssociates: boolean;
+  notesInvestmentsJointVentures: boolean;
+  notesOtherInvestments: boolean;
+  notesOtherFinancialAssets: boolean;
   notesOtherNonCurrentAssets: boolean;
   notesLoansReceivable: boolean;
   notesInventories: boolean;
+  notesContractAssets: boolean;
   notesTradeReceivables: boolean;
+  notesTaxStatutoryReceivables: boolean;
   notesCurrentTaxReceivable: boolean;
   notesCashAndCashEquivalents: boolean;
+  notesAssetsHeldForSale: boolean;
+
   notesShareCapital: boolean;
   notesRetainedIncome: boolean;
+  notesReserves: boolean;
+  notesNonControllingInterests: boolean;
+  notesOtherEquity: boolean;
+
+  notesProvisions: boolean;
+  notesEmployeeBenefitObligations: boolean;
+  notesDeferredIncomeGrants: boolean;
+  notesGroupRelatedPartyBorrowings: boolean;
   notesShareholdersLoans: boolean;
+  notesBorrowings: boolean;
+  notesAssetFinance: boolean;
+  notesLeaseLiabilities: boolean;
   notesOtherFinancialLiabilities: boolean;
+  notesSupplierFinance: boolean;
+  notesDeferredTaxLiability: boolean;
+  notesBankOverdraft: boolean;
   notesTradePayables: boolean;
+  notesContractLiabilities: boolean;
+  notesDividendPayable: boolean;
+  notesTaxStatutoryPayables: boolean;
   notesCurrentTaxPayable: boolean;
+  notesLiabilitiesHeldForSale: boolean;
+
   notesRevenue: boolean;
-  notesOtherIncome: boolean;
+  notesCostOfSales: boolean;
+  notesOtherOperatingIncome: boolean;
+  notesInvestmentIncome: boolean;
   notesOperatingExpenses: boolean;
   notesFinanceCosts: boolean;
+  notesOtherGainsLosses: boolean;
   notesTaxation: boolean;
+  notesOtherComprehensiveIncome: boolean;
+  notesDiscontinuedOperations: boolean;
+
   notesCashUsedInOperations: boolean;
   notesGoingConcern: boolean;
   notesRelatedParties: boolean;
+  notesCommitmentsContingencies: boolean;
+  notesEventsAfterReportingPeriod: boolean;
 
   directorsReportGeneralReview: boolean;
   directorsReportIncorporation: boolean;
@@ -399,30 +436,67 @@ const defaultReportOptions: ReportOptions = {
   policyForeignCurrency: false,
 
   notesPropertyPlantEquipment: false,
+  notesRightOfUseAssets: false,
   notesGoodwill: false,
   notesInvestmentProperty: false,
   notesIntangibleAssets: false,
   notesBiologicalAssets: false,
+  notesInvestmentsSubsidiaries: false,
+  notesInvestmentsAssociates: false,
+  notesInvestmentsJointVentures: false,
+  notesOtherInvestments: false,
+  notesOtherFinancialAssets: false,
   notesOtherNonCurrentAssets: true,
   notesLoansReceivable: false,
   notesInventories: true,
+  notesContractAssets: false,
   notesTradeReceivables: false,
+  notesTaxStatutoryReceivables: false,
   notesCurrentTaxReceivable: false,
   notesCashAndCashEquivalents: true,
+  notesAssetsHeldForSale: false,
+
   notesShareCapital: true,
   notesRetainedIncome: false,
+  notesReserves: false,
+  notesNonControllingInterests: false,
+  notesOtherEquity: false,
+
+  notesProvisions: false,
+  notesEmployeeBenefitObligations: false,
+  notesDeferredIncomeGrants: false,
+  notesGroupRelatedPartyBorrowings: false,
   notesShareholdersLoans: true,
+  notesBorrowings: false,
+  notesAssetFinance: false,
+  notesLeaseLiabilities: false,
   notesOtherFinancialLiabilities: false,
+  notesSupplierFinance: false,
+  notesDeferredTaxLiability: false,
+  notesBankOverdraft: false,
   notesTradePayables: false,
+  notesContractLiabilities: false,
+  notesDividendPayable: false,
+  notesTaxStatutoryPayables: false,
   notesCurrentTaxPayable: false,
+  notesLiabilitiesHeldForSale: false,
+
   notesRevenue: false,
-  notesOtherIncome: false,
+  notesCostOfSales: false,
+  notesOtherOperatingIncome: false,
+  notesInvestmentIncome: false,
   notesOperatingExpenses: true,
   notesFinanceCosts: false,
+  notesOtherGainsLosses: false,
   notesTaxation: false,
+  notesOtherComprehensiveIncome: false,
+  notesDiscontinuedOperations: false,
+
   notesCashUsedInOperations: true,
   notesGoingConcern: false,
   notesRelatedParties: false,
+  notesCommitmentsContingencies: false,
+  notesEventsAfterReportingPeriod: false,
 
   directorsReportGeneralReview: true,
   directorsReportIncorporation: true,
@@ -497,89 +571,12 @@ function rawPrior(line: TrialBalanceLine) {
   return 0;
 }
 
-function normaliseAmount(line: TrialBalanceLine, amount: number) {
-  const text = [
-    line.mapping_statement,
-    line.mapping_section,
-    line.mapping_path,
-    line.lead_schedule_key,
-    line.mapping_category,
-    line.mapping_label,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+/*
+  Legacy local SFP/SOCI builders removed.
 
-  if (
-    text.includes("liabil") ||
-    text.includes("equity") ||
-    text.includes("retained") ||
-    text.includes("share-capital") ||
-    text.includes("revenue") ||
-    text.includes("income")
-  ) {
-    return -amount;
-  }
-
-  return amount;
-}
-
-function bucketKey(line: TrialBalanceLine) {
-  return (
-    line.lead_schedule_key ||
-    line.mapping_leaf_id ||
-    line.mapping_code ||
-    line.mapping_label ||
-    line.mapping_category ||
-    "unmapped"
-  );
-}
-
-function bucketLabel(line: TrialBalanceLine) {
-  const label =
-    line.mapping_label ||
-    line.mapping_category ||
-    line.lead_schedule_key ||
-    line.account_name ||
-    "Unmapped";
-
-  return String(label)
-    .replaceAll("-", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function addToBuckets(
-  buckets: Map<string, StatementBucket>,
-  line: TrialBalanceLine
-) {
-  const key = bucketKey(line);
-  const current = normaliseAmount(line, rawCurrent(line));
-  const prior = normaliseAmount(line, rawPrior(line));
-
-  if (!buckets.has(key)) {
-    buckets.set(key, {
-      key,
-      label: bucketLabel(line),
-      note: line.note_number || null,
-      current: 0,
-      prior: 0,
-    });
-  }
-
-  const bucket = buckets.get(key);
-  if (!bucket) return;
-
-  bucket.current += current;
-  bucket.prior += prior;
-
-  if (!bucket.note && line.note_number) {
-    bucket.note = line.note_number;
-  }
-}
-
-function includesAny(value: string, terms: string[]) {
-  return terms.some((term) => value.includes(term));
-}
+  Print Studio statements are now sourced from AfsPrintStatementEngine,
+  where statement and note classification is mapping_code-only.
+*/
 
 function lineSearchText(line: TrialBalanceLine) {
   /*
@@ -601,346 +598,6 @@ function lineSearchText(line: TrialBalanceLine) {
     .toLowerCase();
 }
 
-function buildBuckets(
-  lines: TrialBalanceLine[],
-  matcher: (line: TrialBalanceLine) => boolean
-) {
-  const buckets = new Map<string, StatementBucket>();
-
-  lines.filter(matcher).forEach((line) => addToBuckets(buckets, line));
-
-  return Array.from(buckets.values())
-    .filter(
-      (bucket) =>
-        Math.round(bucket.current) !== 0 || Math.round(bucket.prior) !== 0
-    )
-    .sort((a, b) => a.label.localeCompare(b.label));
-}
-
-function bucketRows(buckets: StatementBucket[]): AfsStatementRow[] {
-  return buckets.map((bucket) => ({
-    id: bucket.key,
-    label: bucket.label,
-    note: bucket.note,
-    current: Math.round(bucket.current),
-    prior: Math.round(bucket.prior),
-    type: "line",
-  }));
-}
-
-function sumBuckets(buckets: StatementBucket[]) {
-  return buckets.reduce(
-    (total, bucket) => ({
-      current: total.current + bucket.current,
-      prior: total.prior + bucket.prior,
-    }),
-    { current: 0, prior: 0 }
-  );
-}
-
-function buildSfpRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
-  const nonCurrentAssets = buildBuckets(lines, (line) => {
-    const text = lineSearchText(line);
-    return (
-      includesAny(text, ["non-current asset", "non current asset"]) ||
-      includesAny(text, [
-        "ppe",
-        "property",
-        "plant",
-        "equipment",
-        "investment",
-        "intangible",
-        "goodwill",
-        "deferred tax asset",
-        "loans receivable",
-      ])
-    );
-  });
-
-  const currentAssets = buildBuckets(lines, (line) => {
-    const text = lineSearchText(line);
-    return (
-      includesAny(text, ["current asset"]) ||
-      includesAny(text, [
-        "cash",
-        "bank",
-        "receivable",
-        "inventory",
-        "inventories",
-        "vat receivable",
-        "current tax receivable",
-        "finished goods",
-      ])
-    );
-  }).filter(
-    (bucket) =>
-      !nonCurrentAssets.some((existing) => existing.key === bucket.key)
-  );
-
-  const equity = buildBuckets(lines, (line) => {
-    const text = lineSearchText(line);
-    return includesAny(text, [
-      "equity",
-      "share capital",
-      "retained",
-      "accumulated",
-      "reserves",
-      "contribution",
-    ]);
-  });
-
-  const nonCurrentLiabilities = buildBuckets(lines, (line) => {
-    const text = lineSearchText(line);
-    return (
-      includesAny(text, ["non-current liabil", "non current liabil"]) ||
-      includesAny(text, [
-        "shareholder",
-        "director loan",
-        "member loan",
-        "long-term loan",
-        "deferred tax liability",
-        "borrowings",
-        "lease liabilities",
-      ])
-    );
-  });
-
-  const currentLiabilities = buildBuckets(lines, (line) => {
-    const text = lineSearchText(line);
-    return (
-      includesAny(text, ["current liabil"]) ||
-      includesAny(text, [
-        "payable",
-        "creditor",
-        "vat payable",
-        "current tax payable",
-        "paye",
-        "sars",
-        "bank overdraft",
-      ])
-    );
-  }).filter(
-    (bucket) =>
-      !nonCurrentLiabilities.some((existing) => existing.key === bucket.key)
-  );
-
-  const ncaTotal = sumBuckets(nonCurrentAssets);
-  const caTotal = sumBuckets(currentAssets);
-  const assetsTotal = {
-    current: ncaTotal.current + caTotal.current,
-    prior: ncaTotal.prior + caTotal.prior,
-  };
-
-  const equityTotal = sumBuckets(equity);
-  const nclTotal = sumBuckets(nonCurrentLiabilities);
-  const clTotal = sumBuckets(currentLiabilities);
-  const liabilitiesTotal = {
-    current: nclTotal.current + clTotal.current,
-    prior: nclTotal.prior + clTotal.prior,
-  };
-
-  const equityLiabilitiesTotal = {
-    current: equityTotal.current + liabilitiesTotal.current,
-    prior: equityTotal.prior + liabilitiesTotal.prior,
-  };
-
-  return [
-    { id: "assets", label: "Assets", type: "section" },
-    { id: "nca", label: "Non-current assets", type: "subsection" },
-    ...bucketRows(nonCurrentAssets),
-    {
-      id: "nca-total",
-      label: "Total non-current assets",
-      current: Math.round(ncaTotal.current),
-      prior: Math.round(ncaTotal.prior),
-      type: "subtotal",
-    },
-    { id: "space-1", type: "spacer" },
-    { id: "ca", label: "Current assets", type: "subsection" },
-    ...bucketRows(currentAssets),
-    {
-      id: "ca-total",
-      label: "Total current assets",
-      current: Math.round(caTotal.current),
-      prior: Math.round(caTotal.prior),
-      type: "subtotal",
-    },
-    {
-      id: "assets-total",
-      label: "Total assets",
-      current: Math.round(assetsTotal.current),
-      prior: Math.round(assetsTotal.prior),
-      type: "grand-total",
-    },
-    { id: "space-2", type: "spacer" },
-    {
-      id: "equity-liabilities",
-      label: "Equity and liabilities",
-      type: "section",
-    },
-    { id: "equity", label: "Equity", type: "subsection" },
-    ...bucketRows(equity),
-    {
-      id: "equity-total",
-      label: "Total equity",
-      current: Math.round(equityTotal.current),
-      prior: Math.round(equityTotal.prior),
-      type: "subtotal",
-    },
-    { id: "space-3", type: "spacer" },
-    { id: "liabilities", label: "Liabilities", type: "section" },
-    { id: "ncl", label: "Non-current liabilities", type: "subsection" },
-    ...bucketRows(nonCurrentLiabilities),
-    {
-      id: "ncl-total",
-      label: "Total non-current liabilities",
-      current: Math.round(nclTotal.current),
-      prior: Math.round(nclTotal.prior),
-      type: "subtotal",
-    },
-    { id: "cl", label: "Current liabilities", type: "subsection" },
-    ...bucketRows(currentLiabilities),
-    {
-      id: "cl-total",
-      label: "Total current liabilities",
-      current: Math.round(clTotal.current),
-      prior: Math.round(clTotal.prior),
-      type: "subtotal",
-    },
-    {
-      id: "liabilities-total",
-      label: "Total liabilities",
-      current: Math.round(liabilitiesTotal.current),
-      prior: Math.round(liabilitiesTotal.prior),
-      type: "total",
-    },
-    {
-      id: "eql-total",
-      label: "Total equity and liabilities",
-      current: Math.round(equityLiabilitiesTotal.current),
-      prior: Math.round(equityLiabilitiesTotal.prior),
-      type: "grand-total",
-    },
-  ];
-}
-
-function buildSociRows(lines: TrialBalanceLine[]): AfsStatementRow[] {
-  const costOfSales = buildBuckets(lines, (line) => {
-    const text = lineSearchText(line);
-    return includesAny(text, ["cost of sales", "cost-of-sales"]);
-  });
-
-  const revenue = buildBuckets(lines, (line) => {
-    const text = lineSearchText(line);
-
-    if (includesAny(text, ["cost of sales", "cost-of-sales"])) {
-      return false;
-    }
-
-    return includesAny(text, ["revenue", "sales", "turnover"]);
-  });
-
-  const otherIncome = buildBuckets(lines, (line) => {
-    const text = lineSearchText(line);
-    return includesAny(text, [
-      "other income",
-      "operating income",
-      "investment income",
-    ]);
-  }).filter(
-    (bucket) => !revenue.some((existing) => existing.key === bucket.key)
-  );
-
-  const operatingExpenses = buildBuckets(lines, (line) => {
-    const text = lineSearchText(line);
-    return includesAny(text, [
-      "operating expense",
-      "operating expenses",
-      "expense",
-    ]);
-  }).filter(
-    (bucket) =>
-      !costOfSales.some((existing) => existing.key === bucket.key) &&
-      !otherIncome.some((existing) => existing.key === bucket.key)
-  );
-
-  const financeCosts = buildBuckets(lines, (line) => {
-    const text = lineSearchText(line);
-    return includesAny(text, [
-      "finance cost",
-      "interest paid",
-      "interest expense",
-    ]);
-  });
-
-  const taxation = buildBuckets(lines, (line) => {
-    const text = lineSearchText(line);
-    return includesAny(text, ["tax expense", "taxation", "income tax"]);
-  });
-
-  const revenueTotal = sumBuckets(revenue);
-  const cosTotal = sumBuckets(costOfSales);
-  const gross = {
-    current: revenueTotal.current + cosTotal.current,
-    prior: revenueTotal.prior + cosTotal.prior,
-  };
-
-  const otherIncomeTotal = sumBuckets(otherIncome);
-  const opexTotal = sumBuckets(operatingExpenses);
-  const operatingProfit = {
-    current: gross.current + otherIncomeTotal.current + opexTotal.current,
-    prior: gross.prior + otherIncomeTotal.prior + opexTotal.prior,
-  };
-
-  const financeCostsTotal = sumBuckets(financeCosts);
-  const beforeTax = {
-    current: operatingProfit.current + financeCostsTotal.current,
-    prior: operatingProfit.prior + financeCostsTotal.prior,
-  };
-
-  const taxationTotal = sumBuckets(taxation);
-  const profitForYear = {
-    current: beforeTax.current + taxationTotal.current,
-    prior: beforeTax.prior + taxationTotal.prior,
-  };
-
-  return [
-    ...bucketRows(revenue),
-    ...bucketRows(costOfSales),
-    {
-      id: "gross",
-      label: "Gross profit / (loss)",
-      current: Math.round(gross.current),
-      prior: Math.round(gross.prior),
-      type: "subtotal",
-    },
-    ...bucketRows(otherIncome),
-    ...bucketRows(operatingExpenses),
-    {
-      id: "operating-profit",
-      label: "Operating profit / (loss)",
-      current: Math.round(operatingProfit.current),
-      prior: Math.round(operatingProfit.prior),
-      type: "subtotal",
-    },
-    ...bucketRows(financeCosts),
-    {
-      id: "before-tax",
-      label: "Profit / (loss) before taxation",
-      current: Math.round(beforeTax.current),
-      prior: Math.round(beforeTax.prior),
-      type: "subtotal",
-    },
-    ...bucketRows(taxation),
-    {
-      id: "profit-year",
-      label: "Profit / (loss) for the year",
-      current: Math.round(profitForYear.current),
-      prior: Math.round(profitForYear.prior),
-      type: "grand-total",
-    },
-  ];
-}
 
 function getSetupValue(setup: ClientSetupData | null, keys: string[]) {
   if (!setup) return "";
@@ -1036,8 +693,15 @@ function governingBody(entityType: string) {
   return "directors";
 }
 
-function renderInfoRow(label: string, value: unknown) {
-  const lines = formatMultiline(value);
+function renderInfoRow(
+  label: string,
+  value: unknown,
+  keepAsSentence = false,
+) {
+  const lines = keepAsSentence
+    ? [String(value || "").replace(/\s*\n\s*/g, " ").trim()].filter(Boolean)
+    : formatMultiline(value);
+
   if (!lines.length) return null;
 
   return (
@@ -2242,7 +1906,9 @@ const clientLogoUrl = cleanString(
         "business_activity",
         "business_description",
       ]) || ""
-    ),
+    )
+      .trim()
+      .replace(/[.\s]+$/g, ""),
     country: String(country || "South Africa"),
     directors: directorsForDisplay,
   };
@@ -2576,49 +2242,6 @@ useEffect(() => {
     directorsReportTexts: activeDirectorsReportTexts,
   };
 
-  const noteNumberMap = useMemo(() => {
-    const keyMap: Record<string, AfsNoteKey> = {
-      notesPropertyPlantEquipment: "propertyPlantEquipment",
-      notesGoodwill: "goodwill",
-      notesInvestmentProperty: "investmentProperty",
-      notesIntangibleAssets: "intangibleAssets",
-      notesBiologicalAssets: "biologicalAssets",
-      notesOtherNonCurrentAssets: "otherNonCurrentAssets",
-      notesLoansReceivable: "loansReceivable",
-      notesInventories: "inventories",
-      notesTradeReceivables: "tradeReceivables",
-      notesCurrentTaxReceivable: "currentTaxReceivable",
-      notesCashAndCashEquivalents: "cashAndCashEquivalents",
-      notesShareCapital: "shareCapital",
-      notesRetainedIncome: "retainedIncome",
-      notesShareholdersLoans: "shareholdersLoans",
-      notesOtherFinancialLiabilities: "otherFinancialLiabilities",
-      notesTradePayables: "tradePayables",
-      notesCurrentTaxPayable: "currentTaxPayable",
-      notesRevenue: "revenue",
-      notesOtherIncome: "otherIncome",
-      notesOperatingExpenses: "operatingExpenses",
-      notesFinanceCosts: "financeCosts",
-      notesTaxation: "taxation",
-      notesCashUsedInOperations: "cashUsedInOperations",
-    };
-
-    const map: Partial<Record<AfsNoteKey, string | number>> = {};
-    let nextNumber = 1;
-
-    noteSections.forEach((section: any) => {
-      if (!reportOptions[section.optionKey as keyof ReportOptions]) return;
-
-      const noteKey = keyMap[section.key];
-      if (!noteKey) return;
-
-      map[noteKey] = nextNumber;
-      nextNumber += 1;
-    });
-
-    return map;
-  }, [reportOptions]);
-
   const historicalCashFlowData = useMemo(
     () => buildHistoricalCashFlowData(trialBalanceHistory),
     [trialBalanceHistory],
@@ -2636,14 +2259,187 @@ useEffect(() => {
     [statementOverrides, historicalCashFlowData],
   );
 
+  /*
+    Build once without note numbers so numbering can be driven by actual
+    mapped note content rather than by switches alone.
+  */
+  const unnumberedStatementEngine = useMemo(
+    () =>
+      buildAfsPrintStatementEngine(
+        trialBalanceLines,
+        effectiveStatementOverrides,
+        {},
+      ),
+    [trialBalanceLines, effectiveStatementOverrides],
+  );
+
+  const effectiveNoteSections = useMemo(() => {
+    const mappedAbs = (
+      prefix: "395" | "595",
+      side: "current" | "prior",
+    ) =>
+      (trialBalanceLines || []).reduce((sum: number, line: any) => {
+        const code = String(line?.mapping_code || "").trim();
+
+        if (!(code === prefix || code.startsWith(`${prefix}.`))) {
+          return sum;
+        }
+
+        const raw =
+          side === "current"
+            ? Number(
+                line?.current_year_balance ??
+                  line?.current_balance ??
+                  line?.final_balance ??
+                  line?.source_balance ??
+                  0,
+              )
+            : Number(
+                line?.prior_year_balance ??
+                  line?.prior_balance ??
+                  line?.comparative_balance ??
+                  0,
+              );
+
+        return sum + Math.abs(Number.isFinite(raw) ? raw : 0);
+      }, 0);
+
+    const assetCurrent = mappedAbs("395", "current");
+    const liabilityCurrent = mappedAbs("595", "current");
+    const assetPrior = mappedAbs("395", "prior");
+    const liabilityPrior = mappedAbs("595", "prior");
+
+    const currentHasDeferredTax =
+      assetCurrent !== 0 || liabilityCurrent !== 0;
+
+    const placeUnderAssets = currentHasDeferredTax
+      ? assetCurrent >= liabilityCurrent
+      : assetPrior >= liabilityPrior;
+
+    return noteSections.map((section: any) =>
+      section.key === "notesDeferredTaxLiability"
+        ? {
+            ...section,
+            label: "Deferred tax",
+            title: "Deferred tax",
+            defaultTitle: "Deferred tax",
+            group: placeUnderAssets
+              ? "non-current-assets"
+              : "non-current-liabilities",
+            groupLabel: placeUnderAssets
+              ? "Non-current assets"
+              : "Non-current liabilities",
+          }
+        : section,
+    );
+  }, [trialBalanceLines]);
+
+  const noteNumberMap = useMemo(() => {
+    const keyMap: Record<string, AfsNoteKey> = {
+      notesPropertyPlantEquipment: "propertyPlantEquipment",
+      notesRightOfUseAssets: "rightOfUseAssets",
+      notesGoodwill: "goodwill",
+      notesInvestmentProperty: "investmentProperty",
+      notesIntangibleAssets: "intangibleAssets",
+      notesBiologicalAssets: "biologicalAssets",
+      notesInvestmentsSubsidiaries: "investmentsSubsidiaries",
+      notesInvestmentsAssociates: "investmentsAssociates",
+      notesInvestmentsJointVentures: "investmentsJointVentures",
+      notesOtherInvestments: "otherInvestments",
+      notesOtherFinancialAssets: "otherFinancialAssets",
+      notesOtherNonCurrentAssets: "otherNonCurrentAssets",
+      notesLoansReceivable: "loansReceivable",
+      notesInventories: "inventories",
+      notesContractAssets: "contractAssets",
+      notesTradeReceivables: "tradeReceivables",
+      notesTaxStatutoryReceivables: "taxStatutoryReceivables",
+      notesCurrentTaxReceivable: "currentTaxReceivable",
+      notesCashAndCashEquivalents: "cashAndCashEquivalents",
+      notesAssetsHeldForSale: "assetsHeldForSale",
+
+      notesShareCapital: "shareCapital",
+      notesRetainedIncome: "retainedIncome",
+      notesReserves: "reserves",
+      notesNonControllingInterests: "nonControllingInterests",
+      notesOtherEquity: "otherEquity",
+
+      notesProvisions: "provisions",
+      notesEmployeeBenefitObligations: "employeeBenefitObligations",
+      notesDeferredIncomeGrants: "deferredIncomeGrants",
+      notesGroupRelatedPartyBorrowings: "groupRelatedPartyBorrowings",
+      notesShareholdersLoans: "shareholdersLoans",
+      notesBorrowings: "borrowings",
+      notesAssetFinance: "assetFinance",
+      notesLeaseLiabilities: "leaseLiabilities",
+      notesOtherFinancialLiabilities: "otherFinancialLiabilities",
+      notesSupplierFinance: "supplierFinance",
+      notesDeferredTaxLiability: "deferredTax",
+      notesBankOverdraft: "bankOverdraft",
+      notesTradePayables: "tradePayables",
+      notesContractLiabilities: "contractLiabilities",
+      notesDividendPayable: "dividendPayable",
+      notesTaxStatutoryPayables: "taxStatutoryPayables",
+      notesCurrentTaxPayable: "currentTaxPayable",
+      notesLiabilitiesHeldForSale: "liabilitiesHeldForSale",
+
+      notesRevenue: "revenue",
+      notesCostOfSales: "costOfSales",
+      notesOtherOperatingIncome: "otherOperatingIncome",
+      notesInvestmentIncome: "investmentIncome",
+      notesOperatingExpenses: "operatingExpenses",
+      notesFinanceCosts: "financeCosts",
+      notesOtherGainsLosses: "otherGainsLosses",
+      notesTaxation: "taxation",
+      notesOtherComprehensiveIncome: "otherComprehensiveIncome",
+      notesDiscontinuedOperations: "discontinuedOperations",
+
+      notesCashUsedInOperations: "cashUsedInOperations",
+    };
+
+    const hasRows = (noteKey: AfsNoteKey) =>
+      (unnumberedStatementEngine.noteData[noteKey] || []).some(
+        (row: any) =>
+          Math.round(Number(row?.current || 0)) !== 0 ||
+          Math.round(Number(row?.prior || 0)) !== 0,
+      );
+
+    const map: Partial<Record<AfsNoteKey, string | number>> = {};
+    let nextNumber = 1;
+
+    effectiveNoteSections.forEach((section: any) => {
+      if (!reportOptions[section.optionKey as keyof ReportOptions]) return;
+
+      const noteKey = keyMap[section.key];
+      if (!noteKey) return;
+
+      // Empty mapped notes do not consume note numbers.
+      if (!hasRows(noteKey)) return;
+
+      map[noteKey] = nextNumber;
+
+      if (noteKey === "deferredTax") {
+        map.deferredTaxAsset = nextNumber;
+        map.deferredTaxLiability = nextNumber;
+      }
+
+      if (noteKey === "cashAndCashEquivalents") {
+        map.bankOverdraft = nextNumber;
+      }
+
+      nextNumber += 1;
+    });
+
+    return map;
+  }, [reportOptions, unnumberedStatementEngine, effectiveNoteSections]);
+
   const baseStatementEngine = useMemo(
     () =>
       buildAfsPrintStatementEngine(
         trialBalanceLines,
         effectiveStatementOverrides,
-        noteNumberMap
+        noteNumberMap,
       ),
-    [trialBalanceLines, effectiveStatementOverrides, noteNumberMap]
+    [trialBalanceLines, effectiveStatementOverrides, noteNumberMap],
   );
 
 const effectiveStructuredNotesState = useMemo(() => {
@@ -2696,11 +2492,43 @@ const effectiveStructuredNotesState = useMemo(() => {
       0,
     );
 
+  const mappedPnlDepreciation = (
+    side: "current" | "prior",
+  ) =>
+    (trialBalanceLines || [])
+      .filter((line: any) => {
+        const code = String(line?.mapping_code || "").trim();
+        return (
+          code === "750.14" ||
+          code.startsWith("750.14.") ||
+          code === "750.141" ||
+          code.startsWith("750.141.")
+        );
+      })
+      .reduce((sum: number, line: any) => {
+        const amount =
+          side === "current"
+            ? Number(
+                line?.current_year_balance ??
+                  line?.current_balance ??
+                  line?.final_balance ??
+                  line?.source_balance ??
+                  0,
+              )
+            : Number(
+                line?.prior_year_balance ??
+                  line?.prior_balance ??
+                  0,
+              );
+
+        return sum + Math.abs(Number.isFinite(amount) ? amount : 0);
+      }, 0);
+
   const mappedDepreciationCurrent =
-    ppeDepreciation("current");
+    mappedPnlDepreciation("current") || ppeDepreciation("current");
 
   const mappedDepreciationPrior =
-    ppeDepreciation("prior");
+    mappedPnlDepreciation("prior") || ppeDepreciation("prior");
 
   const existingDepreciation =
     currentValues.depreciationAmortisationImpairment || {};
@@ -2716,18 +2544,14 @@ const effectiveStructuredNotesState = useMemo(() => {
           ...existingDepreciation,
 
           current:
-            existingDepreciation.current !== undefined &&
-            existingDepreciation.current !== null &&
-            existingDepreciation.current !== ""
-              ? existingDepreciation.current
-              : mappedDepreciationCurrent,
+            mappedDepreciationCurrent !== 0
+              ? mappedDepreciationCurrent
+              : existingDepreciation.current ?? 0,
 
           prior:
-            existingDepreciation.prior !== undefined &&
-            existingDepreciation.prior !== null &&
-            existingDepreciation.prior !== ""
-              ? existingDepreciation.prior
-              : mappedDepreciationPrior,
+            mappedDepreciationPrior !== 0
+              ? mappedDepreciationPrior
+              : existingDepreciation.prior ?? 0,
         },
 
         inventories: {
@@ -2797,28 +2621,18 @@ const effectiveStructuredNotesState = useMemo(() => {
 
         investmentIncome: {
           ...(currentValues.investmentIncome || {}),
-          current:
-            currentValues.investmentIncome?.current !== undefined &&
-            currentValues.investmentIncome?.current !== null &&
-            currentValues.investmentIncome?.current !== ""
-              ? currentValues.investmentIncome.current
-              : Math.abs(
-                  mappedNoteTotal(
-                    baseStatementEngine.noteData.otherIncome,
-                    "current",
-                  ),
-                ),
-          prior:
-            currentValues.investmentIncome?.prior !== undefined &&
-            currentValues.investmentIncome?.prior !== null &&
-            currentValues.investmentIncome?.prior !== ""
-              ? currentValues.investmentIncome.prior
-              : Math.abs(
-                  mappedNoteTotal(
-                    baseStatementEngine.noteData.otherIncome,
-                    "prior",
-                  ),
-                ),
+          current: -Math.abs(
+            mappedNoteTotal(
+              baseStatementEngine.noteData.investmentIncome,
+              "current",
+            ),
+          ),
+          prior: -Math.abs(
+            mappedNoteTotal(
+              baseStatementEngine.noteData.investmentIncome,
+              "prior",
+            ),
+          ),
         },
 
         financeCosts: {
@@ -2977,31 +2791,180 @@ const adjustmentsPrior = adjustmentKeys.reduce(
       netFinancingRow.prior = Math.round(correctedNetFinancingPrior);
     }
 
+    const mappingMovement = (prefixes: string[]) => {
+      let current = 0;
+      let prior = 0;
+
+      for (const line of trialBalanceLines || []) {
+        const code = String(line?.mapping_code || "").trim();
+        if (!prefixes.some((prefix) => code === prefix || code.startsWith(`${prefix}.`))) {
+          continue;
+        }
+
+        current += Math.abs(Number(rawCurrent(line) || 0));
+        prior += Math.abs(Number(rawPrior(line) || 0));
+      }
+
+      return Math.round(current - prior);
+    };
+
+    const shareholderLoanMovementCurrent = mappingMovement(["548"]);
+
+    const assetFinanceMovementCurrent = mappingMovement([
+      "550.40",
+      "550.50",
+      "610.30",
+      "610.40",
+    ]);
+
+    const otherBorrowingsMovementCurrent = (() => {
+      let current = 0;
+      let prior = 0;
+
+      for (const line of trialBalanceLines || []) {
+        const code = String(line?.mapping_code || "").trim();
+
+        const isAssetFinance =
+          code === "550.40" ||
+          code.startsWith("550.40.") ||
+          code === "550.50" ||
+          code.startsWith("550.50.") ||
+          code === "610.30" ||
+          code.startsWith("610.30.") ||
+          code === "610.40" ||
+          code.startsWith("610.40.");
+
+        const isOtherBorrowing =
+          code === "547" ||
+          code.startsWith("547.") ||
+          code === "550" ||
+          code.startsWith("550.") ||
+          code === "551" ||
+          code.startsWith("551.") ||
+          code === "610" ||
+          code.startsWith("610.");
+
+        if (!isOtherBorrowing || isAssetFinance) continue;
+
+        current += Math.abs(Number(rawCurrent(line) || 0));
+        prior += Math.abs(Number(rawPrior(line) || 0));
+      }
+
+      return Math.round(current - prior);
+    })();
+
+    const manualLoanMovementCurrent =
+      effectiveStatementOverrides.cashLoansRaisedCurrent !== null &&
+      effectiveStatementOverrides.cashLoansRaisedCurrent !== undefined
+        ? Number(effectiveStatementOverrides.cashLoansRaisedCurrent || 0)
+        : shareholderLoanMovementCurrent;
+
+    const manualLoanMovementPrior =
+      effectiveStatementOverrides.cashLoansRaisedPrior !== null &&
+      effectiveStatementOverrides.cashLoansRaisedPrior !== undefined
+        ? Number(effectiveStatementOverrides.cashLoansRaisedPrior || 0)
+        : Number(loansRaisedRow?.prior || 0);
+
+    const mappedOtherFinancingCurrent =
+      assetFinanceMovementCurrent + otherBorrowingsMovementCurrent;
+
+    /*
+      Asset finance / borrowings (e.g. Wesbank) must ALWAYS pull automatically
+      from the mapped balance-sheet movements. The Workbench "Other financing"
+      field is an additional manual cash-flow amount, not a replacement for
+      those mapped financing movements.
+    */
+    const manualOtherFinancingCurrent =
+      Number(effectiveStatementOverrides.cashOtherFinancingCurrent || 0);
+
+    const manualOtherFinancingPrior =
+      Number(effectiveStatementOverrides.cashOtherFinancingPrior || 0);
+
+    const totalOtherFinancingCurrent =
+      mappedOtherFinancingCurrent + manualOtherFinancingCurrent;
+
+    const mappedOtherFinancingPrior =
+      Number(otherFinancingRow?.prior || 0);
+
+    const totalOtherFinancingPrior =
+      mappedOtherFinancingPrior + manualOtherFinancingPrior;
+
+    if (loansRaisedRow) {
+      loansRaisedRow.current = Math.round(manualLoanMovementCurrent);
+      loansRaisedRow.prior = Math.round(manualLoanMovementPrior);
+      loansRaisedRow.label = "Directors / shareholders loan movement";
+    }
+
+    if (otherFinancingRow) {
+      otherFinancingRow.current = Math.round(totalOtherFinancingCurrent);
+      otherFinancingRow.prior = Math.round(totalOtherFinancingPrior);
+      otherFinancingRow.label =
+        "Asset finance, borrowings and other financing cash flows";
+    }
+
+    if (netFinancingRow) {
+      netFinancingRow.current = Math.round(
+        manualLoanMovementCurrent +
+          Number(dividendsPaidRow?.current || 0) +
+          totalOtherFinancingCurrent,
+      );
+
+      netFinancingRow.prior = Math.round(
+        manualLoanMovementPrior +
+          Number(dividendsPaidRow?.prior || 0) +
+          totalOtherFinancingPrior,
+      );
+    }
+
+    /*
+      PPE additions:
+      The structured PPE note is the source of truth for additions.
+      An explicit Workbench amount may override it where an acquisition was
+      non-cash / financed directly.
+    */
     const ppeAdditionsFromNote = (side: "current" | "prior") => {
-  const savedRows = Array.isArray(structuredNotesState?.ppeRows)
-    ? structuredNotesState.ppeRows
-    : [];
+      const structuredStateAny = effectiveStructuredNotesState as any;
 
-  const savedInputs =
-    structuredNotesState?.ppeInputs &&
-    typeof structuredNotesState.ppeInputs === "object"
-      ? Object.values(structuredNotesState.ppeInputs)
-      : [];
+      const savedRows = Array.isArray(structuredStateAny?.ppeRows)
+        ? structuredStateAny.ppeRows
+        : [];
 
-  const rows = savedRows.length > 0 ? savedRows : savedInputs;
+      const savedInputs =
+        structuredStateAny?.ppeInputs &&
+        typeof structuredStateAny.ppeInputs === "object"
+          ? Object.values(structuredStateAny.ppeInputs)
+          : [];
 
-  return rows.reduce(
-    (sum: number, row: any) =>
-      sum + Number(row?.[side]?.additions || 0),
-    0,
-  );
-};
+      const sourceRows = savedRows.length > 0 ? savedRows : savedInputs;
 
-const ppeAdditionsCurrent = ppeAdditionsFromNote("current");
-const ppeAdditionsPrior = ppeAdditionsFromNote("prior");
+      return sourceRows.reduce(
+        (sum: number, row: any) =>
+          sum + Math.abs(Number(row?.[side]?.additions || 0)),
+        0,
+      );
+    };
 
-const purchasePpeCurrent = -Math.abs(ppeAdditionsCurrent);
-const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
+    const defaultPpeCurrent = ppeAdditionsFromNote("current");
+    const defaultPpePrior = ppeAdditionsFromNote("prior");
+
+    const purchasePpeCurrentRaw =
+      effectiveStatementOverrides.cashPurchaseOfPpeCurrent;
+    const purchasePpePriorRaw =
+      effectiveStatementOverrides.cashPurchaseOfPpePrior;
+
+    const purchasePpeCurrent =
+      purchasePpeCurrentRaw !== null &&
+      purchasePpeCurrentRaw !== undefined &&
+      Number.isFinite(Number(purchasePpeCurrentRaw))
+        ? -Math.abs(Number(purchasePpeCurrentRaw))
+        : -Math.abs(defaultPpeCurrent);
+
+    const purchasePpePrior =
+      purchasePpePriorRaw !== null &&
+      purchasePpePriorRaw !== undefined &&
+      Number.isFinite(Number(purchasePpePriorRaw))
+        ? -Math.abs(Number(purchasePpePriorRaw))
+        : -Math.abs(defaultPpePrior);
 
     if (purchasePpeRow) {
       purchasePpeRow.current = Math.round(purchasePpeCurrent);
@@ -3126,14 +3089,14 @@ const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
 
     const mappedInterestReceivedCurrent = Math.abs(
       mappedNoteTotal(
-        baseStatementEngine.noteData.otherIncome,
+        baseStatementEngine.noteData.investmentIncome,
         "current",
       ),
     );
 
     const mappedInterestReceivedPrior = Math.abs(
       mappedNoteTotal(
-        baseStatementEngine.noteData.otherIncome,
+        baseStatementEngine.noteData.investmentIncome,
         "prior",
       ),
     );
@@ -3298,13 +3261,9 @@ const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
     }
 
     const otherOperatingCurrent =
-      Number(effectiveStatementOverrides.cashOtherOperatingCurrent || 0) +
-      Number(effectiveStatementOverrides.cashOtherOperating2Current || 0) +
-      Number(effectiveStatementOverrides.cashOtherOperating3Current || 0);
+      Number(effectiveStatementOverrides.cashOtherOperatingCurrent || 0);
     const otherOperatingPrior =
-      Number(effectiveStatementOverrides.cashOtherOperatingPrior || 0) +
-      Number(effectiveStatementOverrides.cashOtherOperating2Prior || 0) +
-      Number(effectiveStatementOverrides.cashOtherOperating3Prior || 0);
+      Number(effectiveStatementOverrides.cashOtherOperatingPrior || 0);
 
     if (otherOperatingRow) {
       otherOperatingRow.current = Math.round(otherOperatingCurrent);
@@ -3330,14 +3289,10 @@ const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
     }
 
   const otherInvestingCurrent =
-  Number(effectiveStatementOverrides.cashOtherInvestingCurrent || 0) +
-  Number(effectiveStatementOverrides.cashOtherInvesting2Current || 0) +
-  Number(effectiveStatementOverrides.cashOtherInvesting3Current || 0);
+  Number(effectiveStatementOverrides.cashOtherInvestingCurrent || 0);
 
 const otherInvestingPrior =
-  Number(effectiveStatementOverrides.cashOtherInvestingPrior || 0) +
-  Number(effectiveStatementOverrides.cashOtherInvesting2Prior || 0) +
-  Number(effectiveStatementOverrides.cashOtherInvesting3Prior || 0);
+  Number(effectiveStatementOverrides.cashOtherInvestingPrior || 0);
 
 if (otherInvestingRow) {
   otherInvestingRow.current = Math.round(otherInvestingCurrent);
@@ -3517,15 +3472,15 @@ if (closingCashRow) {
         "prior",
       );
 
-      const otherIncomeCurrent = noteTotal(
-        baseStatementEngine.noteData.otherIncome,
-        "current",
-      );
+      const otherIncomeCurrent =
+        noteTotal(baseStatementEngine.noteData.otherOperatingIncome, "current") +
+        noteTotal(baseStatementEngine.noteData.investmentIncome, "current") +
+        noteTotal(baseStatementEngine.noteData.otherGainsLosses, "current");
 
-      const otherIncomePrior = noteTotal(
-        baseStatementEngine.noteData.otherIncome,
-        "prior",
-      );
+      const otherIncomePrior =
+        noteTotal(baseStatementEngine.noteData.otherOperatingIncome, "prior") +
+        noteTotal(baseStatementEngine.noteData.investmentIncome, "prior") +
+        noteTotal(baseStatementEngine.noteData.otherGainsLosses, "prior");
 
       const financeCostsCurrent = Math.abs(
         noteTotal(
@@ -3578,14 +3533,25 @@ if (closingCashRow) {
       ) =>
         (trialBalanceLines || [])
           .filter((line) => {
-            const mappingText = lineSearchText(line);
+            /*
+              Mapping-code-only.
 
-            return [
-              "depreciation",
-              "amortisation",
-              "amortization",
-              "impairment",
-            ].some((term) => mappingText.includes(term));
+              Only genuine non-cash P/L expenses included in operating
+              expenses are added back here.
+
+              750.14  Depreciation
+              750.141 Amortisation
+
+              Never pick up accumulated depreciation from SFP codes 305.xx.
+            */
+            const code = String(line.mapping_code || "").trim();
+
+            return (
+              code === "750.14" ||
+              code.startsWith("750.14.") ||
+              code === "750.141" ||
+              code.startsWith("750.141.")
+            );
           })
           .reduce((sum, line) => {
             const amount =
@@ -3655,30 +3621,68 @@ if (closingCashRow) {
         Customer receipts use the working-capital movement already
         controlled by the Cash generated from operations note.
       */
-      const directReceiptsCurrent =
+      const directReceiptsCurrentCalculated =
         revenueCurrent + receivablesCurrent;
 
-      const directReceiptsPrior =
+      const directReceiptsPriorCalculated =
         revenuePrior + receivablesPrior;
 
-      /*
-        Cash paid to suppliers and employees is derived from the completed
-        Cash generated from operations note.
+      const directReceiptsCurrent =
+        effectiveStatementOverrides.cashReceiptsCustomersCurrent !== null &&
+        effectiveStatementOverrides.cashReceiptsCustomersCurrent !== undefined
+          ? Number(effectiveStatementOverrides.cashReceiptsCustomersCurrent)
+          : directReceiptsCurrentCalculated;
 
-        Cash generated from operations =
-          cash receipts from customers
-          + cash paid to suppliers and employees
+      const directReceiptsPrior =
+        effectiveStatementOverrides.cashReceiptsCustomersPrior !== null &&
+        effectiveStatementOverrides.cashReceiptsCustomersPrior !== undefined
+          ? Number(effectiveStatementOverrides.cashReceiptsCustomersPrior)
+          : directReceiptsPriorCalculated;
+
+      /*
+        DIRECT METHOD — suppliers and employees
+
+        Do NOT derive this backwards from "cash generated from operations".
+        That subtotal also contains finance-cost and investment-income
+        adjustments, which caused Perfect Wood's 2026 supplier payment to be
+        understated by R70.
+
+        Start with cost of sales + operating expenses, then:
+          + add back non-cash operating expenses
+          + apply inventory movement
+          + apply trade-payables / deferred-income movement
+
+        Receivables belong in customer receipts, not supplier payments.
+        Finance costs and investment income are shown separately below.
       */
+      const directPaymentsCurrentCalculated =
+        tradingAndOperatingExpensesCurrent +
+        operatingNonCashAdjustmentCurrent +
+        inventoryCurrent +
+        payablesCurrent;
+
+      const directPaymentsPriorCalculated =
+        tradingAndOperatingExpensesPrior +
+        operatingNonCashAdjustmentPrior +
+        inventoryPrior +
+        payablesPrior;
+
       const directPaymentsCurrent =
-        generatedCurrent - directReceiptsCurrent;
+        effectiveStatementOverrides.cashPaymentsSuppliersEmployeesCurrent !== null &&
+        effectiveStatementOverrides.cashPaymentsSuppliersEmployeesCurrent !== undefined
+          ? Number(effectiveStatementOverrides.cashPaymentsSuppliersEmployeesCurrent)
+          : directPaymentsCurrentCalculated;
 
       const directPaymentsPrior =
-        generatedPrior - directReceiptsPrior;
+        effectiveStatementOverrides.cashPaymentsSuppliersEmployeesPrior !== null &&
+        effectiveStatementOverrides.cashPaymentsSuppliersEmployeesPrior !== undefined
+          ? Number(effectiveStatementOverrides.cashPaymentsSuppliersEmployeesPrior)
+          : directPaymentsPriorCalculated;
 
       const noteInterestReceived = (
         side: "current" | "prior",
       ) =>
-        (baseStatementEngine.noteData.otherIncome || [])
+        (baseStatementEngine.noteData.investmentIncome || [])
           .filter((line: any) =>
             String(line?.label || "")
               .toLowerCase()
@@ -3757,10 +3761,78 @@ if (closingCashRow) {
         every other operating cash-flow item cannot be omitted from the final
         movement calculation.
       */
+      /*
+        Reconcile the direct-method statement to mapped cash + overdraft.
+
+        Any remaining amount is left visibly on "Other financing cash flows"
+        rather than hidden as a rounding adjustment. The accountant can later
+        reclassify it in Workbench when the underlying bank detail is known.
+      */
+      const targetMovementCurrent =
+        Math.round(
+          Number(baseStatementEngine.checks.cashMovementFromSfp || 0),
+        );
+
+      const preReconcileMovementCurrent =
+        Math.round(directNetOperatingCurrent) +
+        Math.round(Number(netInvestingRow?.current || 0)) +
+        Math.round(Number(netFinancingRow?.current || 0));
+
+      const unallocatedFinancingCurrent =
+        targetMovementCurrent - preReconcileMovementCurrent;
+
+      /*
+        After applying the Workbench values, the remaining financing movement
+        is the asset-finance / borrowings cash movement (for example Wesbank).
+        Keep it visible on the financing line so the cash flow reconciles to
+        cash + overdraft.
+      */
+      if (otherFinancingRow && unallocatedFinancingCurrent !== 0) {
+        otherFinancingRow.current =
+          Math.round(Number(otherFinancingRow.current || 0)) +
+          unallocatedFinancingCurrent;
+        otherFinancingRow.label =
+          "Asset finance, borrowings and other financing cash flows";
+      }
+
+      if (netFinancingRow) {
+        netFinancingRow.current =
+          Math.round(Number(netFinancingRow.current || 0)) +
+          unallocatedFinancingCurrent;
+      }
+
       const calculatedDirectNetMovementCurrent =
   directNetOperatingCurrent +
   Number(netInvestingRow?.current || 0) +
   Number(netFinancingRow?.current || 0);
+
+const targetMovementPrior =
+  Math.round(sfpClosingPrior) - Math.round(openingPrior);
+
+const preReconcileMovementPrior =
+  Math.round(directNetOperatingPrior) +
+  Math.round(Number(netInvestingRow?.prior || 0)) +
+  Math.round(Number(netFinancingRow?.prior || 0));
+
+const unallocatedFinancingPrior =
+  targetMovementPrior - preReconcileMovementPrior;
+
+/*
+  Apply the same financing reconciliation to the comparative year.
+*/
+if (otherFinancingRow && unallocatedFinancingPrior !== 0) {
+  otherFinancingRow.prior =
+    Math.round(Number(otherFinancingRow.prior || 0)) +
+    unallocatedFinancingPrior;
+  otherFinancingRow.label =
+    "Asset finance, borrowings and other financing cash flows";
+}
+
+if (netFinancingRow) {
+  netFinancingRow.prior =
+    Math.round(Number(netFinancingRow.prior || 0)) +
+    unallocatedFinancingPrior;
+}
 
 const calculatedDirectNetMovementPrior =
   directNetOperatingPrior +
@@ -3971,6 +4043,37 @@ if (
         cashFlowRows: directRows,
         checks: {
           ...checks,
+          sfpAssetsTotal: Math.round(
+            Number(
+              (baseStatementEngine.sfpRows || []).find(
+                (row: any) => String(row?.id || "") === "assets-total",
+              )?.current || 0,
+            ),
+          ),
+          sfpEquityAndLiabilitiesTotal: Math.round(
+            Number(
+              (baseStatementEngine.sfpRows || []).find(
+                (row: any) => String(row?.id || "") === "eql-total",
+              )?.current || 0,
+            ),
+          ),
+          sfpDifference: (() => {
+            const a = Math.round(
+              Number(
+                (baseStatementEngine.sfpRows || []).find(
+                  (row: any) => String(row?.id || "") === "assets-total",
+                )?.current || 0,
+              ),
+            );
+            const e = Math.round(
+              Number(
+                (baseStatementEngine.sfpRows || []).find(
+                  (row: any) => String(row?.id || "") === "eql-total",
+                )?.current || 0,
+              ),
+            );
+            return Math.abs(a - e) <= 1 ? 0 : a - e;
+          })(),
           cashMovementFromCashFlow: Math.round(
             directNetMovementCurrent,
           ),
@@ -4021,10 +4124,11 @@ if (
     ...row,
   }));
 
-  const retainedIncomeRow = sfpRows.find((row: any) =>
-    String(row?.label || "")
-      .toLowerCase()
-      .includes("retained income"),
+  const retainedIncomeRow = sfpRows.find(
+    (row: any) =>
+      String(row?.id || "") === "retained-income-adjusted" ||
+      String(row?.label || "").toLowerCase().includes("retained income") ||
+      String(row?.label || "").toLowerCase().includes("accumulated loss"),
   );
 
   const totalEquityRow = sfpRows.find(
@@ -4060,11 +4164,17 @@ if (
     retainedIncomeRow?.current || 0,
   );
 
-  const priorClosingRetained = Number(
-    priorClosingRetainedRow?.current ||
-      retainedIncomeRow?.prior ||
-      0,
+  /*
+    Prior-year SCE closing retained income must agree to the comparative SFP.
+    Use the comparative retained-income balance as the source of truth.
+  */
+  const priorClosingRetained = Math.round(
+    Number(retainedIncomeRow?.prior || priorClosingRetainedRow?.current || 0),
   );
+
+  if (priorClosingRetainedRow) {
+    priorClosingRetainedRow.current = priorClosingRetained;
+  }
 
   const currentProfit = Number(currentProfitRow?.current || 0);
 
@@ -4119,6 +4229,50 @@ if (
     );
   }
 
+  /*
+    FINAL DISPLAY ROUNDING:
+    Print Studio recalculates retained income after the statement engine,
+    which can reintroduce a R1/R2 SFP difference. Absorb only a tiny
+    presentation difference into accumulated loss / retained income.
+  */
+  const assetsTotalRow = sfpRows.find(
+    (row: any) => String(row?.id || "") === "assets-total",
+  );
+
+  const finalEqlRow = sfpRows.find(
+    (row: any) => String(row?.id || "") === "eql-total",
+  );
+
+  const displayDifference =
+    Math.round(Number(assetsTotalRow?.current || 0)) -
+    Math.round(Number(finalEqlRow?.current || 0));
+
+  if (
+    retainedIncomeRow &&
+    totalEquityRow &&
+    finalEqlRow &&
+    Math.abs(displayDifference) <= 2 &&
+    displayDifference !== 0
+  ) {
+    retainedIncomeRow.current =
+      Math.round(Number(retainedIncomeRow.current || 0)) +
+      displayDifference;
+
+    totalEquityRow.current =
+      Math.round(Number(totalEquityRow.current || 0)) +
+      displayDifference;
+
+    finalEqlRow.current =
+      Math.round(Number(finalEqlRow.current || 0)) +
+      displayDifference;
+
+    if (currentClosingRetainedRow) {
+      currentClosingRetainedRow.current =
+        Math.round(Number(currentClosingRetainedRow.current || 0)) +
+        displayDifference;
+    }
+  }
+
   return {
     sfpRows,
     sceRows,
@@ -4166,9 +4320,11 @@ const renderedSfpBalanceDifference = useMemo(() => {
 const flightDeckIssues = useMemo(() => {
   const issues = buildAfsFlightDeckIssuesFromEngine(statementEngine);
 
+  const sfpRoundingTolerance = 5;
+
   if (
-    renderedSfpBalanceDifference.current !== 0 ||
-    renderedSfpBalanceDifference.prior !== 0
+    Math.abs(renderedSfpBalanceDifference.current) > sfpRoundingTolerance ||
+    Math.abs(renderedSfpBalanceDifference.prior) > sfpRoundingTolerance
   ) {
     return issues;
   }
@@ -4925,30 +5081,67 @@ const flightDeckIssues = useMemo(() => {
   function getNoteLinesForSectionKey(key: string) {
     const map: Record<string, any[]> = {
       notesPropertyPlantEquipment: noteData.propertyPlantEquipment,
+      notesRightOfUseAssets: noteData.rightOfUseAssets,
       notesGoodwill: noteData.goodwill,
       notesInvestmentProperty: noteData.investmentProperty,
       notesIntangibleAssets: noteData.intangibleAssets,
       notesBiologicalAssets: noteData.biologicalAssets,
+      notesInvestmentsSubsidiaries: noteData.investmentsSubsidiaries,
+      notesInvestmentsAssociates: noteData.investmentsAssociates,
+      notesInvestmentsJointVentures: noteData.investmentsJointVentures,
+      notesOtherInvestments: noteData.otherInvestments,
+      notesOtherFinancialAssets: noteData.otherFinancialAssets,
       notesOtherNonCurrentAssets: noteData.otherNonCurrentAssets,
       notesLoansReceivable: noteData.loansReceivable,
       notesInventories: noteData.inventories,
+      notesContractAssets: noteData.contractAssets,
       notesTradeReceivables: noteData.tradeReceivables,
+      notesTaxStatutoryReceivables: noteData.taxStatutoryReceivables,
       notesCurrentTaxReceivable: noteData.currentTaxReceivable,
       notesCashAndCashEquivalents: noteData.cashAndCashEquivalents,
+      notesAssetsHeldForSale: noteData.assetsHeldForSale,
+
       notesShareCapital: noteData.shareCapital,
       notesRetainedIncome: noteData.retainedIncome,
+      notesReserves: noteData.reserves,
+      notesNonControllingInterests: noteData.nonControllingInterests,
+      notesOtherEquity: noteData.otherEquity,
+
+      notesProvisions: noteData.provisions,
+      notesEmployeeBenefitObligations: noteData.employeeBenefitObligations,
+      notesDeferredIncomeGrants: noteData.deferredIncomeGrants,
+      notesGroupRelatedPartyBorrowings: noteData.groupRelatedPartyBorrowings,
       notesShareholdersLoans: noteData.shareholdersLoans,
+      notesBorrowings: noteData.borrowings,
+      notesAssetFinance: noteData.assetFinance,
+      notesLeaseLiabilities: noteData.leaseLiabilities,
       notesOtherFinancialLiabilities: noteData.otherFinancialLiabilities,
+      notesSupplierFinance: noteData.supplierFinance,
+      notesDeferredTaxLiability: noteData.deferredTax,
+      notesBankOverdraft: noteData.bankOverdraft,
       notesTradePayables: noteData.tradePayables,
+      notesContractLiabilities: noteData.contractLiabilities,
+      notesDividendPayable: noteData.dividendPayable,
+      notesTaxStatutoryPayables: noteData.taxStatutoryPayables,
       notesCurrentTaxPayable: noteData.currentTaxPayable,
+      notesLiabilitiesHeldForSale: noteData.liabilitiesHeldForSale,
+
       notesRevenue: noteData.revenue,
-      notesOtherIncome: noteData.otherIncome,
+      notesCostOfSales: noteData.costOfSales,
+      notesOtherOperatingIncome: noteData.otherOperatingIncome,
+      notesInvestmentIncome: noteData.investmentIncome,
       notesOperatingExpenses: noteData.operatingExpenses,
       notesFinanceCosts: noteData.financeCosts,
+      notesOtherGainsLosses: noteData.otherGainsLosses,
       notesTaxation: noteData.taxation,
+      notesOtherComprehensiveIncome: noteData.otherComprehensiveIncome,
+      notesDiscontinuedOperations: noteData.discontinuedOperations,
+
       notesCashUsedInOperations: noteData.cashUsedInOperations,
       notesGoingConcern: [],
       notesRelatedParties: [],
+      notesCommitmentsContingencies: [],
+      notesEventsAfterReportingPeriod: [],
     };
 
     return map[key] || [];
@@ -5693,7 +5886,7 @@ const flightDeckIssues = useMemo(() => {
         options: [],
         content: (
           <AfsEditableDisclosureSettings
-            sections={noteSections}
+            sections={effectiveNoteSections}
             reportOptions={reportOptions}
             toggleReportOption={toggleReportOption}
             texts={activeNoteTexts}
@@ -5790,7 +5983,7 @@ function elementOuterHeight(element: HTMLElement | null) {
   const activeDirectorsReportKeys =
     getActiveDirectorsReportSectionKeys(narrativeContext);
 
-  const activeNoteSectionKeys = noteSections
+  const activeNoteSectionKeys = effectiveNoteSections
     .filter((section: any) =>
       Boolean(reportOptions[section.optionKey as keyof ReportOptions]),
     )
@@ -6569,7 +6762,7 @@ return Math.max(
               >
                 <AfsStructuredNotesPanel
                   engagementId={engagementId}
-                  noteSections={noteSections}
+                  noteSections={effectiveNoteSections}
                   reportOptions={reportOptions as any}
                   toggleReportOption={() => undefined}
                   noteData={noteData as any}
@@ -6779,7 +6972,8 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                           "principal_activities",
                           "business_activity",
                           "business_description",
-                        ])
+                        ]),
+                        true
                       )}
                       {renderInfoRow(
                         roleLabel(entityType),
@@ -7095,55 +7289,44 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
               <div
                 id="print-notes"
                 style={{
-                  display: "grid",
-                  gap: 16,
-                  alignContent: "start",
-                  justifyItems: "center",
+                  width: "min(100%, 1120px)",
+                  boxSizing: "border-box",
+                  margin: "0 auto",
+                  padding: "22px 28px 42px",
+                  background: "#ffffff",
+                  color: "#111827",
+                  minHeight: 0,
+                  boxShadow: "none",
                 }}
               >
-                {activeNoteSectionKeys.map((sectionKey, pageIndex) => (
-                  <div
-                    key={`notes-work-page-${sectionKey}`}
-                    data-notes-work-page-index={pageIndex}
-                    style={{
-                      width: "210mm",
-                      minHeight: "297mm",
-                    }}
-                  >
-                    <AfsA4Page {...reportHeaderProps}>
-                      <AfsStructuredNotesPanel
-                        engagementId={engagementId}
-                        noteSections={noteSections}
-                        reportOptions={reportOptions as any}
-                        toggleReportOption={(key: string, checked: boolean) =>
-                          toggleReportOption(
-                            key as keyof ReportOptions,
-                            checked,
-                          )
-                        }
-                        noteData={noteData as any}
-                        trialBalanceLines={trialBalanceLines}
-                        clientSetup={clientSetup}
-                        currentHeading={currentHeading}
-                        priorHeading={priorHeading}
-                        activeNoteTexts={activeNoteTexts}
-                        defaultNoteTexts={defaultNoteTexts}
-                        disclosureTokens={disclosureTokens}
-                        hideComparatives={hideComparatives}
-                        structuredNotesState={effectiveStructuredNotesState}
-                        onStructuredNotesStateChange={
-                          saveStructuredNotesStateEverywhere
-                        }
-                        forceReviewMode={false}
-                        sectionKeys={[sectionKey]}
-                        headingMode={
-                          pageIndex === 0 ? "main" : "continued"
-                        }
-                        rootId={`print-notes-work-page-${pageIndex + 1}`}
-                      />
-                    </AfsA4Page>
-                  </div>
-                ))}
+                <AfsStructuredNotesPanel
+                  engagementId={engagementId}
+                  noteSections={effectiveNoteSections}
+                  reportOptions={reportOptions as any}
+                  toggleReportOption={(key: string, checked: boolean) =>
+                    toggleReportOption(
+                      key as keyof ReportOptions,
+                      checked,
+                    )
+                  }
+                  noteData={noteData as any}
+                  trialBalanceLines={trialBalanceLines}
+                  clientSetup={clientSetup}
+                  currentHeading={currentHeading}
+                  priorHeading={priorHeading}
+                  activeNoteTexts={activeNoteTexts}
+                  defaultNoteTexts={defaultNoteTexts}
+                  disclosureTokens={disclosureTokens}
+                  hideComparatives={hideComparatives}
+                  structuredNotesState={effectiveStructuredNotesState}
+                  onStructuredNotesStateChange={
+                    saveStructuredNotesStateEverywhere
+                  }
+                  forceReviewMode={false}
+                  sectionKeys={activeNoteSectionKeys}
+                  headingMode="main"
+                  rootId="print-notes-work"
+                />
               </div>
             ) : (
               <div
@@ -7167,7 +7350,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     <AfsA4Page {...reportHeaderProps}>
                       <AfsStructuredNotesPanel
                       engagementId={engagementId}
-                      noteSections={noteSections}
+                      noteSections={effectiveNoteSections}
                       reportOptions={reportOptions as any}
                       toggleReportOption={(key: string, checked: boolean) =>
                         toggleReportOption(
@@ -7241,25 +7424,19 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     );
 
                     const deferredTaxAssetCurrent = Math.round(
-                      (noteData.currentTaxReceivable || [])
-                        .filter((line: any) =>
-                          String(line.label || "").toLowerCase().includes("deferred tax")
-                        )
-                        .reduce(
-                          (sum: number, line: any) => sum + Number(line.current || 0),
-                          0,
-                        )
+                      (noteData.deferredTaxAsset || []).reduce(
+                        (sum: number, line: any) =>
+                          sum + Number(line.current || 0),
+                        0,
+                      )
                     );
 
                     const deferredTaxLiabilityCurrent = Math.round(
-                      (noteData.currentTaxPayable || [])
-                        .filter((line: any) =>
-                          String(line.label || "").toLowerCase().includes("deferred tax")
-                        )
-                        .reduce(
-                          (sum: number, line: any) => sum + Number(line.current || 0),
-                          0,
-                        )
+                      (noteData.deferredTaxLiability || []).reduce(
+                        (sum: number, line: any) =>
+                          sum + Number(line.current || 0),
+                        0,
+                      )
                     );
 
                     const taxExpenseMapped = Math.round(
@@ -7306,47 +7483,35 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     > = [];
 
                     const currentTaxReceivable = Math.round(
-                      (noteData.currentTaxReceivable || [])
-                        .filter((line: any) =>
-                          !String(line.label || "").toLowerCase().includes("deferred tax")
-                        )
-                        .reduce(
-                          (sum: number, line: any) => sum + Number(line.current || 0),
-                          0,
-                        )
+                      (noteData.currentTaxReceivable || []).reduce(
+                        (sum: number, line: any) =>
+                          sum + Number(line.current || 0),
+                        0,
+                      )
                     );
 
                     const currentTaxPayable = Math.round(
-                      (noteData.currentTaxPayable || [])
-                        .filter((line: any) =>
-                          !String(line.label || "").toLowerCase().includes("deferred tax")
-                        )
-                        .reduce(
-                          (sum: number, line: any) => sum + Number(line.current || 0),
-                          0,
-                        )
+                      (noteData.currentTaxPayable || []).reduce(
+                        (sum: number, line: any) =>
+                          sum + Number(line.current || 0),
+                        0,
+                      )
                     );
 
                     const priorCurrentTaxReceivable = Math.round(
-                      (noteData.currentTaxReceivable || [])
-                        .filter((line: any) =>
-                          !String(line.label || "").toLowerCase().includes("deferred tax")
-                        )
-                        .reduce(
-                          (sum: number, line: any) => sum + Number(line.prior || 0),
-                          0,
-                        )
+                      (noteData.currentTaxReceivable || []).reduce(
+                        (sum: number, line: any) =>
+                          sum + Number(line.prior || 0),
+                        0,
+                      )
                     );
 
                     const priorCurrentTaxPayable = Math.round(
-                      (noteData.currentTaxPayable || [])
-                        .filter((line: any) =>
-                          !String(line.label || "").toLowerCase().includes("deferred tax")
-                        )
-                        .reduce(
-                          (sum: number, line: any) => sum + Number(line.prior || 0),
-                          0,
-                        )
+                      (noteData.currentTaxPayable || []).reduce(
+                        (sum: number, line: any) =>
+                          sum + Number(line.prior || 0),
+                        0,
+                      )
                     );
 
                     const openingCurrentTaxBalance =

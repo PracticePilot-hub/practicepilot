@@ -239,33 +239,79 @@ export const accountingPolicySections: EditableDisclosureSection[] = [
 ];
 
 export const noteSections: EditableDisclosureSection[] = [
-  section("notesPropertyPlantEquipment", "notesPropertyPlantEquipment", "Property, plant and equipment", "assets", "Assets"),
-  section("notesGoodwill", "notesGoodwill", "Goodwill", "assets", "Assets"),
-  section("notesInvestmentProperty", "notesInvestmentProperty", "Investment property", "assets", "Assets"),
-  section("notesIntangibleAssets", "notesIntangibleAssets", "Intangible assets", "assets", "Assets"),
-  section("notesBiologicalAssets", "notesBiologicalAssets", "Biological assets", "assets", "Assets"),
-  section("notesOtherNonCurrentAssets", "notesOtherNonCurrentAssets", "Other non-current assets", "assets", "Assets"),
-  section("notesLoansReceivable", "notesLoansReceivable", "Loans receivable", "assets", "Assets"),
-  section("notesInventories", "notesInventories", "Inventories", "assets", "Assets"),
-  section("notesTradeReceivables", "notesTradeReceivables", "Trade and other receivables", "assets", "Assets"),
-  section("notesCurrentTaxReceivable", "notesCurrentTaxReceivable", "Current tax receivable", "assets", "Assets"),
-  section("notesCashAndCashEquivalents", "notesCashAndCashEquivalents", "Cash and cash equivalents", "assets", "Assets", "Cash and cash equivalents consist of bank balances and cash on hand."),
+  // NON-CURRENT ASSETS
+  section("notesPropertyPlantEquipment", "notesPropertyPlantEquipment", "Property, plant and equipment", "non-current-assets", "Non-current assets"),
+  section("notesRightOfUseAssets", "notesRightOfUseAssets", "Right-of-use assets", "non-current-assets", "Non-current assets"),
+  section("notesGoodwill", "notesGoodwill", "Goodwill", "non-current-assets", "Non-current assets"),
+  section("notesInvestmentProperty", "notesInvestmentProperty", "Investment property", "non-current-assets", "Non-current assets"),
+  section("notesIntangibleAssets", "notesIntangibleAssets", "Intangible assets", "non-current-assets", "Non-current assets"),
+  section("notesInvestmentsSubsidiaries", "notesInvestmentsSubsidiaries", "Investments in subsidiaries", "non-current-assets", "Non-current assets"),
+  section("notesInvestmentsAssociates", "notesInvestmentsAssociates", "Investments in associates", "non-current-assets", "Non-current assets"),
+  section("notesInvestmentsJointVentures", "notesInvestmentsJointVentures", "Investments in joint ventures", "non-current-assets", "Non-current assets"),
+  section("notesOtherInvestments", "notesOtherInvestments", "Other investments", "non-current-assets", "Non-current assets"),
+  section("notesOtherFinancialAssets", "notesOtherFinancialAssets", "Other financial assets", "non-current-assets", "Non-current assets"),
+  section("notesOtherNonCurrentAssets", "notesOtherNonCurrentAssets", "Other non-current assets", "non-current-assets", "Non-current assets"),
+  section("notesLoansReceivable", "notesLoansReceivable", "Loans receivable", "non-current-assets", "Non-current assets"),
 
-  section("notesShareCapital", "notesShareCapital", "Share capital", "equity", "Equity and liabilities"),
-  section("notesRetainedIncome", "notesRetainedIncome", "Retained income / accumulated loss", "equity", "Equity and liabilities"),
-  section("notesShareholdersLoans", "notesShareholdersLoans", "Shareholders' loans", "equity", "Equity and liabilities"),
-  section("notesOtherFinancialLiabilities", "notesOtherFinancialLiabilities", "Other financial liabilities", "equity", "Equity and liabilities"),
-  section("notesTradePayables", "notesTradePayables", "Trade and other payables", "equity", "Equity and liabilities"),
-  section("notesCurrentTaxPayable", "notesCurrentTaxPayable", "Current tax payable", "equity", "Equity and liabilities"),
-  section("notesGoingConcern", "notesGoingConcern", "Going concern", "equity", "Equity and liabilities", "The going-concern assessment and any material uncertainties are disclosed where relevant."),
-  section("notesRelatedParties", "notesRelatedParties", "Related parties", "equity", "Equity and liabilities", "Related-party relationships, transactions, balances and commitments are disclosed where applicable."),
+  // CURRENT ASSETS
+  section("notesBiologicalAssets", "notesBiologicalAssets", "Biological assets", "current-assets", "Current assets"),
+  section("notesInventories", "notesInventories", "Inventories", "current-assets", "Current assets"),
+  section("notesContractAssets", "notesContractAssets", "Contract assets", "current-assets", "Current assets"),
+  section("notesTradeReceivables", "notesTradeReceivables", "Trade and other receivables", "current-assets", "Current assets"),
+  section("notesTaxStatutoryReceivables", "notesTaxStatutoryReceivables", "Tax and statutory receivables", "current-assets", "Current assets"),
+  section("notesCurrentTaxReceivable", "notesCurrentTaxReceivable", "Current tax receivable", "current-assets", "Current assets"),
+  section("notesCashAndCashEquivalents", "notesCashAndCashEquivalents", "Cash and cash equivalents", "current-assets", "Current assets", "Cash and cash equivalents consist of cash on hand, bank balances and qualifying short-term deposits."),
+  section("notesAssetsHeldForSale", "notesAssetsHeldForSale", "Assets held for sale", "current-assets", "Current assets"),
 
-  section("notesRevenue", "notesRevenue", "Revenue", "profit-loss", "Profit or loss"),
-  section("notesOtherIncome", "notesOtherIncome", "Other income", "profit-loss", "Profit or loss"),
-  section("notesOperatingExpenses", "notesOperatingExpenses", "Operating expenses", "profit-loss", "Profit or loss"),
-  section("notesFinanceCosts", "notesFinanceCosts", "Finance costs", "profit-loss", "Profit or loss"),
-  section("notesTaxation", "notesTaxation", "Taxation", "profit-loss", "Profit or loss"),
-  section("notesCashUsedInOperations", "notesCashUsedInOperations", "Cash used in operations", "cash-flow", "Cash flow"),
+  // EQUITY
+  section("notesShareCapital", "notesShareCapital", "Share capital / contributions", "equity", "Equity"),
+  section("notesRetainedIncome", "notesRetainedIncome", "Retained income / accumulated loss", "equity", "Equity"),
+  section("notesReserves", "notesReserves", "Reserves", "equity", "Equity"),
+  section("notesNonControllingInterests", "notesNonControllingInterests", "Non-controlling interests", "equity", "Equity"),
+  section("notesOtherEquity", "notesOtherEquity", "Other equity", "equity", "Equity"),
+
+  // NON-CURRENT LIABILITIES
+  section("notesProvisions", "notesProvisions", "Provisions", "non-current-liabilities", "Non-current liabilities"),
+  section("notesEmployeeBenefitObligations", "notesEmployeeBenefitObligations", "Employee benefit obligations", "non-current-liabilities", "Non-current liabilities"),
+  section("notesDeferredIncomeGrants", "notesDeferredIncomeGrants", "Deferred income and government grants", "non-current-liabilities", "Non-current liabilities"),
+  section("notesGroupRelatedPartyBorrowings", "notesGroupRelatedPartyBorrowings", "Group and related-party borrowings", "non-current-liabilities", "Non-current liabilities"),
+  section("notesShareholdersLoans", "notesShareholdersLoans", "Shareholder / director / member loans", "non-current-liabilities", "Non-current liabilities"),
+  section("notesBorrowings", "notesBorrowings", "Borrowings", "non-current-liabilities", "Non-current liabilities"),
+  section("notesAssetFinance", "notesAssetFinance", "Asset finance / instalment sale liabilities", "non-current-liabilities", "Non-current liabilities"),
+  section("notesLeaseLiabilities", "notesLeaseLiabilities", "Lease liabilities", "non-current-liabilities", "Non-current liabilities"),
+  section("notesOtherFinancialLiabilities", "notesOtherFinancialLiabilities", "Other financial liabilities", "non-current-liabilities", "Non-current liabilities"),
+  section("notesSupplierFinance", "notesSupplierFinance", "Supplier finance arrangements", "non-current-liabilities", "Non-current liabilities"),
+  section("notesDeferredTaxLiability", "notesDeferredTaxLiability", "Deferred tax", "non-current-assets", "Non-current assets"),
+
+  // CURRENT LIABILITIES
+  section("notesBankOverdraft", "notesBankOverdraft", "Bank overdraft", "current-liabilities", "Current liabilities"),
+  section("notesTradePayables", "notesTradePayables", "Trade and other payables", "current-liabilities", "Current liabilities"),
+  section("notesContractLiabilities", "notesContractLiabilities", "Contract liabilities / deferred revenue", "current-liabilities", "Current liabilities"),
+  section("notesDividendPayable", "notesDividendPayable", "Dividend payable", "current-liabilities", "Current liabilities"),
+  section("notesTaxStatutoryPayables", "notesTaxStatutoryPayables", "Tax and statutory payables", "current-liabilities", "Current liabilities"),
+  section("notesCurrentTaxPayable", "notesCurrentTaxPayable", "Current tax payable", "current-liabilities", "Current liabilities"),
+  section("notesLiabilitiesHeldForSale", "notesLiabilitiesHeldForSale", "Liabilities held for sale", "current-liabilities", "Current liabilities"),
+
+  // PROFIT OR LOSS / OCI
+  section("notesRevenue", "notesRevenue", "Revenue", "profit-loss", "Income statement / OCI"),
+  section("notesCostOfSales", "notesCostOfSales", "Cost of sales", "profit-loss", "Income statement / OCI"),
+  section("notesOtherOperatingIncome", "notesOtherOperatingIncome", "Other operating income", "profit-loss", "Income statement / OCI"),
+  section("notesInvestmentIncome", "notesInvestmentIncome", "Investment income", "profit-loss", "Income statement / OCI"),
+  section("notesOperatingExpenses", "notesOperatingExpenses", "Operating expenses", "profit-loss", "Income statement / OCI"),
+  section("notesFinanceCosts", "notesFinanceCosts", "Finance costs", "profit-loss", "Income statement / OCI"),
+  section("notesOtherGainsLosses", "notesOtherGainsLosses", "Other gains and losses", "profit-loss", "Income statement / OCI"),
+  section("notesTaxation", "notesTaxation", "Taxation", "profit-loss", "Income statement / OCI"),
+  section("notesOtherComprehensiveIncome", "notesOtherComprehensiveIncome", "Other comprehensive income", "profit-loss", "Income statement / OCI"),
+  section("notesDiscontinuedOperations", "notesDiscontinuedOperations", "Discontinued operations", "profit-loss", "Income statement / OCI"),
+
+  // CASH FLOW
+  section("notesCashUsedInOperations", "notesCashUsedInOperations", "Cash generated from / (used in) operations", "cash-flow", "Cash flow"),
+
+  // OTHER DISCLOSURES
+  section("notesGoingConcern", "notesGoingConcern", "Going concern", "other", "Other disclosures", "The going-concern assessment and any material uncertainties are disclosed where relevant."),
+  section("notesRelatedParties", "notesRelatedParties", "Related parties", "other", "Other disclosures", "Related-party relationships, transactions, balances and commitments are disclosed where applicable."),
+  section("notesCommitmentsContingencies", "notesCommitmentsContingencies", "Commitments and contingencies", "other", "Other disclosures"),
+  section("notesEventsAfterReportingPeriod", "notesEventsAfterReportingPeriod", "Events after the reporting period", "other", "Other disclosures"),
 ];
 
 export function buildDefaultAccountingPolicyTexts(): EditableDisclosureTextMap {

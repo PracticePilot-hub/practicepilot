@@ -87,36 +87,34 @@ function normalise(value: unknown): string {
   return String(value || "").trim().toLowerCase();
 }
 
-function mappingText(line: AfsTrialBalanceLine): string {
-  return [
-    line.mapping_code,
-    line.lead_schedule_number,
-    line.lead_schedule_key,
-    line.mapping_label,
-    line.mapping_section,
-    line.account_code,
-    line.account_name,
-  ]
-    .map((item) => normalise(item))
-    .filter(Boolean)
-    .join(" | ");
-}
+/*
+  NON-NEGOTIABLE:
+  Financial-statement classification is driven by mapping codes only.
 
+  Do not classify from:
+  - account names
+  - account numbers
+  - mapping labels
+  - lead-schedule titles / keys
+  - keywords
+
+  Those may be used by the MappingPanel to SUGGEST a mapping, but once the
+  preparer saves a mapping, this engine follows mapping_code only.
+*/
 function matchesPrefix(line: AfsTrialBalanceLine, prefixes: string[]): boolean {
-  const mappingCode = normalise(line.mapping_code || line.lead_schedule_number);
-  const leadKey = normalise(line.lead_schedule_key);
-  const labelText = normalise(`${line.mapping_label || ""} ${line.mapping_section || ""}`);
+  const mappingCode = normalise(line.mapping_code);
+  if (!mappingCode) return false;
 
   return prefixes.some((prefix) => {
     const clean = normalise(prefix);
     if (!clean) return false;
 
-    if (mappingCode === clean || mappingCode.startsWith(`${clean}.`)) return true;
-    if (mappingCode.includes(`.${clean}`) || mappingCode.includes(`.${clean}.`)) return true;
-    if (leadKey === clean || leadKey.includes(clean)) return true;
-    if (labelText.includes(clean)) return true;
-
-    return false;
+    return (
+      mappingCode === clean ||
+      mappingCode.startsWith(`${clean}.`) ||
+      mappingCode.startsWith(`${clean}-`) ||
+      mappingCode.startsWith(`${clean} `)
+    );
   });
 }
 
@@ -219,43 +217,67 @@ const sfpDefinition: GroupDefinition[] = [
           {
             key: "property-plant-and-equipment",
             label: "Property, plant and equipment",
-            prefixes: ["305", "property-plant-and-equipment", "ppe"],
+            prefixes: ["305"],
             sign: "debit-positive",
           },
           {
             key: "right-of-use-assets",
             label: "Right-of-use assets",
-            prefixes: ["306", "right-of-use-assets"],
+            prefixes: ["306"],
             sign: "debit-positive",
           },
           {
             key: "investment-property",
             label: "Investment property",
-            prefixes: ["310", "investment-property"],
+            prefixes: ["310"],
             sign: "debit-positive",
           },
           {
             key: "intangible-assets",
             label: "Intangible assets",
-            prefixes: ["320", "intangible"],
+            prefixes: ["320"],
+            sign: "debit-positive",
+          },
+          {
+            key: "goodwill",
+            label: "Goodwill",
+            prefixes: ["321"],
+            sign: "debit-positive",
+          },
+          {
+            key: "investments",
+            label: "Investments",
+            prefixes: ["326", "327", "328", "329"],
+            sign: "debit-positive",
+          },
+          {
+            key: "biological-assets-non-current",
+            label: "Biological assets",
+            prefixes: ["330"],
             sign: "debit-positive",
           },
           {
             key: "long-term-loans-receivable",
             label: "Loans receivable",
-            prefixes: ["340", "300.340", "348", "300.348", "350", "300.350", "long-term-loans", "loans-receivable", "loan-receivable", "loan to shareholder", "loan to director"],
+            prefixes: ["340"],
             sign: "debit-positive",
           },
           {
-            key: "deferred-tax-asset",
-            label: "Deferred tax asset",
-            prefixes: ["395", "deferred-tax-asset"],
+            key: "other-non-current-financial-assets",
+            label: "Other financial assets",
+            prefixes: ["350"],
             sign: "debit-positive",
           },
           {
             key: "other-non-current-assets",
             label: "Other non-current assets",
-            prefixes: ["390", "300.390", "other-non-current-assets", "other non-current assets", "non-current assets other"],
+            prefixes: ["390"],
+            sign: "debit-positive",
+          },
+          {
+            key: "deferred-tax-asset",
+            label: "Deferred tax asset",
+            prefixes: ["395"],
             sign: "debit-positive",
           },
         ],
@@ -267,31 +289,61 @@ const sfpDefinition: GroupDefinition[] = [
           {
             key: "inventories",
             label: "Inventories",
-            prefixes: ["405", "400.405", "inventory", "inventories"],
+            prefixes: ["405"],
             sign: "debit-positive",
           },
           {
-            key: "trade-and-other-receivables",
-            label: "Trade and other receivables",
-            prefixes: ["430", "400.430", "trade-and-other-receivables"],
+            key: "biological-assets-current",
+            label: "Biological assets",
+            prefixes: ["410"],
             sign: "debit-positive",
           },
           {
-            key: "current-tax-receivable",
-            label: "Current tax receivable",
-            prefixes: ["490", "495", "current-tax-receivable", "tax receivable", "sars receivable"],
+            key: "contract-assets",
+            label: "Contract assets",
+            prefixes: ["415"],
             sign: "debit-positive",
           },
           {
             key: "cash-and-cash-equivalents",
             label: "Bank, cash and cash equivalents",
-            prefixes: ["420", "400.420", "cash-and-cash-equivalents"],
+            prefixes: ["420"],
             sign: "debit-positive",
           },
           {
-            key: "other-current-assets",
-            label: "Other current assets",
-            prefixes: ["499", "other-current-assets", "assets-held-for-sale"],
+            key: "trade-and-other-receivables",
+            label: "Trade and other receivables",
+            prefixes: ["430"],
+            sign: "debit-positive",
+          },
+          {
+            key: "current-financial-assets",
+            label: "Current financial assets",
+            prefixes: ["435"],
+            sign: "debit-positive",
+          },
+          {
+            key: "current-loans-receivable",
+            label: "Loans receivable",
+            prefixes: ["449"],
+            sign: "debit-positive",
+          },
+          {
+            key: "tax-and-statutory-receivables",
+            label: "Tax and statutory receivables",
+            prefixes: ["490"],
+            sign: "debit-positive",
+          },
+          {
+            key: "current-tax-receivable",
+            label: "Current tax receivable",
+            prefixes: ["495"],
+            sign: "debit-positive",
+          },
+          {
+            key: "assets-held-for-sale",
+            label: "Assets held for sale",
+            prefixes: ["499"],
             sign: "debit-positive",
           },
         ],
@@ -308,20 +360,32 @@ const sfpDefinition: GroupDefinition[] = [
         children: [
           {
             key: "share-capital",
-            label: "Issued capital",
-            prefixes: ["805", "800.805", "share-capital", "issued-capital", "ordinary-share-capital"],
+            label: "Share capital / contributions",
+            prefixes: ["805"],
             sign: "credit-positive",
           },
           {
             key: "retained-income",
             label: "Retained income / (accumulated loss)",
-            prefixes: ["810", "800.810", "retained-income", "retained earnings", "accumulated loss"],
+            prefixes: ["810"],
             sign: "credit-positive",
           },
           {
             key: "reserves",
             label: "Reserves",
-            prefixes: ["820", "reserves"],
+            prefixes: ["820"],
+            sign: "credit-positive",
+          },
+          {
+            key: "non-controlling-interests",
+            label: "Non-controlling interests",
+            prefixes: ["830"],
+            sign: "credit-positive",
+          },
+          {
+            key: "other-equity",
+            label: "Other equity",
+            prefixes: ["840"],
             sign: "credit-positive",
           },
         ],
@@ -335,27 +399,69 @@ const sfpDefinition: GroupDefinition[] = [
             label: "Non-current liabilities",
             children: [
               {
+                key: "non-current-provisions",
+                label: "Provisions",
+                prefixes: ["515"],
+                sign: "credit-positive",
+              },
+              {
+                key: "employee-benefit-obligations-non-current",
+                label: "Employee benefit obligations",
+                prefixes: ["520"],
+                sign: "credit-positive",
+              },
+              {
+                key: "deferred-income-non-current",
+                label: "Deferred income / grants",
+                prefixes: ["531"],
+                sign: "credit-positive",
+              },
+              {
+                key: "group-related-party-borrowings",
+                label: "Group and related-party borrowings",
+                prefixes: ["547"],
+                sign: "credit-positive",
+              },
+              {
                 key: "shareholders-loans",
-                label: "Shareholders loans",
-                prefixes: ["547", "500.547", "548", "500.548", "shareholder", "shareholders", "member loan", "loans-stakeholders-payable", "loans-from-shareholders", "directors-loans"],
+                label: "Shareholder / director / member loans",
+                prefixes: ["548"],
                 sign: "credit-positive",
               },
               {
                 key: "long-term-borrowings",
-                label: "Other financial liabilities",
-                prefixes: ["550", "551", "long-term-borrowings", "borrowings", "financial-liabilities"],
+                label: "Borrowings",
+                prefixes: ["550", "551"],
                 sign: "credit-positive",
               },
               {
                 key: "lease-liabilities-non-current",
                 label: "Lease liabilities",
-                prefixes: ["555", "lease-liabilities"],
+                prefixes: ["555"],
+                sign: "credit-positive",
+              },
+              {
+                key: "complex-financial-liabilities-non-current",
+                label: "Other financial liabilities",
+                prefixes: ["560"],
+                sign: "credit-positive",
+              },
+              {
+                key: "supplier-finance-non-current",
+                label: "Supplier finance arrangements",
+                prefixes: ["580"],
+                sign: "credit-positive",
+              },
+              {
+                key: "other-non-current-liabilities",
+                label: "Other non-current liabilities",
+                prefixes: ["590"],
                 sign: "credit-positive",
               },
               {
                 key: "deferred-tax-liability",
                 label: "Deferred tax liability",
-                prefixes: ["595", "deferred-tax-liability"],
+                prefixes: ["595"],
                 sign: "credit-positive",
               },
             ],
@@ -365,33 +471,87 @@ const sfpDefinition: GroupDefinition[] = [
             label: "Current liabilities",
             children: [
               {
-                key: "trade-and-other-payables",
-                label: "Trade and other payables",
-                prefixes: ["630", "600.630", "trade-and-other-payables", "accrual"],
+                key: "current-borrowings",
+                label: "Borrowings",
+                prefixes: ["610"],
+                sign: "credit-positive",
+              },
+              {
+                key: "lease-liabilities-current",
+                label: "Lease liabilities",
+                prefixes: ["615"],
                 sign: "credit-positive",
               },
               {
                 key: "bank-overdraft",
                 label: "Bank overdraft",
-                prefixes: ["620", "600.620", "bank-overdraft", "overdraft"],
+                prefixes: ["620"],
                 sign: "credit-positive",
               },
               {
-                key: "current-tax-payable",
-                label: "Current tax payable",
-                prefixes: ["690", "600.690", "695", "600.695", "current-tax-payable", "tax payable", "sars payable", "vat payable", "paye payable"],
+                key: "current-derivative-financial-liabilities",
+                label: "Other financial liabilities",
+                prefixes: ["625"],
+                sign: "credit-positive",
+              },
+              {
+                key: "trade-and-other-payables",
+                label: "Trade and other payables",
+                prefixes: ["630"],
+                sign: "credit-positive",
+              },
+              {
+                key: "contract-liabilities",
+                label: "Contract liabilities / deferred revenue",
+                prefixes: ["640"],
+                sign: "credit-positive",
+              },
+              {
+                key: "deferred-income-current",
+                label: "Deferred income / grants",
+                prefixes: ["650"],
+                sign: "credit-positive",
+              },
+              {
+                key: "current-provisions",
+                label: "Provisions",
+                prefixes: ["660"],
+                sign: "credit-positive",
+              },
+              {
+                key: "employee-benefit-liabilities-current",
+                label: "Employee benefit liabilities",
+                prefixes: ["670"],
+                sign: "credit-positive",
+              },
+              {
+                key: "supplier-finance-current",
+                label: "Supplier finance arrangements",
+                prefixes: ["680"],
                 sign: "credit-positive",
               },
               {
                 key: "dividend-payable",
                 label: "Dividend payable",
-                prefixes: ["688", "dividend-payable"],
+                prefixes: ["688"],
                 sign: "credit-positive",
               },
               {
-                key: "other-current-liabilities",
-                label: "Other current liabilities",
-                prefixes: ["699", "other-current-liabilities"],
+                key: "tax-and-statutory-payables",
+                label: "Tax and statutory payables",
+                prefixes: ["690"],
+                sign: "credit-positive",
+              },
+              {
+                key: "current-tax-payable",
+                label: "Current tax payable",
+                prefixes: ["695"],
+                sign: "credit-positive",
+              },
+              {
+                key: "liabilities-held-for-sale",
+                label: "Liabilities held for sale",
+                prefixes: ["699"],
                 sign: "credit-positive",
               },
             ],
@@ -428,18 +588,105 @@ export function buildStatementOfProfitOrLoss(
   lines: AfsTrialBalanceLine[],
   journalEffects: AfsJournalEffect[] = []
 ): AfsStatementLine[] {
-  const revenue = profitLine(lines, "revenue", "Revenue", ["700", "revenue", "sales"], "credit-positive", journalEffects);
-  const costOfSales = profitLine(lines, "cost-of-sales", "Cost of sales", ["720", "cost-of-sales"], "debit-positive", journalEffects);
-  const otherIncome = profitLine(lines, "other-income", "Other income", ["730", "770", "785", "other-income", "investment-income"], "credit-positive", journalEffects);
-  const operatingExpenses = profitLine(lines, "operating-expenses", "Operating expenses", ["750", "781", "operating-expenses", "administration expenses", "expenses"], "debit-positive", journalEffects);
-  const financeCosts = profitLine(lines, "finance-costs", "Finance costs", ["775", "finance-costs", "interest paid"], "debit-positive", journalEffects);
-  const taxation = profitLine(lines, "taxation", "Taxation", ["795", "taxation", "income tax expense"], "debit-positive", journalEffects);
+  const revenue = profitLine(
+    lines,
+    "revenue",
+    "Revenue",
+    ["700"],
+    "credit-positive",
+    journalEffects
+  );
+
+  const costOfSales = profitLine(
+    lines,
+    "cost-of-sales",
+    "Cost of sales",
+    ["720"],
+    "debit-positive",
+    journalEffects
+  );
+
+  const otherOperatingIncome = profitLine(
+    lines,
+    "other-operating-income",
+    "Other operating income",
+    ["730"],
+    "credit-positive",
+    journalEffects
+  );
+
+  const investmentIncome = profitLine(
+    lines,
+    "investment-income",
+    "Investment income",
+    ["770"],
+    "credit-positive",
+    journalEffects
+  );
+
+  const operatingExpenses = profitLine(
+    lines,
+    "operating-expenses",
+    "Operating expenses",
+    ["750"],
+    "debit-positive",
+    journalEffects
+  );
+
+  const financeCosts = profitLine(
+    lines,
+    "finance-costs",
+    "Finance costs",
+    ["775"],
+    "debit-positive",
+    journalEffects
+  );
+
+  const otherGainsLosses = profitLine(
+    lines,
+    "other-gains-losses",
+    "Other gains / (losses)",
+    ["780", "781", "785"],
+    "credit-positive",
+    journalEffects
+  );
+
+  const taxation = profitLine(
+    lines,
+    "taxation",
+    "Taxation",
+    ["795"],
+    "debit-positive",
+    journalEffects
+  );
+
+  const discontinuedOperations = profitLine(
+    lines,
+    "discontinued-operations",
+    "Discontinued operations",
+    ["799"],
+    "credit-positive",
+    journalEffects
+  );
+
+  const otherComprehensiveIncome = profitLine(
+    lines,
+    "other-comprehensive-income",
+    "Other comprehensive income",
+    ["797"],
+    "credit-positive",
+    journalEffects
+  );
 
   const grossProfit = {
     key: "gross-profit",
     label: "Gross profit / (loss)",
-    current: roundMoney(toNumber(revenue?.current) - toNumber(costOfSales?.current)),
-    prior: roundMoney(toNumber(revenue?.prior) - toNumber(costOfSales?.prior)),
+    current: roundMoney(
+      toNumber(revenue?.current) - toNumber(costOfSales?.current)
+    ),
+    prior: roundMoney(
+      toNumber(revenue?.prior) - toNumber(costOfSales?.prior)
+    ),
     isSubtotal: true,
   };
 
@@ -448,15 +695,31 @@ export function buildStatementOfProfitOrLoss(
     label: "Profit / (loss) before taxation",
     current: roundMoney(
       toNumber(grossProfit.current) +
-        toNumber(otherIncome?.current) -
+        toNumber(otherOperatingIncome?.current) +
+        toNumber(investmentIncome?.current) -
         toNumber(operatingExpenses?.current) -
-        toNumber(financeCosts?.current)
+        toNumber(financeCosts?.current) +
+        toNumber(otherGainsLosses?.current)
     ),
     prior: roundMoney(
       toNumber(grossProfit.prior) +
-        toNumber(otherIncome?.prior) -
+        toNumber(otherOperatingIncome?.prior) +
+        toNumber(investmentIncome?.prior) -
         toNumber(operatingExpenses?.prior) -
-        toNumber(financeCosts?.prior)
+        toNumber(financeCosts?.prior) +
+        toNumber(otherGainsLosses?.prior)
+    ),
+    isSubtotal: true,
+  };
+
+  const profitFromContinuingOperations = {
+    key: "profit-from-continuing-operations",
+    label: "Profit / (loss) from continuing operations",
+    current: roundMoney(
+      toNumber(profitBeforeTax.current) - toNumber(taxation?.current)
+    ),
+    prior: roundMoney(
+      toNumber(profitBeforeTax.prior) - toNumber(taxation?.prior)
     ),
     isSubtotal: true,
   };
@@ -464,8 +727,28 @@ export function buildStatementOfProfitOrLoss(
   const profitAfterTax = {
     key: "profit-after-tax",
     label: "Profit / (loss) for the year",
-    current: roundMoney(toNumber(profitBeforeTax.current) - toNumber(taxation?.current)),
-    prior: roundMoney(toNumber(profitBeforeTax.prior) - toNumber(taxation?.prior)),
+    current: roundMoney(
+      toNumber(profitFromContinuingOperations.current) +
+        toNumber(discontinuedOperations?.current)
+    ),
+    prior: roundMoney(
+      toNumber(profitFromContinuingOperations.prior) +
+        toNumber(discontinuedOperations?.prior)
+    ),
+    isTotal: true,
+  };
+
+  const totalComprehensiveIncome = {
+    key: "total-comprehensive-income",
+    label: "Total comprehensive income / (loss)",
+    current: roundMoney(
+      toNumber(profitAfterTax.current) +
+        toNumber(otherComprehensiveIncome?.current)
+    ),
+    prior: roundMoney(
+      toNumber(profitAfterTax.prior) +
+        toNumber(otherComprehensiveIncome?.prior)
+    ),
     isTotal: true,
   };
 
@@ -480,12 +763,19 @@ export function buildStatementOfProfitOrLoss(
     revenue || zeroLine("revenue", "Revenue"),
     costOfSales || zeroLine("cost-of-sales", "Cost of sales"),
     grossProfit,
-    otherIncome || zeroLine("other-income", "Other income"),
-    operatingExpenses || zeroLine("operating-expenses", "Operating expenses"),
+    otherOperatingIncome ||
+      zeroLine("other-operating-income", "Other operating income"),
+    investmentIncome || zeroLine("investment-income", "Investment income"),
+    operatingExpenses ||
+      zeroLine("operating-expenses", "Operating expenses"),
     financeCosts || zeroLine("finance-costs", "Finance costs"),
+    otherGainsLosses || zeroLine("other-gains-losses", "Other gains / (losses)"),
     profitBeforeTax,
     taxation || zeroLine("taxation", "Taxation"),
+    profitFromContinuingOperations,
+    ...(discontinuedOperations ? [discontinuedOperations] : []),
     profitAfterTax,
+    ...(otherComprehensiveIncome ? [otherComprehensiveIncome, totalComprehensiveIncome] : []),
   ] as AfsStatementLine[];
 
   return assignNoteNumbers(visible, 20);

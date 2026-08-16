@@ -36,6 +36,18 @@ type BillingItem = {
   triggered_at: string | null;
 };
 
+type LegalConfig = {
+  saasAgreementVersion: string;
+  privacyNoticeVersion: string;
+  dpaVersion: string;
+  acceptanceText: string;
+  documents: {
+    saasAgreement: string;
+    privacyNotice: string;
+    dpa: string;
+  };
+};
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -66,6 +78,9 @@ export default function AfsBillingPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [legal, setLegal] = useState<LegalConfig | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<"flex" | "unlimited" | null>(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   useEffect(() => {
     load();
@@ -96,6 +111,7 @@ export default function AfsBillingPage() {
     setSummary(json.summary ?? null);
     setItems(json.items ?? []);
     setCanManagePlan(Boolean(json.canManagePlan));
+    setLegal(json.legal ?? null);
 
     if (Number(json.organisation?.afs_unlimited_licence_count || 0) > 0) {
       setLicenceCount(Number(json.organisation.afs_unlimited_licence_count));
@@ -104,8 +120,22 @@ export default function AfsBillingPage() {
     setLoading(false);
   }
 
-  async function choosePlan(plan: "flex" | "unlimited") {
+  function choosePlan(plan: "flex" | "unlimited") {
     if (!canManagePlan) return;
+
+    setError(null);
+    setTermsAccepted(false);
+    setPendingPlan(plan);
+  }
+
+  function closeTermsModal() {
+    if (saving) return;
+    setPendingPlan(null);
+    setTermsAccepted(false);
+  }
+
+  async function activatePlan() {
+    if (!canManagePlan || !pendingPlan || !termsAccepted) return;
 
     setSaving(true);
     setError(null);
@@ -119,8 +149,9 @@ export default function AfsBillingPage() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        plan,
-        licence_count: plan === "unlimited" ? licenceCount : 0,
+        plan: pendingPlan,
+        licence_count: pendingPlan === "unlimited" ? licenceCount : 0,
+        terms_accepted: true,
       }),
     });
 
@@ -132,6 +163,8 @@ export default function AfsBillingPage() {
       return;
     }
 
+    setPendingPlan(null);
+    setTermsAccepted(false);
     await load();
     setSaving(false);
   }
@@ -200,7 +233,8 @@ export default function AfsBillingPage() {
                 </p>
 
                 <ul style={s.list}>
-                  <li>1 AFS included each month</li>
+                  <li>1 AFS included per billing cycle</li>
+                  <li>Unused included AFS does not roll over</li>
                   <li>
                     {money(organisation?.afs_flex_extra_price)} per additional AFS
                   </li>
@@ -318,7 +352,7 @@ export default function AfsBillingPage() {
               Your AFS plan cannot be changed online. To change your plan or licence quantity, please contact PracticePilot.
             </div>
             <a
-              href="mailto:ferdi_v@practicepilot.co.za?subject=PracticePilot%20AFS%20plan%20change"
+              href="mailto:billing@practicepilot.co.za?subject=PracticePilot%20AFS%20plan%20change"
               style={s.contactLink}
             >
               Email PracticePilot
@@ -326,6 +360,118 @@ export default function AfsBillingPage() {
           </div>
         </section>
       )}
+
+      {pendingPlan ? (
+        <div style={s.modalBackdrop} role="presentation" onMouseDown={closeTermsModal}>
+          <section
+            style={s.modal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="afs-terms-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div style={s.modalHeader}>
+              <div>
+                <div style={s.modalEyebrow}>PracticePilot subscription</div>
+                <h2 id="afs-terms-title" style={s.modalTitle}>
+                  Review and accept your subscription terms
+                </h2>
+              </div>
+              <button
+                type="button"
+                style={s.modalClose}
+                onClick={closeTermsModal}
+                disabled={saving}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={s.subscriptionSummary}>
+              <div>
+                <div style={s.summaryLabel}>Selected plan</div>
+                <div style={s.summaryPlan}>
+                  {pendingPlan === "flex" ? "AFS Flex" : "AFS Unlimited"}
+                </div>
+              </div>
+
+              <div style={s.summaryAmount}>
+                {pendingPlan === "flex"
+                  ? `${money(organisation?.afs_flex_monthly_fee)} / month`
+                  : `${licenceCount} licence(s) · ${money(monthlyUnlimited)} / month`}
+              </div>
+            </div>
+
+            <div style={s.termHighlights}>
+              {pendingPlan === "flex" ? (
+                <>
+                  <div style={s.termRow}><strong>Included:</strong> 1 AFS per billing cycle.</div>
+                  <div style={s.termRow}><strong>Additional AFS:</strong> {money(organisation?.afs_flex_extra_price)} each.</div>
+                  <div style={s.termRow}><strong>First cycle:</strong> The R199 subscription is not pro-rated and you receive the full included AFS.</div>
+                  <div style={s.termRow}><strong>Rollover:</strong> Unused included AFS expires at the end of the billing cycle.</div>
+                </>
+              ) : (
+                <>
+                  <div style={s.termRow}><strong>Licences:</strong> {licenceCount} at {money(organisation?.afs_unlimited_user_price)} per licence per month.</div>
+                  <div style={s.termRow}><strong>Usage:</strong> Unlimited legitimate AFS use while the selected licences remain active.</div>
+                  <div style={s.termRow}><strong>First partial month:</strong> Your initial Unlimited subscription is pro-rated.</div>
+                </>
+              )}
+
+              <div style={s.termRow}><strong>Billing cut-off:</strong> Usage up to and including the 25th is billed on the 26th.</div>
+              <div style={s.termRow}><strong>Subscription billing:</strong> Monthly subscription fees are billed in advance on the 26th.</div>
+              <div style={s.termRow}><strong>Payment terms:</strong> All invoices are payable within 7 calendar days.</div>
+              <div style={s.termRow}><strong>Term:</strong> Month-to-month, with online cancellation effective at the end of the current paid subscription period.</div>
+            </div>
+
+            <div style={s.legalLinks}>
+              <a href={legal?.documents.saasAgreement || "/legal/saas-subscription-agreement"} target="_blank" rel="noreferrer" style={s.legalLink}>
+                SaaS Subscription Agreement {legal?.saasAgreementVersion ? `v${legal.saasAgreementVersion}` : ""}
+              </a>
+              <a href={legal?.documents.privacyNotice || "/legal/privacy-notice"} target="_blank" rel="noreferrer" style={s.legalLink}>
+                Privacy Notice {legal?.privacyNoticeVersion ? `v${legal.privacyNoticeVersion}` : ""}
+              </a>
+              <a href={legal?.documents.dpa || "/legal/data-processing-agreement"} target="_blank" rel="noreferrer" style={s.legalLink}>
+                Data Processing & Operator Agreement {legal?.dpaVersion ? `v${legal.dpaVersion}` : ""}
+              </a>
+            </div>
+
+            <label style={s.acceptanceBox}>
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(event) => setTermsAccepted(event.target.checked)}
+                style={s.checkbox}
+              />
+              <span>
+                {legal?.acceptanceText ||
+                  "I confirm that I am authorised to enter into this agreement on behalf of the practice and that I accept the PracticePilot subscription terms."}
+              </span>
+            </label>
+
+            <div style={s.modalActions}>
+              <button type="button" style={s.cancelButton} onClick={closeTermsModal} disabled={saving}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...s.acceptButton,
+                  opacity: termsAccepted && !saving ? 1 : 0.5,
+                  cursor: termsAccepted && !saving ? "pointer" : "not-allowed",
+                }}
+                onClick={activatePlan}
+                disabled={!termsAccepted || saving}
+              >
+                {saving
+                  ? "Activating..."
+                  : `Accept terms & activate ${pendingPlan === "flex" ? "AFS Flex" : "AFS Unlimited"}`}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <section style={s.simpleSummary}>
         <div>
@@ -682,5 +828,143 @@ const s: Record<string, CSSProperties> = {
     borderBottom: "1px solid #edf2f7",
     fontSize: 13,
     textAlign: "right",
+  },
+  modalBackdrop: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 1000,
+    background: "rgba(10, 31, 49, 0.62)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  modal: {
+    width: "min(820px, 100%)",
+    maxHeight: "88vh",
+    overflowY: "auto",
+    background: "#ffffff",
+    border: "1px solid #c9d8e5",
+    boxShadow: "0 24px 70px rgba(15, 23, 42, 0.28)",
+    padding: 24,
+  },
+  modalHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 18,
+    paddingBottom: 16,
+    borderBottom: "1px solid #e2e8f0",
+  },
+  modalEyebrow: {
+    color: "#008b96",
+    fontSize: 13,
+    fontWeight: 900,
+  },
+  modalTitle: {
+    margin: "5px 0 0",
+    fontSize: 24,
+    fontWeight: 900,
+    color: "#0f172a",
+  },
+  modalClose: {
+    border: 0,
+    background: "transparent",
+    color: "#64748b",
+    fontSize: 30,
+    lineHeight: 1,
+    cursor: "pointer",
+  },
+  subscriptionSummary: {
+    marginTop: 18,
+    padding: "16px 18px",
+    background: "#eef6fb",
+    borderLeft: "5px solid #0b5cab",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 18,
+  },
+  summaryLabel: {
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: 800,
+  },
+  summaryPlan: {
+    marginTop: 3,
+    fontSize: 20,
+    fontWeight: 900,
+    color: "#0f172a",
+  },
+  summaryAmount: {
+    color: "#0b5cab",
+    fontSize: 19,
+    fontWeight: 900,
+    textAlign: "right",
+  },
+  termHighlights: {
+    marginTop: 18,
+    border: "1px solid #d7e1eb",
+  },
+  termRow: {
+    padding: "10px 12px",
+    borderBottom: "1px solid #edf2f7",
+    color: "#334155",
+    fontSize: 14,
+    lineHeight: 1.45,
+  },
+  legalLinks: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 14,
+    marginTop: 18,
+  },
+  legalLink: {
+    color: "#0b5cab",
+    textDecoration: "underline",
+    fontSize: 13,
+    fontWeight: 800,
+  },
+  acceptanceBox: {
+    marginTop: 18,
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 11,
+    padding: 14,
+    background: "#f8fafc",
+    border: "1px solid #cbd5e1",
+    color: "#334155",
+    fontSize: 13,
+    lineHeight: 1.5,
+    cursor: "pointer",
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    marginTop: 1,
+    flex: "0 0 auto",
+  },
+  modalActions: {
+    marginTop: 20,
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+  },
+  cancelButton: {
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#334155",
+    padding: "11px 16px",
+    fontSize: 14,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  acceptButton: {
+    border: 0,
+    background: "#0b5cab",
+    color: "#ffffff",
+    padding: "11px 18px",
+    fontSize: 14,
+    fontWeight: 900,
   },
 };

@@ -376,6 +376,12 @@ export default function TopNav() {
   ];
 
   const billingDropdownItems = [
+      {
+    label: "Billing Control",
+    href: "/admin/billing",
+    description: "QuickBooks invoices, due dates, payments and access",
+    enabled: true,
+  },
     {
       label: "PAIA Billing",
       href: "/admin/paia-billing",
@@ -383,11 +389,11 @@ export default function TopNav() {
       enabled: true,
     },
     {
-      label: "AFS Billing",
-      href: "/admin/afs-billing",
-      description: "Coming soon",
-      enabled: false,
-    },
+  label: "AFS Billing",
+  href: "/admin/afs-billing",
+  description: "Manage AFS charges and QuickBooks invoice links",
+  enabled: true,
+},
     {
       label: "CRM Billing",
       href: "/admin/crm-billing",
