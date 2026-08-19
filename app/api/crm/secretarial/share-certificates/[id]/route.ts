@@ -58,7 +58,7 @@ const STEP_NAMES = [
   "Certificate generation",
   "Review and approval",
   "Register update",
-  "Egnyte filing",
+  "Document filing",
   "Complete",
 ];
 
@@ -851,13 +851,12 @@ export async function PATCH(
     if (
       step === 4 &&
       (!matter.board_resolution_date ||
-        !text(matter.board_resolution_reference) ||
-        !body.stepData?.resolutionConfirmed)
+        !text(matter.board_resolution_reference))
     ) {
       return NextResponse.json(
         {
           error:
-            "Confirm the resolution date/reference and that the share issue was authorised.",
+            "Capture the resolution date and reference before continuing.",
         },
         { status: 400 }
       );
@@ -867,8 +866,7 @@ export async function PATCH(
       if (
         !matter.issue_date ||
         !matter.place_of_issue ||
-        !matter.signatory_one_name ||
-        !body.stepData?.certificateConfirmed
+        !matter.signatory_one_name
       ) {
         return NextResponse.json(
           {
@@ -889,25 +887,24 @@ export async function PATCH(
       );
     }
 
-    if (step === 7 && !body.stepData?.registerConfirmed) {
+    if (
+      step === 7 &&
+      (!matter.shareholder_id ||
+        !matter.share_class_id ||
+        !matter.number_of_shares ||
+        !matter.issue_date)
+    ) {
       return NextResponse.json(
         {
           error:
-            "Confirm that the securities register update is correct before continuing.",
+            "The proposed securities register entry is incomplete.",
         },
         { status: 400 }
       );
     }
 
-    if (step === 8 && !body.stepData?.egnyteConfirmed) {
-      return NextResponse.json(
-        {
-          error:
-            "Confirm the temporary Egnyte testing bypass before continuing.",
-        },
-        { status: 400 }
-      );
-    }
+    // Step 8 is a filing/storage stage. A storage integration/path is optional
+    // until the firm's configured document provider is connected.
 
     const now = new Date().toISOString();
     const nextStep = Math.min(9, step + 1);

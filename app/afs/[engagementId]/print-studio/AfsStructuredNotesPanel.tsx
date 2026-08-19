@@ -3475,11 +3475,53 @@ function ShareCapitalNote({
     state.shareCapital?.rightsText ||
     "The shares rank equally with regard to voting rights and dividends.";
   const mappedCurrent = rows.reduce(
-    (sum, row) => sum + toNumber(row.current),
-    0,
-  );
-  const mappedPrior = rows.reduce((sum, row) => sum + toNumber(row.prior), 0);
-  const issuedAmount = Number(issuedShares || 0) * Number(issuedPar || 0);
+  (sum, row) => sum + toNumber(row.current),
+  0,
+);
+
+const mappedPrior = rows.reduce(
+  (sum, row) => sum + toNumber(row.prior),
+  0,
+);
+
+const issuedAmount = Number(issuedShares || 0) * Number(issuedPar || 0);
+
+/*
+  Share-capital disclosure remains one 805 note family,
+  but individual equity classes are identified by controlled mapping code.
+*/
+const ordinaryShareCapitalRow = rows.find(
+  (row) => String(row.id || "").trim() === "805.10",
+);
+
+const sharePremiumRow = rows.find(
+  (row) => String(row.id || "").trim() === "805.20",
+);
+
+const ownerContributionRow = rows.find(
+  (row) => String(row.id || "").trim() === "805.30",
+);
+
+const preferenceShareRow = rows.find(
+  (row) => String(row.id || "").trim() === "805.40",
+);
+
+const treasuryShareRow = rows.find(
+  (row) => String(row.id || "").trim() === "805.90",
+);
+
+const ordinaryShareCapitalCurrent =
+  ordinaryShareCapitalRow !== undefined
+    ? toNumber(ordinaryShareCapitalRow.current)
+    : issuedAmount;
+
+const ordinaryShareCapitalPrior =
+  ordinaryShareCapitalRow !== undefined
+    ? toNumber(ordinaryShareCapitalRow.prior)
+    : issuedAmount;
+
+const sharePremiumCurrent = toNumber(sharePremiumRow?.current);
+const sharePremiumPrior = toNumber(sharePremiumRow?.prior);
 
   return (
     <>
@@ -3567,32 +3609,94 @@ function ShareCapitalNote({
             ) : null}
           </tr>
           <tr>
-            <td style={styles.subheading} colSpan={hideComparatives ? 2 : 3}>
-              Issued
-            </td>
-          </tr>
-          <tr>
-            <td style={styles.tdLeft}>Ordinary shares at end of year</td>
-            <td style={styles.tdRight}>
-              {amount(mappedCurrent || issuedAmount)}
-            </td>
-            {!hideComparatives ? (
-              <td style={styles.tdRight}>
-                {amount(mappedPrior || issuedAmount)}
-              </td>
-            ) : null}
-          </tr>
-          <tr>
-            <td style={styles.totalLabel}>Share capital</td>
-            <td data-total-amount="true" style={styles.totalAmount}>
-              {amount(mappedCurrent || issuedAmount)}
-            </td>
-            {!hideComparatives ? (
-              <td data-total-amount="true" style={styles.totalAmount}>
-                {amount(mappedPrior || issuedAmount)}
-              </td>
-            ) : null}
-          </tr>
+  <td style={styles.subheading} colSpan={hideComparatives ? 2 : 3}>
+    Issued
+  </td>
+</tr>
+
+<tr>
+  <td style={styles.tdLeft}>
+    {Number(issuedShares || 0).toLocaleString("en-ZA")} ordinary shares issued
+  </td>
+  <td style={styles.tdRight}>
+    {amount(ordinaryShareCapitalCurrent)}
+  </td>
+  {!hideComparatives ? (
+    <td style={styles.tdRight}>
+      {amount(ordinaryShareCapitalPrior)}
+    </td>
+  ) : null}
+</tr>
+
+{sharePremiumRow ? (
+  <tr>
+    <td style={styles.tdLeft}>Share premium</td>
+    <td style={styles.tdRight}>
+      {amount(sharePremiumCurrent)}
+    </td>
+    {!hideComparatives ? (
+      <td style={styles.tdRight}>
+        {amount(sharePremiumPrior)}
+      </td>
+    ) : null}
+  </tr>
+) : null}
+
+{ownerContributionRow ? (
+  <tr>
+    <td style={styles.tdLeft}>Members / owners contributions</td>
+    <td style={styles.tdRight}>
+      {amount(ownerContributionRow.current)}
+    </td>
+    {!hideComparatives ? (
+      <td style={styles.tdRight}>
+        {amount(ownerContributionRow.prior)}
+      </td>
+    ) : null}
+  </tr>
+) : null}
+
+{preferenceShareRow ? (
+  <tr>
+    <td style={styles.tdLeft}>Preference shares classified as equity</td>
+    <td style={styles.tdRight}>
+      {amount(preferenceShareRow.current)}
+    </td>
+    {!hideComparatives ? (
+      <td style={styles.tdRight}>
+        {amount(preferenceShareRow.prior)}
+      </td>
+    ) : null}
+  </tr>
+) : null}
+
+{treasuryShareRow ? (
+  <tr>
+    <td style={styles.tdLeft}>Treasury / own shares</td>
+    <td style={styles.tdRight}>
+      {amount(treasuryShareRow.current)}
+    </td>
+    {!hideComparatives ? (
+      <td style={styles.tdRight}>
+        {amount(treasuryShareRow.prior)}
+      </td>
+    ) : null}
+  </tr>
+) : null}
+
+<tr>
+  <td style={styles.totalLabel}>
+    Total share capital and contributions
+  </td>
+  <td data-total-amount="true" style={styles.totalAmount}>
+    {amount(mappedCurrent)}
+  </td>
+  {!hideComparatives ? (
+    <td data-total-amount="true" style={styles.totalAmount}>
+      {amount(mappedPrior)}
+    </td>
+  ) : null}
+</tr>
         </tbody>
       </table>
 

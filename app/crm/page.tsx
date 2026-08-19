@@ -1,16 +1,10 @@
+"use client";
+
 import Link from "next/link";
-import { createClient } from "@supabase/supabase-js";
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseSecretKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
-
-if (!supabaseUrl) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-if (!supabaseSecretKey) {
-  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY");
-}
-
-const supabase = createClient(supabaseUrl, supabaseSecretKey);
+const supabaseAny = supabase as any;
 
 type CRMContact = {
   contact_name: string | null;
@@ -25,24 +19,75 @@ type CRMClient = {
   crm_client_contacts: CRMContact[] | null;
 };
 
-export default async function CRMHome() {
-  const { data: clients, error } = await supabase
-    .from("crm_clients")
-    .select(`
-      id,
-      client_name,
-      registration_number,
-      id_passport_number,
-      crm_client_contacts (
-        contact_name,
-        is_primary
-      )
-    `)
-    .order("client_name", { ascending: true });
+export default function CRMHome() {
+  const [clients, setClients] = useState<CRMClient[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
-  const safeClients = ((clients || []) as CRMClient[]).filter(
-    (client) => client.client_name?.trim()
-  );
+  useEffect(() => {
+    async function loadClients() {
+      setLoading(true);
+      setLoadError("");
+
+      try {
+        const {
+          data: { user },
+          error: userError,
+        } = await supabaseAny.auth.getUser();
+
+        if (userError || !user) {
+          throw new Error("Your PracticePilot login could not be confirmed.");
+        }
+
+        const { data: profile, error: profileError } = await supabaseAny
+          .from("user_profiles")
+          .select("organisation_id, access_enabled")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (profileError) throw profileError;
+        if (!profile?.access_enabled) {
+          throw new Error("Your PracticePilot access is disabled.");
+        }
+        if (!profile?.organisation_id) {
+          throw new Error("Your user profile is not linked to an organisation.");
+        }
+
+        const { data, error } = await supabaseAny
+          .from("crm_clients")
+          .select(`
+            id,
+            client_name,
+            registration_number,
+            id_passport_number,
+            crm_client_contacts (
+              contact_name,
+              is_primary
+            )
+          `)
+          .eq("organisation_id", profile.organisation_id)
+          .order("client_name", { ascending: true });
+
+        if (error) throw error;
+
+        setClients(
+          ((data || []) as CRMClient[]).filter((client) =>
+            client.client_name?.trim()
+          )
+        );
+      } catch (error) {
+        console.error("Could not load CRM clients:", error);
+        setLoadError(
+          error instanceof Error ? error.message : "Could not load CRM clients."
+        );
+        setClients([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadClients();
+  }, []);
 
   return (
     <div style={page}>
@@ -52,7 +97,7 @@ export default async function CRMHome() {
         <div style={workingFileTitle}>Client Database</div>
         <div style={divider}>|</div>
         <div style={workingFileMeta}>Practice client master</div>
-        <div style={countBadge}>{safeClients.length} clients</div>
+        <div style={countBadge}>{clients.length} clients</div>
       </div>
 
       <div style={sectionTopBar}>
@@ -68,8 +113,8 @@ export default async function CRMHome() {
         </Link>
       </div>
 
-      {error ? (
-        <div style={errorBox}>{error.message}</div>
+      {loadError ? (
+        <div style={errorBox}>{loadError}</div>
       ) : (
         <section style={panel}>
           <div style={panelHeader}>
@@ -93,48 +138,53 @@ export default async function CRMHome() {
               </thead>
 
               <tbody>
-                {safeClients.map((client) => {
-                  const primaryContact =
-                    client.crm_client_contacts?.find(
-                      (contact) => contact.is_primary
-                    ) ||
-                    client.crm_client_contacts?.[0] ||
-                    null;
-
-                  return (
-                    <tr key={client.id}>
-                      <td style={tdClient}>
-                        <Link href={`/crm/client/${client.id}`} style={clientLink}>
-                          {client.client_name}
-                        </Link>
-                      </td>
-
-                      <td style={td}>
-                        {client.registration_number ||
-                          client.id_passport_number ||
-                          "-"}
-                      </td>
-
-                      <td style={td}>
-                        {primaryContact?.contact_name || "-"}
-                      </td>
-
-                      <td style={tdAction}>
-                        <Link
-                          href={`/crm/client/${client.id}`}
-                          style={viewLink}
-                        >
-                          View
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-
-                {safeClients.length === 0 && (
+                {loading ? (
                   <tr>
                     <td style={emptyCell} colSpan={4}>
-                      No CRM clients found yet.
+                      Loading clients...
+                    </td>
+                  </tr>
+                ) : (
+                  clients.map((client) => {
+                    const primaryContact =
+                      client.crm_client_contacts?.find(
+                        (contact) => contact.is_primary
+                      ) ||
+                      client.crm_client_contacts?.[0] ||
+                      null;
+
+                    return (
+                      <tr key={client.id}>
+                        <td style={tdClient}>
+                          <Link href={`/crm/client/${client.id}`} style={clientLink}>
+                            {client.client_name}
+                          </Link>
+                        </td>
+
+                        <td style={td}>
+                          {client.registration_number ||
+                            client.id_passport_number ||
+                            "-"}
+                        </td>
+
+                        <td style={td}>
+                          {primaryContact?.contact_name || "-"}
+                        </td>
+
+                        <td style={tdAction}>
+                          <Link href={`/crm/client/${client.id}`} style={viewLink}>
+                            View
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+
+                {!loading && clients.length === 0 && (
+                  <tr>
+                    <td style={emptyCell} colSpan={4}>
+                      No CRM clients found for your organisation.
                     </td>
                   </tr>
                 )}

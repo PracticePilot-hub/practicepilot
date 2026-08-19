@@ -13,6 +13,18 @@ type ClientOption = {
   registrationNumber: string;
 };
 
+type ShareholderOption = {
+  id: string;
+  fullLegalName: string;
+  idRegistrationNumber: string;
+};
+
+type ShareClassOption = {
+  id: string;
+  className: string;
+  seriesDesignation: string;
+};
+
 const DEFAULT_TRANSFER_RESTRICTION =
   "The transfer of these shares is subject to the restrictions contained in the company’s Memorandum of Incorporation.";
 
@@ -51,6 +63,8 @@ export default function ShareCertificateMatterPage() {
   const matterId = String(params?.id || "");
 
   const [clients, setClients] = useState<ClientOption[]>([]);
+  const [shareholders, setShareholders] = useState<ShareholderOption[]>([]);
+  const [shareClasses, setShareClasses] = useState<ShareClassOption[]>([]);
   const [matterLoading, setMatterLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -245,6 +259,58 @@ export default function ShareCertificateMatterPage() {
     [clients, selectedClientId]
   );
 
+  useEffect(() => {
+    async function loadPermanentShareData() {
+      if (!selectedClientId) {
+        setShareholders([]);
+        setShareClasses([]);
+        return;
+      }
+
+      const [{ data: holderData, error: holderError }, { data: classData, error: classError }] =
+        await Promise.all([
+          supabaseAny
+            .from("secretarial_shareholders")
+            .select("id, full_legal_name, id_registration_number")
+            .eq("client_id", selectedClientId)
+            .eq("is_active", true)
+            .order("full_legal_name", { ascending: true }),
+          supabaseAny
+            .from("secretarial_share_classes")
+            .select("id, class_name, series_designation")
+            .eq("client_id", selectedClientId)
+            .eq("is_active", true)
+            .order("class_name", { ascending: true }),
+        ]);
+
+      if (holderError) {
+        console.error("Could not load permanent shareholders:", holderError);
+      } else {
+        setShareholders(
+          (holderData || []).map((holder: any) => ({
+            id: holder.id,
+            fullLegalName: holder.full_legal_name || "",
+            idRegistrationNumber: holder.id_registration_number || "",
+          }))
+        );
+      }
+
+      if (classError) {
+        console.error("Could not load permanent share classes:", classError);
+      } else {
+        setShareClasses(
+          (classData || []).map((shareClassRow: any) => ({
+            id: shareClassRow.id,
+            className: shareClassRow.class_name || "",
+            seriesDesignation: shareClassRow.series_designation || "",
+          }))
+        );
+      }
+    }
+
+    loadPermanentShareData();
+  }, [selectedClientId]);
+
   const calculatedTotalConsideration = useMemo(() => {
     const qty = Number(numberOfShares);
     const perShare = Number(considerationPerShare);
@@ -266,18 +332,24 @@ export default function ShareCertificateMatterPage() {
 
   const resolutionReady =
     Boolean(boardResolutionDate) &&
-    Boolean(boardResolutionReference.trim()) &&
-    resolutionConfirmed;
+    Boolean(boardResolutionReference.trim());
 
   const certificateGenerationReady =
     Boolean(issueDate) &&
     Boolean(placeOfIssue.trim()) &&
-    Boolean(signatoryOneName.trim()) &&
-    certificateConfirmed;
+    Boolean(signatoryOneName.trim());
 
+  // Step 6 is the ONE deliberate approval point before finalisation.
   const reviewReady = reviewApproved;
-  const registerReady = registerConfirmed;
-  const egnyteReady = egnyteConfirmed;
+
+  // Steps 7 and 8 are workflow stages, not extra confirmation questions.
+  const registerReady =
+    Boolean(shareholderName.trim()) &&
+    Boolean(shareClass.trim()) &&
+    Number(numberOfShares || 0) > 0 &&
+    Boolean(issueDate);
+
+  const egnyteReady = true;
 
   const isCompleted = matterStatus === "completed";
 
@@ -602,7 +674,7 @@ export default function ShareCertificateMatterPage() {
         <div>
           <h1 style={pageTitle}>Share Certificate {certificateNumber}</h1>
           <div style={pageSubtitle}>
-            One controlled step at a time. Finalisation at Step 9 locks the matter.
+            One controlled workflow. Permanent client, shareholder and share-class data is reused throughout.
           </div>
         </div>
 
@@ -700,29 +772,40 @@ export default function ShareCertificateMatterPage() {
           {FLIGHT_MAP.map((step, index) => {
             const stepNumber = index + 1;
             const completed = stepNumber < currentStep || isCompleted;
-            const active = stepNumber === currentStep && !isCompleted;
+            const active = stepNumber === currentStep;
+            const canInspectFinalised = isCompleted;
             const canJumpBack =
               completed &&
               !isCompleted &&
               stepNumber < currentStep &&
               rewindStatus !== "working";
+            const canOpenStep = canJumpBack || canInspectFinalised;
 
             return (
               <button
                 key={step}
                 type="button"
                 onClick={() => {
+                  if (canInspectFinalised) {
+                    setCurrentStep(stepNumber);
+                    setProgressMessage(
+                      `Viewing Step ${stepNumber} — ${step}. Finalised certificate data is read-only.`
+                    );
+                    return;
+                  }
                   if (canJumpBack) jumpToStep(stepNumber);
                 }}
-                disabled={!canJumpBack}
+                disabled={!canOpenStep}
                 title={
-                  canJumpBack
-                    ? `Go back to Step ${stepNumber} — ${step}`
-                    : undefined
+                  canInspectFinalised
+                    ? `View Step ${stepNumber} — ${step}`
+                    : canJumpBack
+                      ? `Go back to Step ${stepNumber} — ${step}`
+                      : undefined
                 }
                 style={{
                   ...flightStepButton,
-                  ...(canJumpBack ? flightStepButtonClickable : {}),
+                  ...(canOpenStep ? flightStepButtonClickable : {}),
                 }}
               >
                 <div
@@ -730,7 +813,7 @@ export default function ShareCertificateMatterPage() {
                     ...stepMarker,
                     ...(completed ? completedStepMarker : {}),
                     ...(active ? activeStepMarker : {}),
-                    ...(canJumpBack ? completedStepMarkerClickable : {}),
+                    ...(canOpenStep ? completedStepMarkerClickable : {}),
                   }}
                 >
                   {completed ? "✓" : stepNumber}
@@ -740,7 +823,7 @@ export default function ShareCertificateMatterPage() {
                   style={{
                     ...stepLabel,
                     ...(active ? activeStepLabel : {}),
-                    ...(canJumpBack ? completedStepLabelClickable : {}),
+                    ...(canOpenStep ? completedStepLabelClickable : {}),
                   }}
                 >
                   {step}
@@ -761,6 +844,8 @@ export default function ShareCertificateMatterPage() {
           setSelectedClientId={setSelectedClientId}
           clients={clients}
           selectedClient={selectedClient}
+          shareholders={shareholders}
+          shareClasses={shareClasses}
           certificateNumber={certificateNumber}
           setCertificateNumber={setCertificateNumber}
           shareClass={shareClass}
@@ -876,9 +961,11 @@ function CurrentStage(props: any) {
         <div style={stageFooter}>
           <div style={footerHint}>
             {currentStep === 9
-              ? "Finalisation permanently locks this matter."
+              ? "Finalisation locks statutory data, but all completed steps remain available for read-only review."
               : ready
-                ? "All controls for this stage are complete."
+                ? currentStep === 6
+                  ? "This is the formal review and approval point."
+                  : "Required information is complete. Continue when ready."
                 : "Complete the required information before continuing."}
           </div>
 
@@ -925,18 +1012,11 @@ function Step1(props: any) {
   return (
     <div style={formGrid}>
       <Field label="Client">
-        <select
-          value={props.selectedClientId}
-          onChange={(event) => props.setSelectedClientId(event.target.value)}
-          style={input}
-        >
-          <option value="">Select a client</option>
-          {props.clients.map((client: ClientOption) => (
-            <option key={client.id} value={client.id}>
-              {client.clientName}
-            </option>
-          ))}
-        </select>
+        <input
+          value={props.selectedClient?.clientName || ""}
+          readOnly
+          style={readOnlyInput}
+        />
       </Field>
 
       <Field label="Registration number">
@@ -950,8 +1030,8 @@ function Step1(props: any) {
       <Field label="Certificate number">
         <input
           value={props.certificateNumber}
-          onChange={(event) => props.setCertificateNumber(event.target.value)}
-          style={input}
+          readOnly
+          style={readOnlyInput}
         />
       </Field>
     </div>
@@ -963,25 +1043,40 @@ function Step2(props: any) {
     <div style={stageTwoColumn}>
       <div style={stageMain}>
         <div style={formGrid}>
-          <Field label="Class of shares" help="Example: Ordinary no-par-value shares.">
-            <input
-              value={props.shareClass}
-              onChange={(event) => props.setShareClass(event.target.value)}
+          <Field
+            label="Class of shares"
+            help="Pulled from the permanent Share Capital master — do not recapture it here."
+          >
+            <select
+              value={`${props.shareClass}||${props.seriesDesignation || ""}`}
+              onChange={(event) => {
+                const selected = props.shareClasses.find(
+                  (item: ShareClassOption) =>
+                    `${item.className}||${item.seriesDesignation || ""}` === event.target.value
+                );
+                props.setShareClass(selected?.className || "");
+                props.setSeriesDesignation(selected?.seriesDesignation || "");
+              }}
               style={input}
-            />
+            >
+              <option value="">Select existing share class</option>
+              {props.shareClasses.map((item: ShareClassOption) => (
+                <option
+                  key={item.id}
+                  value={`${item.className}||${item.seriesDesignation || ""}`}
+                >
+                  {item.className}
+                  {item.seriesDesignation ? ` — ${item.seriesDesignation}` : ""}
+                </option>
+              ))}
+            </select>
           </Field>
 
-          <Field
-            label="Series designation"
-            help="Leave blank if the class has no separate series."
-          >
+          <Field label="Series designation">
             <input
-              value={props.seriesDesignation}
-              onChange={(event) =>
-                props.setSeriesDesignation(event.target.value)
-              }
-              placeholder="Leave blank if not applicable"
-              style={input}
+              value={props.seriesDesignation || "—"}
+              readOnly
+              style={readOnlyInput}
             />
           </Field>
 
@@ -1062,23 +1157,40 @@ function Step3(props: any) {
       <div style={stageMain}>
         <div style={formGrid}>
           <Field
-            label="Shareholder full legal name"
-            help="Use the legal name exactly as it must appear on the certificate."
+            label="Shareholder"
+            help="Select the permanent shareholder record already captured in the client file."
           >
-            <input
-              value={props.shareholderName}
-              onChange={(event) => props.setShareholderName(event.target.value)}
+            <select
+              value={`${props.shareholderName}||${props.shareholderIdNumber || ""}`}
+              onChange={(event) => {
+                const selected = props.shareholders.find(
+                  (holder: ShareholderOption) =>
+                    `${holder.fullLegalName}||${holder.idRegistrationNumber || ""}` ===
+                    event.target.value
+                );
+
+                props.setShareholderName(selected?.fullLegalName || "");
+                props.setShareholderIdNumber(selected?.idRegistrationNumber || "");
+              }}
               style={input}
-            />
+            >
+              <option value="">Select existing shareholder</option>
+              {props.shareholders.map((holder: ShareholderOption) => (
+                <option
+                  key={holder.id}
+                  value={`${holder.fullLegalName}||${holder.idRegistrationNumber || ""}`}
+                >
+                  {holder.fullLegalName}
+                </option>
+              ))}
+            </select>
           </Field>
 
           <Field label="ID or registration number">
             <input
-              value={props.shareholderIdNumber}
-              onChange={(event) =>
-                props.setShareholderIdNumber(event.target.value)
-              }
-              style={input}
+              value={props.shareholderIdNumber || ""}
+              readOnly
+              style={readOnlyInput}
             />
           </Field>
         </div>
@@ -1092,9 +1204,9 @@ function Step3(props: any) {
 
       <StageChecks
         checks={[
-          ["Shareholder legal name confirmed", Boolean(props.shareholderName.trim())],
+          ["Permanent shareholder selected", Boolean(props.shareholderName.trim())],
           [
-            "Shareholder identification confirmed",
+            "Shareholder identification linked",
             Boolean(props.shareholderIdNumber.trim()),
           ],
           [
@@ -1247,7 +1359,7 @@ function Step4(props: any) {
             "Resolution reference captured",
             Boolean(props.boardResolutionReference.trim()),
           ],
-          ["Resolution reviewed", props.resolutionConfirmed],
+          ["Resolution ready for workflow", Boolean(props.boardResolutionDate) && Boolean(props.boardResolutionReference.trim())],
         ]}
       />
     </div>
@@ -1255,154 +1367,83 @@ function Step4(props: any) {
 }
 
 function Step5(props: any) {
-  const companyName =
-    props.selectedClient?.clientName || "COMPANY NAME (PTY) LTD";
-  const registration =
-    props.selectedClient?.registrationNumber || "REGISTRATION NUMBER";
-
   return (
-    <div>
-      <div style={certificateGenerationGrid}>
-        <div>
-          <div style={formGrid}>
-            <Field label="Date of issue">
-              <input
-                type="date"
-                value={props.issueDate}
-                onChange={(event) => props.setIssueDate(event.target.value)}
-                style={input}
-              />
-            </Field>
-
-            <Field label="Place of issue">
-              <input
-                value={props.placeOfIssue}
-                onChange={(event) => props.setPlaceOfIssue(event.target.value)}
-                style={input}
-              />
-            </Field>
-
-            <Field label="Authorised signatory 1">
-              <input
-                value={props.signatoryOneName}
-                onChange={(event) =>
-                  props.setSignatoryOneName(event.target.value)
-                }
-                style={input}
-              />
-            </Field>
-
-            <Field label="Capacity">
-              <input
-                value={props.signatoryOneCapacity}
-                onChange={(event) =>
-                  props.setSignatoryOneCapacity(event.target.value)
-                }
-                style={input}
-              />
-            </Field>
-
-            <Field label="Authorised signatory 2">
-              <input
-                value={props.signatoryTwoName}
-                onChange={(event) =>
-                  props.setSignatoryTwoName(event.target.value)
-                }
-                style={input}
-              />
-            </Field>
-
-            <Field label="Capacity">
-              <input
-                value={props.signatoryTwoCapacity}
-                onChange={(event) =>
-                  props.setSignatoryTwoCapacity(event.target.value)
-                }
-                style={input}
-              />
-            </Field>
-          </div>
-
-          <Field label="Transfer restriction">
-            <textarea
-              value={props.transferRestriction}
-              onChange={(event) =>
-                props.setTransferRestriction(event.target.value)
-              }
-              style={textarea}
+    <div style={stageTwoColumn}>
+      <div style={stageMain}>
+        <div style={formGrid}>
+          <Field label="Date of issue">
+            <input
+              type="date"
+              value={props.issueDate}
+              onChange={(event) => props.setIssueDate(event.target.value)}
+              style={input}
             />
           </Field>
 
-          <CheckBox
-            checked={props.certificateConfirmed}
-            onChange={props.setCertificateConfirmed}
-            label="I have checked the certificate wording and layout"
-          />
+          <Field label="Place of issue">
+            <input
+              value={props.placeOfIssue}
+              onChange={(event) => props.setPlaceOfIssue(event.target.value)}
+              style={input}
+            />
+          </Field>
+
+          <Field label="Authorised signatory 1">
+            <input
+              value={props.signatoryOneName}
+              onChange={(event) => props.setSignatoryOneName(event.target.value)}
+              style={input}
+            />
+          </Field>
+
+          <Field label="Capacity">
+            <input
+              value={props.signatoryOneCapacity}
+              onChange={(event) => props.setSignatoryOneCapacity(event.target.value)}
+              style={input}
+            />
+          </Field>
+
+          <Field label="Authorised signatory 2">
+            <input
+              value={props.signatoryTwoName}
+              onChange={(event) => props.setSignatoryTwoName(event.target.value)}
+              style={input}
+            />
+          </Field>
+
+          <Field label="Capacity">
+            <input
+              value={props.signatoryTwoCapacity}
+              onChange={(event) => props.setSignatoryTwoCapacity(event.target.value)}
+              style={input}
+            />
+          </Field>
         </div>
 
-        <div style={certificatePreviewWrap}>
-          <div style={previewLabel}>CERTIFICATE PREVIEW</div>
-          <div style={certificateCanvas}>
-            <img
-              src="/secretarial/share-certificate-background.png"
-              alt="Share certificate background"
-              style={certificateBackground}
-            />
+        <Field label="Transfer restriction">
+          <textarea
+            value={props.transferRestriction}
+            onChange={(event) => props.setTransferRestriction(event.target.value)}
+            style={textarea}
+          />
+        </Field>
 
-            <div style={certificateNo}>
-              Certificate No. {props.certificateNumber}
-            </div>
-
-            <div style={certificateCompany}>{companyName}</div>
-            <div style={certificateRegistration}>
-              Registration number: {registration}
-            </div>
-
-            <div style={certificateHeading}>SHARE CERTIFICATE</div>
-            <div style={certificateSmall}>This is to certify that</div>
-
-            <div style={certificateHolder}>
-              {props.shareholderName || "SHAREHOLDER FULL NAME"}
-            </div>
-
-            <div style={certificateSmall}>is the registered holder of</div>
-
-            <div style={certificateShares}>
-              {props.numberOfShares || "0"} {props.shareClass}
-            </div>
-
-            <div style={certificateSmall}>
-              in the issued share capital of the company.
-            </div>
-
-            <div style={certificateTiny}>
-              {props.fullyPaid
-                ? "The shares are fully paid."
-                : `Amount paid: R ${props.amountPaid || "0.00"}`}
-            </div>
-
-            <div style={certificateTiny}>
-              {props.transferRestriction}
-            </div>
-
-            <div style={certificateIssueLine}>
-              Issued at {props.placeOfIssue || "PLACE"} on{" "}
-              {formatDate(props.issueDate)}
-            </div>
-
-            <div style={signatureGrid}>
-              <Signature
-                name={props.signatoryOneName}
-                capacity={props.signatoryOneCapacity}
-              />
-              <Signature
-                name={props.signatoryTwoName}
-                capacity={props.signatoryTwoCapacity}
-              />
-            </div>
-          </div>
+        <div style={infoBox}>
+          The final share certificate is generated from the permanent company,
+          shareholder and share-class records together with the issue details
+          captured above. The large certificate canvas is deliberately not shown
+          inside the Flight Map.
         </div>
       </div>
+
+      <StageChecks
+        checks={[
+          ["Issue date captured", Boolean(props.issueDate)],
+          ["Place of issue captured", Boolean(props.placeOfIssue.trim())],
+          ["Authorised signatory captured", Boolean(props.signatoryOneName.trim())],
+        ]}
+      />
     </div>
   );
 }
@@ -1487,7 +1528,7 @@ function Step7(props: any) {
         checks={[
           ["Shareholder linked", Boolean(props.shareholderName)],
           ["Issue quantity confirmed", Number(props.numberOfShares || 0) > 0],
-          ["Register entry confirmed", props.registerConfirmed],
+          ["Transaction date available", Boolean(props.issueDate)],
         ]}
       />
     </div>
@@ -1525,11 +1566,11 @@ function Step8(props: any) {
 
       <StageChecks
         checks={[
+          ["Document filing stage available", true],
           [
-            "Storage path",
+            "External storage path",
             Boolean(props.egnyteFolderPath.trim()),
           ],
-          ["Testing bypass confirmed", props.egnyteConfirmed],
         ]}
       />
     </div>

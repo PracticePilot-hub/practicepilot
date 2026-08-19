@@ -327,10 +327,16 @@ function rawPrior(line: AfsEngineTrialBalanceLine) {
 
 function bucketKey(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket) {
   /*
-    Statement rows are grouped by the canonical mapping class.
-    Mapping leaf codes still remain available for classes that do not have
-    a dedicated note class, such as VAT and statutory controls.
+    Statement rows are generally grouped by the canonical mapping class.
+
+    Share capital / contributed equity is the exception:
+    the 805 family contains materially different equity classes which must
+    remain separately presented while still feeding ONE equity note.
   */
+  if (canonical.noteKey === "shareCapital") {
+    return String(line.mapping_code || "805").trim();
+  }
+
   return (
     canonical.noteKey ||
     line.mapping_code ||
@@ -362,6 +368,22 @@ function mappingStartsWith(line: AfsEngineTrialBalanceLine, prefixes: string[]) 
 }
 
 function bucketLabel(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket) {
+  /*
+    805 is one disclosure family, but the individual equity classes must retain
+    their own presentation labels.
+
+    Classification remains mapping-code driven only.
+  */
+  if (canonical.noteKey === "shareCapital") {
+    if (mappingStartsWith(line, ["805.10"])) return "Share capital";
+    if (mappingStartsWith(line, ["805.20"])) return "Share premium";
+    if (mappingStartsWith(line, ["805.30"])) return "Members / owners contributions";
+    if (mappingStartsWith(line, ["805.40"])) return "Preference shares classified as equity";
+    if (mappingStartsWith(line, ["805.90"])) return "Treasury / own shares";
+
+    return "Share capital / contributions";
+  }
+
   if (canonical.noteKey) return NOTE_LABELS[canonical.noteKey];
 
   return cleanLabel(
@@ -1398,20 +1420,23 @@ export function buildAfsPrintStatementEngine(
         profitForYear.current +
         currentOtherMovements;
 
-  const shareCapital: StatementBucket[] = [
-    {
-      key: "share-capital-adjusted",
-      label: "Share Capital",
-      note: noteNumbers.shareCapital || null,
-      noteKey: "shareCapital" as AfsNoteKey,
-      current: shareCapitalTotal.current || openingShareCapital,
-      prior: shareCapitalTotal.prior || openingShareCapital,
-    },
-  ].filter(
-    (item) =>
-      Math.round(item.current) !== 0 ||
-      Math.round(item.prior) !== 0,
-  );
+  const shareCapital: StatementBucket[] =
+  shareCapitalRaw.length > 0
+    ? shareCapitalRaw
+    : [
+        {
+          key: "share-capital-adjusted",
+          label: "Share capital",
+          note: noteNumbers.shareCapital || null,
+          noteKey: "shareCapital" as AfsNoteKey,
+          current: openingShareCapital,
+          prior: openingShareCapital,
+        },
+      ].filter(
+        (item) =>
+          Math.round(item.current) !== 0 ||
+          Math.round(item.prior) !== 0,
+      );
 
   const retainedIncome: StatementBucket[] = [
     {
