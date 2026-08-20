@@ -103,6 +103,9 @@ export default function AFSPage() {
   const [selectedOrganisationId, setSelectedOrganisationId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [archivingEngagementId, setArchivingEngagementId] = useState<string | null>(null);
+  const [archiveCandidate, setArchiveCandidate] = useState<AFSEngagement | null>(null);
+  const [archiveConfirmed, setArchiveConfirmed] = useState(false);
 
   const [rollingOverEngagementId, setRollingOverEngagementId] = useState<
     string | null
@@ -511,6 +514,63 @@ export default function AFSPage() {
     }
   }
 
+
+  function requestArchiveEngagement(engagement: AFSEngagement) {
+    if (normaliseStatus(engagement.status) !== "Final") {
+      alert("Only final AFS engagements can be archived.");
+      return;
+    }
+
+    setArchiveCandidate(engagement);
+    setArchiveConfirmed(false);
+  }
+
+  function closeArchiveConfirmation() {
+    if (archivingEngagementId) return;
+    setArchiveCandidate(null);
+    setArchiveConfirmed(false);
+  }
+
+  async function archiveEngagement() {
+    if (!archiveCandidate || !archiveConfirmed) return;
+
+    setArchivingEngagementId(archiveCandidate.id);
+
+    try {
+      const response = await fetch("/api/afs/engagements", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          engagementId: archiveCandidate.id,
+          status: "Archived",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not archive AFS engagement.");
+      }
+
+      setEngagements((current) =>
+        current.map((item) =>
+          item.id === archiveCandidate.id
+            ? { ...item, status: "Archived" }
+            : item,
+        ),
+      );
+
+      setArchiveCandidate(null);
+      setArchiveConfirmed(false);
+    } catch (error: any) {
+      alert(error.message || "Could not archive AFS engagement.");
+    } finally {
+      setArchivingEngagementId(null);
+    }
+  }
+
   function clearFilters() {
     setSearchText("");
     setStatusFilter("All");
@@ -848,15 +908,28 @@ export default function AFSPage() {
                         <div style={styles.actionButtons}>
                           {normaliseStatus(engagement.status) ===
                           "Final" ? (
-                            <button
-                              type="button"
-                              style={styles.nextFlightButton}
-                              onClick={() =>
-                                launchNextFlight(engagement)
-                              }
-                            >
-                              Next Flight
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                style={styles.nextFlightButton}
+                                onClick={() =>
+                                  launchNextFlight(engagement)
+                                }
+                              >
+                                Next Flight
+                              </button>
+
+                              <button
+                                type="button"
+                                style={styles.archiveButton}
+                                onClick={() => requestArchiveEngagement(engagement)}
+                                disabled={archivingEngagementId === engagement.id}
+                              >
+                                {archivingEngagementId === engagement.id
+                                  ? "Archiving..."
+                                  : "Archive"}
+                              </button>
+                            </>
                           ) : null}
 
                           <button
@@ -868,7 +941,9 @@ export default function AFSPage() {
                               )
                             }
                           >
-                            Open
+                            {normaliseStatus(engagement.status) === "Archived"
+                              ? "View"
+                              : "Open"}
                           </button>
                         </div>
                       </td>
@@ -880,6 +955,81 @@ export default function AFSPage() {
           )}
         </section>
       </div>
+
+      {archiveCandidate ? (
+        <div style={styles.modalOverlay}>
+          <section style={styles.archiveModal}>
+            <div style={styles.archiveModalHeader}>
+              <div>
+                <div style={styles.archiveWarningKicker}>Permanent archive</div>
+                <h2 style={styles.archiveModalTitle}>Archive AFS engagement?</h2>
+              </div>
+
+              <button
+                type="button"
+                style={styles.modalCloseButton}
+                onClick={closeArchiveConfirmation}
+                disabled={Boolean(archivingEngagementId)}
+                aria-label="Close archive confirmation"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.archiveClientBox}>
+              <strong>{archiveCandidate.client_name}</strong>
+              <span>
+                Year ended {formatDate(archiveCandidate.financial_year_end)}
+              </span>
+            </div>
+
+            <div style={styles.archiveWarningBox}>
+              <strong>This action is permanent.</strong>
+              <span>
+                Once archived, this AFS engagement will be read only and cannot
+                be reopened or edited again. You will still be able to view and
+                export the file.
+              </span>
+            </div>
+
+            <label style={styles.archiveAgreementRow}>
+              <input
+                type="checkbox"
+                checked={archiveConfirmed}
+                onChange={(event) => setArchiveConfirmed(event.target.checked)}
+                disabled={Boolean(archivingEngagementId)}
+              />
+              <span>
+                I understand that this file will be permanently read only after
+                archiving.
+              </span>
+            </label>
+
+            <div style={styles.archiveModalActions}>
+              <button
+                type="button"
+                style={styles.modalSecondaryButton}
+                onClick={closeArchiveConfirmation}
+                disabled={Boolean(archivingEngagementId)}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                style={{
+                  ...styles.archiveConfirmButton,
+                  ...(!archiveConfirmed ? styles.archiveConfirmButtonDisabled : {}),
+                }}
+                onClick={archiveEngagement}
+                disabled={!archiveConfirmed || Boolean(archivingEngagementId)}
+              >
+                {archivingEngagementId ? "Archiving..." : "Archive permanently"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {nextFlightEngagement ? (
         <div style={styles.modalOverlay}>
@@ -1307,6 +1457,108 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "3px 8px",
     fontSize: "12px",
     lineHeight: 1.2,
+  },
+
+  archiveButton: {
+    border: "1px solid #64748b",
+    background: "#f8fafc",
+    color: "#334155",
+    fontWeight: 900,
+    cursor: "pointer",
+    padding: "3px 8px",
+    fontSize: "12px",
+    lineHeight: 1.2,
+  },
+
+  archiveModal: {
+    width: "min(560px, 100%)",
+    background: "#ffffff",
+    border: "1px solid #b9c9dc",
+    boxShadow: "0 24px 70px rgba(15, 39, 66, 0.28)",
+    padding: "18px",
+    display: "grid",
+    gap: "16px",
+  },
+
+  archiveModalHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "16px",
+    borderBottom: "1px solid #d8e2ef",
+    paddingBottom: "12px",
+  },
+
+  archiveWarningKicker: {
+    color: "#b45309",
+    fontSize: "10px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.13em",
+    marginBottom: "5px",
+  },
+
+  archiveModalTitle: {
+    margin: 0,
+    color: "#0f2742",
+    fontSize: "21px",
+    fontWeight: 900,
+  },
+
+  archiveClientBox: {
+    display: "grid",
+    gap: "4px",
+    border: "1px solid #d8e2ef",
+    background: "#f8fafc",
+    padding: "10px 12px",
+    fontSize: "13px",
+    color: "#12304a",
+  },
+
+  archiveWarningBox: {
+    display: "grid",
+    gap: "6px",
+    border: "1px solid #f59e0b",
+    background: "#fffbeb",
+    color: "#78350f",
+    padding: "12px",
+    fontSize: "13px",
+    lineHeight: 1.45,
+  },
+
+  archiveAgreementRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "9px",
+    color: "#334155",
+    fontSize: "13px",
+    fontWeight: 800,
+    lineHeight: 1.4,
+    cursor: "pointer",
+  },
+
+  archiveModalActions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: "10px",
+    borderTop: "1px solid #d8e2ef",
+    paddingTop: "12px",
+  },
+
+  archiveConfirmButton: {
+    border: "1px solid #b45309",
+    background: "#b45309",
+    color: "#ffffff",
+    padding: "8px 14px",
+    fontSize: "12px",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+
+  archiveConfirmButtonDisabled: {
+    opacity: 0.45,
+    cursor: "not-allowed",
   },
 
   modalOverlay: {

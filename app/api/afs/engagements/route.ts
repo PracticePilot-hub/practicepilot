@@ -52,6 +52,46 @@ export async function GET() {
   }
 }
 
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const engagementId = cleanText(body.engagementId);
+    const status = cleanText(body.status);
+
+    if (!engagementId) {
+      return NextResponse.json(
+        { error: "Engagement id is required." },
+        { status: 400 }
+      );
+    }
+
+    if (!["Draft", "Final", "Reopened", "Archived"].includes(status)) {
+      return NextResponse.json(
+        { error: "Invalid AFS engagement status." },
+        { status: 400 }
+      );
+    }
+
+    const supabase = getSupabaseServer();
+
+    const { data, error } = await supabase
+      .from("afs_engagements")
+      .update({ status })
+      .eq("id", engagementId)
+      .select("*")
+      .single();
+
+    if (error) throw error;
+
+    return NextResponse.json({ engagement: data });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Failed to update AFS engagement." },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(req: NextRequest) {
   let createdEngagementId: string | null = null;
 

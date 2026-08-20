@@ -52,6 +52,22 @@ type EngagementData = {
   status: string;
 };
 
+type TaxCalculationData = {
+  tax_year?: string | null;
+  tax_regime?: "normal" | "sbc" | string | null;
+  accounting_profit?: number | null;
+  permanent_differences?: number | null;
+  temporary_differences?: number | null;
+  assessed_loss_bf?: number | null;
+  taxable_income?: number | null;
+  tax_rate?: number | null;
+  current_tax?: number | null;
+  provisional_tax_paid?: number | null;
+  tax_payable?: number | null;
+  deferred_tax?: number | null;
+  notes?: string | null;
+};
+
 type ClientSetupData = Record<string, any>;
 
 type AfsFirmSettings = {
@@ -1216,6 +1232,8 @@ export default function AfsPrintStudioPage() {
   const [engagement, setEngagement] = useState<EngagementData | null>(null);
   const [clientSetup, setClientSetup] = useState<ClientSetupData | null>(null);
   const [firmSettings, setFirmSettings] = useState<AfsFirmSettings | null>(null);
+  const [taxCalculation, setTaxCalculation] =
+    useState<TaxCalculationData | null>(null);
   const [trialBalanceLines, setTrialBalanceLines] = useState<TrialBalanceLine[]>(
     []
   );
@@ -1242,6 +1260,28 @@ export default function AfsPrintStudioPage() {
   const [printStudioSaveStatus, setPrintStudioSaveStatus] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
+
+  async function loadTaxCalculation() {
+    if (!engagementId) return;
+
+    try {
+      const response = await fetch(
+        `/api/afs/engagements/${engagementId}/tax-calculation`,
+        { cache: "no-store" }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Failed to load tax calculation.");
+      }
+
+      setTaxCalculation(result.taxCalculation || null);
+    } catch (error) {
+      console.error("Failed to load tax calculation", error);
+      setTaxCalculation(null);
+    }
+  }
 
   async function loadPrintStudioData() {
     if (!engagementId) return;
@@ -1314,6 +1354,8 @@ export default function AfsPrintStudioPage() {
             []
         );
       }
+
+      await loadTaxCalculation();
 
       const settingsRes = await fetch(
         `/api/afs/engagements/${engagementId}/print-studio-settings`,
@@ -1463,6 +1505,7 @@ export default function AfsPrintStudioPage() {
     loadPrintStudioData();
   }, [engagementId]);
 
+
   async function savePrintStudioSettingsToSupabase(payload: {
     reportOptions?: ReportOptions;
     directorsReportTexts?: DirectorsReportTextOverrides;
@@ -1601,6 +1644,10 @@ export default function AfsPrintStudioPage() {
   }
 
   function goToSection(sectionId: string) {
+    if (sectionId === "tax-computation") {
+      void loadTaxCalculation();
+    }
+
     setActiveSectionId(sectionId);
 
     requestAnimationFrame(() => {
@@ -7402,32 +7449,94 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       Number(engineChecks.profitBeforeTax || 0)
                     );
 
-                    const taxRateRaw = getSetupValue(clientSetup, [
-                      "tax_rate",
-                      "income_tax_rate",
-                      "company_tax_rate",
-                      "taxRate",
-                      "incomeTaxRate",
-                      "companyTaxRate",
-                    ]);
+                    const savedTax = taxCalculation;
+                    const hasSavedTax = Boolean(savedTax);
 
-                    const assessedLossRaw = getSetupValue(clientSetup, [
-                      "assessed_loss",
-                      "assessed_loss_brought_forward",
-                      "assessedLoss",
-                      "assessedLossBroughtForward",
-                    ]);
+                    const accountingProfit = hasSavedTax
+                      ? Math.round(Number(savedTax?.accounting_profit || 0))
+                      : profitBeforeTax;
 
-                    const taxRate = Number(taxRateRaw || 27);
-                    const assessedLossBroughtForward = Math.abs(
-                      Number(assessedLossRaw || 0)
+                    const permanentDifferences = hasSavedTax
+                      ? Math.round(Number(savedTax?.permanent_differences || 0))
+                      : 0;
+
+                    const temporaryDifferences = hasSavedTax
+                      ? Math.round(Number(savedTax?.temporary_differences || 0))
+                      : 0;
+
+                    const assessedLossBroughtForward = hasSavedTax
+                      ? Math.abs(Math.round(Number(savedTax?.assessed_loss_bf || 0)))
+                      : Math.abs(
+                          Number(
+                            getSetupValue(clientSetup, [
+                              "assessed_loss",
+                              "assessed_loss_brought_forward",
+                              "assessedLoss",
+                              "assessedLossBroughtForward",
+                            ]) || 0
+                          )
+                        );
+
+                    const taxableBeforeLoss =
+                      accountingProfit +
+                      permanentDifferences +
+                      temporaryDifferences;
+
+                    const taxableIncome = hasSavedTax
+                      ? Math.max(0, Math.round(Number(savedTax?.taxable_income || 0)))
+                      : Math.max(
+                          0,
+                          taxableBeforeLoss - assessedLossBroughtForward
+                        );
+
+                    const currentYearAssessedLoss = Math.max(
+                      0,
+                      -taxableBeforeLoss
                     );
+
+                    const assessedLossUsed =
+                      taxableBeforeLoss > 0
+                        ? Math.min(
+                            taxableBeforeLoss,
+                            assessedLossBroughtForward
+                          )
+                        : 0;
+
+                    const assessedLossCarriedForward =
+                      Math.max(
+                        0,
+                        assessedLossBroughtForward - assessedLossUsed
+                      ) + currentYearAssessedLoss;
+
+                    const taxRegime =
+                      String(savedTax?.tax_regime || "normal").toLowerCase() === "sbc"
+                        ? "sbc"
+                        : "normal";
+
+                    const savedRate = Number(savedTax?.tax_rate || 0);
+                    const normalTaxRate =
+                      savedRate > 0
+                        ? savedRate
+                        : Number(
+                            getSetupValue(clientSetup, [
+                              "tax_rate",
+                              "income_tax_rate",
+                              "company_tax_rate",
+                              "taxRate",
+                              "incomeTaxRate",
+                              "companyTaxRate",
+                            ]) || 27
+                          ) / 100;
+
+                    const currentTax = hasSavedTax
+                      ? Math.round(Number(savedTax?.current_tax || 0))
+                      : Math.round(taxableIncome * normalTaxRate);
 
                     const deferredTaxAssetCurrent = Math.round(
                       (noteData.deferredTaxAsset || []).reduce(
                         (sum: number, line: any) =>
                           sum + Number(line.current || 0),
-                        0,
+                        0
                       )
                     );
 
@@ -7435,14 +7544,14 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       (noteData.deferredTaxLiability || []).reduce(
                         (sum: number, line: any) =>
                           sum + Number(line.current || 0),
-                        0,
+                        0
                       )
                     );
 
                     const taxExpenseMapped = Math.round(
                       (noteData.taxation || []).reduce(
                         (sum: number, line: any) => sum + Number(line.current || 0),
-                        0,
+                        0
                       )
                     );
 
@@ -7456,37 +7565,14 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                           ? -inferredDeferredTaxCredit
                           : 0;
 
-                    const taxableIncomeBeforeAssessedLoss = profitBeforeTax;
-                    const taxableIncomeAfterAssessedLoss =
-                      taxableIncomeBeforeAssessedLoss - assessedLossBroughtForward;
-
-                    const taxableIncome = Math.max(
-                      0,
-                      taxableIncomeAfterAssessedLoss
-                    );
-
-                    const assessedLossCarriedForward = Math.max(
-                      0,
-                      -taxableIncomeAfterAssessedLoss
-                    );
-
-                    const normalTax = Math.round(
-                      taxableIncome * (taxRate / 100)
-                    );
-
-                    const normalTaxExpense = normalTax;
                     const deferredTaxCredit =
-                      taxExpenseCreditPerSoci - normalTaxExpense;
-
-                    const taxBalanceRows: Array<
-                      [string, number, "normal" | "bold"]
-                    > = [];
+                      taxExpenseCreditPerSoci - currentTax;
 
                     const currentTaxReceivable = Math.round(
                       (noteData.currentTaxReceivable || []).reduce(
                         (sum: number, line: any) =>
                           sum + Number(line.current || 0),
-                        0,
+                        0
                       )
                     );
 
@@ -7494,7 +7580,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       (noteData.currentTaxPayable || []).reduce(
                         (sum: number, line: any) =>
                           sum + Number(line.current || 0),
-                        0,
+                        0
                       )
                     );
 
@@ -7502,7 +7588,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       (noteData.currentTaxReceivable || []).reduce(
                         (sum: number, line: any) =>
                           sum + Number(line.prior || 0),
-                        0,
+                        0
                       )
                     );
 
@@ -7510,17 +7596,33 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       (noteData.currentTaxPayable || []).reduce(
                         (sum: number, line: any) =>
                           sum + Number(line.prior || 0),
-                        0,
+                        0
                       )
                     );
 
                     const openingCurrentTaxBalance =
                       priorCurrentTaxPayable - priorCurrentTaxReceivable;
-                    const closingCurrentTaxBalance =
+                    const mappedClosingCurrentTaxBalance =
                       currentTaxPayable - currentTaxReceivable;
 
+                    const provisionalTaxPaid = hasSavedTax
+                      ? Math.max(
+                          0,
+                          Math.round(Number(savedTax?.provisional_tax_paid || 0))
+                        )
+                      : 0;
+
+                    const calculatedClosingCurrentTaxBalance =
+                      openingCurrentTaxBalance +
+                      currentTax -
+                      provisionalTaxPaid;
+
+                    const taxBalanceRows: Array<
+                      [string, number, "normal" | "bold"]
+                    > = [];
+
                     const hasDeferredTaxOnly =
-                      normalTax === 0 &&
+                      currentTax === 0 &&
                       deferredTaxCredit !== 0 &&
                       currentTaxPayable === 0 &&
                       currentTaxReceivable === 0 &&
@@ -7530,71 +7632,93 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     const hasCurrentTaxBalance =
                       !hasDeferredTaxOnly &&
                       (openingCurrentTaxBalance !== 0 ||
-                        closingCurrentTaxBalance !== 0 ||
-                        normalTax !== 0);
+                        provisionalTaxPaid !== 0 ||
+                        currentTax !== 0 ||
+                        mappedClosingCurrentTaxBalance !== 0);
 
                     if (hasCurrentTaxBalance) {
-                      const taxPaidOrCredits =
-                        openingCurrentTaxBalance + normalTax - closingCurrentTaxBalance;
-
                       taxBalanceRows.push(
                         [
                           "Amount owing / (prepaid) at beginning of year",
                           openingCurrentTaxBalance,
                           "normal",
                         ],
-                        ["Normal tax per calculation", normalTax, "normal"],
                         [
-                          "Tax paid / tax credits recognised",
-                          -taxPaidOrCredits,
+                          taxRegime === "sbc"
+                            ? "SBC tax per calculation"
+                            : "Normal tax per calculation",
+                          currentTax,
                           "normal",
                         ],
                         [
-                          "Amount owing / (prepaid) at end of year",
-                          closingCurrentTaxBalance,
+                          "Provisional tax paid / tax credits",
+                          -provisionalTaxPaid,
+                          "normal",
+                        ],
+                        [
+                          "Calculated amount owing / (prepaid) at end of year",
+                          calculatedClosingCurrentTaxBalance,
                           "bold",
                         ],
                       );
+
+                      if (
+                        mappedClosingCurrentTaxBalance !== 0 &&
+                        mappedClosingCurrentTaxBalance !==
+                          calculatedClosingCurrentTaxBalance
+                      ) {
+                        taxBalanceRows.push([
+                          "AFS current tax balance",
+                          mappedClosingCurrentTaxBalance,
+                          "normal",
+                        ]);
+                      }
                     }
 
-                    const topRows: Array<[string, number, "normal" | "bold"]> =
+                    const topRows: Array<[string, number, "normal" | "bold"]> = [
+                      ["Profit / (loss) before taxation", accountingProfit, "normal"],
                       [
-                        [
-                          "Profit / (loss) before taxation",
-                          profitBeforeTax,
-                          "normal",
-                        ],
-                        [
-                          "Assessed loss brought forward",
-                          -assessedLossBroughtForward,
-                          "normal",
-                        ],
-                        [
-                          "Taxable income / (assessed loss)",
-                          taxableIncomeAfterAssessedLoss,
-                          "bold",
-                        ],
-                        [
-                          "Taxable income subject to normal tax",
-                          taxableIncome,
-                          "normal",
-                        ],
-                        [`Normal tax at ${taxRate}%`, normalTax, "bold"],
-                      ];
+                        "Add / (deduct): permanent differences",
+                        permanentDifferences,
+                        "normal",
+                      ],
+                      [
+                        "Add / (deduct): temporary differences",
+                        temporaryDifferences,
+                        "normal",
+                      ],
+                      [
+                        "Taxable income / (assessed loss) before losses",
+                        taxableBeforeLoss,
+                        "bold",
+                      ],
+                      ["Assessed loss utilised", -assessedLossUsed, "normal"],
+                      ["Taxable income", taxableIncome, "bold"],
+                    ];
+
+                    const taxBasisLabel =
+                      taxRegime === "sbc"
+                        ? "Small Business Corporation tax"
+                        : `Normal tax at ${(normalTaxRate * 100).toFixed(0)}%`;
+
+                    const taxRows: Array<[string, number, "normal" | "bold"]> = [
+                      [taxBasisLabel, currentTax, "bold"],
+                    ];
 
                     const assessedLossRows: Array<
                       [string, number, "normal" | "bold"]
                     > = [
                       [
-                        "Calculated tax profit / (loss) for the year",
-                        taxableIncomeBeforeAssessedLoss,
-                        "normal",
-                      ],
-                      [
                         "Assessed loss brought forward",
                         assessedLossBroughtForward,
                         "normal",
                       ],
+                      [
+                        "Current-year assessed loss",
+                        currentYearAssessedLoss,
+                        "normal",
+                      ],
+                      ["Assessed loss utilised", -assessedLossUsed, "normal"],
                       [
                         "Total assessed loss carried forward",
                         assessedLossCarriedForward,
@@ -7605,7 +7729,13 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     const expenseRows: Array<
                       [string, number, "normal" | "bold"]
                     > = [
-                      ["Normal tax expense", normalTaxExpense, "normal"],
+                      [
+                        taxRegime === "sbc"
+                          ? "SBC current tax expense"
+                          : "Normal tax expense",
+                        currentTax,
+                        "normal",
+                      ],
                     ];
 
                     if (deferredTaxCredit !== 0) {
@@ -7674,10 +7804,28 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                                 fontWeight: 800,
                               }}
                             >
-                              Summary of assessed loss
+                              Current tax calculation
                             </td>
                           </tr>
-                          {renderRows(assessedLossRows)}
+                          {renderRows(taxRows)}
+
+                          {assessedLossBroughtForward !== 0 ||
+                          assessedLossCarriedForward !== 0 ? (
+                            <>
+                              <tr>
+                                <td
+                                  colSpan={2}
+                                  style={{
+                                    padding: "14px 0 4px",
+                                    fontWeight: 800,
+                                  }}
+                                >
+                                  Summary of assessed loss
+                                </td>
+                              </tr>
+                              {renderRows(assessedLossRows)}
+                            </>
+                          ) : null}
 
                           <tr>
                             <td

@@ -28,8 +28,7 @@ type ClientSetup = {
   paye_number: string | null;
   sdl_number: string | null;
   uif_number: string | null;
-  tax_loss_current_year: number | string | null;
-  tax_loss_prior_year: number | string | null;
+  tax_loss_prior_year: number | string | null; // Assessed loss brought forward
   tax_rate_current_year: number | string | null;
   tax_rate_prior_year: number | string | null;
 
@@ -157,7 +156,6 @@ const blankSetup: ClientSetup = {
   paye_number: "",
   sdl_number: "",
   uif_number: "",
-  tax_loss_current_year: "",
   tax_loss_prior_year: "",
   tax_rate_current_year: 27,
   tax_rate_prior_year: 27,
@@ -779,22 +777,22 @@ export default function ClientSetupPanel({
           />
         </Field>
 
-        <Field label="Tax loss current year">
-          <input
-            style={styles.input}
-            type="number"
-            value={setup.tax_loss_current_year ?? ""}
-            onChange={(e) => update("tax_loss_current_year", e.target.value)}
-          />
-        </Field>
-
-        <Field label="Tax loss prior year">
-          <input
-            style={styles.input}
-            type="number"
-            value={setup.tax_loss_prior_year ?? ""}
-            onChange={(e) => update("tax_loss_prior_year", e.target.value)}
-          />
+        <Field label="Assessed loss brought forward">
+          <div style={styles.taxLossField}>
+            <input
+              style={styles.input}
+              type="number"
+              min="0"
+              value={setup.tax_loss_prior_year ?? ""}
+              onChange={(e) => update("tax_loss_prior_year", e.target.value)}
+              placeholder="Unused assessed loss available at the start of this year"
+            />
+            <span style={styles.fieldHelp}>
+              Opening assessed loss available for utilisation in the current tax
+              calculation. The current-year assessed loss is calculated automatically
+              in the Tax Calculator.
+            </span>
+          </div>
         </Field>
 
         <Field label="Tax rate current year">
@@ -1400,6 +1398,17 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     color: "#334155",
   },
+  taxLossField: {
+    display: "grid",
+    gap: "5px",
+  },
+  fieldHelp: {
+    color: "#64748b",
+    fontSize: "10px",
+    fontWeight: 500,
+    lineHeight: 1.35,
+  },
+
   input: {
     width: "100%",
     border: "1px solid #cbd5e1",

@@ -171,32 +171,38 @@ const sections: { key: SectionKey; number: string; title: string; description: s
     description: "Prepare lead schedules and linked working papers.",
   },
   {
-    key: "financial-statements",
+    key: "tax-calculator",
     number: "06",
+    title: "Tax Calculator",
+    description: "Prepare the current tax computation and select the applicable tax regime.",
+  },
+  {
+    key: "financial-statements",
+    number: "07",
     title: "Financial Statements",
     description: "AFS report, compilation report, tax computation and statement output.",
   },
   {
     key: "minutes",
-    number: "07",
+    number: "08",
     title: "Minutes / Resolutions",
     description: "Approval minutes, resolutions and closing documents.",
   },
   {
     key: "export-print",
-    number: "08",
+    number: "09",
     title: "Export / Print",
     description: "Print working-file schedules and supporting export documents.",
   },
   {
     key: "finalisation",
-    number: "09",
+    number: "10",
     title: "Finalisation",
     description: "Final checks, sign-off and lock file.",
   },
   {
     key: "review",
-    number: "10",
+    number: "11",
     title: "FlightDeck",
     description: "Pre-flight checks, review points and sign-off.",
   },
@@ -424,9 +430,11 @@ const [reopenReason, setReopenReason] = useState("");
     patch: Partial<SubordinationSelection>
   ) {
     if (
-      String(engagement?.status || "")
-        .trim()
-        .toLowerCase() === "final"
+      ["final", "archived"].includes(
+        String(engagement?.status || "")
+          .trim()
+          .toLowerCase()
+      )
     ) {
       return;
     }
@@ -444,11 +452,17 @@ const [reopenReason, setReopenReason] = useState("");
     if (!engagement?.id) return;
 
     if (
-      String(engagement.status || "")
-        .trim()
-        .toLowerCase() === "final"
+      ["final", "archived"].includes(
+        String(engagement.status || "")
+          .trim()
+          .toLowerCase()
+      )
     ) {
-      alert("This flight is Final and cannot be changed. Reopen it before making changes.");
+      alert(
+        String(engagement.status || "").trim().toLowerCase() === "archived"
+          ? "This flight is Archived and permanently read only."
+          : "This flight is Final and cannot be changed. Reopen it before making changes."
+      );
       return;
     }
 
@@ -758,17 +772,22 @@ async function reopenFlight() {
   const displayYearEnd = engagement.financial_year_end;
   const isMappingMode = activeSection === "mapping";
 
-  const isFinalEngagement =
-    String(engagement.status || "")
-      .trim()
-      .toLowerCase() === "final";
+  const engagementStatus = String(engagement.status || "")
+    .trim()
+    .toLowerCase();
+
+  const isFinalEngagement = engagementStatus === "final";
+  const isArchivedEngagement = engagementStatus === "archived";
 
   const isLockedWorkingSection =
-    isFinalEngagement &&
-    activeSection !== "finalisation" &&
-    activeSection !== "export-print" &&
-    activeSection !== "review" &&
-    activeSection !== "financial-statements";
+    (isArchivedEngagement &&
+      activeSection !== "export-print" &&
+      activeSection !== "financial-statements") ||
+    (isFinalEngagement &&
+      activeSection !== "finalisation" &&
+      activeSection !== "export-print" &&
+      activeSection !== "review" &&
+      activeSection !== "financial-statements");
 
   function blockLockedInteraction(event: any) {
     if (!isLockedWorkingSection) return;
@@ -836,7 +855,14 @@ async function reopenFlight() {
           <span style={styles.status}>{engagement.status || "Draft"}</span>
         </section>
 
-      {isFinalEngagement ? (
+      {isArchivedEngagement ? (
+        <div style={styles.finalLockBanner}>
+          <strong>Archived flight — read only</strong>
+          <span>
+            This engagement is archived and cannot be edited again.
+          </span>
+        </div>
+      ) : isFinalEngagement ? (
         <div style={styles.finalLockBanner}>
           <strong>Final flight — read only</strong>
           <span>
@@ -1060,7 +1086,9 @@ async function reopenFlight() {
             <div style={styles.lockedSectionNotice}>
               <strong>Read-only section</strong>
               <span>
-                This flight has been signed off as Final. Reopen it under Finalisation to edit this section.
+                {isArchivedEngagement
+                  ? "This flight is Archived and permanently read only."
+                  : "This flight has been signed off as Final. Reopen it under Finalisation to edit this section."}
               </span>
             </div>
           ) : null}
@@ -1128,7 +1156,12 @@ async function reopenFlight() {
             />
           )}
 
-          {activeSection === "tax-calculator" && <TaxCalculatorPanel />}
+          {activeSection === "tax-calculator" && (
+            <TaxCalculatorPanel
+              trialBalanceLines={trialBalanceLines}
+              clientSetup={clientSetup}
+            />
+          )}
 
           {activeSection === "financial-statements" && (
             <FinancialStatementsPanel
@@ -1192,7 +1225,17 @@ async function reopenFlight() {
       </span>
     </div>
 
-    {engagement.status === "Final" ? (
+    {isArchivedEngagement ? (
+      <div style={styles.finalisationSection}>
+        <strong style={styles.finalisationSectionTitle}>
+          Flight archived
+        </strong>
+
+        <p style={styles.finalisationText}>
+          This engagement is Archived and permanently read only. It cannot be reopened or edited.
+        </p>
+      </div>
+    ) : engagement.status === "Final" ? (
       <div style={styles.finalisationSection}>
         <strong style={styles.finalisationSectionTitle}>
           Flight signed off
