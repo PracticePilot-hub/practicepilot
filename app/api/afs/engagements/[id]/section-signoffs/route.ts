@@ -45,15 +45,19 @@ function bearerToken(request: Request) {
     .trim();
 }
 
+type CurrentProfileResult =
+  | { profile: Profile; response: null }
+  | { profile: null; response: NextResponse };
+
 async function currentProfile(
   request: Request,
   supabase: ReturnType<typeof adminClient>,
-) {
+): Promise<CurrentProfileResult> {
   const token = bearerToken(request);
 
   if (!token) {
     return {
-      profile: null as Profile | null,
+      profile: null,
       response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
     };
   }
@@ -65,7 +69,7 @@ async function currentProfile(
 
   if (authError || !user) {
     return {
-      profile: null as Profile | null,
+      profile: null,
       response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
     };
   }
@@ -80,14 +84,14 @@ async function currentProfile(
 
   if (error || !data || !data.access_enabled) {
     return {
-      profile: null as Profile | null,
+      profile: null,
       response: NextResponse.json({ error: "Profile access denied." }, { status: 403 }),
     };
   }
 
   return {
     profile: data as Profile,
-    response: null as NextResponse | null,
+    response: null,
   };
 }
 
@@ -113,7 +117,7 @@ export async function GET(request: Request, context: any) {
     const engagementId = await engagementIdFrom(context);
     const supabase = adminClient();
     const { profile, response } = await currentProfile(request, supabase);
-    if (response || !profile) return response;
+    if (response) return response;
 
     if (!profile.organisation_id) {
       return NextResponse.json(
@@ -177,7 +181,7 @@ export async function PATCH(request: Request, context: any) {
     const engagementId = await engagementIdFrom(context);
     const supabase = adminClient();
     const { profile, response } = await currentProfile(request, supabase);
-    if (response || !profile) return response;
+    if (response) return response;
 
     if (!profile.organisation_id) {
       return NextResponse.json(

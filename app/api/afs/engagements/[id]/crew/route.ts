@@ -18,6 +18,10 @@ type UserProfile = {
   can_manage_practice_users?: boolean | null;
 };
 
+type CurrentProfileResult =
+  | { profile: UserProfile; response: null }
+  | { profile: null; response: NextResponse };
+
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey =
@@ -55,12 +59,12 @@ function canManageCrew(profile: UserProfile) {
 async function getCurrentProfile(
   request: Request,
   supabase: ReturnType<typeof getSupabaseAdmin>,
-) {
+): Promise<CurrentProfileResult> {
   const token = bearerToken(request);
 
   if (!token) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
     };
   }
@@ -72,7 +76,7 @@ async function getCurrentProfile(
 
   if (authError || !user) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
     };
   }
@@ -87,20 +91,20 @@ async function getCurrentProfile(
 
   if (error || !data || !data.access_enabled) {
     return {
-      profile: null as UserProfile | null,
+      profile: null,
       response: NextResponse.json({ error: "Profile access denied." }, { status: 403 }),
     };
   }
 
   return {
     profile: data as UserProfile,
-    response: null as NextResponse | null,
+    response: null,
   };
 }
 
 async function getEngagementId(context: any) {
   const params = await context?.params;
-  return String(params?.engagementId || "").trim();
+  return String(params?.id || "").trim();
 }
 
 function cleanUserId(value: unknown) {
@@ -156,7 +160,7 @@ export async function GET(request: Request, context: any) {
 
     const supabase = getSupabaseAdmin();
     const { profile, response } = await getCurrentProfile(request, supabase);
-    if (response || !profile) return response;
+    if (response) return response;
 
     if (!profile.organisation_id) {
       return NextResponse.json(
@@ -165,26 +169,29 @@ export async function GET(request: Request, context: any) {
       );
     }
 
-    const [{ data: organisation, error: orgError }, { data: users, error: usersError }, { data: crew, error: crewError }] =
-      await Promise.all([
-        supabase
-          .from("organisations")
-          .select("id,name,afs_workflow_mode")
-          .eq("id", profile.organisation_id)
-          .single(),
-        supabase
-          .from("user_profiles")
-          .select("id,full_name,email,role,afs_authority,access_enabled,can_access_afs")
-          .eq("organisation_id", profile.organisation_id)
-          .eq("access_enabled", true)
-          .order("full_name", { ascending: true }),
-        supabase
-          .from("afs_engagement_crew")
-          .select("*")
-          .eq("engagement_id", engagementId)
-          .eq("organisation_id", profile.organisation_id)
-          .maybeSingle(),
-      ]);
+    const [
+      { data: organisation, error: orgError },
+      { data: users, error: usersError },
+      { data: crew, error: crewError },
+    ] = await Promise.all([
+      supabase
+        .from("organisations")
+        .select("id,name,afs_workflow_mode")
+        .eq("id", profile.organisation_id)
+        .single(),
+      supabase
+        .from("user_profiles")
+        .select("id,full_name,email,role,afs_authority,access_enabled,can_access_afs")
+        .eq("organisation_id", profile.organisation_id)
+        .eq("access_enabled", true)
+        .order("full_name", { ascending: true }),
+      supabase
+        .from("afs_engagement_crew")
+        .select("*")
+        .eq("engagement_id", engagementId)
+        .eq("organisation_id", profile.organisation_id)
+        .maybeSingle(),
+    ]);
 
     if (orgError) throw orgError;
     if (usersError) throw usersError;
@@ -232,7 +239,7 @@ export async function PATCH(request: Request, context: any) {
 
     const supabase = getSupabaseAdmin();
     const { profile, response } = await getCurrentProfile(request, supabase);
-    if (response || !profile) return response;
+    if (response) return response;
 
     if (!profile.organisation_id) {
       return NextResponse.json(
