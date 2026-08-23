@@ -26,7 +26,19 @@ export default function AppShell({
   const [billingSuspensionReason, setBillingSuspensionReason] =
     useState<string | null>(null);
 
-  const publicPages = ["/", "/login", "/reset-password"];
+  /*
+   * PUBLIC WEBSITE ROUTES
+   *
+   * These routes must never run through PracticePilot's authenticated
+   * account/billing access check and must never show the internal TopNav.
+   */
+  const publicPages = [
+    "/",
+    "/login",
+    "/reset-password",
+    "/financial-statements",
+  ];
+
   const isPublicPage = publicPages.includes(pathname);
 
   const isDocumentExport =
@@ -183,9 +195,11 @@ const s: Record<string, CSSProperties> = {
     padding: 24,
   },
   loadingText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: 700,
     color: "#64748b",
+    fontFamily:
+      "'Aptos', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif",
   },
   blockedPage: {
     minHeight: "calc(100vh - 54px)",
@@ -196,7 +210,7 @@ const s: Record<string, CSSProperties> = {
     padding: "48px 20px",
     color: "#0f172a",
     fontFamily:
-      "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      "'Aptos', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif",
   },
   blockedPanel: {
     width: "100%",
@@ -207,9 +221,9 @@ const s: Record<string, CSSProperties> = {
     padding: "28px 30px",
   },
   blockedEyebrow: {
-    fontSize: 11,
-    fontWeight: 900,
-    letterSpacing: "0.1em",
+    fontSize: 14,
+    fontWeight: 700,
+    letterSpacing: "0",
     color: "#b42318",
   },
   blockedTitle: {

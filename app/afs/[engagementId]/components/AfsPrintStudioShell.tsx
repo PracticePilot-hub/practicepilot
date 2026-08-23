@@ -1,6 +1,7 @@
 "use client";
 
 import React, { ReactNode, useEffect, useMemo, useState } from "react";
+import AfsSectionSignoffBar from "./AfsSectionSignoffBar";
 
 export type AfsStudioSection = {
   id: string;
@@ -79,6 +80,7 @@ export default function AfsPrintStudioShell({
   const [zoom, setZoom] = useState("fit");
   const [isExporting, setIsExporting] = useState(false);
   const [exportAsDraft, setExportAsDraft] = useState(false);
+  const [engagementId, setEngagementId] = useState("");
 
   const visibleSections = useMemo(
     () => sections.filter((section) => !section.hidden),
@@ -92,7 +94,20 @@ export default function AfsPrintStudioShell({
     (section) => section.group === "settings",
   );
 
-  const zoomClass = "afsZoomFit";
+  const zoomClass =
+    zoom === "85"
+      ? "afsZoom85"
+      : zoom === "90"
+        ? "afsZoom90"
+        : zoom === "100"
+          ? "afsZoom100"
+          : zoom === "110"
+            ? "afsZoom110"
+            : zoom === "125"
+              ? "afsZoom125"
+              : zoom === "150"
+                ? "afsZoom150"
+                : "afsZoomFit";
 
   useEffect(() => {
     const clearExportMode = () => {
@@ -104,6 +119,11 @@ export default function AfsPrintStudioShell({
 
     window.addEventListener("afterprint", clearExportMode);
     return () => window.removeEventListener("afterprint", clearExportMode);
+  }, []);
+
+  useEffect(() => {
+    const match = window.location.pathname.match(/\/afs\/([^/]+)(?:\/|$)/);
+    setEngagementId(match?.[1] || "");
   }, []);
 
   function refreshPage() {
@@ -125,26 +145,6 @@ export default function AfsPrintStudioShell({
 
     try {
       const draftQuery = exportAsDraft ? "?draft=1" : "";
-      const authStorage: Record<string, string> = {};
-
-      for (let index = 0; index < window.localStorage.length; index += 1) {
-        const key = window.localStorage.key(index);
-
-        if (!key) continue;
-
-        if (key.startsWith("sb-") || key.includes("auth-token")) {
-          const storedValue = window.localStorage.getItem(key);
-
-          if (storedValue !== null) {
-            authStorage[key] = storedValue;
-          }
-        }
-      }
-
-      const encodedAuthStorage = window.btoa(
-        unescape(encodeURIComponent(JSON.stringify(authStorage))),
-      );
-
       const response = await fetch(
         `/api/afs/engagements/${encodeURIComponent(
           engagementId,
@@ -152,9 +152,6 @@ export default function AfsPrintStudioShell({
         {
           method: "GET",
           cache: "no-store",
-          headers: {
-            "X-AFS-Auth-Storage": encodedAuthStorage,
-          },
         },
       );
 
@@ -283,6 +280,12 @@ export default function AfsPrintStudioShell({
               style={styles.select}
             >
               <option value="fit">Fit page</option>
+              <option value="85">85%</option>
+              <option value="90">90%</option>
+              <option value="100">100%</option>
+              <option value="110">110%</option>
+              <option value="125">125%</option>
+              <option value="150">150%</option>
             </select>
 
  <label style={styles.draftToggle}>
@@ -339,9 +342,15 @@ export default function AfsPrintStudioShell({
         ) : null}
 
         <section className="afsStudioWorkArea" style={styles.workArea}>
-          <section className="afsStudioSignOffRow" style={styles.signOffRow}>
-            <span style={styles.notSigned}>Not signed off yet</span>
-          </section>
+          {engagementId ? (
+            <section className="afsStudioSignOffRow" style={styles.signOffRow}>
+              <AfsSectionSignoffBar
+                engagementId={engagementId}
+                sectionKey="financial-statements"
+                sectionTitle="Annual Financial Statements"
+              />
+            </section>
+          ) : null}
 
           <section
             className="afsStudioBodyGrid"
@@ -406,21 +415,31 @@ export default function AfsPrintStudioShell({
         .afsZoomFit > * {
           transform: scale(0.96);
           transform-origin: top center;
-          margin-bottom: 0;
         }
-
+        .afsZoom85 > * {
+          transform: scale(0.85);
+          transform-origin: top center;
+        }
+        .afsZoom90 > * {
+          transform: scale(0.9);
+          transform-origin: top center;
+        }
         .afsZoom100 > * {
           transform: scale(1);
           transform-origin: top center;
-          margin-bottom: 0;
         }
-
         .afsZoom110 > * {
           transform: scale(1.1);
           transform-origin: top center;
-          margin-bottom: 30mm;
         }
-
+        .afsZoom125 > * {
+          transform: scale(1.25);
+          transform-origin: top center;
+        }
+        .afsZoom150 > * {
+          transform: scale(1.5);
+          transform-origin: top center;
+        }
 
         @media print {
           @page {
@@ -719,8 +738,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   signOffRow: {
     flexShrink: 0,
-    display: "flex",
-    justifyContent: "flex-end",
+    display: "block",
     padding: "4px 10px 0",
   },
   notSigned: {

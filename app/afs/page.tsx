@@ -906,8 +906,9 @@ export default function AFSPage() {
                         }}
                       >
                         <div style={styles.actionButtons}>
-                          {normaliseStatus(engagement.status) ===
-                          "Final" ? (
+                          {["Ready for review", "Final"].includes(
+                            normaliseStatus(engagement.status),
+                          ) ? (
                             <>
                               <button
                                 type="button"
@@ -919,16 +920,18 @@ export default function AFSPage() {
                                 Next Flight
                               </button>
 
-                              <button
-                                type="button"
-                                style={styles.archiveButton}
-                                onClick={() => requestArchiveEngagement(engagement)}
-                                disabled={archivingEngagementId === engagement.id}
-                              >
-                                {archivingEngagementId === engagement.id
-                                  ? "Archiving..."
-                                  : "Archive"}
-                              </button>
+                              {normaliseStatus(engagement.status) === "Final" ? (
+                                <button
+                                  type="button"
+                                  style={styles.archiveButton}
+                                  onClick={() => requestArchiveEngagement(engagement)}
+                                  disabled={archivingEngagementId === engagement.id}
+                                >
+                                  {archivingEngagementId === engagement.id
+                                    ? "Archiving..."
+                                    : "Archive"}
+                                </button>
+                              ) : null}
                             </>
                           ) : null}
 

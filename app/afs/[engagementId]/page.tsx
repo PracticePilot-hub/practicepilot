@@ -8,10 +8,13 @@ import MappingPanelNew from "./MappingPanel";
 import LeadSchedulesPanel from "./LeadSchedulesPanel";
 import type { LeadScheduleKey } from "./afsLeadScheduleCatalog";
 import AdjustingJournalsPanel from "./AdjustingJournalsPanel";
-import ReviewPanel from "./ReviewPanel";
 import FinancialStatementsPanel from "./FinancialStatementsPanel";
 import TaxCalculatorPanel from "./TaxCalculatorPanel";
 import SubordinationAgreementEditor from "./components/SubordinationAgreementEditor";
+import AfsSectionSignoffBar from "./components/AfsSectionSignoffBar";
+import AfsReviewPointsPanel from "./components/AfsReviewPointsPanel";
+import AfsFlightSettingsPanel from "./components/AfsFlightSettingsPanel";
+import AfsFlightControlOverview from "./components/AfsFlightControlOverview";
 
 type SubordinationSelection = {
   id?: string;
@@ -101,6 +104,7 @@ type ClientPerson = Record<string, any> & {
 };
 
 type SectionKey =
+  | "flight-settings"
   | "client-setup"
   | "trial-balance"
   | "mapping"
@@ -203,8 +207,14 @@ const sections: { key: SectionKey; number: string; title: string; description: s
   {
     key: "review",
     number: "11",
-    title: "FlightDeck",
-    description: "Pre-flight checks, review points and sign-off.",
+    title: "Flight Control",
+    description: "Preparation, review points, sign-offs and file readiness.",
+  },
+  {
+    key: "flight-settings",
+    number: "12",
+    title: "Settings",
+    description: "Workflow structure and crew for this AFS file.",
   },
 ];
 
@@ -1082,6 +1092,27 @@ async function reopenFlight() {
             </div>
           )}
 
+          {selectedSection &&
+          activeSection !== "flight-settings" &&
+          activeSection !== "finalisation" &&
+          activeSection !== "review" ? (
+            <>
+              <AfsSectionSignoffBar
+                engagementId={engagementId}
+                sectionKey={activeSection}
+                sectionTitle={selectedSection.title}
+                engagementStatus={engagement.status || "Draft"}
+              />
+
+              <AfsReviewPointsPanel
+                engagementId={engagementId}
+                sectionKey={activeSection}
+                sectionTitle={selectedSection.title}
+                engagementStatus={engagement.status || "Draft"}
+              />
+            </>
+          ) : null}
+
           {isLockedWorkingSection ? (
             <div style={styles.lockedSectionNotice}>
               <strong>Read-only section</strong>
@@ -1092,6 +1123,14 @@ async function reopenFlight() {
               </span>
             </div>
           ) : null}
+
+          {activeSection === "flight-settings" && (
+            <AfsFlightSettingsPanel
+              engagementId={engagementId}
+              engagementStatus={engagement.status || "Draft"}
+              onChanged={loadEngagement}
+            />
+          )}
 
           {activeSection === "client-setup" && (
             <ClientSetupPanel
@@ -1187,7 +1226,12 @@ async function reopenFlight() {
             />
           )}
 
-          {activeSection === "review" && <ReviewPanel />}
+          {activeSection === "review" && (
+            <AfsFlightControlOverview
+              engagementId={engagementId}
+              onJump={(section) => setActiveSection(section as SectionKey)}
+            />
+          )}
 
           {activeSection === "minutes" && (
             <PlaceholderCard

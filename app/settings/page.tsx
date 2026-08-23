@@ -28,6 +28,14 @@ export default function SettingsPage() {
           </p>
         </Link>
 
+        <Link href="/afs/settings" style={styles.card}>
+          <h2 style={styles.cardTitle}>AFS Settings</h2>
+          <p style={styles.cardText}>
+            Compiler&apos;s / Accounting Officer&apos;s Report, AFS defaults, workflow,
+            notifications, templates and entity types.
+          </p>
+        </Link>
+
         <div style={styles.cardMuted}>
           <h2 style={styles.cardTitle}>Task Rules</h2>
           <p style={styles.cardText}>

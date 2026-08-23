@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "crypto";
 import { getSupabaseServer } from "../../../lib/supabaseServer";
 
 type RouteContext = {
@@ -21,6 +22,24 @@ function numberOrZero(value: unknown) {
 
 function roundMoney(value: number) {
   return Math.round((numberOrZero(value) + Number.EPSILON) * 100) / 100;
+}
+
+function trialBalanceFingerprint(lines: AnyRow[]) {
+  const stableRows = [...lines]
+    .map((line) => ({
+      account_code: String(line.account_code || "").trim(),
+      mapping_code: String(line.mapping_code || "").trim(),
+      final_balance: roundMoney(getFinalBalance(line)),
+    }))
+    .sort((a, b) =>
+      `${a.account_code}|${a.mapping_code}`.localeCompare(
+        `${b.account_code}|${b.mapping_code}`,
+      ),
+    );
+
+  return createHash("sha256")
+    .update(JSON.stringify(stableRows))
+    .digest("hex");
 }
 
 function getDaysInMonth(year: number, monthIndex: number) {
@@ -202,238 +221,6 @@ function buildRolloverTrialBalanceLine(
   };
 }
 
-
-const CASH_FLOW_CURRENT_TO_PRIOR_FIELDS: Record<string, string> = {
-  cashAdjustmentsToProfitCurrent: "cashAdjustmentsToProfitPrior",
-  cashWorkingCapitalCurrent: "cashWorkingCapitalPrior",
-  cashInterestReceivedCurrent: "cashInterestReceivedPrior",
-  cashFinanceCostsPaidCurrent: "cashFinanceCostsPaidPrior",
-  cashTaxPaidCurrent: "cashTaxPaidPrior",
-  cashOtherOperatingCurrent: "cashOtherOperatingPrior",
-  cashOtherOperating2Current: "cashOtherOperating2Prior",
-  cashOtherOperating3Current: "cashOtherOperating3Prior",
-  cashPurchaseOfPpeCurrent: "cashPurchaseOfPpePrior",
-  cashProceedsOnDisposalPpeCurrent: "cashProceedsOnDisposalPpePrior",
-  cashOtherInvestingCurrent: "cashOtherInvestingPrior",
-  cashOtherInvesting2Current: "cashOtherInvesting2Prior",
-  cashOtherInvesting3Current: "cashOtherInvesting3Prior",
-  cashLoansRaisedCurrent: "cashLoansRaisedPrior",
-  cashLoansRepaidCurrent: "cashLoansRepaidPrior",
-  cashDividendsPaidCurrent: "cashDividendsPaidPrior",
-  cashOtherFinancingCurrent: "cashOtherFinancingPrior",
-  cashOtherFinancing2Current: "cashOtherFinancing2Prior",
-  cashOtherFinancing3Current: "cashOtherFinancing3Prior",
-};
-
-function buildRolledStatementOverrides(
-  sourceOverrides: AnyRow,
-  targetOverrides: AnyRow = {},
-) {
-  const next: AnyRow = {
-    ...targetOverrides,
-  };
-
-  /*
-    Preserve the target file's current-year work. Only refresh the comparative
-    cash-flow fields from the source file's completed current-year settings.
-  */
-  Object.entries(CASH_FLOW_CURRENT_TO_PRIOR_FIELDS).forEach(
-    ([sourceKey, targetKey]) => {
-      const value = sourceOverrides?.[sourceKey];
-
-      if (value !== undefined && value !== null && value !== "") {
-        next[targetKey] = numberOrZero(value);
-      } else {
-        delete next[targetKey];
-      }
-    },
-  );
-
-  /*
-    The source current-year opening cash becomes the comparative opening cash
-    in the next file.
-  */
-  if (
-    sourceOverrides?.cashOpeningBalance !== undefined &&
-    sourceOverrides?.cashOpeningBalance !== null &&
-    sourceOverrides?.cashOpeningBalance !== ""
-  ) {
-    next.cashPriorOpeningBalance = numberOrZero(
-      sourceOverrides.cashOpeningBalance,
-    );
-  } else {
-    delete next.cashPriorOpeningBalance;
-  }
-
-  /*
-    Do not carry SCE manual overrides forward. The SCE now derives its opening
-    retained income from the rolled trial balance.
-  */
-  delete next.sceOpeningShareCapital;
-  delete next.sceOpeningRetainedIncome;
-  delete next.sceOpeningReserves;
-  delete next.scePriorOtherMovements;
-  delete next.sceCurrentOtherMovements;
-  delete next.sceOtherMovements;
-  delete next.cashPriorMovement;
-
-  return next;
-}
-
-function rollStructuredNotesToPrior(
-  sourceState: AnyRow,
-  targetState: AnyRow = {},
-) {
-  const next: AnyRow = {
-    ...targetState,
-  };
-
-  const sourceCashGenerated =
-    sourceState?.cashGeneratedFromOperations &&
-    typeof sourceState.cashGeneratedFromOperations === "object"
-      ? sourceState.cashGeneratedFromOperations
-      : null;
-
-  if (!sourceCashGenerated) {
-    return next;
-  }
-
-  const targetCashGenerated =
-    next.cashGeneratedFromOperations &&
-    typeof next.cashGeneratedFromOperations === "object"
-      ? { ...next.cashGeneratedFromOperations }
-      : {};
-
-  const sourceValues =
-    sourceCashGenerated.values &&
-    typeof sourceCashGenerated.values === "object"
-      ? sourceCashGenerated.values
-      : {};
-
-  const targetValues =
-    targetCashGenerated.values &&
-    typeof targetCashGenerated.values === "object"
-      ? { ...targetCashGenerated.values }
-      : {};
-
-  Object.entries(sourceValues).forEach(([key, rawValue]) => {
-    const sourceValue =
-      rawValue && typeof rawValue === "object"
-        ? (rawValue as AnyRow)
-        : {};
-
-    const targetValue =
-      targetValues[key] && typeof targetValues[key] === "object"
-        ? { ...(targetValues[key] as AnyRow) }
-        : {};
-
-    if (
-      sourceValue.current !== undefined &&
-      sourceValue.current !== null &&
-      sourceValue.current !== ""
-    ) {
-      targetValue.prior = numberOrZero(sourceValue.current);
-    } else {
-      delete targetValue.prior;
-    }
-
-    targetValues[key] = targetValue;
-  });
-
-  targetCashGenerated.values = targetValues;
-  next.cashGeneratedFromOperations = targetCashGenerated;
-
-  return next;
-}
-
-async function refreshExistingPrintStudioSettings(
-  supabase: any,
-  sourceEngagementId: string,
-  targetEngagementId: string,
-) {
-  const [sourceResult, targetResult] = await Promise.all([
-    supabase
-      .from("afs_print_studio_settings")
-      .select("*")
-      .eq("engagement_id", sourceEngagementId)
-      .maybeSingle(),
-    supabase
-      .from("afs_print_studio_settings")
-      .select("*")
-      .eq("engagement_id", targetEngagementId)
-      .maybeSingle(),
-  ]);
-
-  if (sourceResult.error) throw sourceResult.error;
-  if (targetResult.error) throw targetResult.error;
-
-  if (!sourceResult.data) {
-    return {
-      updated: false,
-      reason: "No source Print Studio settings found.",
-    };
-  }
-
-  const sourceSettings = sourceResult.data;
-  const targetSettings = targetResult.data || {};
-
-  const statementOverrides = buildRolledStatementOverrides(
-    sourceSettings.statement_overrides || {},
-    targetSettings.statement_overrides || {},
-  );
-
-  const structuredNotesState = rollStructuredNotesToPrior(
-    sourceSettings.structured_notes_state || {},
-    targetSettings.structured_notes_state || {},
-  );
-
-  const payload = {
-    engagement_id: targetEngagementId,
-    report_options:
-      targetSettings.report_options ||
-      sourceSettings.report_options ||
-      {},
-    directors_report_texts:
-      targetSettings.directors_report_texts ||
-      sourceSettings.directors_report_texts ||
-      {},
-    accounting_policy_texts:
-      targetSettings.accounting_policy_texts ||
-      sourceSettings.accounting_policy_texts ||
-      {},
-    note_texts:
-      targetSettings.note_texts ||
-      sourceSettings.note_texts ||
-      {},
-    statement_overrides: statementOverrides,
-    structured_notes_state: structuredNotesState,
-    updated_at: new Date().toISOString(),
-  };
-
-  if (targetSettings.id) {
-    const { error } = await supabase
-      .from("afs_print_studio_settings")
-      .update(payload)
-      .eq("id", targetSettings.id);
-
-    if (error) throw error;
-  } else {
-    const { error } = await supabase
-      .from("afs_print_studio_settings")
-      .insert({
-        ...payload,
-        created_at: new Date().toISOString(),
-      });
-
-    if (error) throw error;
-  }
-
-  return {
-    updated: true,
-    statementOverrideCount: Object.keys(statementOverrides).length,
-  };
-}
-
 function buildNewEngagement(
   source: AnyRow,
   nextFinancialYearEnd: string,
@@ -465,202 +252,6 @@ function buildNewEngagement(
   }
 
   return row;
-}
-
-
-async function upsertTrialBalanceHistory(
-  supabase: any,
-  sourceEngagement: AnyRow,
-  sourceTrialBalance: AnyRow[],
-  targetEngagementId: string,
-) {
-  if (!sourceEngagement?.financial_year_end || sourceTrialBalance.length === 0) {
-    return {
-      upserted: 0,
-    };
-  }
-
-  const rows = sourceTrialBalance
-    .map((line) => {
-      const accountCode = String(line.account_code || "").trim();
-      const accountName = String(line.account_name || "").trim();
-
-      if (!accountCode || !accountName) return null;
-
-      return {
-        organisation_id: sourceEngagement.organisation_id || null,
-        engagement_id: targetEngagementId,
-        source_engagement_id: sourceEngagement.id,
-        trial_balance_line_id: line.id || null,
-        financial_year_end: sourceEngagement.financial_year_end,
-        account_code: accountCode,
-        account_name: accountName,
-        closing_balance: roundMoney(getFinalBalance(line)),
-        mapping_code: cleanText(line.mapping_code),
-        mapping_label: cleanText(line.mapping_label),
-        mapping_statement: cleanText(line.mapping_statement),
-        mapping_section: cleanText(line.mapping_section),
-        mapping_path: cleanText(line.mapping_path),
-        lead_schedule_number: cleanText(line.lead_schedule_number),
-        lead_schedule_key: cleanText(line.lead_schedule_key),
-        updated_at: new Date().toISOString(),
-      };
-    })
-    .filter(Boolean);
-
-  if (rows.length === 0) {
-    return {
-      upserted: 0,
-    };
-  }
-
-  const { error } = await supabase
-    .from("afs_trial_balance_history")
-    .upsert(rows, {
-      onConflict:
-        "engagement_id,financial_year_end,account_code",
-    });
-
-  if (error) throw error;
-
-  return {
-    upserted: rows.length,
-  };
-}
-
-
-function calculatePriorFinancialYearEnd(value: string) {
-  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-
-  if (!match) {
-    throw new Error("The financial year end is invalid.");
-  }
-
-  const currentYear = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-
-  const priorYear = currentYear - 1;
-  const maximumDay = getDaysInMonth(priorYear, month - 1);
-  const priorDay = Math.min(day, maximumDay);
-
-  return [
-    String(priorYear).padStart(4, "0"),
-    String(month).padStart(2, "0"),
-    String(priorDay).padStart(2, "0"),
-  ].join("-");
-}
-
-async function upsertPriorYearTrialBalanceHistory(
-  supabase: any,
-  sourceEngagement: AnyRow,
-  sourceTrialBalance: AnyRow[],
-  targetEngagementId: string,
-) {
-  if (!sourceEngagement?.financial_year_end || sourceTrialBalance.length === 0) {
-    return {
-      upserted: 0,
-    };
-  }
-
-  const priorFinancialYearEnd = calculatePriorFinancialYearEnd(
-    sourceEngagement.financial_year_end,
-  );
-
-  const rows = sourceTrialBalance
-    .map((line) => {
-      const accountCode = String(line.account_code || "").trim();
-      const accountName = String(line.account_name || "").trim();
-
-      if (!accountCode || !accountName) return null;
-
-      const priorBalance =
-        line.prior_year_balance !== null &&
-        line.prior_year_balance !== undefined &&
-        line.prior_year_balance !== ""
-          ? numberOrZero(line.prior_year_balance)
-          : numberOrZero(line.credit);
-
-      return {
-        organisation_id: sourceEngagement.organisation_id || null,
-        engagement_id: targetEngagementId,
-        source_engagement_id: sourceEngagement.id,
-        trial_balance_line_id: line.id || null,
-        financial_year_end: priorFinancialYearEnd,
-        account_code: accountCode,
-        account_name: accountName,
-        closing_balance: roundMoney(priorBalance),
-        mapping_code: cleanText(line.mapping_code),
-        mapping_label: cleanText(line.mapping_label),
-        mapping_statement: cleanText(line.mapping_statement),
-        mapping_section: cleanText(line.mapping_section),
-        mapping_path: cleanText(line.mapping_path),
-        lead_schedule_number: cleanText(line.lead_schedule_number),
-        lead_schedule_key: cleanText(line.lead_schedule_key),
-        updated_at: new Date().toISOString(),
-      };
-    })
-    .filter(Boolean);
-
-  if (rows.length === 0) {
-    return {
-      upserted: 0,
-    };
-  }
-
-  const { error } = await supabase
-    .from("afs_trial_balance_history")
-    .upsert(rows, {
-      onConflict:
-        "engagement_id,financial_year_end,account_code",
-    });
-
-  if (error) throw error;
-
-  return {
-    upserted: rows.length,
-  };
-}
-
-async function copyExistingTrialBalanceHistory(
-  supabase: any,
-  sourceEngagementId: string,
-  targetEngagementId: string,
-) {
-  const { data, error } = await supabase
-    .from("afs_trial_balance_history")
-    .select("*")
-    .eq("engagement_id", sourceEngagementId)
-    .order("financial_year_end", { ascending: true });
-
-  if (error) throw error;
-
-  const sourceRows = data || [];
-
-  if (sourceRows.length === 0) {
-    return {
-      copied: 0,
-    };
-  }
-
-  const rows = sourceRows.map((row: AnyRow) => ({
-    ...stripSystemFields(row),
-    engagement_id: targetEngagementId,
-    updated_at: new Date().toISOString(),
-  }));
-
-  const { error: upsertError } = await supabase
-    .from("afs_trial_balance_history")
-    .upsert(rows, {
-      onConflict:
-        "engagement_id,financial_year_end,account_code",
-    });
-
-  if (upsertError) throw upsertError;
-
-  return {
-    copied: rows.length,
-  };
 }
 
 async function refreshExistingTrialBalance(
@@ -795,6 +386,7 @@ async function createNewRollover(
   sourceEngagement: AnyRow,
   sourceEngagementId: string,
   nextFinancialYearEnd: string,
+  sourceFingerprint: string,
 ) {
   let newEngagementId: string | null = null;
 
@@ -819,6 +411,20 @@ async function createNewRollover(
     }
 
     newEngagementId = newEngagement.id;
+
+    const { data: trackedEngagement, error: trackingError } = await supabase
+      .from("afs_engagements")
+      .update({
+        rollover_source_engagement_id: sourceEngagementId,
+        rollover_source_fingerprint: sourceFingerprint,
+        rollover_source_snapshot_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", newEngagementId)
+      .select("*")
+      .single();
+
+    if (trackingError) throw trackingError;
 
     const [
       setupResult,
@@ -899,29 +505,6 @@ async function createNewRollover(
       sourceTrialBalance,
     );
 
-    const historyCopyResult =
-      await copyExistingTrialBalanceHistory(
-        supabase,
-        sourceEngagementId,
-        newEngagementId as string,
-      );
-
-    const historyUpsertResult =
-      await upsertTrialBalanceHistory(
-        supabase,
-        sourceEngagement,
-        sourceTrialBalance,
-        newEngagementId as string,
-      );
-
-    const priorHistoryUpsertResult =
-      await upsertPriorYearTrialBalanceHistory(
-        supabase,
-        sourceEngagement,
-        sourceTrialBalance,
-        newEngagementId as string,
-      );
-
     if (sourceTrialBalance.length > 0) {
       const trialBalanceInsert = sourceTrialBalance.map((line: AnyRow) =>
         buildRolloverTrialBalanceLine(
@@ -949,12 +532,8 @@ async function createNewRollover(
         accounting_policy_texts:
           sourceSettings.accounting_policy_texts || {},
         note_texts: sourceSettings.note_texts || {},
-        statement_overrides: buildRolledStatementOverrides(
-          sourceSettings.statement_overrides || {},
-        ),
-        structured_notes_state: rollStructuredNotesToPrior(
-          sourceSettings.structured_notes_state || {},
-        ),
+        statement_overrides: {},
+        structured_notes_state: {},
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -967,16 +546,13 @@ async function createNewRollover(
     }
 
     return {
-      engagement: newEngagement,
+      engagement: trackedEngagement || newEngagement,
       copied: {
         clientSetup: Boolean(setupResult.data),
         people: sourcePeople.length,
         trialBalanceLines: sourceTrialBalance.length,
         printStudioSettings: Boolean(printStudioResult.data),
         closingTransfer,
-        historyCopied: historyCopyResult.copied,
-        historyUpserted: historyUpsertResult.upserted,
-        priorHistoryUpserted: priorHistoryUpsertResult.upserted,
       },
     };
   } catch (error) {
@@ -1015,10 +591,6 @@ export async function POST(
       body = {};
     }
 
-    const refreshReason = cleanText(
-      body.refreshReason ?? body.refresh_reason ?? body.reason,
-    );
-
     const { data: sourceEngagement, error: engagementError } =
       await supabase
         .from("afs_engagements")
@@ -1030,6 +602,25 @@ export async function POST(
       throw new Error(
         engagementError?.message ||
           "The source AFS engagement could not be found.",
+      );
+    }
+
+    const sourceStatus = String(sourceEngagement.status || "")
+      .trim()
+      .toLowerCase();
+
+    const rolloverAllowed =
+      sourceStatus === "final" ||
+      sourceStatus === "ready for review";
+
+    if (!rolloverAllowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Next Flight becomes available once the current flight is Ready for Review or Final.",
+        },
+        { status: 400 },
       );
     }
 
@@ -1057,56 +648,21 @@ export async function POST(
 
     if (sourceTbError) throw sourceTbError;
 
+    const sourceFingerprint = trialBalanceFingerprint(
+      sourceTrialBalance || [],
+    );
+
     if (existingEngagement?.id) {
-      if (!refreshReason) {
-        return NextResponse.json(
-          {
-            success: false,
-            requiresRefreshReason: true,
-            error:
-              "A refresh reason is required before updating the existing Next Flight engagement.",
-          },
-          { status: 400 },
-        );
-      }
-
-      const historyCopyResult =
-        await copyExistingTrialBalanceHistory(
-          supabase,
-          sourceEngagementId,
-          existingEngagement.id,
-        );
-
-      const historyUpsertResult =
-        await upsertTrialBalanceHistory(
-          supabase,
-          sourceEngagement,
-          sourceTrialBalance || [],
-          existingEngagement.id,
-        );
-
-      const priorHistoryUpsertResult =
-        await upsertPriorYearTrialBalanceHistory(
-          supabase,
-          sourceEngagement,
-          sourceTrialBalance || [],
-          existingEngagement.id,
-        );
-
       const refreshResult = await refreshExistingTrialBalance(
         supabase,
         sourceTrialBalance || [],
         existingEngagement.id,
       );
 
-      const printStudioRefresh =
-        await refreshExistingPrintStudioSettings(
-          supabase,
-          sourceEngagementId,
-          existingEngagement.id,
-        );
-
       const engagementUpdate: AnyRow = {
+        rollover_source_engagement_id: sourceEngagementId,
+        rollover_source_fingerprint: sourceFingerprint,
+        rollover_source_snapshot_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
 
@@ -1128,41 +684,6 @@ export async function POST(
 
       if (refreshError) throw refreshError;
 
-      const { data: refreshAudit, error: auditError } = await supabase
-        .from("afs_rollover_refresh_audit")
-        .insert({
-          organisation_id: sourceEngagement.organisation_id || null,
-          source_engagement_id: sourceEngagementId,
-          target_engagement_id: existingEngagement.id,
-          refresh_reason: refreshReason,
-          refreshed_by: null,
-          source_financial_year_end:
-            sourceEngagement.financial_year_end || null,
-          target_financial_year_end:
-            existingEngagement.financial_year_end || nextFinancialYearEnd,
-          target_status_before:
-            existingEngagement.status || null,
-          target_status_after:
-            refreshedEngagement.status || null,
-          trial_balance_lines_updated:
-            numberOrZero(refreshResult.updated),
-          trial_balance_lines_inserted:
-            numberOrZero(refreshResult.inserted),
-          history_rows_copied:
-            numberOrZero(historyCopyResult.copied),
-          history_rows_upserted:
-            numberOrZero(historyUpsertResult.upserted),
-          prior_history_rows_upserted:
-            numberOrZero(priorHistoryUpsertResult.upserted),
-          print_studio_refreshed:
-            Boolean(printStudioRefresh.updated),
-          refreshed_at: new Date().toISOString(),
-        })
-        .select("*")
-        .single();
-
-      if (auditError) throw auditError;
-
       return NextResponse.json({
         success: true,
         refreshed: true,
@@ -1172,15 +693,7 @@ export async function POST(
         sourceEngagementId,
         engagement: refreshedEngagement,
         nextFinancialYearEnd,
-        refreshReason,
-        refreshAudit,
-        refresh: {
-          ...refreshResult,
-          printStudio: printStudioRefresh,
-          historyCopied: historyCopyResult.copied,
-          historyUpserted: historyUpsertResult.upserted,
-          priorHistoryUpserted: priorHistoryUpsertResult.upserted,
-        },
+        refresh: refreshResult,
       });
     }
 
@@ -1189,6 +702,7 @@ export async function POST(
       sourceEngagement,
       sourceEngagementId,
       nextFinancialYearEnd,
+      sourceFingerprint,
     );
 
     return NextResponse.json({

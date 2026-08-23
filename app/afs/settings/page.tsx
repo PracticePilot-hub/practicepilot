@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
+import AfsWorkflowSettingsPanel from "./AfsWorkflowSettingsPanel";
+import AfsWorkflowDefaultsPanel from "./AfsWorkflowDefaultsPanel";
 import { createClient } from "@supabase/supabase-js";
 
 type FirmSettings = {
@@ -28,6 +30,23 @@ type FirmSettings = {
   footer_text: string;
   footer_logo_url: string;
 };
+
+type AfsSettingsTab =
+  | "report"
+  | "defaults"
+  | "workflow"
+  | "notifications"
+  | "templates"
+  | "entity-types";
+
+const afsSettingsTabs: { key: AfsSettingsTab; label: string }[] = [
+  { key: "report", label: "Compiler's / Accounting Officer's Report" },
+  { key: "defaults", label: "Default AFS Options" },
+  { key: "workflow", label: "Users & Workflow" },
+  { key: "notifications", label: "Notifications" },
+  { key: "templates", label: "Templates" },
+  { key: "entity-types", label: "Entity Types" },
+];
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -74,6 +93,7 @@ function fieldValue(value: unknown) {
 
 export default function AfsFirmSettingsPage() {
   const [settings, setSettings] = useState<FirmSettings>(emptySettings);
+  const [activeTab, setActiveTab] = useState<AfsSettingsTab>("report");
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [uploadingField, setUploadingField] = useState<string | null>(null);
@@ -293,9 +313,9 @@ export default function AfsFirmSettingsPage() {
       <section style={styles.header}>
         <div>
           <div style={styles.kicker}>PRACTICEPILOT AFS</div>
-          <h1 style={styles.title}>Firm / Letterhead Settings</h1>
+          <h1 style={styles.title}>AFS Settings</h1>
           <p style={styles.subtitle}>
-            Capture the firm branding used on compilation reports and future AFS exports.
+            Configure report branding, workflow, notifications, templates and entity-specific AFS defaults.
           </p>
         </div>
 
@@ -304,12 +324,33 @@ export default function AfsFirmSettingsPage() {
         </Link>
       </section>
 
-      {loading ? (
-        <section style={styles.panel}>
-          <p style={styles.mutedText}>Loading firm settings...</p>
-        </section>
-      ) : (
-        <section style={styles.contentStack}>
+      <section style={styles.tabsBar} aria-label="AFS settings sections">
+        {afsSettingsTabs.map((tab) => {
+          const active = activeTab === tab.key;
+
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              style={{
+                ...styles.tabButton,
+                ...(active ? styles.tabButtonActive : {}),
+              }}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </section>
+
+      {activeTab === "report" ? (
+        loading ? (
+          <section style={styles.panel}>
+            <p style={styles.mutedText}>Loading firm settings...</p>
+          </section>
+        ) : (
+          <section style={styles.contentStack}>
           <section style={styles.panel}>
             <div style={styles.panelHeader}>
               <div>
@@ -416,7 +457,7 @@ export default function AfsFirmSettingsPage() {
               <div>
                 <h2 style={styles.panelTitle}>Footer and governing body details</h2>
                 <p style={styles.panelHint}>
-                  These details appear near the compiler signature and footer. Leave fields blank if not applicable.
+                  These details appear near the compiler / accounting officer signature and footer. Leave fields blank if not applicable.
                 </p>
               </div>
             </div>
@@ -612,7 +653,7 @@ export default function AfsFirmSettingsPage() {
               <div>
                 <h2 style={styles.panelTitle}>Preview</h2>
                 <p style={styles.panelHint}>
-                  This is the layout PracticePilot will use to build the compiler letterhead.
+                  This is the layout PracticePilot will use for the Compiler’s / Accounting Officer’s Report.
                 </p>
               </div>
 
@@ -658,7 +699,7 @@ export default function AfsFirmSettingsPage() {
               <div style={styles.previewRule} />
 
               <div style={styles.previewBody}>
-                <strong>Practitioner’s Compilation Report</strong>
+                <strong>Compiler’s / Accounting Officer’s Report</strong>
                 <span>Report text will render here in the normal AFS font.</span>
               </div>
 
@@ -717,9 +758,68 @@ export default function AfsFirmSettingsPage() {
               </p>
             ) : null}
           </section>
-        </section>
-      )}
+          </section>
+        )
+      ) : null}
+
+      {activeTab === "defaults" ? (
+        <ComingSoonPanel
+          title="Default AFS Options"
+          description="Practice-wide defaults for new AFS engagements will live here."
+        />
+      ) : null}
+
+      {activeTab === "workflow" ? (
+        <>
+          <AfsWorkflowDefaultsPanel />
+          <AfsWorkflowSettingsPanel />
+        </>
+      ) : null}
+
+      {activeTab === "notifications" ? (
+        <ComingSoonPanel
+          title="Notifications"
+          description="Control in-app and email notifications for review hand-offs, review points and sign-off."
+        />
+      ) : null}
+
+      {activeTab === "templates" ? (
+        <ComingSoonPanel
+          title="Templates"
+          description="Manage AFS report templates and future practice-specific template options here."
+        />
+      ) : null}
+
+      {activeTab === "entity-types" ? (
+        <ComingSoonPanel
+          title="Entity Types"
+          description="Entity-specific AFS behaviour will live here, starting with Companies and Close Corporations."
+          badge="CC TEMPLATE TO DO"
+        />
+      ) : null}
     </main>
+  );
+}
+
+function ComingSoonPanel({
+  title,
+  description,
+  badge,
+}: {
+  title: string;
+  description: string;
+  badge?: string;
+}) {
+  return (
+    <section style={styles.placeholderPanel}>
+      <div>
+        <div style={styles.placeholderEyebrow}>AFS SETTINGS</div>
+        <h2 style={styles.placeholderTitle}>{title}</h2>
+        <p style={styles.placeholderText}>{description}</p>
+      </div>
+
+      {badge ? <span style={styles.placeholderBadge}>{badge}</span> : null}
+    </section>
   );
 }
 
@@ -768,6 +868,73 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 12,
     fontWeight: 850,
   },
+  tabsBar: {
+    display: "flex",
+    alignItems: "stretch",
+    gap: 0,
+    background: "#ffffff",
+    borderBottom: "1px solid #b8c7d9",
+    overflowX: "auto",
+  },
+  tabButton: {
+    minHeight: 42,
+    border: "none",
+    borderRight: "1px solid #e2e8f0",
+    borderBottom: "3px solid transparent",
+    background: "#ffffff",
+    color: "#475569",
+    padding: "0 14px",
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    fontFamily: "inherit",
+  },
+  tabButtonActive: {
+    color: "#0f172a",
+    background: "#eff6ff",
+    borderBottomColor: "#2563eb",
+    fontWeight: 900,
+  },
+  placeholderPanel: {
+    marginTop: 10,
+    background: "#ffffff",
+    borderTop: "1px solid #b8c7d9",
+    borderBottom: "1px solid #b8c7d9",
+    padding: "18px 16px",
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+  placeholderEyebrow: {
+    color: "#2563eb",
+    fontSize: 10,
+    fontWeight: 900,
+    letterSpacing: "0.08em",
+    marginBottom: 6,
+  },
+  placeholderTitle: {
+    margin: 0,
+    fontSize: 16,
+    fontWeight: 900,
+  },
+  placeholderText: {
+    margin: "6px 0 0",
+    color: "#475569",
+    fontSize: 12,
+    lineHeight: 1.4,
+  },
+  placeholderBadge: {
+    border: "1px solid #94a3b8",
+    background: "#f8fafc",
+    color: "#0f172a",
+    padding: "5px 8px",
+    fontSize: 10,
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  },
+
   contentStack: {
     display: "grid",
     gap: 10,

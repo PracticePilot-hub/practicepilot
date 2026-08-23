@@ -52,7 +52,9 @@ function isActivePath(pathname: string, href: string) {
     return pathname === "/" || pathname.startsWith("/dashboard");
   }
 
-    if (href === "/afs") return pathname.startsWith("/afs");
+    if (href === "/afs") {
+    return pathname.startsWith("/afs") && !pathname.startsWith("/afs/settings");
+  }
 
   if (href === "/compliance/paia") {
     return pathname.startsWith("/compliance/paia");
@@ -60,6 +62,10 @@ function isActivePath(pathname: string, href: string) {
 
   if (href === "/billing") {
     return pathname.startsWith("/billing") || pathname.startsWith("/admin/paia-billing");
+  }
+
+  if (href === "/settings") {
+    return pathname.startsWith("/settings") || pathname.startsWith("/afs/settings");
   }
 
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -343,6 +349,11 @@ export default function TopNav() {
           accessEnabled &&
           (admin || Boolean(profile?.can_access_paia)),
       },
+      {
+        label: "Settings",
+        href: "/settings",
+        show: accessEnabled,
+      },
     ];
   }, [profile]);
 
@@ -353,12 +364,6 @@ export default function TopNav() {
       label: "Dashboard",
       href: "/afs",
       description: "AFS engagements and working files",
-      enabled: true,
-    },
-    {
-      label: "Settings",
-      href: "/afs/settings",
-      description: "Firm branding and letterhead setup",
       enabled: true,
     },
     {
@@ -401,6 +406,13 @@ export default function TopNav() {
       enabled: false,
     },
   ];
+
+
+  // PUBLIC MARKETING ROUTE:
+  // Never show the authenticated PracticePilot application navigation here.
+  if (pathname === "/financial-statements") {
+    return null;
+  }
 
   return (
     <>
