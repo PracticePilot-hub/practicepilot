@@ -43,6 +43,10 @@ import {
   AfsStatementOverrides,
   AfsNoteKey,
 } from "../components/AfsPrintStatementEngine";
+import {
+  getAfsEntityPresentation,
+  getAfsEntityRowLabel,
+} from "../afsEntityPresentation";
 
 type EngagementData = {
   id: string;
@@ -1685,6 +1689,14 @@ export default function AfsPrintStudioPage() {
     };
   }
 
+  const presentationEntityType = String(
+    getSetupValue(clientSetup, ["entity_type", "legal_entity_type"]) ||
+      engagement?.entity_type ||
+      "Company"
+  );
+
+  const entityPresentation = getAfsEntityPresentation(presentationEntityType);
+
   const reportSectionOptions: AfsReportOption[] = [
     option("coverPage", "Cover page", "Show the AFS cover page."),
     option("index", "Index", "Show the report index."),
@@ -1693,8 +1705,24 @@ export default function AfsPrintStudioPage() {
     option("directorsReport", "Directors’ report", "Show the directors’ report."),
     option("compilerReport", "Compiler report", "Show the compilation report."),
     option("sfp", "Statement of financial position", "Show SFP."),
-    option("soci", "Statement of comprehensive income", "Show comprehensive income."),
-    option("sce", "Statement of changes in equity", "Show statement of changes in equity."),
+    option(
+      "soci",
+      entityPresentation.isNpc
+        ? "Statement of income and expenditure"
+        : "Statement of comprehensive income",
+      entityPresentation.isNpc
+        ? "Show income and expenditure."
+        : "Show comprehensive income.",
+    ),
+    option(
+      "sce",
+      entityPresentation.isNpc
+        ? "Statement of changes in funds"
+        : "Statement of changes in equity",
+      entityPresentation.isNpc
+        ? "Show statement of changes in funds."
+        : "Show statement of changes in equity.",
+    ),
     option("cashFlow", "Cash flow", "Show cash flow statement."),
     option("accountingPolicies", "Accounting policies", "Show accounting policies."),
     option("notes", "Notes", "Show notes to the financial statements."),
@@ -1737,11 +1765,7 @@ const clientLogoUrl = cleanString(
 );
 
 
-  const entityType = String(
-    getSetupValue(clientSetup, ["entity_type", "legal_entity_type"]) ||
-      engagement?.entity_type ||
-      "Company"
-  );
+  const entityType = presentationEntityType;
 
   const yearEnd = String(
     getSetupValue(clientSetup, [
@@ -2459,6 +2483,8 @@ useEffect(() => {
       const noteKey = keyMap[section.key];
       if (!noteKey) return;
 
+      if (entityPresentation.isNpc && noteKey === "shareCapital") return;
+
       // Empty mapped notes do not consume note numbers.
       if (!hasRows(noteKey)) return;
 
@@ -2477,7 +2503,12 @@ useEffect(() => {
     });
 
     return map;
-  }, [reportOptions, unnumberedStatementEngine, effectiveNoteSections]);
+  }, [
+    reportOptions,
+    unnumberedStatementEngine,
+    effectiveNoteSections,
+    entityPresentation.isNpc,
+  ]);
 
   const baseStatementEngine = useMemo(
     () =>
@@ -4326,16 +4357,22 @@ if (
   };
 }, [statementEngine.sfpRows, statementEngine.sceRows]);
 
-const sfpRows = applyProfessionalStatementLabels(
+const applyEntityPresentationToRows = (rows: AfsStatementRow[]) =>
+  applyProfessionalStatementLabels(rows).map((row: any) => ({
+    ...row,
+    label: getAfsEntityRowLabel(row?.label, entityPresentation),
+  }));
+
+const sfpRows = applyEntityPresentationToRows(
   correctedEquityStatements.sfpRows,
 );
-const sociRows = applyProfessionalStatementLabels(
+const sociRows = applyEntityPresentationToRows(
   statementEngine.sociRows,
 );
-const sceRows = applyProfessionalStatementLabels(
+const sceRows = applyEntityPresentationToRows(
   correctedEquityStatements.sceRows,
 );
-const cashFlowRows = applyProfessionalStatementLabels(
+const cashFlowRows = applyEntityPresentationToRows(
   statementEngine.cashFlowRows,
 );
 
@@ -4728,7 +4765,10 @@ const flightDeckIssues = useMemo(() => {
     const sourceRows = alignDetailedIncomeRowsToSoci(
       detailedIncomeRows,
       sociRows,
-    );
+    ).map((row: any) => ({
+      ...row,
+      label: getAfsEntityRowLabel(row?.label, entityPresentation),
+    }));
 
     const hiddenSectionLabels = new Set([
       "revenue",
@@ -4739,7 +4779,11 @@ const flightDeckIssues = useMemo(() => {
 
     return (
       <section style={{ fontSize: 10, lineHeight: 1.25, color: "#111827" }}>
-        <h1 style={pageHeadingStyle()}>Detailed Income Statement</h1>
+        <h1 style={pageHeadingStyle()}>
+          {entityPresentation.isNpc
+            ? "Detailed Income and Expenditure Statement"
+            : "Detailed Income Statement"}
+        </h1>
         <div
           style={{
             margin: "-6px 0 12px",
@@ -5032,12 +5076,32 @@ const flightDeckIssues = useMemo(() => {
     { id: "directors-report", label: "Directors’ Report", shortLabel: "Directors Report", group: "report", hidden: !reportOptions.directorsReport },
     { id: "compiler-report", label: "Compiler Report", shortLabel: "Compiler", group: "report", hidden: !reportOptions.compilerReport },
     { id: "sfp", label: "Statement of Financial Position", shortLabel: "SFP", group: "report", hidden: !reportOptions.sfp },
-    { id: "soci", label: "Statement of Comprehensive Income", shortLabel: "SOCI", group: "report", hidden: !reportOptions.soci },
-    { id: "sce", label: "Statement of Changes in Equity", shortLabel: "SCE", group: "report", hidden: !reportOptions.sce },
+    {
+      id: "soci",
+      label: entityPresentation.incomeStatementTitle,
+      shortLabel: entityPresentation.isNpc ? "Income & Exp." : "SOCI",
+      group: "report",
+      hidden: !reportOptions.soci,
+    },
+    {
+      id: "sce",
+      label: entityPresentation.equityStatementTitle,
+      shortLabel: entityPresentation.isNpc ? "Funds" : "SCE",
+      group: "report",
+      hidden: !reportOptions.sce,
+    },
     { id: "cash-flow", label: "Statement of Cash Flows", shortLabel: "Cash Flow", group: "report", hidden: !reportOptions.cashFlow },
     { id: "accounting-policies", label: "Accounting Policies", shortLabel: "Policies", group: "report", hidden: !reportOptions.accountingPolicies },
     { id: "notes", label: "Notes to the Financial Statements", shortLabel: "Notes", group: "report", hidden: !reportOptions.notes },
-    { id: "detailed-income", label: "Detailed Income Statement — Supplementary information", shortLabel: "Detailed IS", group: "report", hidden: !reportOptions.detailedIncomeStatement },
+    {
+      id: "detailed-income",
+      label: entityPresentation.isNpc
+        ? "Detailed Income and Expenditure Statement — Supplementary information"
+        : "Detailed Income Statement — Supplementary information",
+      shortLabel: entityPresentation.isNpc ? "Detailed I&E" : "Detailed IS",
+      group: "report",
+      hidden: !reportOptions.detailedIncomeStatement,
+    },
     { id: "tax-computation", label: "Tax Computation", shortLabel: "Tax", group: "report", hidden: !reportOptions.taxComputation },
     { id: "report-options", label: "AFS Report Options", shortLabel: "Options", group: "settings" },
   ];
@@ -5079,6 +5143,13 @@ const flightDeckIssues = useMemo(() => {
       const isSelected = Boolean(
         reportOptions[section.optionKey as keyof ReportOptions],
       );
+
+      if (
+        entityPresentation.isNpc &&
+        String(section.optionKey || "") === "policyShareCapitalEquity"
+      ) {
+        return;
+      }
 
       if (!isSelected) return;
 
@@ -5345,9 +5416,8 @@ const flightDeckIssues = useMemo(() => {
       Any small transfer/rounding difference is shown as an equity movement
       rather than recalculating or changing the SOCI result.
     */
-    const sociCurrentProfitRow = (sociRows || []).find((row: any) =>
-      String(row?.label || "").trim().toLowerCase() ===
-      "profit / (loss) for the year",
+    const sociCurrentProfitRow = (sociRows || []).find(
+      (row: any) => String(row?.id || "") === "profit-year",
     );
 
     const currentProfit = Math.round(
@@ -5361,6 +5431,140 @@ const flightDeckIssues = useMemo(() => {
     const priorShareMovement = 0;
     const priorClosingShare = openingShare + priorShareMovement;
     const currentShareMovement = closingShare - priorClosingShare;
+
+    if (entityPresentation.isNpc) {
+      const fundRows = [
+        {
+          label: "Balance at beginning of prior year",
+          accumulated: openingRetained,
+          total: openingRetained,
+          strong: true,
+        },
+        {
+          label: "Surplus / (deficit) for prior year",
+          accumulated: priorProfit,
+          total: priorProfit,
+        },
+        {
+          label: "Other movements / transfers - prior year",
+          accumulated: priorOther,
+          total: priorOther,
+        },
+        {
+          label: "Balance at end of prior year",
+          accumulated: priorClosingRetained,
+          total: priorClosingRetained,
+          strong: true,
+          underline: true,
+        },
+        {
+          label: "Surplus / (deficit) for current year",
+          accumulated: currentProfit,
+          total: currentProfit,
+        },
+        {
+          label: "Other movements / transfers - current year",
+          accumulated: currentOther,
+          total: currentOther,
+        },
+        {
+          label: "Balance at end of current year",
+          accumulated: currentClosingRetained,
+          total: currentClosingRetained,
+          strong: true,
+          underline: true,
+        },
+      ];
+
+      return (
+        <section style={{ fontSize: 11, color: "#111827" }}>
+          <h1 style={pageHeadingStyle()}>{entityPresentation.equityStatementTitle}</h1>
+
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: 10.5,
+            }}
+          >
+            <thead>
+              <tr>
+                <th
+                  style={{
+                    textAlign: "left",
+                    borderBottom: "1px solid #111827",
+                    padding: "4px 0",
+                  }}
+                >
+                  Figures in Rand
+                </th>
+                <th
+                  style={{
+                    textAlign: "right",
+                    borderBottom: "1px solid #111827",
+                    padding: "4px 0",
+                    width: 120,
+                  }}
+                >
+                  Accumulated funds
+                </th>
+                <th
+                  style={{
+                    textAlign: "right",
+                    borderBottom: "1px solid #111827",
+                    padding: "4px 0",
+                    width: 100,
+                  }}
+                >
+                  Total funds
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {fundRows.map((row) => (
+                <tr key={row.label}>
+                  <td
+                    style={{
+                      padding: "4px 0",
+                      fontWeight: row.strong ? 800 : 400,
+                    }}
+                  >
+                    {row.label}
+                  </td>
+                  <td
+                    style={{
+                      padding: "4px 0",
+                      textAlign: "right",
+                      fontWeight: row.strong ? 800 : 400,
+                      borderTop: row.underline ? "1px solid #111827" : undefined,
+                      borderBottom: row.underline
+                        ? "2px solid #111827"
+                        : undefined,
+                    }}
+                  >
+                    {afsAmount(row.accumulated)}
+                  </td>
+                  <td
+                    style={{
+                      padding: "4px 0",
+                      textAlign: "right",
+                      fontWeight: row.strong ? 800 : 400,
+                      borderTop: row.underline ? "1px solid #111827" : undefined,
+                      borderBottom: row.underline
+                        ? "2px solid #111827"
+                        : undefined,
+                    }}
+                  >
+                    {afsAmount(row.total)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      );
+    }
 
     const rows = [
       {
@@ -7217,7 +7421,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
             <div id="print-soci">
               <AfsA4Page {...reportHeaderProps}>
                 <AfsStatementTable
-                  title="Statement of Comprehensive Income"
+                  title={entityPresentation.incomeStatementTitle}
                   currencyLabel="Figures in Rand"
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
