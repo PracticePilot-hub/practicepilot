@@ -15,12 +15,13 @@ export default function AfsWorkflowDefaultsPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [canManage, setCanManage] = useState(false);
+  const [practiceName, setPracticeName] = useState("");
   const [defaultLevels, setDefaultLevels] = useState(2);
   const [allowSolo, setAllowSolo] = useState(true);
   const [allowThreeLevel, setAllowThreeLevel] = useState(true);
   const [message, setMessage] = useState("");
 
-  async function authHeaders(): Promise<Record<string, string>> {
+  async function headers(): Promise<Record<string, string>> {
     if (!supabase) return {};
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token || "";
@@ -30,20 +31,23 @@ export default function AfsWorkflowDefaultsPanel() {
   async function load() {
     try {
       setLoading(true);
-      setMessage("");
 
       const response = await fetch("/api/afs/settings/workflow-defaults", {
         cache: "no-store",
-        headers: await authHeaders(),
+        headers: await headers(),
       });
 
       const data = await response.json();
+
       if (!response.ok) {
         throw new Error(data.error || "Could not load workflow defaults.");
       }
 
       setCanManage(Boolean(data.canManage));
-      setDefaultLevels(Number(data.organisation?.afs_default_workflow_levels || 2));
+      setPracticeName(data.organisation?.name || "");
+      setDefaultLevels(
+        Number(data.organisation?.afs_default_workflow_levels || 2),
+      );
       setAllowSolo(Boolean(data.organisation?.afs_allow_solo));
       setAllowThreeLevel(Boolean(data.organisation?.afs_allow_three_level));
     } catch (error: any) {
@@ -66,7 +70,7 @@ export default function AfsWorkflowDefaultsPanel() {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          ...(await authHeaders()),
+          ...(await headers()),
         },
         body: JSON.stringify({
           defaultWorkflowLevels: defaultLevels,
@@ -76,11 +80,12 @@ export default function AfsWorkflowDefaultsPanel() {
       });
 
       const data = await response.json();
+
       if (!response.ok) {
         throw new Error(data.error || "Could not save workflow defaults.");
       }
 
-      setMessage("Saved.");
+      setMessage("Workflow structure saved.");
     } catch (error: any) {
       setMessage(error?.message || "Could not save workflow defaults.");
     } finally {
@@ -89,17 +94,144 @@ export default function AfsWorkflowDefaultsPanel() {
   }
 
   if (loading) {
-    return <section style={styles.shell}>Loading workflow settings...</section>;
+    return <div style={styles.loading}>Loading workflow structure...</div>;
   }
 
   return (
-    <section style={styles.shell}>
-      <div style={styles.headingRow}>
+    <section style={styles.block}>
+      <div style={styles.header}>
         <div>
-          <h3 style={styles.title}>Workflow structure</h3>
-          <p style={styles.help}>
-            Choose the normal structure for new AFS files. It can still be changed per file.
+          <h2 style={styles.title}>Workflow structure</h2>
+          <p style={styles.text}>
+            Choose the normal review journey for new AFS files at{" "}
+            {practiceName || "your practice"}. It can still be changed on an
+            individual file.
           </p>
+        </div>
+
+        <div style={styles.currentFlow}>
+          {defaultLevels === 1 ? (
+            <>
+              <span style={styles.flowStrong}>Captain</span>
+              <span style={styles.flowNote}>Solo</span>
+            </>
+          ) : defaultLevels === 2 ? (
+            <>
+              <span style={styles.flowStep}>Pilot</span>
+              <span style={styles.arrow}>→</span>
+              <span style={styles.flowStrong}>Captain</span>
+            </>
+          ) : (
+            <>
+              <span style={styles.flowStep}>Pilot</span>
+              <span style={styles.arrow}>→</span>
+              <span style={styles.flowStep}>First Officer</span>
+              <span style={styles.arrow}>→</span>
+              <span style={styles.flowStrong}>Captain</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div style={styles.journeyGrid}>
+        <button
+          type="button"
+          disabled={!canManage || !allowSolo}
+          onClick={() => setDefaultLevels(1)}
+          style={{
+            ...styles.journey,
+            ...(defaultLevels === 1 ? styles.journeyActive : {}),
+            ...(!allowSolo ? styles.journeyDisabled : {}),
+          }}
+        >
+          <span style={styles.journeyTitle}>Solo</span>
+          <span style={styles.journeyDescription}>
+            Captain prepares, reviews and signs off.
+          </span>
+          <span style={styles.journeyFlow}>Captain</span>
+        </button>
+
+        <button
+          type="button"
+          disabled={!canManage}
+          onClick={() => setDefaultLevels(2)}
+          style={{
+            ...styles.journey,
+            ...(defaultLevels === 2 ? styles.journeyActive : {}),
+          }}
+        >
+          <span style={styles.journeyTitle}>2 levels</span>
+          <span style={styles.journeyDescription}>
+            The normal Pilot-to-Captain workflow.
+          </span>
+          <span style={styles.journeyFlow}>Pilot → Captain</span>
+        </button>
+
+        <button
+          type="button"
+          disabled={!canManage || !allowThreeLevel}
+          onClick={() => setDefaultLevels(3)}
+          style={{
+            ...styles.journey,
+            ...(defaultLevels === 3 ? styles.journeyActive : {}),
+            ...(!allowThreeLevel ? styles.journeyDisabled : {}),
+          }}
+        >
+          <span style={styles.journeyTitle}>3 levels</span>
+          <span style={styles.journeyDescription}>
+            Adds a formal First Officer review layer.
+          </span>
+          <span style={styles.journeyFlow}>
+            Pilot → First Officer → Captain
+          </span>
+        </button>
+      </div>
+
+      <div style={styles.footer}>
+        <div style={styles.permissions}>
+          <label style={styles.permission}>
+            <input
+              type="checkbox"
+              checked={allowSolo}
+              disabled={!canManage}
+              onChange={(event) => {
+                setAllowSolo(event.target.checked);
+
+                if (!event.target.checked && defaultLevels === 1) {
+                  setDefaultLevels(2);
+                }
+              }}
+            />
+            <span>
+              <strong style={styles.permissionTitle}>Allow Solo files</strong>
+              <small style={styles.permissionHelp}>
+                Captain can run a file without a separate Pilot.
+              </small>
+            </span>
+          </label>
+
+          <label style={styles.permission}>
+            <input
+              type="checkbox"
+              checked={allowThreeLevel}
+              disabled={!canManage}
+              onChange={(event) => {
+                setAllowThreeLevel(event.target.checked);
+
+                if (!event.target.checked && defaultLevels === 3) {
+                  setDefaultLevels(2);
+                }
+              }}
+            />
+            <span>
+              <strong style={styles.permissionTitle}>
+                Allow 3-level files
+              </strong>
+              <small style={styles.permissionHelp}>
+                Pilot → First Officer → Captain.
+              </small>
+            </span>
+          </label>
         </div>
 
         {canManage ? (
@@ -109,86 +241,9 @@ export default function AfsWorkflowDefaultsPanel() {
             onClick={save}
             disabled={saving}
           >
-            {saving ? "Saving..." : "Save"}
+            {saving ? "Saving..." : "Save workflow"}
           </button>
         ) : null}
-      </div>
-
-      <div style={styles.structureRow}>
-        <button
-          type="button"
-          disabled={!canManage || !allowSolo}
-          onClick={() => setDefaultLevels(1)}
-          style={{
-            ...styles.structureButton,
-            ...(defaultLevels === 1 ? styles.structureButtonActive : {}),
-            ...(!allowSolo ? styles.structureButtonDisabled : {}),
-          }}
-        >
-          <span style={styles.structureTitle}>Solo</span>
-          <span style={styles.structureFlow}>Captain only</span>
-        </button>
-
-        <button
-          type="button"
-          disabled={!canManage}
-          onClick={() => setDefaultLevels(2)}
-          style={{
-            ...styles.structureButton,
-            ...(defaultLevels === 2 ? styles.structureButtonActive : {}),
-          }}
-        >
-          <span style={styles.structureTitle}>2 levels</span>
-          <span style={styles.structureFlow}>Pilot → Captain</span>
-        </button>
-
-        <button
-          type="button"
-          disabled={!canManage || !allowThreeLevel}
-          onClick={() => setDefaultLevels(3)}
-          style={{
-            ...styles.structureButton,
-            ...(defaultLevels === 3 ? styles.structureButtonActive : {}),
-            ...(!allowThreeLevel ? styles.structureButtonDisabled : {}),
-          }}
-        >
-          <span style={styles.structureTitle}>3 levels</span>
-          <span style={styles.structureFlow}>Pilot → First Officer → Captain</span>
-        </button>
-      </div>
-
-      <div style={styles.optionsRow}>
-        <label style={styles.checkLabel}>
-          <input
-            type="checkbox"
-            checked={allowSolo}
-            disabled={!canManage}
-            onChange={(event) => {
-              const checked = event.target.checked;
-              setAllowSolo(checked);
-              if (!checked && defaultLevels === 1) setDefaultLevels(2);
-            }}
-          />
-          Allow Solo files
-        </label>
-
-        <label style={styles.checkLabel}>
-          <input
-            type="checkbox"
-            checked={allowThreeLevel}
-            disabled={!canManage}
-            onChange={(event) => {
-              const checked = event.target.checked;
-              setAllowThreeLevel(checked);
-              if (!checked && defaultLevels === 3) setDefaultLevels(2);
-            }}
-          />
-          Allow 3-level files
-        </label>
-
-        <span style={styles.ruleText}>
-          Solo is only available to a Captain.
-        </span>
       </div>
 
       {message ? <div style={styles.message}>{message}</div> : null}
@@ -197,99 +252,167 @@ export default function AfsWorkflowDefaultsPanel() {
 }
 
 const styles: Record<string, CSSProperties> = {
-  shell: {
+  loading: {
+    padding: "14px 16px",
     background: "#ffffff",
-    border: "1px solid #cfd8e6",
-    padding: "12px 14px",
-    display: "grid",
-    gap: 10,
+    border: "1px solid #d7dee8",
+    color: "#475569",
+    fontSize: 12,
   },
-  headingRow: {
+  block: {
+    background: "#ffffff",
+    border: "1px solid #c9d8ee",
+    borderLeft: "4px solid #2563eb",
+    boxShadow: "0 10px 26px rgba(37, 99, 235, 0.06)",
+    marginBottom: 20,
+  },
+  header: {
     display: "flex",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 14,
+    gap: 20,
+    padding: "18px 20px",
+    borderBottom: "1px solid #cfe0f7",
+    background:
+      "linear-gradient(90deg, #edf5ff 0%, #f7fbff 58%, #ffffff 100%)",
   },
   title: {
     margin: 0,
+    color: "#0f172a",
+    fontSize: 20,
+    lineHeight: 1.15,
+    fontWeight: 850,
+    letterSpacing: "-0.02em",
+  },
+  text: {
+    margin: "6px 0 0",
+    maxWidth: 760,
+    color: "#64748b",
+    fontSize: 11.5,
+    lineHeight: 1.45,
+  },
+  currentFlow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 34,
+    padding: "7px 11px",
+    border: "1px solid #bfd3ef",
+    background: "#ffffff",
+    boxShadow: "0 3px 10px rgba(37, 99, 235, 0.05)",
+    whiteSpace: "nowrap",
+  },
+  flowStep: {
+    color: "#475569",
+    fontSize: 10.5,
+    fontWeight: 750,
+  },
+  flowStrong: {
+    color: "#1d4ed8",
+    fontSize: 10.5,
+    fontWeight: 900,
+  },
+  flowNote: {
+    color: "#94a3b8",
+    fontSize: 9.5,
+    fontWeight: 750,
+  },
+  arrow: {
+    color: "#94a3b8",
+    fontSize: 12,
+  },
+  journeyGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 0,
+    borderBottom: "1px solid #d7dee8",
+  },
+  journey: {
+    minHeight: 112,
+    padding: "16px 18px",
+    display: "grid",
+    alignContent: "start",
+    gap: 7,
+    textAlign: "left",
+    border: 0,
+    borderRight: "1px solid #e4e9ef",
+    background: "#ffffff",
+    cursor: "pointer",
+  },
+  journeyActive: {
+    background:
+      "linear-gradient(180deg, #e6f0ff 0%, #dbeafe 100%)",
+    boxShadow: "inset 0 -4px 0 #2563eb",
+  },
+  journeyDisabled: {
+    opacity: 0.45,
+    cursor: "not-allowed",
+  },
+  journeyTitle: {
+    color: "#0f172a",
     fontSize: 15,
     fontWeight: 900,
-    color: "#0f172a",
   },
-  help: {
-    margin: "4px 0 0",
-    fontSize: 10.5,
+  journeyDescription: {
     color: "#64748b",
+    fontSize: 10.5,
+    lineHeight: 1.4,
+  },
+  journeyFlow: {
+    marginTop: 5,
+    color: "#1d4ed8",
+    fontSize: 10,
+    fontWeight: 900,
+  },
+  footer: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 20,
+    padding: "13px 20px",
+    background: "#f4f8ff",
+  },
+  permissions: {
+    display: "flex",
+    gap: 26,
+    flexWrap: "wrap",
+  },
+  permission: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 8,
+    color: "#334155",
+    cursor: "pointer",
+  },
+  permissionTitle: {
+    display: "block",
+    fontSize: 10.5,
+    fontWeight: 850,
+  },
+  permissionHelp: {
+    display: "block",
+    marginTop: 2,
+    color: "#94a3b8",
+    fontSize: 9,
+    lineHeight: 1.3,
   },
   saveButton: {
     border: "1px solid #1d4ed8",
-    background: "#2563eb",
+    background: "linear-gradient(180deg, #2f73f6 0%, #2563eb 100%)",
     color: "#ffffff",
-    padding: "6px 12px",
-    fontSize: 10,
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  structureRow: {
-    display: "grid",
-    gridTemplateColumns: "180px 220px minmax(280px, 1fr)",
-    gap: 8,
-    alignItems: "stretch",
-  },
-  structureButton: {
-    border: "1px solid #cbd5e1",
-    background: "#ffffff",
-    color: "#334155",
-    padding: "9px 12px",
-    textAlign: "left",
-    cursor: "pointer",
-    display: "grid",
-    gap: 3,
-    minHeight: 52,
-  },
-  structureButtonActive: {
-    border: "1px solid #2563eb",
-    background: "#eff6ff",
-    boxShadow: "inset 3px 0 0 #2563eb",
-    color: "#1d4ed8",
-  },
-  structureButtonDisabled: {
-    opacity: 0.45,
-  },
-  structureTitle: {
-    fontSize: 11,
-    fontWeight: 900,
-    whiteSpace: "nowrap",
-  },
-  structureFlow: {
-    fontSize: 10,
-    color: "#64748b",
-    whiteSpace: "nowrap",
-  },
-  optionsRow: {
-    display: "flex",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: "8px 18px",
-    paddingTop: 2,
-  },
-  checkLabel: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
+    padding: "8px 14px",
     fontSize: 10.5,
-    fontWeight: 800,
-    color: "#334155",
-  },
-  ruleText: {
-    fontSize: 10,
-    color: "#64748b",
+    fontWeight: 900,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    boxShadow: "0 4px 10px rgba(37, 99, 235, 0.18)",
   },
   message: {
-    borderTop: "1px solid #e2e8f0",
-    paddingTop: 7,
-    color: "#475569",
+    padding: "9px 12px",
+    borderTop: "1px solid #d7dee8",
+    background: "#eef6ff",
+    color: "#1e3a5f",
     fontSize: 10,
-    fontWeight: 750,
+    fontWeight: 700,
   },
 };

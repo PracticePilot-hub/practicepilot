@@ -430,21 +430,16 @@ export default function TopNav() {
 
                   if (item.href === "/afs") {
                     return (
-                      <button
+                      <Link
                         key={item.href}
-                        ref={afsButtonRef}
-                        type="button"
-                        onClick={toggleAfsMenu}
+                        href={item.href}
                         style={{
-                          ...styles.navLinkButton,
+                          ...styles.navLink,
                           ...(active ? styles.navLinkActive : {}),
                         }}
-                        aria-haspopup="menu"
-                        aria-expanded={afsMenuOpen}
                       >
-                        <span>{item.label}</span>
-                        <span style={styles.chevron}>⌄</span>
-                      </button>
+                        {item.label}
+                      </Link>
                     );
                   }
 

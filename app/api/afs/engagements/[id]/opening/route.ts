@@ -17,10 +17,6 @@ type UserProfile = {
   afs_authority?: Authority | null;
 };
 
-type CurrentProfileResult =
-  | { profile: UserProfile; response: null }
-  | { profile: null; response: NextResponse };
-
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
@@ -41,6 +37,10 @@ function bearerToken(request: Request) {
     .replace(/^Bearer\s+/i, "")
     .trim();
 }
+
+type CurrentProfileResult =
+  | { profile: UserProfile; response: null }
+  | { profile: null; response: NextResponse };
 
 async function currentProfile(
   request: Request,
@@ -101,6 +101,41 @@ function rank(authority: Authority | null | undefined) {
   return 1;
 }
 
+type SectionApplicability =
+  | "required"
+  | "conditional"
+  | "not_applicable"
+  | "optional";
+
+const SECTION_KEYS = [
+  "client-setup",
+  "trial-balance",
+  "adjusting-journals",
+  "mapping",
+  "lead-schedules",
+  "tax-calculator",
+  "financial-statements",
+  "minutes",
+  "export-print",
+] as const;
+
+function cleanPracticeSectionDefaults(
+  value: unknown,
+): Record<string, SectionApplicability> {
+  const source =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+
+  return SECTION_KEYS.reduce<Record<string, SectionApplicability>>(
+    (result, key) => {
+      result[key] = source[key] === "required" ? "required" : "optional";
+      return result;
+    },
+    {},
+  );
+}
+
 export async function GET(request: Request, context: any) {
   try {
     const engagementId = await getEngagementId(context);
@@ -123,7 +158,7 @@ export async function GET(request: Request, context: any) {
       supabase
         .from("organisations")
         .select(
-          "id,name,afs_default_workflow_levels,afs_allow_solo,afs_allow_three_level",
+          "id,name,afs_default_workflow_levels,afs_allow_solo,afs_allow_three_level,afs_section_signoff_defaults",
         )
         .eq("id", profile.organisation_id)
         .single(),
@@ -185,7 +220,7 @@ export async function PATCH(request: Request, context: any) {
 
     const { data: organisation, error: orgError } = await supabase
       .from("organisations")
-      .select("afs_allow_solo,afs_allow_three_level")
+      .select("afs_allow_solo,afs_allow_three_level,afs_section_signoff_defaults")
       .eq("id", profile.organisation_id)
       .single();
 
@@ -327,7 +362,7 @@ export async function PATCH(request: Request, context: any) {
 
     const { data: existing, error: existingError } = await supabase
       .from("afs_engagement_workflow")
-      .select("id")
+      .select("id,is_started")
       .eq("engagement_id", engagementId)
       .eq("organisation_id", profile.organisation_id)
       .maybeSingle();
@@ -335,6 +370,8 @@ export async function PATCH(request: Request, context: any) {
     if (existingError) throw existingError;
 
     let saved;
+
+    const isFirstStart = !existing?.id || existing.is_started !== true;
 
     if (existing?.id) {
       const { data, error } = await supabase
@@ -357,7 +394,37 @@ export async function PATCH(request: Request, context: any) {
       saved = data;
     }
 
-    return NextResponse.json({ success: true, workflow: saved });
+    if (isFirstStart) {
+      const practiceDefaults = cleanPracticeSectionDefaults(
+        organisation.afs_section_signoff_defaults,
+      );
+
+      const applicabilityRows = SECTION_KEYS.map((sectionKey) => ({
+        engagement_id: engagementId,
+        organisation_id: profile.organisation_id,
+        section_key: sectionKey,
+        applicability: practiceDefaults[sectionKey],
+        reason: "Practice default at flight start",
+        set_by: profile.id,
+        set_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
+
+      const { error: applicabilityError } = await supabase
+        .from("afs_section_applicability")
+        .upsert(applicabilityRows, {
+          onConflict: "engagement_id,section_key",
+          ignoreDuplicates: true,
+        });
+
+      if (applicabilityError) throw applicabilityError;
+    }
+
+    return NextResponse.json({
+      success: true,
+      workflow: saved,
+      practiceStandardsApplied: isFirstStart,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || "Could not start the flight." },
