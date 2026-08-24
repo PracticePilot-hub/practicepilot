@@ -1917,6 +1917,7 @@ const clientLogoUrl = cleanString(
       "reporting_framework",
       "accounting_framework",
       "framework",
+      "basis_of_preparation",
     ]) || "the applicable financial reporting framework";
 
   const approvalDate =
@@ -2277,8 +2278,10 @@ useEffect(() => {
     directorsReportFinancialResults:
       reportOptions.directorsReportFinancialResults,
     directorsReportEventsAfter: reportOptions.directorsReportEventsAfter,
-    directorsReportDividends: reportOptions.directorsReportDividends,
-    directorsReportShareCapital: reportOptions.directorsReportShareCapital,
+    directorsReportDividends:
+      !entityPresentation.isNpc && reportOptions.directorsReportDividends,
+    directorsReportShareCapital:
+      !entityPresentation.isNpc && reportOptions.directorsReportShareCapital,
     directorsReportDirectors: reportOptions.directorsReportDirectors,
     directorsReportSecretary: reportOptions.directorsReportSecretary,
     directorsReportExternalAccountant:
@@ -2287,7 +2290,8 @@ useEffect(() => {
       reportOptions.directorsReportInterestContracts,
     directorsReportBorrowingLimitations:
       reportOptions.directorsReportBorrowingLimitations,
-    directorsReportShareholder: reportOptions.directorsReportShareholder,
+    directorsReportShareholder:
+      !entityPresentation.isNpc && reportOptions.directorsReportShareholder,
     directorsReportGoingConcern: reportOptions.directorsReportGoingConcern,
     directorsReportLiquiditySolvency:
       reportOptions.directorsReportLiquiditySolvency,
@@ -5975,7 +5979,16 @@ const flightDeckIssues = useMemo(() => {
         options: [],
         content: (
           <AfsDirectorsReportSettings
-            reportOptions={reportOptions}
+            reportOptions={{
+              ...reportOptions,
+              ...(entityPresentation.isNpc
+                ? {
+                    directorsReportDividends: false,
+                    directorsReportShareCapital: false,
+                    directorsReportShareholder: false,
+                  }
+                : {}),
+            }}
             toggleReportOption={toggleReportOption}
             texts={activeDirectorsReportTexts}
             defaults={defaultDirectorsReportTexts}

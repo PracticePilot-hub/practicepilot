@@ -106,6 +106,15 @@ function isTrust(context: NarrativeContext) {
   return entity.includes("trust");
 }
 
+function isNonProfitCompany(context: NarrativeContext) {
+  const entity = value(context, "entityType", "").toLowerCase();
+  return (
+    entity.includes("non-profit company") ||
+    entity.includes("non profit company") ||
+    entity.trim() === "npc"
+  );
+}
+
 function governingAct(context: NarrativeContext) {
   if (isCloseCorporation(context)) return "the Close Corporations Act of South Africa";
   if (isTrust(context)) return "the applicable trust deed and legislation";
@@ -550,6 +559,13 @@ function LogoWithFallback({
 
 export function CompilationReportBlock({ context }: { context: NarrativeContext }) {
   const clientName = value(context, "clientName", "the entity");
+  const isNpc = isNonProfitCompany(context);
+  const incomeStatementName = isNpc
+    ? "statement of income and expenditure"
+    : "statement of comprehensive income";
+  const changesStatementName = isNpc
+    ? "statement of changes in funds"
+    : "statement of changes in equity";
   const framework = value(
     context,
     "framework",
@@ -711,7 +727,7 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
       <h1 style={styles.compilationHeading}>Practitioner’s Compilation Report</h1>
 
       <p style={styles.paragraph}>
-        We have compiled the annual financial statements of {clientName}, as set out in this report, based on information provided by management. These annual financial statements comprise the statement of financial position as at {value(context, "yearEnd", "the reporting date")}, the statement of comprehensive income, statement of changes in equity and statement of cash flows for the year then ended, and the notes to the annual financial statements, including a summary of significant accounting policies and other explanatory information.
+        We have compiled the annual financial statements of {clientName}, as set out in this report, based on information provided by management. These annual financial statements comprise the statement of financial position as at {value(context, "yearEnd", "the reporting date")}, the {incomeStatementName}, {changesStatementName} and statement of cash flows for the year then ended, and the notes to the annual financial statements, including a summary of significant accounting policies and other explanatory information.
       </p>
 
       <p style={styles.paragraph}>
