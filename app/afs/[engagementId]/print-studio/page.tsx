@@ -1912,13 +1912,13 @@ const clientLogoUrl = cleanString(
     );
 
   const framework =
-    getSetupValue(clientSetup, [
-      "financial_reporting_framework",
-      "reporting_framework",
-      "accounting_framework",
-      "framework",
-      "basis_of_preparation",
-    ]) || "the applicable financial reporting framework";
+  getSetupValue(clientSetup, [
+    "basis_of_preparation",
+    "financial_reporting_framework",
+    "reporting_framework",
+    "accounting_framework",
+    "framework",
+  ]) || "IFRS for SMEs";
 
   const approvalDate =
     getSetupValue(clientSetup, [
