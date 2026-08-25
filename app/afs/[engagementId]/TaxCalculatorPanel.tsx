@@ -378,6 +378,17 @@ export default function TaxCalculatorPanel({
     setRecognisedDta(String(row.deferred_tax_asset_recognised || 0));
   }
 
+  function notifyTaxSignoffRefresh() {
+    window.dispatchEvent(
+      new CustomEvent("afs-signoff-refresh", {
+        detail: {
+          engagementId,
+          sectionKey: "tax-calculator",
+        },
+      }),
+    );
+  }
+
   async function saveTax() {
     setSaving(true);
     setMessage("");
@@ -416,6 +427,7 @@ export default function TaxCalculatorPanel({
 
       if (res.ok) {
         setMessage("Tax calculation saved.");
+        notifyTaxSignoffRefresh();
       } else {
         setMessage(data.error || "Tax calculation failed.");
       }
@@ -430,7 +442,7 @@ export default function TaxCalculatorPanel({
     <div style={styles.wrapper}>
       <div style={styles.headerRow}>
         <div>
-          <p style={styles.kicker}>TAX WORKPAPER</p>
+          <p style={styles.kicker}>Tax workpaper</p>
           <h2 style={styles.title}>Current tax computation</h2>
           <p style={styles.subtitle}>
             Reconcile accounting profit to taxable income and calculate normal
@@ -749,9 +761,9 @@ const styles: Record<string, CSSProperties> = {
   kicker: {
     margin: 0,
     color: "#2563eb",
-    fontSize: "10px",
-    fontWeight: 900,
-    letterSpacing: "0.1em",
+    fontSize: "11px",
+    fontWeight: 800,
+    letterSpacing: "0",
   },
   title: {
     margin: "2px 0",
@@ -772,11 +784,10 @@ const styles: Record<string, CSSProperties> = {
     background: "#eef3f8",
     borderBottom: "1px solid #dbe3ef",
     padding: "7px 10px",
-    fontSize: "11px",
-    fontWeight: 900,
+    fontSize: "11.5px",
+    fontWeight: 800,
     color: "#0f2742",
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
+    letterSpacing: "0",
   },
   formGrid: {
     display: "grid",
@@ -933,9 +944,8 @@ const styles: Record<string, CSSProperties> = {
     display: "block",
     padding: "7px 9px 2px",
     color: "#64748b",
-    fontSize: "10px",
-    fontWeight: 900,
-    textTransform: "uppercase",
+    fontSize: "10.5px",
+    fontWeight: 800,
   },
   resultValue: {
     display: "block",

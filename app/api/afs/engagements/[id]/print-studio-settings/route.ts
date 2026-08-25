@@ -436,6 +436,95 @@ async function loadPrintStudioSettings(supabase: any, engagementId: string) {
   return data || null;
 }
 
+function stableNormalise(value: any): any {
+  if (Array.isArray(value)) {
+    return value.map(stableNormalise);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.keys(value)
+      .sort()
+      .reduce((accumulator: Record<string, any>, key) => {
+        accumulator[key] = stableNormalise(value[key]);
+        return accumulator;
+      }, {});
+  }
+
+  return value;
+}
+
+function sameJsonValue(left: any, right: any) {
+  return (
+    JSON.stringify(stableNormalise(left ?? {})) ===
+    JSON.stringify(stableNormalise(right ?? {}))
+  );
+}
+
+function printStudioPayloadChanged(existing: AnyRow | null, payload: AnyRow) {
+  if (!existing?.id) {
+    return Object.keys(payload || {}).some((key) => payload[key] !== undefined);
+  }
+
+  const comparisons: Array<[string, string]> = [
+    ["reportOptions", "report_options"],
+    ["directorsReportTexts", "directors_report_texts"],
+    ["accountingPolicyTexts", "accounting_policy_texts"],
+    ["noteTexts", "note_texts"],
+    ["statementOverrides", "statement_overrides"],
+    ["structuredNotesState", "structured_notes_state"],
+  ];
+
+  return comparisons.some(([payloadKey, databaseKey]) => {
+    if (payload[payloadKey] === undefined) return false;
+    return !sameJsonValue(payload[payloadKey], existing?.[databaseKey] || {});
+  });
+}
+
+async function invalidateFinancialStatementsSignoff(
+  supabase: any,
+  engagementId: string,
+  reason: string,
+) {
+  const { data: existing, error: existingError } = await supabase
+    .from("afs_section_signoffs")
+    .select("id,prepared_at,reviewed_at,captain_cleared_at")
+    .eq("engagement_id", engagementId)
+    .eq("section_key", "financial-statements")
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  if (
+    !existing?.id ||
+    (!existing.prepared_at &&
+      !existing.reviewed_at &&
+      !existing.captain_cleared_at)
+  ) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+
+  const { error: reopenError } = await supabase
+    .from("afs_section_signoffs")
+    .update({
+      prepared_by: null,
+      prepared_at: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      captain_cleared_by: null,
+      captain_cleared_at: null,
+      reopened_at: now,
+      reopen_reason: reason,
+      updated_at: now,
+    })
+    .eq("id", existing.id);
+
+  if (reopenError) throw reopenError;
+
+  return true;
+}
+
 async function loadFirmSettings(supabase: any, engagement: AnyRow | null) {
   const ownerUserId = firstFilled(engagement, [
     "owner_user_id",
@@ -524,6 +613,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const supabase = getSupabaseAdmin();
     const engagement = await loadEngagement(supabase, id);
     const existing = await loadPrintStudioSettings(supabase, id);
+    const materiallyChanged = printStudioPayloadChanged(existing, payload);
     const now = new Date().toISOString();
 
     let savedRow: AnyRow | null = null;
@@ -602,11 +692,20 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const settings = cleanSettingsRow(savedRow);
     const firmSettings = await cleanFirmSettings(supabase, firmSettingsRow);
 
+    const signoffInvalidated = materiallyChanged
+      ? await invalidateFinancialStatementsSignoff(
+          supabase,
+          id,
+          "Financial Statements changed after sign-off: Print Studio settings were updated.",
+        )
+      : false;
+
     return NextResponse.json({
       success: true,
       ...settings,
       firmSettings,
       firm_settings: firmSettings,
+      signoffInvalidated,
     });
   } catch (error: any) {
     return NextResponse.json(

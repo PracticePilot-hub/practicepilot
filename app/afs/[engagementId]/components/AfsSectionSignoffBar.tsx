@@ -39,9 +39,9 @@ export default function AfsSectionSignoffBar({
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
-  async function load() {
+  async function load(silent = false) {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const response = await fetch(
         `/api/afs/engagements/${engagementId}/section-signoffs`,
         {
@@ -64,12 +64,50 @@ export default function AfsSectionSignoffBar({
     } catch (error: any) {
       setMessage(error?.message || "Could not load sign-offs.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
   useEffect(() => {
     void load();
+  }, [engagementId, sectionKey]);
+
+  useEffect(() => {
+    function handleSignoffRefresh(event: Event) {
+      const detail = (event as CustomEvent<{
+        engagementId?: string;
+        sectionKey?: string;
+      }>).detail;
+
+      if (!detail) return;
+      if (detail.engagementId && detail.engagementId !== engagementId) return;
+      if (detail.sectionKey && detail.sectionKey !== sectionKey) return;
+
+      void load(true);
+    }
+
+    window.addEventListener("afs-signoff-refresh", handleSignoffRefresh);
+
+    return () => {
+      window.removeEventListener("afs-signoff-refresh", handleSignoffRefresh);
+    };
+  }, [engagementId, sectionKey]);
+
+  useEffect(() => {
+    if (sectionKey !== "financial-statements") return;
+
+    const refreshKey = `afs-signoff-refresh:${engagementId}:financial-statements`;
+
+    function handleFinancialStatementsStorage(event: StorageEvent) {
+      if (event.key !== refreshKey) return;
+      void load(true);
+    }
+
+    window.addEventListener("storage", handleFinancialStatementsStorage);
+
+    return () => {
+      window.removeEventListener("storage", handleFinancialStatementsStorage);
+    };
   }, [engagementId, sectionKey]);
 
   const levels = Number(workflow?.workflow_levels || 0);
@@ -145,7 +183,7 @@ export default function AfsSectionSignoffBar({
   return (
     <div style={{ ...styles.bar, ...(complete ? styles.barComplete : {}) }}>
       <div style={styles.left}>
-        <span style={styles.sectionLabel}>SECTION SIGN-OFF</span>
+        <span style={styles.sectionLabel}>Section sign-off</span>
         <strong style={styles.title}>{sectionTitle}</strong>
       </div>
 
@@ -276,9 +314,9 @@ const styles: Record<string, CSSProperties> = {
   },
   sectionLabel: {
     color: "#2563eb",
-    fontSize: 8.5,
-    fontWeight: 900,
-    letterSpacing: "0.07em",
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: "0",
   },
   title: {
     fontSize: 10.5,
@@ -297,10 +335,9 @@ const styles: Record<string, CSSProperties> = {
   },
   stepLabel: {
     color: "#64748b",
-    fontSize: 8.5,
-    fontWeight: 900,
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: "0",
   },
   done: {
     color: "#166534",

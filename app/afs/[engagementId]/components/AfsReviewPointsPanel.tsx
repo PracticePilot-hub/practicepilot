@@ -184,7 +184,7 @@ export default function AfsReviewPointsPanel({
     <section style={styles.panel}>
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <span style={styles.kicker}>REVIEW POINTS</span>
+          <span style={styles.kicker}>Review points</span>
           <strong style={styles.title}>{sectionTitle}</strong>
           <span style={styles.counts}>
             {openCount} open · {resolvedCount} resolved · {clearedCount} cleared
@@ -369,9 +369,9 @@ const styles: Record<string, CSSProperties> = {
   },
   kicker: {
     color: "#2563eb",
-    fontSize: 8.5,
-    fontWeight: 900,
-    letterSpacing: "0.07em",
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: "0",
   },
   title: {
     color: "#0f172a",

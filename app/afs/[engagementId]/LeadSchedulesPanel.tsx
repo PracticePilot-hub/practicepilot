@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 import {
   getLeadScheduleNumber,
   getLeadSchedulePlainTitle,
   type LeadScheduleKey,
 } from "./afsLeadScheduleCatalog";
+import AfsSectionSignoffBar from "./components/AfsSectionSignoffBar";
 
 type TrialBalanceLine = {
   id?: string;
@@ -70,16 +72,15 @@ type WorkingPaper = {
 type ReviewPoint = {
   id: string;
   engagement_id: string;
-  source_area: string | null;
-  source_id: string | null;
+  section_key: string;
   title: string | null;
   detail: string | null;
-  priority: string | null;
-  assigned_to: string | null;
   raised_by: string | null;
   raised_at: string | null;
-  status: string | null;
-  response: string | null;
+  status: "open" | "resolved" | "cleared" | string;
+  resolved_by?: string | null;
+  resolved_at?: string | null;
+  resolution_note?: string | null;
   cleared_by: string | null;
   cleared_at: string | null;
 };
@@ -95,6 +96,14 @@ type LeadSchedulesPanelProps = {
   activeLeadSubPage: LeadSubPageKey;
 };
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+const supabase =
+  supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey)
+    : null;
+
 const CASH_KEY = "cash" as LeadScheduleKey;
 
 const tickmarkOptions = [
@@ -104,7 +113,6 @@ const tickmarkOptions = [
   { code: "GL", label: "Agreed to general ledger" },
   { code: "PY", label: "Agreed to prior year" },
   { code: "SD", label: "Supporting document inspected" },
-  { code: "NA", label: "Not applicable" },
 ];
 
 export default function LeadSchedulesPanel({
@@ -115,6 +123,13 @@ export default function LeadSchedulesPanel({
   const params = useParams();
   const engagementId = String(params?.engagementId || "");
   const selectedSchedule = activeLeadSchedule;
+
+  async function authHeaders(): Promise<Record<string, string>> {
+    if (!supabase) return {};
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token || "";
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
 
   const [annotations, setAnnotations] = useState<LeadScheduleAnnotation[]>([]);
   const [loadingAnnotations, setLoadingAnnotations] = useState(false);
@@ -143,17 +158,26 @@ const [savingLinkedReviewNote, setSavingLinkedReviewNote] = useState(false);
 
   const [selectedLine, setSelectedLine] = useState<TrialBalanceLine | null>(null);
   const [refInput, setRefInput] = useState("");
-  const [tickInput, setTickInput] = useState("");
+  const [tickInputs, setTickInputs] = useState<string[]>([]);
   const [noteInput, setNoteInput] = useState("");
   const [savingAnnotation, setSavingAnnotation] = useState(false);
 
   function openAnnotationPopup(line: TrialBalanceLine) {
-    const existing = getAnnotationForLine(annotations, line);
+    const existing = getAnnotationsForLine(annotations, line);
+    const primary = existing[0] || null;
 
     setSelectedLine(line);
-    setRefInput(existing?.reference_code || "");
-    setTickInput(existing?.tickmark_code || "");
-    setNoteInput(existing?.annotation_note || "");
+    setRefInput(primary?.reference_code || "");
+    setTickInputs(
+      Array.from(
+        new Set(
+          existing
+            .map((annotation) => String(annotation.tickmark_code || "").trim())
+            .filter(Boolean),
+        ),
+      ),
+    );
+    setNoteInput(primary?.annotation_note || "");
   }
 
   function closeAnnotationPopup() {
@@ -161,7 +185,7 @@ const [savingLinkedReviewNote, setSavingLinkedReviewNote] = useState(false);
 
     setSelectedLine(null);
     setRefInput("");
-    setTickInput("");
+    setTickInputs([]);
     setNoteInput("");
   }
 
@@ -176,65 +200,144 @@ const [savingLinkedReviewNote, setSavingLinkedReviewNote] = useState(false);
   async function saveAnnotation() {
     if (!engagementId || !selectedSchedule || !selectedLine?.id) return;
 
-    const existing = getAnnotationForLine(annotations, selectedLine);
-    const selectedTickmark = tickmarkOptions.find(
-      (option) => option.code === tickInput
+    const existing = getAnnotationsForLine(annotations, selectedLine);
+    const existingByTick = new Map(
+      existing.map((annotation) => [
+        String(annotation.tickmark_code || "").trim(),
+        annotation,
+      ]),
+    );
+
+    const selectedTicks = Array.from(
+      new Set(
+        tickInputs
+          .map((value) => String(value || "").trim())
+          .filter(Boolean),
+      ),
     );
 
     try {
       setSavingAnnotation(true);
       setAnnotationError("");
 
-      const payload = {
-        id: existing?.id,
-        trialBalanceLineId: selectedLine.id,
-        trial_balance_line_id: selectedLine.id,
-        scheduleKey: selectedSchedule,
-        schedule_key: selectedSchedule,
-        referenceCode: refInput.trim(),
-        reference_code: refInput.trim(),
-        tickmarkCode: tickInput.trim(),
-        tickmark_code: tickInput.trim(),
-        tickmarkLabel: selectedTickmark?.label || "",
-        tickmark_label: selectedTickmark?.label || "",
-        annotationNote: noteInput.trim(),
-        annotation_note: noteInput.trim(),
-      };
+      const savedAnnotations: LeadScheduleAnnotation[] = [];
 
-      const response = await fetch(
-        `/api/afs/engagements/${engagementId}/lead-schedule-annotations`,
-        {
-          method: existing ? "PATCH" : "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+      for (const tickCode of selectedTicks) {
+        const existingTick = existingByTick.get(tickCode) || null;
+        const selectedTickmark = tickmarkOptions.find(
+          (option) => option.code === tickCode,
+        );
+
+        const payload = {
+          id: existingTick?.id,
+          trialBalanceLineId: selectedLine.id,
+          trial_balance_line_id: selectedLine.id,
+          scheduleKey: selectedSchedule,
+          schedule_key: selectedSchedule,
+          referenceCode: refInput.trim(),
+          reference_code: refInput.trim(),
+          tickmarkCode: tickCode,
+          tickmark_code: tickCode,
+          tickmarkLabel: selectedTickmark?.label || "",
+          tickmark_label: selectedTickmark?.label || "",
+          annotationNote: noteInput.trim(),
+          annotation_note: noteInput.trim(),
+        };
+
+        const response = await fetch(
+          `/api/afs/engagements/${engagementId}/lead-schedule-annotations`,
+          {
+            method: existingTick ? "PATCH" : "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result?.error || "Failed to save annotation.");
         }
-      );
 
-      const result = await response.json();
+        const savedAnnotation =
+          result.annotation || result.record || result.data || result.annotations?.[0];
 
-      if (!response.ok) {
-        throw new Error(result?.error || "Failed to save annotation.");
+        if (!savedAnnotation) {
+          throw new Error("Annotation saved, but the saved record was not returned.");
+        }
+
+        savedAnnotations.push(savedAnnotation);
       }
 
-      const savedAnnotation =
-        result.annotation || result.record || result.data || result.annotations?.[0];
+      const removedAnnotations = existing.filter((annotation) => {
+        const code = String(annotation.tickmark_code || "").trim();
+        return code && !selectedTicks.includes(code);
+      });
 
-      if (!savedAnnotation) {
-        throw new Error("Annotation saved, but the saved record was not returned.");
+      for (const annotation of removedAnnotations) {
+        const response = await fetch(
+          `/api/afs/engagements/${engagementId}/lead-schedule-annotations?id=${encodeURIComponent(
+            annotation.id,
+          )}`,
+          { method: "DELETE" },
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result?.error || "Failed to remove tickmark.");
+        }
+      }
+
+      if (selectedTicks.length === 0 && (refInput.trim() || noteInput.trim())) {
+        const plainExisting = existing.find(
+          (annotation) => !String(annotation.tickmark_code || "").trim(),
+        );
+
+        const payload = {
+          id: plainExisting?.id,
+          trialBalanceLineId: selectedLine.id,
+          trial_balance_line_id: selectedLine.id,
+          scheduleKey: selectedSchedule,
+          schedule_key: selectedSchedule,
+          referenceCode: refInput.trim(),
+          reference_code: refInput.trim(),
+          tickmarkCode: "",
+          tickmark_code: "",
+          tickmarkLabel: "",
+          tickmark_label: "",
+          annotationNote: noteInput.trim(),
+          annotation_note: noteInput.trim(),
+        };
+
+        const response = await fetch(
+          `/api/afs/engagements/${engagementId}/lead-schedule-annotations`,
+          {
+            method: plainExisting ? "PATCH" : "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result?.error || "Failed to save annotation.");
+        }
+
+        const savedAnnotation =
+          result.annotation || result.record || result.data || result.annotations?.[0];
+
+        if (savedAnnotation) savedAnnotations.push(savedAnnotation);
       }
 
       setAnnotations((current) => {
-        const exists = current.some(
-          (annotation) => annotation.id === savedAnnotation.id
+        const lineId = selectedLine.id;
+        const untouched = current.filter(
+          (annotation) => annotation.trial_balance_line_id !== lineId,
         );
 
-        if (exists) {
-          return current.map((annotation) =>
-            annotation.id === savedAnnotation.id ? savedAnnotation : annotation
-          );
-        }
-
-        return [...current, savedAnnotation];
+        return [...untouched, ...savedAnnotations];
       });
 
       closeAnnotationPopup();
@@ -356,7 +459,7 @@ const [savingLinkedReviewNote, setSavingLinkedReviewNote] = useState(false);
       setOpeningWorkingPaperId("");
     }
   }
-function getReviewSourceArea(scheduleKey: LeadScheduleKey) {
+function getReviewSectionKey(scheduleKey: LeadScheduleKey) {
   return `lead-schedule:${String(scheduleKey)}`;
 }
 
@@ -367,13 +470,16 @@ async function loadReviewPoints(scheduleKey: LeadScheduleKey) {
     setLoadingReviewPoints(true);
     setReviewPointError("");
 
-    const sourceArea = getReviewSourceArea(scheduleKey);
+    const sectionKey = getReviewSectionKey(scheduleKey);
 
     const response = await fetch(
-      `/api/afs/engagements/${engagementId}/review-points?sourceArea=${encodeURIComponent(
-        sourceArea
+      `/api/afs/engagements/${engagementId}/review-points?section=${encodeURIComponent(
+        sectionKey
       )}`,
-      { cache: "no-store" }
+      {
+        cache: "no-store",
+        headers: await authHeaders(),
+      },
     );
 
     const result = await response.json();
@@ -382,7 +488,7 @@ async function loadReviewPoints(scheduleKey: LeadScheduleKey) {
       throw new Error(result?.error || "Failed to load review points.");
     }
 
-    setReviewPoints(result.reviewPoints || []);
+    setReviewPoints(result.points || []);
   } catch (error: any) {
     setReviewPointError(error?.message || "Failed to load review points.");
   } finally {
@@ -406,14 +512,16 @@ async function saveReviewPoint() {
       `/api/afs/engagements/${engagementId}/review-points`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(await authHeaders()),
+        },
         body: JSON.stringify({
-          sourceArea: getReviewSourceArea(selectedSchedule),
+          sectionKey: getReviewSectionKey(selectedSchedule),
           title: reviewTitle.trim() || "Review point",
           detail: reviewDetail.trim(),
-          priority: "normal",
         }),
-      }
+      },
     );
 
     const result = await response.json();
@@ -422,7 +530,7 @@ async function saveReviewPoint() {
       throw new Error(result?.error || "Failed to save review point.");
     }
 
-    setReviewPoints((current) => [result.reviewPoint, ...current]);
+    setReviewPoints((current) => [result.point, ...current]);
     setReviewTitle("");
     setReviewDetail("");
   } catch (error: any) {
@@ -432,8 +540,20 @@ async function saveReviewPoint() {
   }
 }
 
-async function updateReviewPointStatus(point: ReviewPoint, status: string) {
+async function updateReviewPointStatus(
+  point: ReviewPoint,
+  action: "resolve" | "clear" | "reopen",
+) {
   if (!engagementId) return;
+
+  let resolutionNote = "";
+
+  if (action === "resolve") {
+    resolutionNote =
+      window.prompt("How was this review point resolved?")?.trim() || "";
+
+    if (!resolutionNote) return;
+  }
 
   try {
     setReviewPointError("");
@@ -442,13 +562,16 @@ async function updateReviewPointStatus(point: ReviewPoint, status: string) {
       `/api/afs/engagements/${engagementId}/review-points`,
       {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(await authHeaders()),
+        },
         body: JSON.stringify({
-          id: point.id,
-          status,
-          response: point.response || "",
+          pointId: point.id,
+          action,
+          resolutionNote,
         }),
-      }
+      },
     );
 
     const result = await response.json();
@@ -458,9 +581,7 @@ async function updateReviewPointStatus(point: ReviewPoint, status: string) {
     }
 
     setReviewPoints((current) =>
-      current.map((item) =>
-        item.id === result.reviewPoint.id ? result.reviewPoint : item
-      )
+      current.map((item) => (item.id === result.point.id ? result.point : item)),
     );
   } catch (error: any) {
     setReviewPointError(error?.message || "Failed to update review point.");
@@ -489,15 +610,16 @@ async function saveLinkedReviewNote() {
       `/api/afs/engagements/${engagementId}/review-points`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(await authHeaders()),
+        },
         body: JSON.stringify({
-          sourceArea: getReviewSourceArea(selectedSchedule),
-          sourceId: linkedReviewPaper.id,
+          sectionKey: getReviewSectionKey(selectedSchedule),
           title: getPaperTitle(linkedReviewPaper),
           detail: linkedReviewNote.trim(),
-          priority: "normal",
         }),
-      }
+      },
     );
 
     const result = await response.json();
@@ -506,7 +628,7 @@ async function saveLinkedReviewNote() {
       throw new Error(result?.error || "Failed to save review note.");
     }
 
-    setReviewPoints((current) => [result.reviewPoint, ...current]);
+    setReviewPoints((current) => [result.point, ...current]);
     setLinkedReviewPaper(null);
     setLinkedReviewNote("");
   } catch (error: any) {
@@ -557,6 +679,15 @@ async function saveLinkedReviewNote() {
   loadWorkingPapers(selectedSchedule);
 }, [engagementId, selectedSchedule, activeLeadSubPage]);
 
+  useEffect(() => {
+    if (!selectedSchedule || activeLeadSubPage !== "review-notes") {
+      return;
+    }
+
+    setReviewPoints([]);
+    void loadReviewPoints(selectedSchedule);
+  }, [engagementId, selectedSchedule, activeLeadSubPage]);
+
   const matchedLines = useMemo(() => {
     if (!selectedSchedule) return [];
 
@@ -586,6 +717,36 @@ async function saveLinkedReviewNote() {
     0
   );
   const movementTotal = currentTotal - priorTotal;
+
+  const selectedScheduleKey = selectedSchedule ? String(selectedSchedule) : "";
+
+  const hasMappedBalance = linesForTotals.some(
+    (line) =>
+      Math.abs(currentBalance(line)) >= 0.005 ||
+      Math.abs(priorBalance(line)) >= 0.005,
+  );
+
+  const hasScheduleAnnotation = selectedSchedule
+    ? annotations.some(
+        (annotation) =>
+          String(annotation.schedule_key || "") === selectedScheduleKey,
+      )
+    : false;
+
+  const hasSupportingWork = selectedSchedule
+    ? workingPapers.some(
+        (paper) =>
+          String(paper.lead_schedule_key || "") === selectedScheduleKey,
+      )
+    : false;
+
+  const isUsedLeadSchedule =
+    Boolean(selectedSchedule) &&
+    (hasMappedBalance || hasScheduleAnnotation || hasSupportingWork);
+
+  const leadScheduleSignoffKey = selectedSchedule
+    ? `lead-schedule:${selectedScheduleKey}`
+    : "";
 
   if (!selectedSchedule) {
     return (
@@ -623,6 +784,14 @@ async function saveLinkedReviewNote() {
             <span>Files: {workingPapers.length}</span>
           </div>
         </header>
+
+        {isUsedLeadSchedule ? (
+          <AfsSectionSignoffBar
+            engagementId={engagementId}
+            sectionKey={leadScheduleSignoffKey}
+            sectionTitle={fullScheduleTitle}
+          />
+        ) : null}
 
         <main style={styles.body}>
           <section style={styles.registerSection}>
@@ -786,140 +955,211 @@ async function saveLinkedReviewNote() {
   }
 
   if (activeLeadSubPage === "review-notes") {
-  return (
-    <section style={styles.wrapper}>
-      <header style={styles.headerPlain}>
-        <div>
-          <p style={styles.kicker}>Review notes</p>
-          <h3 style={styles.title}>{scheduleNumber}.002 · Review notes</h3>
-          <p style={styles.subtitle}>
-            Independent review points for {fullScheduleTitle}.
-          </p>
-        </div>
+    const openCount = reviewPoints.filter((point) => point.status === "open").length;
+    const resolvedCount = reviewPoints.filter(
+      (point) => point.status === "resolved",
+    ).length;
+    const clearedCount = reviewPoints.filter(
+      (point) => point.status === "cleared",
+    ).length;
 
-        <div style={styles.headerPlainMeta}>
-          <span>Open: {reviewPoints.filter((point) => point.status !== "Cleared").length}</span>
-          <span>Total: {reviewPoints.length}</span>
-        </div>
-      </header>
-
-      <main style={styles.body}>
-        <section style={styles.registerSection}>
-          <div style={styles.registerTitleRow}>
-            <strong>Add review note</strong>
-            <span>Reviewer query / issue / correction required</span>
+    return (
+      <section style={styles.wrapper}>
+        <header style={styles.reviewHeader}>
+          <div>
+            <h3 style={styles.reviewTitle}>
+              {scheduleNumber} · {scheduleTitle} — Review points
+            </h3>
+            <p style={styles.reviewSubtitle}>
+              Queries, corrections and review history for this lead schedule.
+            </p>
           </div>
 
-          <div style={styles.uploadLineOne}>
-            <label style={styles.flatField}>
-              Title
-              <input
-                value={reviewTitle}
-                onChange={(event) => setReviewTitle(event.target.value)}
-                placeholder="Missing bank reconciliation"
-                style={styles.flatInput}
-              />
-            </label>
-
-            <label style={styles.flatField}>
-              Review note
-              <input
-                value={reviewDetail}
-                onChange={(event) => setReviewDetail(event.target.value)}
-                placeholder="Explain the issue or review query"
-                style={styles.flatInput}
-              />
-            </label>
-
-            <button
-              type="button"
-              style={savingReviewPoint ? styles.flatButtonDisabled : styles.flatButton}
-              onClick={saveReviewPoint}
-              disabled={savingReviewPoint}
-            >
-              {savingReviewPoint ? "Saving..." : "Add"}
-            </button>
+          <div style={styles.reviewSummary}>
+            <span style={styles.reviewSummaryOpen}>{openCount} open</span>
+            <span>{resolvedCount} resolved</span>
+            <span>{clearedCount} cleared</span>
           </div>
+        </header>
 
-          {reviewPointError ? (
-            <div style={styles.inlineError}>{reviewPointError}</div>
-          ) : null}
-        </section>
+        {isUsedLeadSchedule ? (
+          <AfsSectionSignoffBar
+            engagementId={engagementId}
+            sectionKey={leadScheduleSignoffKey}
+            sectionTitle={fullScheduleTitle}
+          />
+        ) : null}
 
-        <section style={styles.registerSection}>
-          <div style={styles.registerTitleRow}>
-            <strong>Review notes register</strong>
-            <span>
-              {loadingReviewPoints ? "Loading..." : `${reviewPoints.length} note(s)`}
-            </span>
-          </div>
+        <main style={styles.reviewBody}>
+          <section style={styles.reviewAddSection}>
+            <div style={styles.reviewSectionHeading}>
+              <div>
+                <strong style={styles.reviewSectionTitle}>Add review point</strong>
+                <span style={styles.reviewSectionHelp}>
+                  Raise a query or correction against this lead schedule.
+                </span>
+              </div>
+            </div>
 
-          <div style={styles.tableScroll}>
-            <table style={styles.table}>
-              <colgroup>
-                <col style={styles.colDescription} />
-                <col style={styles.colMapping} />
-                <col style={styles.colDescription} />
-                <col style={styles.colRef} />
-                <col style={styles.colAction} />
-              </colgroup>
+            <div style={styles.reviewFormGrid}>
+              <label style={styles.reviewField}>
+                <span style={styles.reviewLabel}>Issue / query</span>
+                <input
+                  value={reviewTitle}
+                  onChange={(event) => setReviewTitle(event.target.value)}
+                  placeholder="e.g. Bank reconciliation does not agree"
+                  style={styles.reviewInput}
+                />
+              </label>
 
-              <thead>
-  <tr>
-    <th style={styles.th}>Ref</th>
-    <th style={styles.th}>Document name</th>
-    <th style={styles.th}>File name</th>
-    <th style={styles.th}>Type</th>
-    <th style={styles.th}>Note</th>
-    <th style={styles.thRight}>Uploaded</th>
-    <th style={styles.thRight}>Actions</th>
-  </tr>
-</thead>
+              <label style={styles.reviewField}>
+                <span style={styles.reviewLabel}>Details</span>
+                <input
+                  value={reviewDetail}
+                  onChange={(event) => setReviewDetail(event.target.value)}
+                  placeholder="What needs to be checked or corrected?"
+                  style={styles.reviewInput}
+                />
+              </label>
 
-              <tbody>
-                {reviewPoints.length === 0 ? (
+              <button
+                type="button"
+                style={
+                  savingReviewPoint
+                    ? styles.reviewAddButtonDisabled
+                    : styles.reviewAddButton
+                }
+                onClick={saveReviewPoint}
+                disabled={savingReviewPoint}
+              >
+                {savingReviewPoint ? "Adding..." : "Add review point"}
+              </button>
+            </div>
+
+            {reviewPointError ? (
+              <div style={styles.inlineError}>{reviewPointError}</div>
+            ) : null}
+          </section>
+
+          <section style={styles.reviewHistorySection}>
+            <div style={styles.reviewSectionHeading}>
+              <div>
+                <strong style={styles.reviewSectionTitle}>
+                  Review point history
+                </strong>
+                <span style={styles.reviewSectionHelp}>
+                  Review points remain visible after they are resolved and cleared.
+                </span>
+              </div>
+
+              <span style={styles.reviewHistoryCount}>
+                {loadingReviewPoints
+                  ? "Loading..."
+                  : `${reviewPoints.length} ${
+                      reviewPoints.length === 1 ? "point" : "points"
+                    }`}
+              </span>
+            </div>
+
+            <div style={styles.tableScroll}>
+              <table style={styles.reviewTable}>
+                <thead>
                   <tr>
-                    <td colSpan={5} style={styles.emptyCell}>
-                      No review notes raised for this lead schedule yet.
-                    </td>
+                    <th style={styles.reviewTh}>Issue</th>
+                    <th style={styles.reviewTh}>Details</th>
+                    <th style={styles.reviewTh}>Raised</th>
+                    <th style={styles.reviewTh}>Status</th>
+                    <th style={styles.reviewTh}>Resolution</th>
+                    <th style={styles.reviewThRight}>Action</th>
                   </tr>
-                ) : (
-                  reviewPoints.map((point) => (
-                    <tr key={point.id}>
-                      <td style={styles.td}>{point.title || ""}</td>
-                      <td style={styles.tdMuted}>{point.detail || ""}</td>
-                      <td style={styles.tdMuted}>{formatDate(point.raised_at)}</td>
-                      <td style={styles.tdRef}>{point.status || "Open"}</td>
-                      <td style={styles.tdRight}>
-                        {(point.status || "Open") === "Cleared" ? (
-                          <button
-                            type="button"
-                            style={styles.viewButton}
-                            onClick={() => updateReviewPointStatus(point, "Open")}
-                          >
-                            Reopen
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            style={styles.viewButton}
-                            onClick={() => updateReviewPointStatus(point, "Cleared")}
-                          >
-                            Clear
-                          </button>
-                        )}
+                </thead>
+
+                <tbody>
+                  {reviewPoints.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={styles.reviewEmptyCell}>
+                        {loadingReviewPoints
+                          ? "Loading review points..."
+                          : "No review points raised for this lead schedule."}
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </main>
-    </section>
-  );
-}
+                  ) : (
+                    reviewPoints.map((point) => (
+                      <tr key={point.id}>
+                        <td style={styles.reviewTdStrong}>
+                          {point.title || "Review point"}
+                        </td>
+                        <td style={styles.reviewTd}>
+                          {point.detail || "—"}
+                        </td>
+                        <td style={styles.reviewTdMuted}>
+                          {formatDate(point.raised_at)}
+                        </td>
+                        <td style={styles.reviewTd}>
+                          <span
+                            style={{
+                              ...styles.reviewStatus,
+                              ...(point.status === "open"
+                                ? styles.reviewStatusOpen
+                                : point.status === "resolved"
+                                  ? styles.reviewStatusResolved
+                                  : styles.reviewStatusCleared),
+                            }}
+                          >
+                            {point.status === "open"
+                              ? "Open"
+                              : point.status === "resolved"
+                                ? "Resolved"
+                                : "Cleared"}
+                          </span>
+                        </td>
+                        <td style={styles.reviewTdMuted}>
+                          {point.resolution_note || "—"}
+                        </td>
+                        <td style={styles.reviewTdRight}>
+                          {point.status === "open" ? (
+                            <button
+                              type="button"
+                              style={styles.reviewActionButton}
+                              onClick={() =>
+                                updateReviewPointStatus(point, "resolve")
+                              }
+                            >
+                              Resolve
+                            </button>
+                          ) : point.status === "resolved" ? (
+                            <button
+                              type="button"
+                              style={styles.reviewActionButton}
+                              onClick={() =>
+                                updateReviewPointStatus(point, "clear")
+                              }
+                            >
+                              Clear
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              style={styles.reviewActionButton}
+                              onClick={() =>
+                                updateReviewPointStatus(point, "reopen")
+                              }
+                            >
+                              Reopen
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </main>
+      </section>
+    );
+  }
 
   if (selectedSchedule === CASH_KEY) {
     const cashAndBank = cashLines.filter((line) => currentBalance(line) >= 0);
@@ -953,6 +1193,14 @@ async function saveLinkedReviewNote() {
             <Stat label="Movement" value={formatMoney(netCash - priorTotal)} />
           </div>
         </header>
+
+        {isUsedLeadSchedule ? (
+          <AfsSectionSignoffBar
+            engagementId={engagementId}
+            sectionKey={leadScheduleSignoffKey}
+            sectionTitle={fullScheduleTitle}
+          />
+        ) : null}
 
         <main style={styles.body}>
           <ScheduleSection
@@ -991,11 +1239,11 @@ async function saveLinkedReviewNote() {
           <AnnotationPopup
             line={selectedLine}
             refInput={refInput}
-            tickInput={tickInput}
+            tickInputs={tickInputs}
             noteInput={noteInput}
             saving={savingAnnotation}
             onRefChange={setRefInput}
-            onTickChange={setTickInput}
+            onTickChange={setTickInputs}
             onNoteChange={setNoteInput}
             onClose={closeAnnotationPopup}
             onSave={saveAnnotation}
@@ -1023,6 +1271,14 @@ async function saveLinkedReviewNote() {
           <Stat label="Movement" value={formatMoney(movementTotal)} />
         </div>
       </header>
+
+      {isUsedLeadSchedule ? (
+        <AfsSectionSignoffBar
+          engagementId={engagementId}
+          sectionKey={leadScheduleSignoffKey}
+          sectionTitle={fullScheduleTitle}
+        />
+      ) : null}
 
       <main style={styles.body}>
         <ScheduleSection
@@ -1052,11 +1308,11 @@ async function saveLinkedReviewNote() {
         <AnnotationPopup
           line={selectedLine}
           refInput={refInput}
-          tickInput={tickInput}
+          tickInputs={tickInputs}
           noteInput={noteInput}
           saving={savingAnnotation}
           onRefChange={setRefInput}
-          onTickChange={setTickInput}
+          onTickChange={setTickInputs}
           onNoteChange={setNoteInput}
           onClose={closeAnnotationPopup}
           onSave={saveAnnotation}
@@ -1125,7 +1381,15 @@ function ScheduleSection({
               </tr>
             ) : (
               lines.map((line) => {
-                const annotation = getAnnotationForLine(annotations, line);
+                const lineAnnotations = getAnnotationsForLine(annotations, line);
+                const annotation = lineAnnotations[0] || null;
+                const tickCodes = Array.from(
+                  new Set(
+                    lineAnnotations
+                      .map((item) => String(item.tickmark_code || "").trim())
+                      .filter(Boolean),
+                  ),
+                );
                 const current = currentBalance(line);
                 const prior = priorBalance(line);
 
@@ -1140,10 +1404,14 @@ function ScheduleSection({
                     <td style={styles.tdMuted}>{formatMappingLabel(line)}</td>
                     <td style={styles.tdRef}>{annotation?.reference_code || ""}</td>
                     <td style={styles.tdTick}>
-                      {annotation?.tickmark_code ? (
-                        <span style={styles.tickmark}>
-                          {annotation.tickmark_code}
-                        </span>
+                      {tickCodes.length > 0 ? (
+                        <div style={styles.tickmarkList}>
+                          {tickCodes.map((code) => (
+                            <span key={code} style={styles.tickmark}>
+                              {code}
+                            </span>
+                          ))}
+                        </div>
                       ) : (
                         ""
                       )}
@@ -1166,7 +1434,7 @@ function ScheduleSection({
 function AnnotationPopup({
   line,
   refInput,
-  tickInput,
+  tickInputs,
   noteInput,
   saving,
   onRefChange,
@@ -1177,11 +1445,11 @@ function AnnotationPopup({
 }: {
   line: TrialBalanceLine;
   refInput: string;
-  tickInput: string;
+  tickInputs: string[];
   noteInput: string;
   saving: boolean;
   onRefChange: (value: string) => void;
-  onTickChange: (value: string) => void;
+  onTickChange: (value: string[]) => void;
   onNoteChange: (value: string) => void;
   onClose: () => void;
   onSave: () => void;
@@ -1213,20 +1481,38 @@ function AnnotationPopup({
             />
           </label>
 
-          <label style={styles.fieldLabel}>
-            Tickmark
-            <select
-              value={tickInput}
-              onChange={(event) => onTickChange(event.target.value)}
-              style={styles.input}
-            >
-              {tickmarkOptions.map((option) => (
-                <option key={option.code || "blank"} value={option.code}>
-                  {option.code ? `${option.code} · ${option.label}` : option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div style={styles.fieldLabel}>
+            <span>Tickmarks</span>
+            <div style={styles.tickPicker}>
+              {tickmarkOptions
+                .filter((option) => option.code)
+                .map((option) => {
+                  const selected = tickInputs.includes(option.code);
+
+                  return (
+                    <button
+                      key={option.code}
+                      type="button"
+                      title={option.label}
+                      style={{
+                        ...styles.tickChoice,
+                        ...(selected ? styles.tickChoiceSelected : {}),
+                      }}
+                      onClick={() =>
+                        onTickChange(
+                          selected
+                            ? tickInputs.filter((code) => code !== option.code)
+                            : [...tickInputs, option.code],
+                        )
+                      }
+                    >
+                      <strong>{option.code}</strong>
+                      <span>{option.label}</span>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
 
           <label style={styles.fieldLabelWide}>
             Note
@@ -1285,11 +1571,24 @@ function ReconLine({
 
 function matchesLeadSchedule(line: TrialBalanceLine, key: LeadScheduleKey) {
   const expectedKey = String(key);
-  const expectedNumber = normaliseCode(getLeadScheduleNumber(key));
+  const storedKey = String(line.lead_schedule_key || "").trim();
 
-  if (line.lead_schedule_key && String(line.lead_schedule_key) === expectedKey) {
-    return true;
+  /*
+    Once Mapping has assigned a lead_schedule_key, that key is authoritative.
+    Do not also match the same TB line into broader parent schedules by number.
+    This prevents, for example, mapping 550.40 with key "borrowings" from
+    appearing in both 550 Financial liabilities and 551 Borrowings.
+  */
+  if (storedKey) {
+    return storedKey === expectedKey;
   }
+
+  /*
+    Legacy fallback only for older rows that do not yet have a stored key.
+    Prefer an explicitly stored lead schedule number; mapping-code prefix
+    matching is the final compatibility fallback.
+  */
+  const expectedNumber = normaliseCode(getLeadScheduleNumber(key));
 
   const leadScheduleNumber = normaliseCode(line.lead_schedule_number);
   if (leadScheduleNumber && expectedNumber) {
@@ -1310,15 +1609,20 @@ function normaliseCode(value: string | null | undefined) {
   return String(value || "").trim();
 }
 
+function getAnnotationsForLine(
+  annotations: LeadScheduleAnnotation[],
+  line: TrialBalanceLine,
+) {
+  return annotations.filter(
+    (annotation) => annotation.trial_balance_line_id === line.id,
+  );
+}
+
 function getAnnotationForLine(
   annotations: LeadScheduleAnnotation[],
-  line: TrialBalanceLine
+  line: TrialBalanceLine,
 ) {
-  return (
-    annotations.find(
-      (annotation) => annotation.trial_balance_line_id === line.id
-    ) || null
-  );
+  return getAnnotationsForLine(annotations, line)[0] || null;
 }
 
 function formatMappingLabel(line: TrialBalanceLine) {
@@ -1404,6 +1708,220 @@ function getPaperTitle(paper: WorkingPaper) {
 }
 
 const styles: Record<string, CSSProperties> = {
+  reviewHeader: {
+    background: "#ffffff",
+    border: "1px solid #cbd5e1",
+    borderLeft: "4px solid #2563eb",
+    padding: "14px 16px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "18px",
+  },
+  reviewTitle: {
+    margin: 0,
+    color: "#0f172a",
+    fontSize: "17px",
+    lineHeight: 1.2,
+    fontWeight: 900,
+  },
+  reviewSubtitle: {
+    margin: "4px 0 0",
+    color: "#64748b",
+    fontSize: "10.5px",
+    lineHeight: 1.35,
+  },
+  reviewSummary: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    color: "#64748b",
+    fontSize: "9.5px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+  reviewSummaryOpen: {
+    color: "#c2410c",
+    fontWeight: 900,
+  },
+  reviewBody: {
+    display: "grid",
+    gap: "10px",
+    paddingTop: "10px",
+  },
+  reviewAddSection: {
+    background: "#ffffff",
+    border: "1px solid #d7dee8",
+  },
+  reviewHistorySection: {
+    background: "#ffffff",
+    border: "1px solid #d7dee8",
+  },
+  reviewSectionHeading: {
+    minHeight: "42px",
+    padding: "9px 12px",
+    borderBottom: "1px solid #d7dee8",
+    background: "#f8fbff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "14px",
+  },
+  reviewSectionTitle: {
+    display: "block",
+    color: "#0f172a",
+    fontSize: "11.5px",
+    fontWeight: 900,
+  },
+  reviewSectionHelp: {
+    display: "block",
+    marginTop: "2px",
+    color: "#64748b",
+    fontSize: "9.5px",
+  },
+  reviewHistoryCount: {
+    color: "#475569",
+    fontSize: "9.5px",
+    fontWeight: 850,
+    whiteSpace: "nowrap",
+  },
+  reviewFormGrid: {
+    display: "grid",
+    gridTemplateColumns: "minmax(180px, 0.8fr) minmax(280px, 1.6fr) auto",
+    gap: "8px",
+    alignItems: "end",
+    padding: "10px 12px 12px",
+  },
+  reviewField: {
+    display: "grid",
+    gap: "4px",
+  },
+  reviewLabel: {
+    color: "#334155",
+    fontSize: "9.5px",
+    fontWeight: 850,
+  },
+  reviewInput: {
+    width: "100%",
+    height: "32px",
+    border: "1px solid #b8c5d6",
+    background: "#ffffff",
+    color: "#0f172a",
+    padding: "5px 8px",
+    fontSize: "10.5px",
+    boxSizing: "border-box",
+    outline: "none",
+  },
+  reviewAddButton: {
+    height: "32px",
+    border: "1px solid #1d4ed8",
+    background: "#2563eb",
+    color: "#ffffff",
+    padding: "0 13px",
+    fontSize: "10px",
+    fontWeight: 900,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  reviewAddButtonDisabled: {
+    height: "32px",
+    border: "1px solid #cbd5e1",
+    background: "#e2e8f0",
+    color: "#94a3b8",
+    padding: "0 13px",
+    fontSize: "10px",
+    fontWeight: 900,
+    cursor: "not-allowed",
+    whiteSpace: "nowrap",
+  },
+  reviewTable: {
+    width: "100%",
+    borderCollapse: "collapse",
+    tableLayout: "fixed",
+  },
+  reviewTh: {
+    padding: "7px 9px",
+    borderBottom: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#64748b",
+    fontSize: "9px",
+    fontWeight: 850,
+    textAlign: "left",
+  },
+  reviewThRight: {
+    padding: "7px 9px",
+    borderBottom: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#64748b",
+    fontSize: "9px",
+    fontWeight: 850,
+    textAlign: "right",
+  },
+  reviewTd: {
+    padding: "8px 9px",
+    borderBottom: "1px solid #e2e8f0",
+    color: "#334155",
+    fontSize: "10px",
+    verticalAlign: "top",
+  },
+  reviewTdStrong: {
+    padding: "8px 9px",
+    borderBottom: "1px solid #e2e8f0",
+    color: "#0f172a",
+    fontSize: "10px",
+    fontWeight: 850,
+    verticalAlign: "top",
+  },
+  reviewTdMuted: {
+    padding: "8px 9px",
+    borderBottom: "1px solid #e2e8f0",
+    color: "#64748b",
+    fontSize: "9.5px",
+    verticalAlign: "top",
+  },
+  reviewTdRight: {
+    padding: "8px 9px",
+    borderBottom: "1px solid #e2e8f0",
+    textAlign: "right",
+    verticalAlign: "top",
+  },
+  reviewEmptyCell: {
+    padding: "18px 12px",
+    color: "#94a3b8",
+    fontSize: "10px",
+    textAlign: "center",
+  },
+  reviewStatus: {
+    display: "inline-block",
+    padding: "3px 6px",
+    border: "1px solid",
+    fontSize: "8.5px",
+    fontWeight: 900,
+  },
+  reviewStatusOpen: {
+    borderColor: "#fdba74",
+    background: "#fff7ed",
+    color: "#c2410c",
+  },
+  reviewStatusResolved: {
+    borderColor: "#93c5fd",
+    background: "#eff6ff",
+    color: "#1d4ed8",
+  },
+  reviewStatusCleared: {
+    borderColor: "#86efac",
+    background: "#f0fdf4",
+    color: "#166534",
+  },
+  reviewActionButton: {
+    border: "1px solid #94a3b8",
+    background: "#ffffff",
+    color: "#0f172a",
+    padding: "4px 8px",
+    fontSize: "9px",
+    fontWeight: 850,
+    cursor: "pointer",
+  },
   wrapper: {
     background: "#ffffff",
     border: "1px solid #dbe3ef",
@@ -1722,6 +2240,40 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "10.5px",
     fontWeight: 850,
     cursor: "pointer",
+  },
+  tickmarkList: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "4px",
+    alignItems: "center",
+  },
+  tickPicker: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "5px",
+    marginTop: "2px",
+    alignItems: "center",
+  },
+  tickChoice: {
+    minHeight: "27px",
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#475569",
+    padding: "4px 7px",
+    display: "inline-flex",
+    gap: "5px",
+    alignItems: "center",
+    textAlign: "left",
+    cursor: "pointer",
+    fontSize: "9px",
+    lineHeight: 1.05,
+    whiteSpace: "nowrap",
+  },
+  tickChoiceSelected: {
+    borderColor: "#2563eb",
+    background: "#eff6ff",
+    color: "#1d4ed8",
+    boxShadow: "inset 0 -2px 0 #2563eb",
   },
   tickmark: {
     display: "inline-block",

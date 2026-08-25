@@ -25,6 +25,51 @@ function normaliseAccountCode(value: unknown) {
   return clean(value).replace(/\s+/g, "").toUpperCase();
 }
 
+async function invalidateMappingSignoff(
+  supabase: ReturnType<typeof getSupabaseServer>,
+  engagementId: string,
+  reason: string,
+) {
+  const { data: existing, error: existingError } = await supabase
+    .from("afs_section_signoffs")
+    .select("id,prepared_at,reviewed_at,captain_cleared_at")
+    .eq("engagement_id", engagementId)
+    .eq("section_key", "mapping")
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  if (
+    !existing?.id ||
+    (!existing.prepared_at &&
+      !existing.reviewed_at &&
+      !existing.captain_cleared_at)
+  ) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+
+  const { error: reopenError } = await supabase
+    .from("afs_section_signoffs")
+    .update({
+      prepared_by: null,
+      prepared_at: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      captain_cleared_by: null,
+      captain_cleared_at: null,
+      reopened_at: now,
+      reopen_reason: reason,
+      updated_at: now,
+    })
+    .eq("id", existing.id);
+
+  if (reopenError) throw reopenError;
+
+  return true;
+}
+
 function buildFullMappingPayload(body: any) {
   const mappingCode = nullable(
     body.mapping_code ??
@@ -232,28 +277,63 @@ export async function PATCH(req: NextRequest, context: any) {
     const body = await req.json();
     const supabase = getSupabaseServer();
 
-    const lineId = clean(body.line_id ?? body.lineId ?? body.trial_balance_line_id ?? body.trialBalanceLineId ?? body.id);
-    const accountCode = normaliseAccountCode(body.account_code ?? body.accountCode ?? body.account);
+    const lineId = clean(
+      body.line_id ??
+        body.lineId ??
+        body.trial_balance_line_id ??
+        body.trialBalanceLineId ??
+        body.id
+    );
+    const accountCode = normaliseAccountCode(
+      body.account_code ?? body.accountCode ?? body.account
+    );
     const payload = buildFullMappingPayload(body);
 
     if (!lineId && !accountCode) {
-      return NextResponse.json({ error: "Line ID or account code is required." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Line ID or account code is required." },
+        { status: 400 }
+      );
     }
 
     if (!payload.mapping_code && !payload.lead_schedule_number) {
-      return NextResponse.json({ error: "Mapping code is required." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Mapping code is required." },
+        { status: 400 }
+      );
     }
 
-    const updated = await updateLine(supabase, engagementId, lineId, accountCode, payload);
+    const updated = await updateLine(
+      supabase,
+      engagementId,
+      lineId,
+      accountCode,
+      payload
+    );
 
     if (!updated || updated.length === 0) {
       return NextResponse.json(
-        { error: "No matching trial balance line found to map.", lineId, accountCode },
+        {
+          error: "No matching trial balance line found to map.",
+          lineId,
+          accountCode,
+        },
         { status: 404 }
       );
     }
 
-    return NextResponse.json({ trialBalanceLine: updated[0], line: updated[0], lines: updated });
+    const signoffInvalidated = await invalidateMappingSignoff(
+      supabase,
+      engagementId,
+      `Mapping changed after sign-off: ${accountCode || lineId} mapped or remapped.`,
+    );
+
+    return NextResponse.json({
+      trialBalanceLine: updated[0],
+      line: updated[0],
+      lines: updated,
+      signoffInvalidated,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Failed to save trial balance mapping." },
@@ -272,23 +352,55 @@ export async function DELETE(req: NextRequest, context: any) {
     const body = await req.json();
     const supabase = getSupabaseServer();
 
-    const lineId = clean(body.line_id ?? body.lineId ?? body.trial_balance_line_id ?? body.trialBalanceLineId ?? body.id);
-    const accountCode = normaliseAccountCode(body.account_code ?? body.accountCode ?? body.account);
+    const lineId = clean(
+      body.line_id ??
+        body.lineId ??
+        body.trial_balance_line_id ??
+        body.trialBalanceLineId ??
+        body.id
+    );
+    const accountCode = normaliseAccountCode(
+      body.account_code ?? body.accountCode ?? body.account
+    );
 
     if (!lineId && !accountCode) {
-      return NextResponse.json({ error: "Line ID or account code is required." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Line ID or account code is required." },
+        { status: 400 }
+      );
     }
 
-    const updated = await updateLine(supabase, engagementId, lineId, accountCode, buildClearPayload());
+    const updated = await updateLine(
+      supabase,
+      engagementId,
+      lineId,
+      accountCode,
+      buildClearPayload()
+    );
 
     if (!updated || updated.length === 0) {
       return NextResponse.json(
-        { error: "No matching trial balance line found to clear.", lineId, accountCode },
+        {
+          error: "No matching trial balance line found to clear.",
+          lineId,
+          accountCode,
+        },
         { status: 404 }
       );
     }
 
-    return NextResponse.json({ trialBalanceLine: updated[0], line: updated[0], lines: updated });
+    const signoffInvalidated = await invalidateMappingSignoff(
+      supabase,
+      engagementId,
+      `Mapping changed after sign-off: ${accountCode || lineId} mapping cleared.`,
+    );
+
+    return NextResponse.json({
+      trialBalanceLine: updated[0],
+      line: updated[0],
+      lines: updated,
+      signoffInvalidated,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Failed to clear trial balance mapping." },

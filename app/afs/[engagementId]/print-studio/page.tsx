@@ -1107,6 +1107,285 @@ function buildHistoricalCashFlowData(
   };
 }
 
+
+function isCloseCorporationEntityType(value: unknown) {
+  const lower = String(value || "").trim().toLowerCase();
+
+  return (
+    lower === "cc" ||
+    lower.includes("close corporation") ||
+    lower.includes("close-corporation")
+  );
+}
+
+function isShareCapitalNoteSection(section: any) {
+  const key = String(section?.key || "").toLowerCase();
+  const optionKey = String(section?.optionKey || "").toLowerCase();
+  const label = String(
+    section?.label || section?.title || section?.defaultTitle || "",
+  ).toLowerCase();
+
+  return (
+    key.includes("sharecapital") ||
+    optionKey.includes("sharecapital") ||
+    label.includes("share capital")
+  );
+}
+
+function ccMemberPossessive(memberCount: number) {
+  return memberCount === 1 ? "Member's" : "Members'";
+}
+
+function ccMemberCollective(memberCount: number) {
+  return memberCount === 1 ? "member" : "members";
+}
+
+function CcMembersResponsibilitiesBlock({
+  clientName,
+  yearEnd,
+  approvalDate,
+  members,
+}: {
+  clientName: string;
+  yearEnd: string;
+  approvalDate: string;
+  members: PersonData[];
+}) {
+  const memberCount = Math.max(1, members.length);
+  const memberWord = ccMemberCollective(memberCount);
+  const memberWordCapitalised =
+    memberWord.charAt(0).toUpperCase() + memberWord.slice(1);
+
+  return (
+    <div>
+      <p style={paragraphStyle()}>
+        The {memberWord} {memberCount === 1 ? "is" : "are"} responsible for the
+        maintenance of adequate accounting records and for the preparation and
+        integrity of the annual financial statements and related information.
+        The accounting officer is responsible for determining that the annual
+        financial statements are in agreement with the accounting records,
+        summarised in the manner required by section 58(2)(d) of the Close
+        Corporations Act of South Africa.
+      </p>
+
+      <p style={paragraphStyle()}>
+        The {memberWord} {memberCount === 1 ? "is" : "are"} also responsible for
+        the close corporation&apos;s system of internal financial control. These
+        controls are designed to provide reasonable, but not absolute, assurance
+        as to the reliability of the annual financial statements, to safeguard
+        and maintain accountability for assets, and to prevent and detect
+        material misstatement and loss.
+      </p>
+
+      <p style={paragraphStyle()}>
+        The annual financial statements have been prepared on the going concern
+        basis because the {memberWord} {memberCount === 1 ? "believes" : "believe"}{" "}
+        that {clientName} has adequate resources to continue in operation for the
+        foreseeable future.
+      </p>
+
+      <p style={paragraphStyle()}>
+        The annual financial statements for the year ended {yearEnd} were
+        approved by the {memberWord} on {approvalDate || "________________"} and
+        are signed below by the {memberWord} or on their behalf.
+      </p>
+
+      <h2 style={sectionHeadingStyle()}>Approval of annual financial statements</h2>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            members.length > 1 ? "repeat(2, minmax(0, 1fr))" : "minmax(0, 280px)",
+          gap: "28px 44px",
+          marginTop: 30,
+        }}
+      >
+        {(members.length ? members : [{ full_name: memberWordCapitalised }]).map(
+          (member: PersonData, index: number) => (
+            <div key={member.id || `${getPersonName(member)}-${index}`}>
+              <div
+                style={{
+                  width: "100%",
+                  borderTop: "1px solid #111827",
+                  paddingTop: 5,
+                  fontWeight: 700,
+                }}
+              >
+                {getPersonName(member)}
+              </div>
+            </div>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CcMembersReportBlock({
+  clientName,
+  yearEnd,
+  members,
+}: {
+  clientName: string;
+  yearEnd: string;
+  members: PersonData[];
+}) {
+  const memberCount = Math.max(1, members.length);
+  const memberWord = ccMemberCollective(memberCount);
+
+  return (
+    <div>
+      <p style={paragraphStyle()}>
+        The {memberWord} {memberCount === 1 ? "submits" : "submit"}{" "}
+        {memberCount === 1 ? "his or her" : "their"} report for the year ended{" "}
+        {yearEnd}.
+      </p>
+
+      <h2 style={sectionHeadingStyle()}>1. Going concern</h2>
+      <p style={paragraphStyle()}>
+        The annual financial statements have been prepared on the basis of
+        accounting policies applicable to a going concern. The {memberWord}{" "}
+        {memberCount === 1 ? "believes" : "believe"} that {clientName} has
+        adequate financial resources to continue in operation for the foreseeable
+        future and has considered the close corporation&apos;s financial position,
+        commitments and expected cash requirements.
+      </p>
+
+      <h2 style={sectionHeadingStyle()}>2. Events after the reporting period</h2>
+      <p style={paragraphStyle()}>
+        The {memberWord} {memberCount === 1 ? "has" : "have"} considered events
+        occurring after the reporting date and up to the date on which these
+        annual financial statements are approved. Any material matter requiring
+        adjustment or disclosure is reflected in the annual financial statements.
+      </p>
+
+      <h2 style={sectionHeadingStyle()}>3. Member&apos;s contribution</h2>
+      <p style={paragraphStyle()}>
+        Details of the member&apos;s contribution and any movement during the
+        accounting period are disclosed in the annual financial statements and
+        related notes.
+      </p>
+
+      <h2 style={sectionHeadingStyle()}>
+        4. {memberCount === 1 ? "Member" : "Members"}
+      </h2>
+
+      <div style={{ marginTop: 6 }}>
+        {(members.length ? members : [{ full_name: "Member not captured" }]).map(
+          (member: PersonData, index: number) => (
+            <div
+              key={member.id || `${getPersonName(member)}-${index}`}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "180px 1fr",
+                gap: 12,
+                padding: "4px 0",
+                borderBottom: "1px solid #e5e7eb",
+              }}
+            >
+              <span style={{ fontWeight: 700 }}>Name</span>
+              <span>{getPersonName(member)}</span>
+            </div>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CcAccountingOfficerReportBlock({
+  clientName,
+  yearEnd,
+  members,
+  practitionerFirm,
+  practitionerName,
+  practitionerDesignation,
+  compilationDate,
+  place,
+}: {
+  clientName: string;
+  yearEnd: string;
+  members: PersonData[];
+  practitionerFirm: string;
+  practitionerName: string;
+  practitionerDesignation: string;
+  compilationDate: string;
+  place: string;
+}) {
+  const memberCount = Math.max(1, members.length);
+  const memberWord = memberCount === 1 ? "Member" : "Members";
+
+  return (
+    <section
+      style={{
+        fontFamily: "Arial, Helvetica, sans-serif",
+        fontSize: 11,
+        lineHeight: 1.45,
+        color: "#111827",
+      }}
+    >
+      <h1 style={pageHeadingStyle()}>Accounting Officer&apos;s Report</h1>
+
+      <p style={{ ...paragraphStyle(), fontWeight: 700 }}>
+        To the {memberWord} of {clientName}
+      </p>
+
+      <p style={paragraphStyle()}>
+        We have performed the duties of accounting officer to {clientName} for
+        the year ended {yearEnd} as required by section 62 of the Close
+        Corporations Act of South Africa. The annual financial statements are the
+        responsibility of the {memberCount === 1 ? "member" : "members"}.
+      </p>
+
+      <p style={paragraphStyle()}>
+        No audit or review was conducted. Accordingly, we do not express an audit
+        opinion, review conclusion or any other form of assurance on these annual
+        financial statements.
+      </p>
+
+      <h2 style={sectionHeadingStyle()}>Duties of the Accounting Officer</h2>
+
+      <p style={paragraphStyle()}>
+        We report, as required in terms of section 62(1) of the Close
+        Corporations Act of South Africa, having performed such procedures and
+        conducted such enquiries in relation to the accounting records as we
+        considered necessary in the circumstances, that:
+      </p>
+
+      <ul
+        style={{
+          margin: "0 0 18px 18px",
+          padding: 0,
+          display: "grid",
+          gap: 7,
+        }}
+      >
+        <li>
+          the annual financial statements are in agreement with the accounting
+          records, summarised in the manner required by section 58(2)(d) of the
+          Close Corporations Act of South Africa; and
+        </li>
+        <li>
+          the accounting policies presented to us as having been applied in the
+          preparation of the annual financial statements are appropriate to the
+          business.
+        </li>
+      </ul>
+
+      <div style={{ marginTop: 38, maxWidth: 320 }}>
+        <div style={{ borderTop: "1px solid #111827", paddingTop: 5 }}>
+          <div style={{ fontWeight: 700 }}>{practitionerFirm}</div>
+          <div>{practitionerName}</div>
+          <div>{practitionerDesignation}</div>
+          <div>{compilationDate || "________________"}</div>
+          <div>{place || ""}</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function AfsPrintStudioPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -1542,6 +1821,26 @@ export default function AfsPrintStudioPage() {
 
       setPrintStudioSaveStatus("saved");
 
+      if (result.signoffInvalidated) {
+        window.dispatchEvent(
+          new CustomEvent("afs-signoff-refresh", {
+            detail: {
+              engagementId,
+              sectionKey: "financial-statements",
+            },
+          }),
+        );
+
+        try {
+          window.localStorage.setItem(
+            `afs-signoff-refresh:${engagementId}:financial-statements`,
+            String(Date.now()),
+          );
+        } catch {
+          // Same-tab refresh still works even if storage is unavailable.
+        }
+      }
+
       window.setTimeout(() => {
         setPrintStudioSaveStatus((current) =>
           current === "saved" ? "idle" : current
@@ -1696,14 +1995,27 @@ export default function AfsPrintStudioPage() {
   );
 
   const entityPresentation = getAfsEntityPresentation(presentationEntityType);
+  const isCloseCorporation = isCloseCorporationEntityType(presentationEntityType);
 
   const reportSectionOptions: AfsReportOption[] = [
     option("coverPage", "Cover page", "Show the AFS cover page."),
     option("index", "Index", "Show the report index."),
     option("generalInformation", "General information", "Show entity and engagement details."),
-    option("directorsResponsibilities", "Directors’ responsibilities", "Show the approval and responsibility statement."),
-    option("directorsReport", "Directors’ report", "Show the directors’ report."),
-    option("compilerReport", "Compiler report", "Show the compilation report."),
+    option(
+      "directorsResponsibilities",
+      isCloseCorporation ? `${ccMemberPossessive(Math.max(1, clientPeople.filter(isDirectorLike).length))} responsibilities` : "Directors’ responsibilities",
+      "Show the approval and responsibility statement.",
+    ),
+    option(
+      "directorsReport",
+      isCloseCorporation ? `${ccMemberPossessive(Math.max(1, clientPeople.filter(isDirectorLike).length))} report` : "Directors’ report",
+      isCloseCorporation ? "Show the close corporation member report." : "Show the directors’ report.",
+    ),
+    option(
+      "compilerReport",
+      isCloseCorporation ? "Accounting Officer's Report" : "Compiler report",
+      isCloseCorporation ? "Show the accounting officer's statutory report." : "Show the compilation report.",
+    ),
     option("sfp", "Statement of financial position", "Show SFP."),
     option(
       "soci",
@@ -1789,11 +2101,16 @@ const clientLogoUrl = cleanString(
   );
 
   const legalFrameworkDisplay =
-    !legalFrameworkRaw ||
-    legalFrameworkRaw.trim().toLowerCase() ===
-      "companies act of south africa"
-      ? "Companies Act 71 of 2008, as amended"
-      : legalFrameworkRaw;
+    isCloseCorporationEntityType(entityType)
+      ? !legalFrameworkRaw ||
+        legalFrameworkRaw.trim().toLowerCase() === "companies act of south africa" ||
+        legalFrameworkRaw.trim().toLowerCase() === "close corporations act of south africa"
+        ? "Close Corporations Act 69 of 1984, as amended"
+        : legalFrameworkRaw
+      : !legalFrameworkRaw ||
+        legalFrameworkRaw.trim().toLowerCase() === "companies act of south africa"
+        ? "Companies Act 71 of 2008, as amended"
+        : legalFrameworkRaw;
 
   const registrationNumber =
     String(
@@ -1823,15 +2140,22 @@ const clientLogoUrl = cleanString(
     "Current"
   );
 
-  const priorHeading = shortYearHeading(
-    String(
-      getSetupValue(clientSetup, [
-        "prior_period_heading",
-        "prior_year_heading",
-      ])
-    ),
-    "Prior"
+  const storedPriorHeading = String(
+    getSetupValue(clientSetup, [
+      "prior_period_heading",
+      "prior_year_heading",
+    ]) || ""
+  ).trim();
+
+  const currentYearNumber = Number(
+    String(currentHeading || "").match(/(20\d{2})/)?.[1] || 0
   );
+
+  const priorHeading = storedPriorHeading
+    ? shortYearHeading(storedPriorHeading, "")
+    : currentYearNumber > 0
+      ? String(currentYearNumber - 1)
+      : "Prior";
 
   const peopleFromSetup = [
     ...formatMultiline(
@@ -2391,23 +2715,43 @@ useEffect(() => {
       ? assetCurrent >= liabilityCurrent
       : assetPrior >= liabilityPrior;
 
-    return noteSections.map((section: any) =>
-      section.key === "notesDeferredTaxLiability"
-        ? {
-            ...section,
-            label: "Deferred tax",
-            title: "Deferred tax",
-            defaultTitle: "Deferred tax",
-            group: placeUnderAssets
-              ? "non-current-assets"
-              : "non-current-liabilities",
-            groupLabel: placeUnderAssets
-              ? "Non-current assets"
-              : "Non-current liabilities",
-          }
-        : section,
-    );
-  }, [trialBalanceLines]);
+    return noteSections.map((section: any) => {
+      if (isShareCapitalNoteSection(section) && isCloseCorporation) {
+        return {
+          ...section,
+          label: "Member's contribution",
+          title: "Member's contribution",
+          defaultTitle: "Member's contribution",
+        };
+      }
+
+      if (section.key === "notesShareholdersLoans" && isCloseCorporation) {
+        return {
+          ...section,
+          label: "Member loans",
+          title: "Member loans",
+          defaultTitle: "Member loans",
+        };
+      }
+
+      if (section.key === "notesDeferredTaxLiability") {
+        return {
+          ...section,
+          label: "Deferred tax",
+          title: "Deferred tax",
+          defaultTitle: "Deferred tax",
+          group: placeUnderAssets
+            ? "non-current-assets"
+            : "non-current-liabilities",
+          groupLabel: placeUnderAssets
+            ? "Non-current assets"
+            : "Non-current liabilities",
+        };
+      }
+
+      return section;
+    });
+  }, [trialBalanceLines, isCloseCorporation]);
 
   const noteNumberMap = useMemo(() => {
     const keyMap: Record<string, AfsNoteKey> = {
@@ -2974,7 +3318,9 @@ const adjustmentsPrior = adjustmentKeys.reduce(
     if (loansRaisedRow) {
       loansRaisedRow.current = Math.round(manualLoanMovementCurrent);
       loansRaisedRow.prior = Math.round(manualLoanMovementPrior);
-      loansRaisedRow.label = "Directors / shareholders loan movement";
+      loansRaisedRow.label = isCloseCorporation
+        ? "Member loan movement"
+        : "Directors / shareholders loan movement";
     }
 
     if (otherFinancingRow) {
@@ -4361,11 +4707,42 @@ if (
   };
 }, [statementEngine.sfpRows, statementEngine.sceRows]);
 
+function ccStatementRowLabel(value: unknown) {
+  const original = String(value || "").trim();
+  if (!isCloseCorporation) return original;
+
+  const lower = original.toLowerCase();
+
+  if (
+    lower.includes("share capital") ||
+    lower.includes("members / owners contributions") ||
+    lower.includes("member / owner contributions") ||
+    lower.includes("owners contributions")
+  ) {
+    return "Member's contribution";
+  }
+
+  if (
+    lower.includes("shareholder / director / member loans") ||
+    lower.includes("shareholder/director/member loans") ||
+    lower.includes("loans from shareholders") ||
+    lower.includes("shareholder loans")
+  ) {
+    return "Member loans";
+  }
+
+  return original;
+}
+
 const applyEntityPresentationToRows = (rows: AfsStatementRow[]) =>
-  applyProfessionalStatementLabels(rows).map((row: any) => ({
-    ...row,
-    label: getAfsEntityRowLabel(row?.label, entityPresentation),
-  }));
+  applyProfessionalStatementLabels(rows).map((row: any) => {
+    const entityLabel = getAfsEntityRowLabel(row?.label, entityPresentation);
+
+    return {
+      ...row,
+      label: ccStatementRowLabel(entityLabel),
+    };
+  });
 
 const sfpRows = applyEntityPresentationToRows(
   correctedEquityStatements.sfpRows,
@@ -5076,9 +5453,31 @@ const flightDeckIssues = useMemo(() => {
     { id: "cover-page", label: "Cover Page", shortLabel: "Cover", group: "report", hidden: !reportOptions.coverPage },
     { id: "index", label: "Index", shortLabel: "Index", group: "report", hidden: !reportOptions.index },
     { id: "general-info", label: "General Information", shortLabel: "General Info", group: "report", hidden: !reportOptions.generalInformation },
-    { id: "directors-responsibilities", label: "Directors’ Responsibilities", shortLabel: "Responsibilities", group: "report", hidden: !reportOptions.directorsResponsibilities },
-    { id: "directors-report", label: "Directors’ Report", shortLabel: "Directors Report", group: "report", hidden: !reportOptions.directorsReport },
-    { id: "compiler-report", label: "Compiler Report", shortLabel: "Compiler", group: "report", hidden: !reportOptions.compilerReport },
+    {
+      id: "directors-responsibilities",
+      label: isCloseCorporation
+        ? `${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Responsibilities and Approval`
+        : "Directors’ Responsibilities",
+      shortLabel: "Responsibilities",
+      group: "report",
+      hidden: !reportOptions.directorsResponsibilities,
+    },
+    {
+      id: "directors-report",
+      label: isCloseCorporation
+        ? `${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Report`
+        : "Directors’ Report",
+      shortLabel: isCloseCorporation ? "Member Report" : "Directors Report",
+      group: "report",
+      hidden: !reportOptions.directorsReport,
+    },
+    {
+      id: "compiler-report",
+      label: isCloseCorporation ? "Accounting Officer's Report" : "Compiler Report",
+      shortLabel: isCloseCorporation ? "Accounting Officer" : "Compiler",
+      group: "report",
+      hidden: !reportOptions.compilerReport,
+    },
     { id: "sfp", label: "Statement of Financial Position", shortLabel: "SFP", group: "report", hidden: !reportOptions.sfp },
     {
       id: "soci",
@@ -5281,11 +5680,15 @@ const flightDeckIssues = useMemo(() => {
                 String(lines[0]?.label || "").toLowerCase().includes("cash and cash")
                   ? "Bank balances"
                   : String(lines[0]?.label || "").toLowerCase().includes("share capital")
-                  ? "Issued share capital"
+                  ? isCloseCorporation
+                    ? "Member's contribution"
+                    : "Issued share capital"
                   : String(lines[0]?.label || "").toLowerCase().includes("inventor")
                   ? "Inventories on hand"
                   : String(lines[0]?.label || "").toLowerCase().includes("shareholder")
-                  ? "Loans from shareholders"
+                  ? isCloseCorporation
+                    ? "Member loans"
+                    : "Loans from shareholders"
                   : lines[0]?.label,
             },
           ]
@@ -5591,7 +5994,9 @@ const flightDeckIssues = useMemo(() => {
         total: 0,
       },
        {
-        label: "Shares issued / cancelled - prior year",
+        label: isCloseCorporation
+          ? "Member's contribution movements - prior year"
+          : "Shares issued / cancelled - prior year",
         share: priorShareMovement,
         retained: 0,
         total: priorShareMovement,
@@ -5623,7 +6028,9 @@ const flightDeckIssues = useMemo(() => {
         total: 0,
       },
      {
-        label: "Shares issued / cancelled - current year",
+        label: isCloseCorporation
+          ? "Member's contribution movements - current year"
+          : "Shares issued / cancelled - current year",
         share: currentShareMovement,
         retained: 0,
         total: currentShareMovement,
@@ -5674,7 +6081,7 @@ const flightDeckIssues = useMemo(() => {
                   width: 90,
                 }}
               >
-                Share capital
+                {isCloseCorporation ? "Member's contribution" : "Share capital"}
               </th>
               <th
                 style={{
@@ -5971,6 +6378,32 @@ const flightDeckIssues = useMemo(() => {
     }
 
     if (activeSectionId === "directors-report") {
+      if (isCloseCorporation) {
+        return {
+          title: `${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Report`,
+          description:
+            "Close corporation report wording is generated from the CC reporting template and Client Setup member information.",
+          emptyMessage: "No additional CC report settings are required.",
+          options: [],
+          content: (
+            <div
+              style={{
+                border: "1px solid #cbd5e1",
+                background: "#f8fafc",
+                padding: 10,
+                fontSize: 11,
+                lineHeight: 1.45,
+                color: "#334155",
+              }}
+            >
+              The CC report includes going concern, events after the reporting
+              period, member&apos;s contribution and member details. Company-only
+              directors&apos; report sections are not used.
+            </div>
+          ),
+        };
+      }
+
       return {
         title: "Directors’ Report settings",
         description:
@@ -6374,7 +6807,7 @@ function elementOuterHeight(element: HTMLElement | null) {
     addSection(
       "directors-report",
       reportOptions.directorsReport,
-      balancedDirectorsReportPageGroups.length,
+      isCloseCorporation ? 1 : balancedDirectorsReportPageGroups.length,
     );
     addSection("compiler-report", reportOptions.compilerReport);
     addSection("sfp", reportOptions.sfp);
@@ -6396,6 +6829,7 @@ function elementOuterHeight(element: HTMLElement | null) {
     return pageMap;
   }, [
     reportOptions,
+    isCloseCorporation,
     balancedDirectorsReportPageGroups.length,
     accountingPolicyPageGroups.length,
     notesPageGroups.length,
@@ -7032,6 +7466,8 @@ return Math.max(
                   noteData={noteData as any}
                   trialBalanceLines={trialBalanceLines}
                   clientSetup={clientSetup}
+                  entityType={entityType}
+                  isCloseCorporationEntity={isCloseCorporation}
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
                   activeNoteTexts={activeNoteTexts}
@@ -7331,10 +7767,19 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                         legalFrameworkDisplay
                       )}
                       {renderInfoRow("Financial reporting framework", framework)}
-                      {renderInfoRow("Nature of engagement", "Compilation")}
+                      {renderInfoRow(
+                        "Nature of engagement",
+                        isCloseCorporation ? "Accounting officer" : "Compilation",
+                      )}
                       {renderInfoRow("Assurance provided", "None")}
-                      {renderInfoRow("Practitioners", practitionerFirm)}
-                      {renderInfoRow("Preparer", practitionerName)}
+                      {renderInfoRow(
+                        isCloseCorporation ? "Accounting officers" : "Practitioners",
+                        practitionerFirm,
+                      )}
+                      {renderInfoRow(
+                        isCloseCorporation ? "Accounting officer" : "Preparer",
+                        practitionerName,
+                      )}
                     </tbody>
                   </table>
                 </section>
@@ -7349,65 +7794,117 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                   style={{ fontSize: 11, lineHeight: 1.45, color: "#111827" }}
                 >
                   <h1 style={pageHeadingStyle()}>
-                    {responsibilityTitle(entityType)}
+                    {isCloseCorporation
+                      ? `${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Responsibilities and Approval`
+                      : responsibilityTitle(entityType)}
                   </h1>
 
-                  <DirectorsResponsibilitiesBlock context={narrativeContext} />
+                  {isCloseCorporation ? (
+                    <CcMembersResponsibilitiesBlock
+                      clientName={clientName}
+                      yearEnd={displayYearEnd}
+                      approvalDate={String(approvalDate)}
+                      members={directorsForDisplay}
+                    />
+                  ) : (
+                    <DirectorsResponsibilitiesBlock context={narrativeContext} />
+                  )}
                 </section>
               </AfsA4Page>
             </div>
           ) : null}
 
           {reportOptions.directorsReport ? (
-  <div id="print-directors-report">
-    {balancedDirectorsReportPageGroups.map((sectionKeys, pageIndex) => {
-      const previousSectionCount = balancedDirectorsReportPageGroups
-        .slice(0, pageIndex)
-        .reduce((total, page) => total + page.length, 0);
+            <div id="print-directors-report">
+              {isCloseCorporation ? (
+                <AfsA4Page {...reportHeaderProps}>
+                  <section
+                    style={{
+                      fontSize: 11,
+                      lineHeight: 1.45,
+                      color: "#111827",
+                    }}
+                  >
+                    <h1 style={pageHeadingStyle()}>
+                      {`${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Report`}
+                    </h1>
 
-      return (
-        <AfsA4Page
-          key={`directors-report-page-${pageIndex}`}
-          {...reportHeaderProps}
-        >
-          <section
-            style={{
-              fontSize: 11,
-              lineHeight: 1.45,
-              color: "#111827",
-            }}
-          >
-            <h1 style={pageHeadingStyle()}>
-              {pageIndex === 0
-                ? reportTitle(entityType)
-                : `${reportTitle(entityType)} — continued`}
-            </h1>
+                    <CcMembersReportBlock
+                      clientName={clientName}
+                      yearEnd={displayYearEnd}
+                      members={directorsForDisplay}
+                    />
+                  </section>
+                </AfsA4Page>
+              ) : (
+                balancedDirectorsReportPageGroups.map((sectionKeys, pageIndex) => {
+                  const previousSectionCount = balancedDirectorsReportPageGroups
+                    .slice(0, pageIndex)
+                    .reduce((total, page) => total + page.length, 0);
 
-            <DirectorsReportBlock
-              context={narrativeContext}
-              sectionKeys={sectionKeys}
-              startNumber={previousSectionCount}
-            />
-          </section>
-        </AfsA4Page>
-      );
-    })}
-  </div>
-) : null}
+                  return (
+                    <AfsA4Page
+                      key={`directors-report-page-${pageIndex}`}
+                      {...reportHeaderProps}
+                    >
+                      <section
+                        style={{
+                          fontSize: 11,
+                          lineHeight: 1.45,
+                          color: "#111827",
+                        }}
+                      >
+                        <h1 style={pageHeadingStyle()}>
+                          {pageIndex === 0
+                            ? reportTitle(entityType)
+                            : `${reportTitle(entityType)} — continued`}
+                        </h1>
+
+                        <DirectorsReportBlock
+                          context={narrativeContext}
+                          sectionKeys={sectionKeys}
+                          startNumber={previousSectionCount}
+                        />
+                      </section>
+                    </AfsA4Page>
+                  );
+                })
+              )}
+            </div>
+          ) : null}
 
           {reportOptions.compilerReport ? (
             <div id="print-compiler-report">
-              <AfsA4Page>
-                <section
-                  style={{
-                    fontFamily: "Arial, Helvetica, sans-serif",
-                    fontSize: 11,
-                    lineHeight: 1.45,
-                    color: "#111827",
-                  }}
-                >
-                  <CompilationReportBlock context={narrativeContext} />
-                </section>
+              <AfsA4Page {...(isCloseCorporation ? reportHeaderProps : {})}>
+                {isCloseCorporation ? (
+                  <CcAccountingOfficerReportBlock
+                    clientName={clientName}
+                    yearEnd={displayYearEnd}
+                    members={directorsForDisplay}
+                    practitionerFirm={String(practitionerFirm)}
+                    practitionerName={String(practitionerName)}
+                    practitionerDesignation={String(practitionerDesignation)}
+                    compilationDate={String(compilationDate)}
+                    place={String(
+                      getSetupValue(clientSetup, [
+                        "place_of_signature",
+                        "place_of_compilation",
+                        "city",
+                      ]) || "",
+                    )}
+                  />
+                ) : (
+                  <section
+                    style={{
+                      fontFamily: "Arial, Helvetica, sans-serif",
+                      fontSize: 11,
+                      lineHeight: 1.45,
+                      color: "#111827",
+                    }}
+                  >
+                    <CompilationReportBlock context={narrativeContext} />
+                  </section>
+                )}
               </AfsA4Page>
             </div>
           ) : null}
@@ -7576,6 +8073,8 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                   noteData={noteData as any}
                   trialBalanceLines={trialBalanceLines}
                   clientSetup={clientSetup}
+                  entityType={entityType}
+                  isCloseCorporationEntity={isCloseCorporation}
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
                   activeNoteTexts={activeNoteTexts}
@@ -7625,6 +8124,8 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       noteData={noteData as any}
                       trialBalanceLines={trialBalanceLines}
                       clientSetup={clientSetup}
+                      entityType={entityType}
+                      isCloseCorporationEntity={isCloseCorporation}
                       currentHeading={currentHeading}
                       priorHeading={priorHeading}
                       activeNoteTexts={activeNoteTexts}

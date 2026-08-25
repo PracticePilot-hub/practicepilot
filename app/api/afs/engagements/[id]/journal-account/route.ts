@@ -43,6 +43,51 @@ function numberOrZero(value: unknown) {
   return negative ? -Math.abs(parsed) : parsed;
 }
 
+async function invalidateTrialBalanceSignoff(
+  supabase: ReturnType<typeof getSupabaseServer>,
+  engagementId: string,
+  reason: string,
+) {
+  const { data: existing, error: existingError } = await supabase
+    .from("afs_section_signoffs")
+    .select("id,prepared_at,reviewed_at,captain_cleared_at")
+    .eq("engagement_id", engagementId)
+    .eq("section_key", "trial-balance")
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  if (
+    !existing?.id ||
+    (!existing.prepared_at &&
+      !existing.reviewed_at &&
+      !existing.captain_cleared_at)
+  ) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+
+  const { error: reopenError } = await supabase
+    .from("afs_section_signoffs")
+    .update({
+      prepared_by: null,
+      prepared_at: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      captain_cleared_by: null,
+      captain_cleared_at: null,
+      reopened_at: now,
+      reopen_reason: reason,
+      updated_at: now,
+    })
+    .eq("id", existing.id);
+
+  if (reopenError) throw reopenError;
+
+  return true;
+}
+
 async function tryInsertTrialBalanceLine(
   supabase: any,
   payloads: Record<string, any>[],
@@ -228,10 +273,17 @@ export async function POST(req: NextRequest, context: any) {
       payloads,
     );
 
+    const signoffInvalidated = await invalidateTrialBalanceSignoff(
+      supabase,
+      engagementId,
+      `Trial Balance changed after sign-off: account ${accountCode} added.`,
+    );
+
     return NextResponse.json({
       success: true,
       line,
       existing: false,
+      signoffInvalidated,
     });
   } catch (error: any) {
     return NextResponse.json(

@@ -37,19 +37,15 @@ function bearerToken(request: Request) {
     .trim();
 }
 
-type CurrentProfileResult =
-  | { profile: Profile; response: null }
-  | { profile: null; response: NextResponse };
-
 async function currentProfile(
   request: Request,
   supabase: ReturnType<typeof adminClient>,
-): Promise<CurrentProfileResult> {
+) {
   const token = bearerToken(request);
 
   if (!token) {
     return {
-      profile: null,
+      profile: null as Profile | null,
       response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
     };
   }
@@ -61,7 +57,7 @@ async function currentProfile(
 
   if (authError || !user) {
     return {
-      profile: null,
+      profile: null as Profile | null,
       response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
     };
   }
@@ -76,14 +72,14 @@ async function currentProfile(
 
   if (error || !data || !data.access_enabled) {
     return {
-      profile: null,
+      profile: null as Profile | null,
       response: NextResponse.json({ error: "Profile access denied." }, { status: 403 }),
     };
   }
 
   return {
     profile: data as Profile,
-    response: null,
+    response: null as NextResponse | null,
   };
 }
 
@@ -100,12 +96,60 @@ function includesUser(ids: unknown, userId: string) {
   return Array.isArray(ids) && ids.map(String).includes(userId);
 }
 
+async function invalidateSectionSignoff(
+  supabase: ReturnType<typeof adminClient>,
+  engagementId: string,
+  organisationId: string,
+  sectionKey: string,
+  profileId: string,
+  reason: string,
+) {
+  const { data: existing, error: existingError } = await supabase
+    .from("afs_section_signoffs")
+    .select("id,prepared_at,reviewed_at,captain_cleared_at")
+    .eq("engagement_id", engagementId)
+    .eq("organisation_id", organisationId)
+    .eq("section_key", sectionKey)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  if (
+    !existing?.id ||
+    (!existing.prepared_at &&
+      !existing.reviewed_at &&
+      !existing.captain_cleared_at)
+  ) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("afs_section_signoffs")
+    .update({
+      prepared_by: null,
+      prepared_at: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      captain_cleared_by: null,
+      captain_cleared_at: null,
+      reopened_by: profileId,
+      reopened_at: now,
+      reopen_reason: reason,
+      updated_at: now,
+    })
+    .eq("id", existing.id);
+
+  if (error) throw error;
+}
+
 export async function GET(request: Request, context: any) {
   try {
     const engagementId = await engagementIdFrom(context);
     const supabase = adminClient();
     const { profile, response } = await currentProfile(request, supabase);
-    if (response) return response;
+    if (response || !profile) return response;
 
     if (!profile.organisation_id) {
       return NextResponse.json(
@@ -178,7 +222,7 @@ export async function POST(request: Request, context: any) {
     const engagementId = await engagementIdFrom(context);
     const supabase = adminClient();
     const { profile, response } = await currentProfile(request, supabase);
-    if (response) return response;
+    if (response || !profile) return response;
 
     if (!profile.organisation_id) {
       return NextResponse.json(
@@ -247,6 +291,18 @@ export async function POST(request: Request, context: any) {
 
     if (error) throw error;
 
+    // Raising a fresh OPEN review point means the previous sign-off is stale.
+    // Resolving the point later does NOT restore those old stamps; the work
+    // must be signed off again after the correction has been dealt with.
+    await invalidateSectionSignoff(
+      supabase,
+      engagementId,
+      profile.organisation_id,
+      sectionKey,
+      profile.id,
+      `Review point raised after sign-off: ${title}`,
+    );
+
     return NextResponse.json({ success: true, point: data });
   } catch (error: any) {
     return NextResponse.json(
@@ -261,7 +317,7 @@ export async function PATCH(request: Request, context: any) {
     const engagementId = await engagementIdFrom(context);
     const supabase = adminClient();
     const { profile, response } = await currentProfile(request, supabase);
-    if (response) return response;
+    if (response || !profile) return response;
 
     if (!profile.organisation_id) {
       return NextResponse.json(
@@ -276,7 +332,10 @@ export async function PATCH(request: Request, context: any) {
     const resolutionNote = clean(body.resolutionNote);
 
     if (!pointId) {
-      return NextResponse.json({ error: "Review point is required." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Review point is required." },
+        { status: 400 },
+      );
     }
 
     const [
@@ -302,7 +361,10 @@ export async function PATCH(request: Request, context: any) {
 
     if (workflowError) throw workflowError;
     if (pointError || !point) {
-      return NextResponse.json({ error: "Review point not found." }, { status: 404 });
+      return NextResponse.json(
+        { error: "Review point not found." },
+        { status: 404 },
+      );
     }
 
     const levels = Number(workflow.workflow_levels || 2);
@@ -378,8 +440,22 @@ export async function PATCH(request: Request, context: any) {
         cleared_by: null,
         cleared_at: null,
       };
+
+      // Reopening a previously resolved/cleared review point also makes the
+      // current sign-off stale.
+      await invalidateSectionSignoff(
+        supabase,
+        engagementId,
+        profile.organisation_id,
+        String(point.section_key),
+        profile.id,
+        `Review point reopened: ${String(point.title || "Review point")}`,
+      );
     } else {
-      return NextResponse.json({ error: "Unknown review-point action." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Unknown review-point action." },
+        { status: 400 },
+      );
     }
 
     const { data, error } = await supabase

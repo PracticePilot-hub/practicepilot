@@ -90,6 +90,51 @@ async function getEngagementId(context: any) {
   return String(params?.id || "").trim();
 }
 
+
+type MethodologySnapshot = {
+  organisationName?: string;
+  workflow?: {
+    defaultWorkflowLevels?: number;
+    allowSolo?: boolean;
+    allowThreeLevel?: boolean;
+    sectionSignoffDefaults?: Record<string, unknown>;
+  };
+};
+
+function snapshotFromEngagement(value: unknown): MethodologySnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  return value as MethodologySnapshot;
+}
+
+function effectiveOrganisationSettings(
+  organisation: any,
+  engagementSnapshot: unknown,
+) {
+  const snapshot = snapshotFromEngagement(engagementSnapshot);
+  const workflow = snapshot?.workflow;
+
+  if (!workflow) return organisation;
+
+  return {
+    ...organisation,
+    name: snapshot?.organisationName || organisation?.name,
+    afs_default_workflow_levels:
+      Number(workflow.defaultWorkflowLevels || 2),
+    afs_allow_solo:
+      workflow.allowSolo === undefined
+        ? Boolean(organisation?.afs_allow_solo)
+        : Boolean(workflow.allowSolo),
+    afs_allow_three_level:
+      workflow.allowThreeLevel === undefined
+        ? Boolean(organisation?.afs_allow_three_level)
+        : Boolean(workflow.allowThreeLevel),
+    afs_section_signoff_defaults:
+      workflow.sectionSignoffDefaults ||
+      organisation?.afs_section_signoff_defaults ||
+      {},
+  };
+}
+
 function cleanIds(value: unknown) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.map((item) => String(item || "").trim()).filter(Boolean))];
@@ -154,6 +199,7 @@ export async function GET(request: Request, context: any) {
       { data: organisation, error: orgError },
       { data: users, error: usersError },
       { data: workflow, error: workflowError },
+      { data: engagement, error: engagementError },
     ] = await Promise.all([
       supabase
         .from("organisations")
@@ -176,19 +222,39 @@ export async function GET(request: Request, context: any) {
         .eq("engagement_id", engagementId)
         .eq("organisation_id", profile.organisation_id)
         .maybeSingle(),
+      supabase
+        .from("afs_engagements")
+        .select("id,organisation_id,afs_methodology_version,afs_methodology_snapshot,afs_methodology_locked_at")
+        .eq("id", engagementId)
+        .eq("organisation_id", profile.organisation_id)
+        .maybeSingle(),
     ]);
 
     if (orgError) throw orgError;
     if (usersError) throw usersError;
     if (workflowError) throw workflowError;
+    if (engagementError) throw engagementError;
+    if (!engagement) {
+      return NextResponse.json({ error: "AFS engagement not found." }, { status: 404 });
+    }
+
+    const effectiveOrganisation = effectiveOrganisationSettings(
+      organisation,
+      engagement.afs_methodology_snapshot,
+    );
 
     const afsUsers = (users || []).filter((user: any) => user.can_access_afs !== false);
 
     return NextResponse.json({
       currentUser: profile,
-      organisation,
+      organisation: effectiveOrganisation,
       users: afsUsers,
       workflow: workflow || null,
+      methodology: {
+        version: engagement.afs_methodology_version || null,
+        lockedAt: engagement.afs_methodology_locked_at || null,
+        locked: Boolean(engagement.afs_methodology_snapshot),
+      },
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -218,23 +284,43 @@ export async function PATCH(request: Request, context: any) {
     const firstOfficerUserIds = cleanIds(body.firstOfficerUserIds);
     const captainUserIds = cleanIds(body.captainUserIds);
 
-    const { data: organisation, error: orgError } = await supabase
-      .from("organisations")
-      .select("afs_allow_solo,afs_allow_three_level,afs_section_signoff_defaults")
-      .eq("id", profile.organisation_id)
-      .single();
+    const [
+      { data: organisation, error: orgError },
+      { data: engagement, error: engagementError },
+    ] = await Promise.all([
+      supabase
+        .from("organisations")
+        .select("id,name,afs_default_workflow_levels,afs_allow_solo,afs_allow_three_level,afs_section_signoff_defaults")
+        .eq("id", profile.organisation_id)
+        .single(),
+      supabase
+        .from("afs_engagements")
+        .select("id,organisation_id,afs_methodology_version,afs_methodology_snapshot,afs_methodology_locked_at")
+        .eq("id", engagementId)
+        .eq("organisation_id", profile.organisation_id)
+        .maybeSingle(),
+    ]);
 
     if (orgError) throw orgError;
+    if (engagementError) throw engagementError;
+    if (!engagement) {
+      return NextResponse.json({ error: "AFS engagement not found." }, { status: 404 });
+    }
+
+    const effectiveOrganisation = effectiveOrganisationSettings(
+      organisation,
+      engagement.afs_methodology_snapshot,
+    );
 
     if (![1, 2, 3].includes(levels)) {
       return NextResponse.json({ error: "Invalid workflow level." }, { status: 400 });
     }
 
-    if (levels === 1 && !organisation.afs_allow_solo) {
+    if (levels === 1 && !effectiveOrganisation.afs_allow_solo) {
       return NextResponse.json({ error: "Solo flights are disabled for this practice." }, { status: 400 });
     }
 
-    if (levels === 3 && !organisation.afs_allow_three_level) {
+    if (levels === 3 && !effectiveOrganisation.afs_allow_three_level) {
       return NextResponse.json({ error: "Three-level flights are disabled for this practice." }, { status: 400 });
     }
 
@@ -396,7 +482,7 @@ export async function PATCH(request: Request, context: any) {
 
     if (isFirstStart) {
       const practiceDefaults = cleanPracticeSectionDefaults(
-        organisation.afs_section_signoff_defaults,
+        effectiveOrganisation.afs_section_signoff_defaults,
       );
 
       const applicabilityRows = SECTION_KEYS.map((sectionKey) => ({
@@ -404,7 +490,7 @@ export async function PATCH(request: Request, context: any) {
         organisation_id: profile.organisation_id,
         section_key: sectionKey,
         applicability: practiceDefaults[sectionKey],
-        reason: "Practice default at flight start",
+        reason: `Version-locked practice default (${engagement.afs_methodology_version || "legacy"})`,
         set_by: profile.id,
         set_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

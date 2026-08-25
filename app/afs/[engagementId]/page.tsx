@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 import ClientSetupPanel from "./ClientSetupPanel";
 import TrialBalancePanel from "./TrialBalancePanel";
 import MappingPanelNew from "./MappingPanel";
@@ -10,11 +11,20 @@ import type { LeadScheduleKey } from "./afsLeadScheduleCatalog";
 import AdjustingJournalsPanel from "./AdjustingJournalsPanel";
 import FinancialStatementsPanel from "./FinancialStatementsPanel";
 import TaxCalculatorPanel from "./TaxCalculatorPanel";
+import YearEndDocumentsPanel from "./YearEndDocumentsPanel";
 import SubordinationAgreementEditor from "./components/SubordinationAgreementEditor";
 import AfsSectionSignoffBar from "./components/AfsSectionSignoffBar";
 import AfsReviewPointsPanel from "./components/AfsReviewPointsPanel";
 import AfsFlightSettingsPanel from "./components/AfsFlightSettingsPanel";
 import AfsFlightControlOverview from "./components/AfsFlightControlOverview";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+const supabase =
+  supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey)
+    : null;
 
 type SubordinationSelection = {
   id?: string;
@@ -189,14 +199,14 @@ const sections: { key: SectionKey; number: string; title: string; description: s
   {
     key: "minutes",
     number: "08",
-    title: "Minutes / Resolutions",
-    description: "Approval minutes, resolutions and closing documents.",
+    title: "Year-end Documents",
+    description: "AFS approval documents, minutes, loan certificates and supporting resolutions.",
   },
   {
     key: "export-print",
     number: "09",
-    title: "Export / Print",
-    description: "Print working-file schedules and supporting export documents.",
+    title: "Working File Pack",
+    description: "Print or export the final TB, journals and working-paper schedules.",
   },
   {
     key: "finalisation",
@@ -289,7 +299,6 @@ const leadScheduleStatements: LeadScheduleStatement[] = [
         schedules: [
           { key: "bank-overdraft", number: "620", title: "Bank overdraft and credit facilities" },
           { key: "payables", number: "630", title: "Trade and other payables" },
-          { key: "borrowings", number: "650", title: "Short-term borrowings and finance" },
           { key: "provisions", number: "660", title: "Current provisions" },
           { key: "dividend-payable", number: "688", title: "Dividend payable" },
           { key: "tax-controls", number: "690", title: "Tax and statutory payables" },
@@ -378,6 +387,8 @@ export default function AFSEngagementPage() {
   const [loading, setLoading] = useState(true);
 
   const [savingFinalisation, setSavingFinalisation] = useState(false);
+  const [finalisationReadiness, setFinalisationReadiness] = useState<any>(null);
+  const [loadingFinalisationReadiness, setLoadingFinalisationReadiness] = useState(false);
 const [reopenReason, setReopenReason] = useState("");
 
   const [subordinationSelections, setSubordinationSelections] = useState<
@@ -623,6 +634,46 @@ const [reopenReason, setReopenReason] = useState("");
     setActiveLeadSubPage(subPage);
   }
 
+  async function finalisationAuthHeaders(): Promise<Record<string, string>> {
+    if (!supabase) return {};
+
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token || "";
+
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  async function loadFinalisationReadiness() {
+    if (!engagement?.id) return;
+
+    setLoadingFinalisationReadiness(true);
+
+    try {
+      const response = await fetch(
+        `/api/afs/engagements/${engagement.id}/flight-control`,
+        {
+          cache: "no-store",
+          headers: await finalisationAuthHeaders(),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not load finalisation readiness.");
+      }
+
+      setFinalisationReadiness(data);
+    } catch (error: any) {
+      setFinalisationReadiness({
+        summary: { readyForFinalisation: false },
+        error: error?.message || "Could not load finalisation readiness.",
+      });
+    } finally {
+      setLoadingFinalisationReadiness(false);
+    }
+  }
+
   async function signOffFlight() {
   if (!engagement?.id) return;
 
@@ -651,6 +702,17 @@ const [reopenReason, setReopenReason] = useState("");
     const data = await response.json();
 
     if (!response.ok) {
+      if (data.code === "AFS_NOT_READY_FOR_FINALISATION") {
+        const blockers = Array.isArray(data.blockers) ? data.blockers : [];
+        const blockerText = blockers.length
+          ? `\n\n${blockers.map((item: string) => `• ${item}`).join("\n")}`
+          : "";
+
+        throw new Error(
+          `${data.error || "This AFS flight is not ready for finalisation."}${blockerText}`,
+        );
+      }
+
       throw new Error(data.error || "Failed to sign off the flight.");
     }
 
@@ -761,6 +823,11 @@ async function reopenFlight() {
     loadSubordinationSelections();
   }, [engagement?.id]);
 
+  useEffect(() => {
+    if (activeSection !== "finalisation" || !engagement?.id) return;
+    void loadFinalisationReadiness();
+  }, [activeSection, engagement?.id, engagement?.status]);
+
   if (loading) {
     return <main style={styles.page}>Loading AFS engagement...</main>;
   }
@@ -788,6 +855,24 @@ async function reopenFlight() {
 
   const isFinalEngagement = engagementStatus === "final";
   const isArchivedEngagement = engagementStatus === "archived";
+
+  const finalisationSummary = finalisationReadiness?.summary || null;
+  const isReadyForFinalisation = Boolean(
+    finalisationSummary?.readyForFinalisation,
+  );
+
+  const finalisationBlockingSections = Array.isArray(
+    finalisationReadiness?.sections,
+  )
+    ? finalisationReadiness.sections.filter(
+        (section: any) =>
+          section?.applicability === "required" && !section?.complete,
+      )
+    : [];
+
+  const finalisationOpenReviewPoints = Number(
+    finalisationSummary?.openReviewPoints || 0,
+  );
 
   const isLockedWorkingSection =
     (isArchivedEngagement &&
@@ -1043,7 +1128,7 @@ async function reopenFlight() {
                                                         )
                                                       }
                                                     >
-                                                      {schedule.number}.002 · Review notes
+                                                      {schedule.number}.002 · Review points
                                                     </button>
                                                   </div>
                                                 ) : null}
@@ -1093,9 +1178,10 @@ async function reopenFlight() {
           )}
 
           {selectedSection &&
-          activeSection !== "flight-settings" &&
-          activeSection !== "finalisation" &&
-          activeSection !== "review" ? (
+activeSection !== "flight-settings" &&
+activeSection !== "finalisation" &&
+activeSection !== "review" &&
+activeSection !== "lead-schedules" ? (
             <>
               <AfsSectionSignoffBar
                 engagementId={engagementId}
@@ -1155,7 +1241,9 @@ async function reopenFlight() {
             <MappingPanelNew
               trialBalanceLines={trialBalanceLines}
               onTrialBalanceLinesChanged={(lines) => setTrialBalanceLines(lines)}
-              onDataChanged={loadEngagement}
+              onDataChanged={() => {
+                window.dispatchEvent(new Event("afs-signoff-refresh"));
+              }}
             />
           )}
 
@@ -1234,9 +1322,28 @@ async function reopenFlight() {
           )}
 
           {activeSection === "minutes" && (
-            <PlaceholderCard
-              title="Minutes / Resolutions"
-              text="Director, member and shareholder approval documents will be generated here."
+            <YearEndDocumentsPanel
+              engagementId={engagement.id}
+              clientName={engagement.client_name}
+              entityType={engagement.entity_type}
+              financialYearEnd={engagement.financial_year_end}
+              clientSetup={clientSetup}
+              trialBalanceLines={trialBalanceLines}
+              clientPeople={clientPeople}
+              subordinationSelections={subordinationSelections}
+              savingSubordinationId={savingSubordinationId}
+              updateSubordinationSelection={updateSubordinationSelection}
+              saveSubordinationSelection={saveSubordinationSelection}
+              subordinationContent={
+                <PrintableSubordinationAgreements
+                  trialBalanceLines={trialBalanceLines}
+                  clientPeople={clientPeople}
+                  subordinationSelections={subordinationSelections}
+                  savingSubordinationId={savingSubordinationId}
+                  updateSubordinationSelection={updateSubordinationSelection}
+                  saveSubordinationSelection={saveSubordinationSelection}
+                />
+              }
             />
           )}
 
@@ -1312,19 +1419,82 @@ async function reopenFlight() {
     ) : (
       <div style={styles.finalisationSection}>
         <strong style={styles.finalisationSectionTitle}>
-          Ready for sign-off
+          {loadingFinalisationReadiness
+            ? "Checking finalisation readiness..."
+            : isReadyForFinalisation
+              ? "Ready for finalisation"
+              : "Not ready for finalisation"}
         </strong>
 
-        <p style={styles.finalisationText}>
-          Signing off marks this engagement as Final and enables Next Flight.
-          The engagement can still be reopened later through a controlled action.
-        </p>
+        {finalisationReadiness?.error ? (
+          <p style={styles.finalisationText}>{finalisationReadiness.error}</p>
+        ) : null}
+
+        {!loadingFinalisationReadiness && !isReadyForFinalisation ? (
+          <>
+            <p style={styles.finalisationText}>
+              Complete the outstanding Flight Control items before signing off this
+              AFS flight.
+            </p>
+
+            {finalisationBlockingSections.length > 0 ? (
+              <div style={styles.finalisationBlockers}>
+                {finalisationBlockingSections.map((section: any) => (
+                  <div key={section.key} style={styles.finalisationBlockerRow}>
+                    <strong>
+                      {sections.find((item) => item.key === section.key)?.title ||
+                        section.key}
+                    </strong>
+                    <span>
+                      {section.reviewPoints?.open
+                        ? `${section.reviewPoints.open} open review point${
+                            section.reviewPoints.open === 1 ? "" : "s"
+                          }`
+                        : "Sign-off incomplete"}
+                    </span>
+                  </div>
+                ))}
+
+                {finalisationOpenReviewPoints > 0 ? (
+                  <div style={styles.finalisationBlockerSummary}>
+                    {finalisationOpenReviewPoints} open review point
+                    {finalisationOpenReviewPoints === 1 ? "" : "s"} remain.
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              style={styles.secondaryButton}
+              onClick={() => setActiveSection("review")}
+            >
+              Open Flight Control
+            </button>
+          </>
+        ) : null}
+
+        {!loadingFinalisationReadiness && isReadyForFinalisation ? (
+          <p style={styles.finalisationText}>
+            Flight Control is complete. Signing off will mark this engagement as
+            Final and lock the working file.
+          </p>
+        ) : null}
 
         <button
           type="button"
-          style={styles.signOffFlightButton}
+          style={{
+            ...styles.signOffFlightButton,
+            ...(!isReadyForFinalisation || loadingFinalisationReadiness
+              ? styles.signOffFlightButtonDisabled
+              : {}),
+          }}
           onClick={signOffFlight}
-          disabled={savingFinalisation}
+          disabled={
+            savingFinalisation ||
+            loadingFinalisationReadiness ||
+            !isReadyForFinalisation
+          }
         >
           {savingFinalisation ? "Signing off..." : "Sign Off Flight"}
         </button>
@@ -1353,7 +1523,7 @@ type ExportDocumentKey =
   | "final-trial-balance"
   | "journals-passed"
   | "lead-sheets-used"
-  | "subordination-agreements";
+  | "full-working-file-pack";
 
 type ExportPrintPanelProps = {
   engagement: AFSEngagement;
@@ -1871,9 +2041,10 @@ function ExportPrintPanel({
       description: "Detailed list of used lead schedules and the accounts linked to each schedule.",
     },
     {
-      key: "subordination-agreements",
-      title: "Subordination Agreements",
-      description: "Supporting agreements to be generated after the TB and journals.",
+      key: "full-working-file-pack",
+      title: "Full Working File Pack",
+      description:
+        "Combined working-file print pack: Pilot TB, journals passed and lead sheets used.",
     },
   ];
 
@@ -1888,6 +2059,10 @@ function ExportPrintPanel({
 
     if (selectedDocument === "final-tb-passenger-view") {
       return "Final Trial Balance";
+    }
+
+    if (selectedDocument === "full-working-file-pack") {
+      return "Full Working File Pack";
     }
 
     return documents.find((document) => document.key === selectedDocument)?.title ||
@@ -2102,6 +2277,11 @@ function ExportPrintPanel({
   }
 
   function exportSelectedToExcel() {
+    if (selectedDocument === "full-working-file-pack") {
+      alert("Excel export is not available for the combined Working File Pack. Use Print / Save PDF.");
+      return;
+    }
+
     const title = selectedDocumentTitle();
     const excelHtml = `
       <html xmlns:o="urn:schemas-microsoft-com:office:office"
@@ -2141,15 +2321,6 @@ function ExportPrintPanel({
   }
 
   function printSelectedDocument() {
-    if (selectedDocument === "subordination-agreements") {
-      window.open(
-        selectedExportPdfUrl(),
-        "_blank",
-        "noopener,noreferrer"
-      );
-      return;
-    }
-
     window.print();
   }
 
@@ -2160,6 +2331,11 @@ function ExportPrintPanel({
           
 
           @media print {
+            #afs-export-print-area > div > section:first-child {
+              break-before: auto !important;
+              page-break-before: auto !important;
+            }
+
             body * {
               visibility: hidden !important;
             }
@@ -2185,7 +2361,7 @@ function ExportPrintPanel({
             }
 
             @page {
-              size: ${selectedDocument === "final-tb-pilot-view" || selectedDocument === "final-trial-balance" ? "A4 landscape" : "A4 portrait"};
+              size: ${selectedDocument === "final-tb-pilot-view" || selectedDocument === "final-trial-balance" || selectedDocument === "full-working-file-pack" ? "A4 landscape" : "A4 portrait"};
               margin: 10mm;
             }
           }
@@ -2194,49 +2370,50 @@ function ExportPrintPanel({
 
       <div id="afs-export-print-controls" style={styles.exportToolbar}>
         <div>
-          <h3 style={styles.exportTitle}>Export / Print</h3>
+          <h3 style={styles.exportTitle}>Working File Pack</h3>
           <p style={styles.exportSubtitle}>
-            Print working-file schedules for the file pack. Start with Final TB and
-            Journals Passed.
+            Print or export the working-paper pack. Flight Control remains the source of truth for completion and sign-off.
           </p>
         </div>
 
         <div style={styles.exportToolbarActions}>
-          {selectedDocument !== "subordination-agreements" && (
-            <button
-              type="button"
-              style={styles.exportSecondaryButton}
-              onClick={printSelectedDocument}
-            >
-              Print selected
-            </button>
-          )}
           <button
             type="button"
-            style={{
-              ...styles.exportSecondaryButton,
-              ...(selectedDocument === "subordination-agreements"
-                ? styles.exportDisabledButton
-                : {}),
-            }}
+            style={styles.exportSecondaryButton}
+            onClick={printSelectedDocument}
+          >
+            Print selected
+          </button>
+          <button
+            type="button"
+            style={styles.exportSecondaryButton}
             onClick={exportSelectedToExcel}
-            disabled={selectedDocument === "subordination-agreements"}
-            title={
-              selectedDocument === "subordination-agreements"
-                ? "Excel export is not available for Subordination Agreements."
-                : undefined
-            }
           >
             Export Excel
           </button>
-          <a
-            href={selectedExportPdfUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ ...styles.exportPrimaryButton, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
-          >
-            Export PDF
-          </a>
+          {selectedDocument === "full-working-file-pack" ? (
+            <button
+              type="button"
+              style={styles.exportPrimaryButton}
+              onClick={printSelectedDocument}
+            >
+              Print / Save PDF
+            </button>
+          ) : (
+            <a
+              href={selectedExportPdfUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                ...styles.exportPrimaryButton,
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+              }}
+            >
+              Export PDF
+            </a>
+          )}
         </div>
       </div>
 
@@ -2284,16 +2461,25 @@ function ExportPrintPanel({
           <PrintableLeadSheetsUsed groups={usedLeadScheduleGroups} />
         )}
 
-        {selectedDocument === "subordination-agreements" && (
-          <PrintableSubordinationAgreements
-            trialBalanceLines={trialBalanceLines}
-            clientPeople={clientPeople}
-            subordinationSelections={subordinationSelections}
-            savingSubordinationId={savingSubordinationId}
-            updateSubordinationSelection={updateSubordinationSelection}
-            saveSubordinationSelection={saveSubordinationSelection}
-          />
+        {selectedDocument === "full-working-file-pack" && (
+          <div style={styles.fullPack}>
+            <section style={styles.fullPackSection}>
+              <PrintableFinalTrialBalancePilotView rows={finalTrialBalanceRows} />
+            </section>
+
+            <section style={styles.fullPackSection}>
+              <PrintableJournalsPassed
+                journals={postedJournals}
+                loading={loadingPostedJournals}
+              />
+            </section>
+
+            <section style={styles.fullPackSection}>
+              <PrintableLeadSheetsUsed groups={usedLeadScheduleGroups} />
+            </section>
+          </div>
         )}
+
       </section>
     </section>
   );
@@ -3116,6 +3302,14 @@ const styles: Record<string, CSSProperties> = {
     cursor: "not-allowed",
     borderRadius: "0px",
   },
+  fullPack: {
+    display: "grid",
+    gap: "18px",
+  },
+  fullPackSection: {
+    breakBefore: "page",
+    pageBreakBefore: "always",
+  },
   exportJournalList: {
     display: "grid",
     gap: "14px",
@@ -3149,7 +3343,7 @@ const styles: Record<string, CSSProperties> = {
   },
   exportDocumentGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
     gap: "8px",
   },
   exportDocumentButton: {
@@ -3355,6 +3549,36 @@ finalisationTextarea: {
   resize: "vertical",
   boxSizing: "border-box",
   borderRadius: 0,
+},
+
+finalisationBlockers: {
+  display: "grid",
+  gap: "6px",
+  margin: "10px 0 12px",
+  borderTop: "1px solid #e5e7eb",
+  borderBottom: "1px solid #e5e7eb",
+  padding: "8px 0",
+},
+
+finalisationBlockerRow: {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "16px",
+  alignItems: "center",
+  fontSize: "12px",
+  color: "#334155",
+},
+
+finalisationBlockerSummary: {
+  fontSize: "12px",
+  fontWeight: 700,
+  color: "#92400e",
+  paddingTop: "4px",
+},
+
+signOffFlightButtonDisabled: {
+  opacity: 0.5,
+  cursor: "not-allowed",
 },
 
 signOffFlightButton: {

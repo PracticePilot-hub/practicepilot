@@ -313,6 +313,8 @@ export default function NewProposalPage() {
     "Custom Finance and Compliance Package"
   );
   const [customMonthlyFee, setCustomMonthlyFee] = useState(12500);
+  const [offerAnnualPrepayment, setOfferAnnualPrepayment] = useState(false);
+  const [annualPrepaymentMonths, setAnnualPrepaymentMonths] = useState(10);
 
   const [selectedIds, setSelectedIds] = useState<string[]>([
     "monthly-bookkeeping",
@@ -350,6 +352,17 @@ export default function NewProposalPage() {
 
   const packageMonthlyFee =
     packageCode === "custom" ? customMonthlyFee : selectedPackage.monthlyFee;
+
+  const normalAnnualFee = packageMonthlyFee * 12;
+  const annualPrepaymentFee = packageMonthlyFee * annualPrepaymentMonths;
+  const annualPrepaymentSaving = Math.max(
+    0,
+    normalAnnualFee - annualPrepaymentFee
+  );
+  const annualPrepaymentSavingPercentage =
+    normalAnnualFee > 0
+      ? (annualPrepaymentSaving / normalAnnualFee) * 100
+      : 0;
 
   const selectedServices = useMemo(
     () => services.filter((service) => selectedIds.includes(service.id)),
@@ -407,6 +420,15 @@ export default function NewProposalPage() {
         throw new Error("Please select at least one service.");
       }
 
+      if (
+        offerAnnualPrepayment &&
+        (annualPrepaymentMonths < 1 || annualPrepaymentMonths > 12)
+      ) {
+        throw new Error(
+          "Annual prepayment months must be between 1 and 12."
+        );
+      }
+
       const response = await fetch("/api/proposals", {
         method: "POST",
         headers: {
@@ -423,6 +445,17 @@ export default function NewProposalPage() {
           packageName: packageName.trim(),
           packageDescription: selectedPackage.description,
           packageMonthlyFee,
+          offerAnnualPrepayment,
+          annualPrepaymentMonths: offerAnnualPrepayment
+            ? annualPrepaymentMonths
+            : null,
+          normalAnnualFee,
+          annualPrepaymentFee: offerAnnualPrepayment
+            ? annualPrepaymentFee
+            : null,
+          annualPrepaymentSaving: offerAnnualPrepayment
+            ? annualPrepaymentSaving
+            : null,
           services: selectedServices,
         }),
       });
@@ -585,6 +618,79 @@ export default function NewProposalPage() {
                 </label>
               </div>
             ) : null}
+
+            <div style={styles.prepaymentSection}>
+              <label style={styles.prepaymentToggleRow}>
+                <input
+                  type="checkbox"
+                  checked={offerAnnualPrepayment}
+                  onChange={(event) =>
+                    setOfferAnnualPrepayment(event.target.checked)
+                  }
+                />
+                <div>
+                  <strong style={styles.prepaymentTitle}>
+                    Offer annual prepayment option
+                  </strong>
+                  <div style={styles.prepaymentText}>
+                    Allow the client to pay the annual professional fee in
+                    advance at a preferred annual rate.
+                  </div>
+                </div>
+              </label>
+
+              {offerAnnualPrepayment ? (
+                <div style={styles.prepaymentDetails}>
+                  <label style={styles.field}>
+                    <span style={styles.label}>Months payable upfront</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="12"
+                      step="1"
+                      value={annualPrepaymentMonths}
+                      onChange={(event) =>
+                        setAnnualPrepaymentMonths(
+                          Math.max(
+                            1,
+                            Math.min(12, Number(event.target.value) || 1)
+                          )
+                        )
+                      }
+                      style={styles.input}
+                    />
+                  </label>
+
+                  <div style={styles.prepaymentFigures}>
+                    <div>
+                      <span>Normal annual value</span>
+                      <strong>{money.format(normalAnnualFee)}</strong>
+                    </div>
+                    <div>
+                      <span>Annual prepayment</span>
+                      <strong>{money.format(annualPrepaymentFee)}</strong>
+                    </div>
+                    <div>
+                      <span>Client saving</span>
+                      <strong>
+                        {money.format(annualPrepaymentSaving)} (
+                        {annualPrepaymentSavingPercentage.toFixed(2)}%)
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div style={styles.clientWording}>
+                    <strong>Client-facing wording</strong>
+                    <span>
+                      Pay annually in advance and receive the equivalent of{" "}
+                      {12 - annualPrepaymentMonths}{" "}
+                      {12 - annualPrepaymentMonths === 1 ? "month" : "months"} at
+                      no charge.
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </section>
 
           <section style={styles.panel}>
@@ -728,6 +834,19 @@ export default function NewProposalPage() {
             <span>Monthly incl. VAT</span>
             <strong>{money.format(packageMonthlyFee * 1.15)}</strong>
           </div>
+
+          {offerAnnualPrepayment ? (
+            <div style={styles.summaryPrepayment}>
+              <span style={styles.summaryPrepaymentLabel}>
+                Annual prepayment option
+              </span>
+              <strong>{money.format(annualPrepaymentFee)} excl. VAT</strong>
+              <small>
+                Saving {money.format(annualPrepaymentSaving)} versus 12 monthly
+                payments
+              </small>
+            </div>
+          ) : null}
 
           <button
             type="button"
@@ -885,6 +1004,64 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: "minmax(0, 1fr) 220px",
     gap: 14,
     padding: "0 18px 18px",
+  },
+  prepaymentSection: {
+    margin: "0 18px 18px",
+    borderTop: "1px solid #dbe3ef",
+    paddingTop: 16,
+  },
+  prepaymentToggleRow: {
+    display: "flex",
+    gap: 10,
+    alignItems: "flex-start",
+    cursor: "pointer",
+  },
+  prepaymentTitle: {
+    display: "block",
+    fontSize: 13,
+  },
+  prepaymentText: {
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 1.45,
+    color: "#64748b",
+  },
+  prepaymentDetails: {
+    display: "grid",
+    gridTemplateColumns: "180px minmax(0, 1fr)",
+    gap: 14,
+    marginTop: 14,
+    padding: 14,
+    border: "1px solid #bfdbfe",
+    background: "#eff6ff",
+  },
+  prepaymentFigures: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 10,
+  },
+  clientWording: {
+    gridColumn: "1 / -1",
+    display: "grid",
+    gap: 4,
+    paddingTop: 10,
+    borderTop: "1px solid #bfdbfe",
+    fontSize: 12,
+    lineHeight: 1.45,
+    color: "#334155",
+  },
+  summaryPrepayment: {
+    display: "grid",
+    gap: 4,
+    marginTop: 12,
+    padding: 12,
+    border: "1px solid #bfdbfe",
+    background: "#eff6ff",
+    fontSize: 12,
+  },
+  summaryPrepaymentLabel: {
+    color: "#2563eb",
+    fontWeight: 850,
   },
   serviceHeader: {
     display: "grid",

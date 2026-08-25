@@ -491,6 +491,7 @@ export default function TrialBalancePanel({
       }
 
       onImported(data.lines || []);
+      notifyTrialBalanceSignoffRefresh();
       setPreviewLines([]);
       setRawRows([]);
       setFileName("");
@@ -508,6 +509,18 @@ export default function TrialBalancePanel({
     setFileName("");
     setShowMapping(false);
   }
+
+  function notifyTrialBalanceSignoffRefresh() {
+    window.dispatchEvent(
+      new CustomEvent("afs-signoff-refresh", {
+        detail: {
+          engagementId,
+          sectionKey: "trial-balance",
+        },
+      }),
+    );
+  }
+
 
 
   async function saveManualAdjustment(line: TrialBalanceLine, value: string) {
@@ -546,6 +559,10 @@ export default function TrialBalancePanel({
           existing.id === lineId ? { ...existing, ...updatedLine } : existing
         )
       );
+
+      notifyTrialBalanceSignoffRefresh();
+
+      notifyTrialBalanceSignoffRefresh();
     } catch (error: any) {
       alert(error.message || "Failed to save manual adjustment.");
     } finally {
@@ -659,6 +676,7 @@ export default function TrialBalancePanel({
       );
 
       onImported(nextLines);
+      notifyTrialBalanceSignoffRefresh();
       resetAddAccountForm();
       setShowAddAccount(false);
     } catch (error: any) {
@@ -883,6 +901,11 @@ export default function TrialBalancePanel({
                         defaultValue={formatPlainNumber(manualAdjustment)}
                         disabled={previewLines.length > 0 || savingLineId === line.id}
                         onBlur={(event) => saveManualAdjustment(line, event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.currentTarget.blur();
+                          }
+                        }}
                       />
                     </td>
                     <td style={styles.tdRight}>{formatMoney(journalAdjustment)}</td>

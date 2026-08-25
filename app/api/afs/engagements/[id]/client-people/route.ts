@@ -12,6 +12,51 @@ async function getIdFromContext(context: any) {
   return id;
 }
 
+async function invalidateClientSetupSignoff(
+  supabase: ReturnType<typeof getSupabaseServer>,
+  engagementId: string,
+  reason: string,
+) {
+  const { data: existing, error: existingError } = await supabase
+    .from("afs_section_signoffs")
+    .select("id,prepared_at,reviewed_at,captain_cleared_at")
+    .eq("engagement_id", engagementId)
+    .eq("section_key", "client-setup")
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  if (
+    !existing?.id ||
+    (!existing.prepared_at &&
+      !existing.reviewed_at &&
+      !existing.captain_cleared_at)
+  ) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+
+  const { error: reopenError } = await supabase
+    .from("afs_section_signoffs")
+    .update({
+      prepared_by: null,
+      prepared_at: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      captain_cleared_by: null,
+      captain_cleared_at: null,
+      reopened_at: now,
+      reopen_reason: reason,
+      updated_at: now,
+    })
+    .eq("id", existing.id);
+
+  if (reopenError) throw reopenError;
+
+  return true;
+}
+
 export async function POST(req: NextRequest, context: any) {
   try {
     const engagementId = await getIdFromContext(context);
@@ -49,7 +94,16 @@ export async function POST(req: NextRequest, context: any) {
       throw error;
     }
 
-    return NextResponse.json({ person: data });
+    const signoffInvalidated = await invalidateClientSetupSignoff(
+      supabase,
+      engagementId,
+      `Client Setup changed after sign-off: ${String(data.person_type || "person")} ${fullName} was added.`,
+    );
+
+    return NextResponse.json({
+      person: data,
+      signoffInvalidated,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Failed to add person." },
@@ -74,6 +128,17 @@ export async function DELETE(req: NextRequest, context: any) {
 
     const supabase = getSupabaseServer();
 
+    const { data: person, error: personError } = await supabase
+      .from("afs_client_people")
+      .select("id,person_type,full_name")
+      .eq("id", personId)
+      .eq("engagement_id", engagementId)
+      .single();
+
+    if (personError) {
+      throw personError;
+    }
+
     const { error } = await supabase
       .from("afs_client_people")
       .delete()
@@ -84,7 +149,16 @@ export async function DELETE(req: NextRequest, context: any) {
       throw error;
     }
 
-    return NextResponse.json({ success: true });
+    const signoffInvalidated = await invalidateClientSetupSignoff(
+      supabase,
+      engagementId,
+      `Client Setup changed after sign-off: ${String(person?.person_type || "person")} ${String(person?.full_name || "").trim()} was deleted.`,
+    );
+
+    return NextResponse.json({
+      success: true,
+      signoffInvalidated,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Failed to delete person." },

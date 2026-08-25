@@ -18,8 +18,14 @@ function normaliseMoney(value: unknown) {
   return Number.isFinite(amount) ? amount : 0;
 }
 
+function normaliseInteger(value: unknown, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed) : fallback;
+}
+
 function makeProposalNumber() {
   const now = new Date();
+
   const datePart = [
     now.getFullYear(),
     String(now.getMonth() + 1).padStart(2, "0"),
@@ -52,6 +58,11 @@ export async function GET() {
         monthly_fee,
         annual_fee,
         once_off_fee,
+        offer_annual_prepayment,
+        annual_prepayment_months,
+        normal_annual_fee,
+        annual_prepayment_fee,
+        annual_prepayment_saving,
         created_at
       `)
       .order("created_at", { ascending: false });
@@ -90,6 +101,11 @@ export async function POST(req: Request) {
       packageName,
       packageDescription,
       packageMonthlyFee,
+      offerAnnualPrepayment,
+      annualPrepaymentMonths,
+      normalAnnualFee,
+      annualPrepaymentFee,
+      annualPrepaymentSaving,
       services,
       introduction,
       notes,
@@ -119,8 +135,34 @@ export async function POST(req: Request) {
       );
     }
 
+    const monthlyPackageFee = normaliseMoney(packageMonthlyFee);
+
+    if (monthlyPackageFee <= 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Please enter the monthly package fee.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const annualPrepaymentEnabled = Boolean(offerAnnualPrepayment);
+    const prepaymentMonths = Math.min(
+      12,
+      Math.max(1, normaliseInteger(annualPrepaymentMonths, 10))
+    );
+
+    const calculatedNormalAnnualFee = monthlyPackageFee * 12;
+    const calculatedAnnualPrepaymentFee = monthlyPackageFee * prepaymentMonths;
+    const calculatedAnnualPrepaymentSaving = Math.max(
+      0,
+      calculatedNormalAnnualFee - calculatedAnnualPrepaymentFee
+    );
+
     const proposalDate = new Date();
     const validUntil = new Date(proposalDate);
+
     validUntil.setDate(
       validUntil.getDate() + Math.max(1, Number(validDays || 14))
     );
@@ -151,8 +193,6 @@ export async function POST(req: Request) {
       }
     );
 
-    const monthlyPackageFee = normaliseMoney(packageMonthlyFee);
-
     const supabase = getSupabaseAdmin();
     const proposalNumber = makeProposalNumber();
 
@@ -179,6 +219,19 @@ export async function POST(req: Request) {
         monthly_fee: monthlyPackageFee,
         annual_fee: totals.annual,
         once_off_fee: totals.onceOff,
+        offer_annual_prepayment: annualPrepaymentEnabled,
+        annual_prepayment_months: annualPrepaymentEnabled
+          ? prepaymentMonths
+          : null,
+        normal_annual_fee: annualPrepaymentEnabled
+          ? calculatedNormalAnnualFee
+          : null,
+        annual_prepayment_fee: annualPrepaymentEnabled
+          ? calculatedAnnualPrepaymentFee
+          : null,
+        annual_prepayment_saving: annualPrepaymentEnabled
+          ? calculatedAnnualPrepaymentSaving
+          : null,
         introduction: introduction || null,
         notes: notes || null,
       })

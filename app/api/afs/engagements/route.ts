@@ -7,6 +7,374 @@ function cleanText(value: unknown) {
   return String(value ?? "").trim();
 }
 
+const AFS_METHODOLOGY_VERSION = "afs-2026.08.25.1";
+
+async function buildMethodologySnapshot(
+  supabase: ReturnType<typeof getSupabaseServer>,
+  organisationId: string,
+) {
+  const { data: organisation, error } = await supabase
+    .from("organisations")
+    .select(
+      "id,name,afs_default_workflow_levels,afs_allow_solo,afs_allow_three_level,afs_section_signoff_defaults,afs_white_label_documents",
+    )
+    .eq("id", organisationId)
+    .single();
+
+  if (error || !organisation) {
+    throw new Error(
+      error?.message || "Could not load the AFS methodology settings for this practice.",
+    );
+  }
+
+  const capturedAt = new Date().toISOString();
+
+  return {
+    version: AFS_METHODOLOGY_VERSION,
+    lockedAt: capturedAt,
+    snapshot: {
+      schemaVersion: 1,
+      productMethodologyVersion: AFS_METHODOLOGY_VERSION,
+      legacyBackfill: false,
+      organisationId: organisation.id,
+      organisationName: organisation.name,
+      workflow: {
+        defaultWorkflowLevels: Number(
+          organisation.afs_default_workflow_levels || 2,
+        ),
+        allowSolo: Boolean(organisation.afs_allow_solo),
+        allowThreeLevel: Boolean(organisation.afs_allow_three_level),
+        sectionSignoffDefaults:
+          organisation.afs_section_signoff_defaults || {},
+      },
+      documents: {
+        whiteLabel: Boolean(organisation.afs_white_label_documents),
+      },
+      capturedAt,
+    },
+  };
+}
+
+type Applicability = "required" | "conditional" | "not_applicable" | "optional";
+
+const FINALISATION_SECTIONS = [
+  { key: "client-setup", defaultApplicability: "required" },
+  { key: "trial-balance", defaultApplicability: "required" },
+  { key: "adjusting-journals", defaultApplicability: "conditional" },
+  { key: "mapping", defaultApplicability: "required" },
+  { key: "lead-schedules", defaultApplicability: "conditional" },
+  { key: "tax-calculator", defaultApplicability: "required" },
+  { key: "financial-statements", defaultApplicability: "required" },
+  { key: "minutes", defaultApplicability: "conditional" },
+  { key: "export-print", defaultApplicability: "optional" },
+] as const;
+
+function numericValue(value: unknown) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function cleanLeadKey(value: unknown) {
+  return String(value || "").trim();
+}
+
+async function getFlightControlReadiness(
+  supabase: ReturnType<typeof getSupabaseServer>,
+  engagementId: string,
+) {
+  const { data: engagement, error: engagementError } = await supabase
+    .from("afs_engagements")
+    .select("id,organisation_id,status")
+    .eq("id", engagementId)
+    .single();
+
+  if (engagementError) throw engagementError;
+
+  const organisationId = String(engagement?.organisation_id || "").trim();
+
+  if (!organisationId) {
+    return {
+      readyForFinalisation: false,
+      blockers: ["The AFS engagement is not linked to a practice."],
+      summary: null,
+    };
+  }
+
+  const [
+    { data: workflow, error: workflowError },
+    { data: signoffs, error: signoffError },
+    { data: reviewPoints, error: reviewError },
+    { data: applicabilityRows, error: applicabilityError },
+    { data: trialBalanceLines, error: trialBalanceError },
+    { data: leadAnnotations, error: leadAnnotationsError },
+    { data: workingPapers, error: workingPapersError },
+  ] = await Promise.all([
+    supabase
+      .from("afs_engagement_workflow")
+      .select("workflow_levels,is_started")
+      .eq("engagement_id", engagementId)
+      .eq("organisation_id", organisationId)
+      .maybeSingle(),
+
+    supabase
+      .from("afs_section_signoffs")
+      .select(
+        "section_key,prepared_at,reviewed_at,captain_cleared_at",
+      )
+      .eq("engagement_id", engagementId)
+      .eq("organisation_id", organisationId),
+
+    supabase
+      .from("afs_review_points")
+      .select("section_key,status")
+      .eq("engagement_id", engagementId)
+      .eq("organisation_id", organisationId),
+
+    supabase
+      .from("afs_section_applicability")
+      .select("section_key,applicability")
+      .eq("engagement_id", engagementId)
+      .eq("organisation_id", organisationId),
+
+    supabase
+      .from("afs_trial_balance_lines")
+      .select(
+        "lead_schedule_key,lead_schedule_number,current_year_balance,prior_year_balance,debit,credit",
+      )
+      .eq("engagement_id", engagementId),
+
+    supabase
+      .from("afs_lead_schedule_annotations")
+      .select("schedule_key")
+      .eq("engagement_id", engagementId),
+
+    supabase
+      .from("afs_working_papers")
+      .select("lead_schedule_key,lead_schedule_number")
+      .eq("engagement_id", engagementId),
+  ]);
+
+  if (workflowError) throw workflowError;
+  if (signoffError) throw signoffError;
+  if (reviewError) throw reviewError;
+  if (applicabilityError) throw applicabilityError;
+  if (trialBalanceError) throw trialBalanceError;
+  if (leadAnnotationsError) throw leadAnnotationsError;
+  if (workingPapersError) throw workingPapersError;
+
+  const signoffBySection = new Map(
+    (signoffs || []).map((row: any) => [row.section_key, row]),
+  );
+
+  const applicabilityBySection = new Map(
+    (applicabilityRows || []).map((row: any) => [row.section_key, row]),
+  );
+
+  const pointsBySection = new Map<
+    string,
+    { open: number; resolved: number; cleared: number }
+  >();
+
+  for (const point of reviewPoints || []) {
+    const current = pointsBySection.get(point.section_key) || {
+      open: 0,
+      resolved: 0,
+      cleared: 0,
+    };
+
+    if (point.status === "open") current.open += 1;
+    if (point.status === "resolved") current.resolved += 1;
+    if (point.status === "cleared") current.cleared += 1;
+
+    pointsBySection.set(point.section_key, current);
+  }
+
+  const levels = Number(workflow?.workflow_levels || 2);
+
+  const usedLeadKeys = new Set<string>();
+
+  for (const line of trialBalanceLines || []) {
+    const key = cleanLeadKey(line.lead_schedule_key);
+    if (!key) continue;
+
+    const current =
+      line.current_year_balance !== null &&
+      line.current_year_balance !== undefined
+        ? numericValue(line.current_year_balance)
+        : numericValue(line.debit) - numericValue(line.credit);
+
+    const prior = numericValue(line.prior_year_balance);
+
+    if (Math.abs(current) >= 0.005 || Math.abs(prior) >= 0.005) {
+      usedLeadKeys.add(key);
+    }
+  }
+
+  for (const annotation of leadAnnotations || []) {
+    const key = cleanLeadKey(annotation.schedule_key);
+    if (key) usedLeadKeys.add(key);
+  }
+
+  for (const paper of workingPapers || []) {
+    const key = cleanLeadKey(paper.lead_schedule_key);
+    if (key) usedLeadKeys.add(key);
+  }
+
+  const usedLeadSchedules = Array.from(usedLeadKeys).map((key) => {
+    const signoffKey = `lead-schedule:${key}`;
+    const signoff: any = signoffBySection.get(signoffKey) || null;
+    const points = pointsBySection.get(signoffKey) || {
+      open: 0,
+      resolved: 0,
+      cleared: 0,
+    };
+
+    const prepared = Boolean(signoff?.prepared_at);
+    const reviewed = Boolean(signoff?.reviewed_at);
+    const captainCleared = Boolean(signoff?.captain_cleared_at);
+
+    const signedComplete =
+      levels === 1
+        ? captainCleared
+        : prepared && reviewed && captainCleared;
+
+    return {
+      key,
+      prepared,
+      reviewed,
+      captainCleared,
+      complete: signedComplete && points.open === 0,
+      reviewPoints: points,
+    };
+  });
+
+  const sections = FINALISATION_SECTIONS.map((section) => {
+    const signoff: any = signoffBySection.get(section.key) || null;
+    const applicabilityRow: any =
+      applicabilityBySection.get(section.key) || null;
+
+    const applicability = (
+      applicabilityRow?.applicability || section.defaultApplicability
+    ) as Applicability;
+
+    const points = pointsBySection.get(section.key) || {
+      open: 0,
+      resolved: 0,
+      cleared: 0,
+    };
+
+    if (section.key === "lead-schedules" && usedLeadSchedules.length > 0) {
+      const usedComplete = usedLeadSchedules.filter(
+        (item) => item.complete,
+      ).length;
+      const usedPrepared = usedLeadSchedules.filter(
+        (item) => item.prepared,
+      ).length;
+      const usedReviewed = usedLeadSchedules.filter(
+        (item) => item.reviewed,
+      ).length;
+      const usedCaptain = usedLeadSchedules.filter(
+        (item) => item.captainCleared,
+      ).length;
+
+      const leadOpenPoints = usedLeadSchedules.reduce(
+        (total, item) =>
+          total + Number(item.reviewPoints.open || 0),
+        Number(points.open || 0),
+      );
+
+      return {
+        key: section.key,
+        applicability,
+        prepared: usedPrepared === usedLeadSchedules.length,
+        reviewed: usedReviewed === usedLeadSchedules.length,
+        captainCleared: usedCaptain === usedLeadSchedules.length,
+        complete:
+          usedComplete === usedLeadSchedules.length &&
+          leadOpenPoints === 0,
+        openReviewPoints: leadOpenPoints,
+      };
+    }
+
+    const prepared = Boolean(signoff?.prepared_at);
+    const reviewed = Boolean(signoff?.reviewed_at);
+    const captainCleared = Boolean(signoff?.captain_cleared_at);
+
+    const signedComplete =
+      levels === 1
+        ? captainCleared
+        : prepared && reviewed && captainCleared;
+
+    return {
+      key: section.key,
+      applicability,
+      prepared,
+      reviewed,
+      captainCleared,
+      complete: signedComplete && points.open === 0,
+      openReviewPoints: Number(points.open || 0),
+    };
+  });
+
+  const requiredSections = sections.filter(
+    (section) => section.applicability === "required",
+  );
+
+  const openReviewPoints = sections.reduce(
+    (sum, section) => sum + Number(section.openReviewPoints || 0),
+    0,
+  );
+
+  const blockingOpenReviewPoints = requiredSections.reduce(
+    (sum, section) => sum + Number(section.openReviewPoints || 0),
+    0,
+  );
+
+  const completeCount = requiredSections.filter(
+    (section) => section.complete,
+  ).length;
+
+  const readyForFinalisation =
+    Boolean(workflow?.is_started) &&
+    requiredSections.length > 0 &&
+    completeCount === requiredSections.length &&
+    blockingOpenReviewPoints === 0;
+
+  const blockers: string[] = [];
+
+  if (!workflow?.is_started) {
+    blockers.push("The AFS flight has not been started.");
+  }
+
+  for (const section of requiredSections) {
+    if (!section.complete) {
+      blockers.push(
+        `${section.key} is not fully signed off or still has an open review point.`,
+      );
+    }
+  }
+
+  if (blockingOpenReviewPoints > 0) {
+    blockers.push(
+      `${blockingOpenReviewPoints} open review point${
+        blockingOpenReviewPoints === 1 ? "" : "s"
+      } remain in required sections.`,
+    );
+  }
+
+  return {
+    readyForFinalisation,
+    blockers: [...new Set(blockers)],
+    summary: {
+      requiredTotal: requiredSections.length,
+      completeCount,
+      openReviewPoints,
+      blockingOpenReviewPoints,
+      usedLeadScheduleCount: usedLeadSchedules.length,
+    },
+  };
+}
+
 async function getFallbackOrganisation(
   supabase: ReturnType<typeof getSupabaseServer>
 ) {
@@ -73,6 +441,24 @@ export async function PATCH(req: NextRequest) {
     }
 
     const supabase = getSupabaseServer();
+
+    if (status === "Final") {
+      const readiness = await getFlightControlReadiness(supabase, engagementId);
+
+      if (!readiness.readyForFinalisation) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: "AFS_NOT_READY_FOR_FINALISATION",
+            error:
+              "This AFS flight cannot be marked Final until Flight Control is complete.",
+            blockers: readiness.blockers,
+            summary: readiness.summary,
+          },
+          { status: 409 },
+        );
+      }
+    }
 
     const { data, error } = await supabase
       .from("afs_engagements")
@@ -308,6 +694,11 @@ export async function POST(req: NextRequest) {
       billingStatus = "covered";
     }
 
+    const methodology = await buildMethodologySnapshot(
+      supabase,
+      finalOrganisationId,
+    );
+
     const { data, error } = await supabase
       .from("afs_engagements")
       .insert({
@@ -320,6 +711,9 @@ export async function POST(req: NextRequest) {
         notes: notes || null,
         organisation_id: finalOrganisationId,
         firm_client_name: finalFirmClientName,
+        afs_methodology_version: methodology.version,
+        afs_methodology_snapshot: methodology.snapshot,
+        afs_methodology_locked_at: methodology.lockedAt,
       })
       .select("*")
       .single();

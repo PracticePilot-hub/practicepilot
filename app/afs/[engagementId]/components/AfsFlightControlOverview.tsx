@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useState, type CSSProperties } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 type SectionKey =
@@ -49,6 +49,7 @@ export default function AfsFlightControlOverview({
   const [data, setData] = useState<any>(null);
   const [message, setMessage] = useState("");
   const [savingApplicability, setSavingApplicability] = useState<string | null>(null);
+  const [leadSchedulesExpanded, setLeadSchedulesExpanded] = useState(true);
 
   async function authHeaders(): Promise<Record<string, string>> {
     if (!supabase) return {};
@@ -224,40 +225,74 @@ export default function AfsFlightControlOverview({
                 Number(section.reviewPoints?.resolved || 0);
 
               return (
-                <tr key={section.key}>
+                <Fragment key={section.key}>
+                <tr>
                   <td style={styles.td}>
                     <button
                       type="button"
                       style={styles.sectionButton}
-                      onClick={() => onJump?.(section.key)}
+                      onClick={() => {
+                        if (section.isLeadScheduleRollup) {
+                          setLeadSchedulesExpanded((current) => !current);
+                          return;
+                        }
+
+                        onJump?.(section.key);
+                      }}
                     >
                       <span style={styles.number}>{section.number}</span>
                       <strong>{section.title}</strong>
+                      {section.isLeadScheduleRollup ? (
+                        <span style={styles.rollupCount}>
+                          {section.usedLeadScheduleCompleteCount}/
+                          {section.usedLeadScheduleCount} complete
+                        </span>
+                      ) : null}
+                      {section.isLeadScheduleRollup ? (
+                        <span style={styles.chevron}>
+                          {leadSchedulesExpanded ? "−" : "+"}
+                        </span>
+                      ) : null}
                     </button>
                   </td>
 
                   <td style={styles.td}>
-                    <select
-                      value={section.applicability}
-                      disabled={savingApplicability === section.key}
-                      onChange={(event) =>
-                        void setApplicability(
-                          section.key,
-                          event.target.value as
-                            | "required"
-                            | "conditional"
-                            | "not_applicable"
-                            | "optional",
-                        )
-                      }
-                      style={styles.applicabilitySelect}
-                      title="Only Required sections block Ready for Review."
-                    >
-                      <option value="required">Required</option>
-                      <option value="conditional">Conditional</option>
-                      <option value="not_applicable">N/A</option>
-                      <option value="optional">Optional</option>
-                    </select>
+                    {section.isLeadScheduleRollup ? (
+                      <span
+                        style={styles.usedRequired}
+                        title={
+                          section.applicability === "required"
+                            ? "Used lead schedules must be signed off for this file."
+                            : "PracticePilot lead schedules are optional for this file."
+                        }
+                      >
+                        {section.applicability === "required"
+                          ? "Required when used"
+                          : "Used · Optional"}
+                      </span>
+                    ) : (
+                      <select
+                        value={section.applicability}
+                        disabled={savingApplicability === section.key}
+                        onChange={(event) =>
+                          void setApplicability(
+                            section.key,
+                            event.target.value as
+                              | "required"
+                              | "conditional"
+                              | "not_applicable"
+                              | "optional",
+                          )
+                        }
+                        style={styles.applicabilitySelect}
+                        title="Only Required sections block Ready for Review."
+                      >
+                        <option value="required">Required</option>
+                        <option value="conditional">Conditional</option>
+                        <option value="not_applicable">N/A</option>
+                        <option value="optional">Optional</option>
+                      </select>
+                    )}
                   </td>
 
                   <td style={styles.td}>
@@ -352,6 +387,112 @@ export default function AfsFlightControlOverview({
                     </span>
                   </td>
                 </tr>
+
+                {section.isLeadScheduleRollup && leadSchedulesExpanded
+                  ? (section.usedLeadSchedules || []).map((lead: any) => {
+                      const leadOutstanding =
+                        Number(lead.reviewPoints?.open || 0) +
+                        Number(lead.reviewPoints?.resolved || 0);
+
+                      return (
+                        <tr key={lead.signoffKey} style={styles.leadChildRow}>
+                          <td style={styles.leadChildTd}>
+                            <button
+                              type="button"
+                              style={styles.leadChildButton}
+                              onClick={() => onJump?.("lead-schedules")}
+                            >
+                              <span style={styles.leadBranch}>↳</span>
+                              <span>
+                                {lead.number ? `${lead.number} · ` : ""}
+                                {lead.key}
+                              </span>
+                            </button>
+                          </td>
+
+                          <td style={styles.leadChildTd}>
+                            <span style={styles.usedBadge}>Used</span>
+                          </td>
+
+                          <td style={styles.leadChildTd}>
+                            {section.applicability === "required" ? (
+                              <SignoffCell
+                                done={lead.prepared}
+                                person={lead.preparedBy}
+                              />
+                            ) : (
+                              <span style={styles.notRequired}>Not required</span>
+                            )}
+                          </td>
+
+                          {levels === 3 ? (
+                            <td style={styles.leadChildTd}>
+                              {section.applicability === "required" ? (
+                                <SignoffCell
+                                  done={lead.reviewed}
+                                  person={lead.reviewedBy}
+                                />
+                              ) : (
+                                <span style={styles.notRequired}>Not required</span>
+                              )}
+                            </td>
+                          ) : null}
+
+                          <td style={styles.leadChildTd}>
+                            {section.applicability === "required" ? (
+                              <SignoffCell
+                                done={lead.captainCleared}
+                                person={lead.captainBy}
+                              />
+                            ) : (
+                              <span style={styles.notRequired}>Not required</span>
+                            )}
+                          </td>
+
+                          <td style={styles.leadChildTd}>
+                            {leadOutstanding ? (
+                              <span style={styles.pointText}>
+                                {lead.reviewPoints.open
+                                  ? `${lead.reviewPoints.open} open`
+                                  : ""}
+                                {lead.reviewPoints.open &&
+                                lead.reviewPoints.resolved
+                                  ? " · "
+                                  : ""}
+                                {lead.reviewPoints.resolved
+                                  ? `${lead.reviewPoints.resolved} resolved`
+                                  : ""}
+                              </span>
+                            ) : (
+                              <span style={styles.none}>—</span>
+                            )}
+                          </td>
+
+                          <td style={styles.leadChildTd}>
+                            <span
+                              style={{
+                                ...styles.status,
+                                ...(lead.complete
+                                  ? styles.statusComplete
+                                  : leadOutstanding
+                                    ? styles.statusAttention
+                                    : styles.statusPending),
+                              }}
+                            >
+                              {section.applicability !== "required"
+                                ? "Optional"
+                                : lead.complete
+                                  ? "Complete"
+                                  : leadOutstanding
+                                    ? "Attention"
+                                    : "Pending"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  : null}
+                </Fragment>
               );
             })}
           </tbody>
@@ -537,6 +678,64 @@ const styles: Record<string, CSSProperties> = {
     padding: "3px 5px",
     fontSize: 9,
     fontWeight: 800,
+  },
+  rollupCount: {
+    marginLeft: 8,
+    color: "#2563eb",
+    fontSize: 8.5,
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  },
+  chevron: {
+    marginLeft: 4,
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: 900,
+  },
+  usedRequired: {
+    color: "#1d4ed8",
+    fontSize: 9,
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  },
+  leadChildRow: {
+    background: "#f8fbff",
+  },
+  leadChildTd: {
+    padding: "6px 8px",
+    borderBottom: "1px solid #e2e8f0",
+    fontSize: 9,
+    verticalAlign: "middle",
+  },
+  leadChildButton: {
+    border: 0,
+    background: "transparent",
+    padding: "0 0 0 19px",
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    color: "#334155",
+    cursor: "pointer",
+    fontSize: 9,
+    fontWeight: 800,
+  },
+  leadBranch: {
+    color: "#94a3b8",
+    fontSize: 11,
+  },
+  usedBadge: {
+    display: "inline-block",
+    border: "1px solid #bfdbfe",
+    background: "#eff6ff",
+    color: "#1d4ed8",
+    padding: "2px 5px",
+    fontSize: 8,
+    fontWeight: 900,
+  },
+  pointText: {
+    color: "#c2410c",
+    fontSize: 9,
+    fontWeight: 850,
   },
   na: {
     color: "#64748b",

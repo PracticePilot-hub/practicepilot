@@ -35,6 +35,51 @@ function integerOrDefault(value: any, fallback: number) {
   return Number.isFinite(numberValue) ? numberValue : fallback;
 }
 
+async function invalidateFinancialStatementsSignoff(
+  supabase: ReturnType<typeof getSupabaseServer>,
+  engagementId: string,
+  reason: string,
+) {
+  const { data: existing, error: existingError } = await supabase
+    .from("afs_section_signoffs")
+    .select("id,prepared_at,reviewed_at,captain_cleared_at")
+    .eq("engagement_id", engagementId)
+    .eq("section_key", "financial-statements")
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  if (
+    !existing?.id ||
+    (!existing.prepared_at &&
+      !existing.reviewed_at &&
+      !existing.captain_cleared_at)
+  ) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+
+  const { error: reopenError } = await supabase
+    .from("afs_section_signoffs")
+    .update({
+      prepared_by: null,
+      prepared_at: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      captain_cleared_by: null,
+      captain_cleared_at: null,
+      reopened_at: now,
+      reopen_reason: reason,
+      updated_at: now,
+    })
+    .eq("id", existing.id);
+
+  if (reopenError) throw reopenError;
+
+  return true;
+}
+
 export async function GET(_req: NextRequest, context: any) {
   try {
     const engagementId = await getIdFromContext(context);
@@ -156,10 +201,20 @@ export async function PATCH(req: NextRequest, context: any) {
       savedManualTables = data || [];
     }
 
+    const changed = settingsPayload.length > 0 || manualRowsPayload.length > 0;
+    const signoffInvalidated = changed
+      ? await invalidateFinancialStatementsSignoff(
+          supabase,
+          engagementId,
+          "Financial Statements changed after sign-off: disclosure settings or manual report rows were updated.",
+        )
+      : false;
+
     return NextResponse.json({
       success: true,
       settings: savedSettings,
       manualTables: savedManualTables,
+      signoffInvalidated,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -225,7 +280,17 @@ export async function POST(req: NextRequest, context: any) {
 
     if (error) throw error;
 
-    return NextResponse.json({ success: true, asset: data });
+    const signoffInvalidated = await invalidateFinancialStatementsSignoff(
+      supabase,
+      engagementId,
+      `Financial Statements changed after sign-off: ${assetType} report asset was uploaded.`,
+    );
+
+    return NextResponse.json({
+      success: true,
+      asset: data,
+      signoffInvalidated,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || "Failed to upload AFS report asset." },
@@ -255,13 +320,19 @@ export async function DELETE(req: NextRequest, context: any) {
 
       if (error) throw error;
 
-      return NextResponse.json({ success: true });
+      const signoffInvalidated = await invalidateFinancialStatementsSignoff(
+        supabase,
+        engagementId,
+        "Financial Statements changed after sign-off: a manual report row was deleted.",
+      );
+
+      return NextResponse.json({ success: true, signoffInvalidated });
     }
 
     if (kind === "asset") {
       const { data: asset, error: assetError } = await supabase
         .from("afs_report_assets")
-        .select("id, file_path")
+        .select("id, file_path, asset_type")
         .eq("engagement_id", engagementId)
         .eq("id", id)
         .single();
@@ -284,7 +355,13 @@ export async function DELETE(req: NextRequest, context: any) {
 
       if (error) throw error;
 
-      return NextResponse.json({ success: true });
+      const signoffInvalidated = await invalidateFinancialStatementsSignoff(
+        supabase,
+        engagementId,
+        `Financial Statements changed after sign-off: ${cleanText(asset?.asset_type) || "report"} asset was deleted.`,
+      );
+
+      return NextResponse.json({ success: true, signoffInvalidated });
     }
 
     const { error } = await supabase
@@ -295,7 +372,13 @@ export async function DELETE(req: NextRequest, context: any) {
 
     if (error) throw error;
 
-    return NextResponse.json({ success: true });
+    const signoffInvalidated = await invalidateFinancialStatementsSignoff(
+      supabase,
+      engagementId,
+      "Financial Statements changed after sign-off: a disclosure setting was deleted.",
+    );
+
+    return NextResponse.json({ success: true, signoffInvalidated });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || "Failed to delete AFS disclosure item." },

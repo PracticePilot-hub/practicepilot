@@ -49,6 +49,52 @@ function normaliseJournalPeriod(value: unknown): JournalPeriod {
   return "current_year";
 }
 
+
+async function invalidateAdjustingJournalsSignoff(
+  supabase: ReturnType<typeof getSupabaseServer>,
+  engagementId: string,
+  reason: string,
+) {
+  const { data: existing, error: existingError } = await supabase
+    .from("afs_section_signoffs")
+    .select("id,prepared_at,reviewed_at,captain_cleared_at")
+    .eq("engagement_id", engagementId)
+    .eq("section_key", "adjusting-journals")
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  if (
+    !existing?.id ||
+    (!existing.prepared_at &&
+      !existing.reviewed_at &&
+      !existing.captain_cleared_at)
+  ) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+
+  const { error: reopenError } = await supabase
+    .from("afs_section_signoffs")
+    .update({
+      prepared_by: null,
+      prepared_at: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      captain_cleared_by: null,
+      captain_cleared_at: null,
+      reopened_at: now,
+      reopen_reason: reason,
+      updated_at: now,
+    })
+    .eq("id", existing.id);
+
+  if (reopenError) throw reopenError;
+
+  return true;
+}
+
 function priorFinancialYearEnd(value: unknown) {
   const raw = clean(value);
   const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -839,6 +885,12 @@ export async function PUT(req: NextRequest, context: any) {
 
     if (insertLinesError) throw insertLinesError;
 
+    const signoffInvalidated = await invalidateAdjustingJournalsSignoff(
+      supabase,
+      engagementId,
+      `Adjusting Journals changed after sign-off: ${finalJournalReference} was edited.`,
+    );
+
     return NextResponse.json({
       journal: {
         ...journal,
@@ -846,6 +898,7 @@ export async function PUT(req: NextRequest, context: any) {
       },
       trialBalanceLines: [...reversedLines, ...appliedLines],
       lines: [...reversedLines, ...appliedLines],
+      signoffInvalidated,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -932,11 +985,18 @@ export async function DELETE(req: NextRequest, context: any) {
 
     if (deleteError) throw deleteError;
 
+    const signoffInvalidated = await invalidateAdjustingJournalsSignoff(
+      supabase,
+      engagementId,
+      `Adjusting Journals changed after sign-off: ${clean(journal.journal_reference) || fallbackJournalReference(Number(journal.journal_number || 0))} was deleted.`,
+    );
+
     return NextResponse.json({
       success: true,
       deletedJournalId: journalId,
       trialBalanceLines: updatedLines,
       lines: updatedLines,
+      signoffInvalidated,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -1035,10 +1095,17 @@ export async function POST(req: NextRequest, context: any) {
       if (updated) updatedLines.push(updated);
     }
 
+    const signoffInvalidated = await invalidateAdjustingJournalsSignoff(
+      supabase,
+      engagementId,
+      `Adjusting Journals changed after sign-off: ${clean(savedJournal.journal_reference) || fallbackJournalReference(Number(savedJournal.journal_number || 0))} was posted.`,
+    );
+
     return NextResponse.json({
       journal: savedJournal,
       trialBalanceLines: updatedLines,
       lines: updatedLines,
+      signoffInvalidated,
     });
   } catch (error: any) {
     return NextResponse.json(

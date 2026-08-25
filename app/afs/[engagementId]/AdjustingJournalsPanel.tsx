@@ -303,6 +303,17 @@ export default function AdjustingJournalsPanel({
     });
   }, [accountOptions, accountSearch]);
 
+  function notifyAdjustingJournalsSignoffRefresh() {
+    window.dispatchEvent(
+      new CustomEvent("afs-signoff-refresh", {
+        detail: {
+          engagementId,
+          sectionKey: "adjusting-journals",
+        },
+      }),
+    );
+  }
+
   function upsertTrialBalanceLines(updatedLines: TrialBalanceLine[]) {
     if (!updatedLines.length) return;
 
@@ -491,6 +502,7 @@ export default function AdjustingJournalsPanel({
       }
 
       await loadPostedJournals();
+      notifyAdjustingJournalsSignoffRefresh();
     } catch (error: any) {
       alert(error.message || "Failed to delete journal.");
     }
@@ -604,6 +616,8 @@ export default function AdjustingJournalsPanel({
       if (engagementId) {
         await loadPostedJournals();
       }
+
+      notifyAdjustingJournalsSignoffRefresh();
     } catch (error: any) {
       alert(error?.message || "Failed to post journal.");
     }

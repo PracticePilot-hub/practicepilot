@@ -1,6 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "../../../lib/supabaseServer";
 
+
+async function invalidateTrialBalanceSignoff(
+  supabase: ReturnType<typeof getSupabaseServer>,
+  engagementId: string,
+  reason: string,
+) {
+  const { data: existing, error: existingError } = await supabase
+    .from("afs_section_signoffs")
+    .select("id,prepared_at,reviewed_at,captain_cleared_at")
+    .eq("engagement_id", engagementId)
+    .eq("section_key", "trial-balance")
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  if (
+    !existing?.id ||
+    (!existing.prepared_at &&
+      !existing.reviewed_at &&
+      !existing.captain_cleared_at)
+  ) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+
+  const { error: reopenError } = await supabase
+    .from("afs_section_signoffs")
+    .update({
+      prepared_by: null,
+      prepared_at: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      captain_cleared_by: null,
+      captain_cleared_at: null,
+      reopened_at: now,
+      reopen_reason: reason,
+      updated_at: now,
+    })
+    .eq("id", existing.id);
+
+  if (reopenError) throw reopenError;
+
+  return true;
+}
+
 async function getIdFromContext(context: any) {
   const params = await context?.params;
   const id = params?.id;
@@ -353,9 +399,16 @@ export async function POST(req: NextRequest, context: any) {
 
     if (insertError) throw insertError;
 
+    const signoffInvalidated = await invalidateTrialBalanceSignoff(
+      supabase,
+      engagementId,
+      "Trial Balance changed after sign-off: trial balance import replaced.",
+    );
+
     return NextResponse.json({
       success: true,
       lines: data || [],
+      signoffInvalidated,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -425,20 +478,56 @@ export async function PATCH(req: NextRequest, context: any) {
       "reclassification",
     ]);
 
-    const manualAdjustment = numberOrZero(
-      body.manual_adjustment ?? body.manualAdjustment ?? 0,
-    );
+    const manualAdjustmentWasProvided =
+      body.manual_adjustment !== undefined ||
+      body.manualAdjustment !== undefined;
+
+    const accountNameWasProvided =
+      body.account_name !== undefined ||
+      body.accountName !== undefined;
+
+    const manualAdjustment = manualAdjustmentWasProvided
+      ? numberOrZero(body.manual_adjustment ?? body.manualAdjustment)
+      : lineNumber(existingLine, [
+          "manual_adjustment",
+          "manualAdjustment",
+          "working_adjustment",
+          "workingAdjustment",
+        ]);
 
     const finalBalance =
       sourceBalance + manualAdjustment + journalAdjustment + reclassification;
 
-    const updatePayload = {
-      manual_adjustment: manualAdjustment,
-      final_balance: finalBalance,
-      current_balance: finalBalance,
-      current_year_balance: finalBalance,
+    const updatePayload: Record<string, any> = {
       updated_at: new Date().toISOString(),
     };
+
+    if (manualAdjustmentWasProvided) {
+      updatePayload.manual_adjustment = manualAdjustment;
+      updatePayload.final_balance = finalBalance;
+      updatePayload.current_balance = finalBalance;
+      updatePayload.current_year_balance = finalBalance;
+    }
+
+    if (accountNameWasProvided) {
+      const accountName = cleanText(body.account_name ?? body.accountName);
+
+      if (!accountName) {
+        return NextResponse.json(
+          { error: "Account name cannot be blank." },
+          { status: 400 },
+        );
+      }
+
+      updatePayload.account_name = accountName;
+    }
+
+    if (!manualAdjustmentWasProvided && !accountNameWasProvided) {
+      return NextResponse.json(
+        { error: "No supported trial balance changes were provided." },
+        { status: 400 },
+      );
+    }
 
     const { data, error: updateError } = await supabase
       .from("afs_trial_balance_lines")
@@ -450,7 +539,20 @@ export async function PATCH(req: NextRequest, context: any) {
 
     if (updateError) throw updateError;
 
-    return NextResponse.json({ line: data });
+    const changeReason = accountNameWasProvided
+      ? "Trial Balance changed after sign-off: account description updated."
+      : "Trial Balance changed after sign-off: manual adjustment updated.";
+
+    const signoffInvalidated = await invalidateTrialBalanceSignoff(
+      supabase,
+      engagementId,
+      changeReason,
+    );
+
+    return NextResponse.json({
+      line: data,
+      signoffInvalidated,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Failed to update trial balance line." },

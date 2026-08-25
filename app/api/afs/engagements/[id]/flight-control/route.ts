@@ -143,6 +143,9 @@ export async function GET(request: Request, context: any) {
       { data: reviewPoints, error: reviewError },
       { data: users, error: usersError },
       { data: applicabilityRows, error: applicabilityError },
+      { data: trialBalanceLines, error: trialBalanceError },
+      { data: leadAnnotations, error: leadAnnotationsError },
+      { data: workingPapers, error: workingPapersError },
     ] = await Promise.all([
       supabase
         .from("afs_engagement_workflow")
@@ -177,6 +180,23 @@ export async function GET(request: Request, context: any) {
         .select("section_key,applicability,reason,set_by,set_at")
         .eq("engagement_id", engagementId)
         .eq("organisation_id", profile.organisation_id),
+
+      supabase
+        .from("afs_trial_balance_lines")
+        .select(
+          "lead_schedule_key,lead_schedule_number,current_year_balance,prior_year_balance,debit,credit",
+        )
+        .eq("engagement_id", engagementId),
+
+      supabase
+        .from("afs_lead_schedule_annotations")
+        .select("schedule_key")
+        .eq("engagement_id", engagementId),
+
+      supabase
+        .from("afs_working_papers")
+        .select("lead_schedule_key,lead_schedule_number")
+        .eq("engagement_id", engagementId),
     ]);
 
     if (workflowError) throw workflowError;
@@ -184,6 +204,9 @@ export async function GET(request: Request, context: any) {
     if (reviewError) throw reviewError;
     if (usersError) throw usersError;
     if (applicabilityError) throw applicabilityError;
+    if (trialBalanceError) throw trialBalanceError;
+    if (leadAnnotationsError) throw leadAnnotationsError;
+    if (workingPapersError) throw workingPapersError;
 
     const names = Object.fromEntries(
       (users || []).map((user: any) => [
@@ -221,6 +244,110 @@ export async function GET(request: Request, context: any) {
 
     const levels = Number(workflow?.workflow_levels || 2);
 
+    function numericValue(value: unknown) {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? numberValue : 0;
+    }
+
+    function cleanLeadKey(value: unknown) {
+      return String(value || "").trim();
+    }
+
+    const usedLeadKeys = new Set<string>();
+    const leadNumberByKey = new Map<string, string>();
+
+    for (const line of trialBalanceLines || []) {
+      const key = cleanLeadKey(line.lead_schedule_key);
+      if (!key) continue;
+
+      const current =
+        line.current_year_balance !== null &&
+        line.current_year_balance !== undefined
+          ? numericValue(line.current_year_balance)
+          : numericValue(line.debit) - numericValue(line.credit);
+
+      const prior = numericValue(line.prior_year_balance);
+
+      if (Math.abs(current) >= 0.005 || Math.abs(prior) >= 0.005) {
+        usedLeadKeys.add(key);
+
+        const number = cleanLeadKey(line.lead_schedule_number);
+        if (number && !leadNumberByKey.has(key)) {
+          leadNumberByKey.set(key, number);
+        }
+      }
+    }
+
+    for (const annotation of leadAnnotations || []) {
+      const key = cleanLeadKey(annotation.schedule_key);
+      if (key) usedLeadKeys.add(key);
+    }
+
+    for (const paper of workingPapers || []) {
+      const key = cleanLeadKey(paper.lead_schedule_key);
+      if (!key) continue;
+
+      usedLeadKeys.add(key);
+
+      const number = cleanLeadKey(paper.lead_schedule_number);
+      if (number && !leadNumberByKey.has(key)) {
+        leadNumberByKey.set(key, number);
+      }
+    }
+
+    const usedLeadSchedules = Array.from(usedLeadKeys)
+      .sort((a, b) => {
+        const aNumber = leadNumberByKey.get(a) || "";
+        const bNumber = leadNumberByKey.get(b) || "";
+        return (
+          aNumber.localeCompare(bNumber, undefined, { numeric: true }) ||
+          a.localeCompare(b)
+        );
+      })
+      .map((key) => {
+        const signoffKey = `lead-schedule:${key}`;
+        const signoff: any = signoffBySection.get(signoffKey) || null;
+        const points = pointsBySection.get(signoffKey) || {
+          open: 0,
+          resolved: 0,
+          cleared: 0,
+        };
+
+        const prepared = Boolean(signoff?.prepared_at);
+        const reviewed = Boolean(signoff?.reviewed_at);
+        const captainCleared = Boolean(signoff?.captain_cleared_at);
+
+        // IMPORTANT:
+        // A lead schedule with an OPEN review point can never be Complete,
+        // even if old sign-off stamps still exist.
+        const signedComplete =
+          levels === 1
+            ? captainCleared
+            : prepared && reviewed && captainCleared;
+
+        const complete = signedComplete && points.open === 0;
+
+        return {
+          key,
+          signoffKey,
+          number: leadNumberByKey.get(key) || null,
+          prepared,
+          reviewed,
+          captainCleared,
+          complete,
+          preparedBy: signoff?.prepared_by
+            ? names[signoff.prepared_by] || null
+            : null,
+          reviewedBy: signoff?.reviewed_by
+            ? names[signoff.reviewed_by] || null
+            : null,
+          captainBy: signoff?.captain_cleared_by
+            ? names[signoff.captain_cleared_by] || null
+            : null,
+          reviewPoints: points,
+        };
+      });
+
     const sections = SECTIONS.map((section) => {
       const signoff: any = signoffBySection.get(section.key) || null;
       const applicabilityRow: any = applicabilityBySection.get(section.key) || null;
@@ -234,14 +361,58 @@ export async function GET(request: Request, context: any) {
         cleared: 0,
       };
 
+      if (section.key === "lead-schedules" && usedLeadSchedules.length > 0) {
+        const usedComplete = usedLeadSchedules.filter((item) => item.complete).length;
+        const usedPrepared = usedLeadSchedules.filter((item) => item.prepared).length;
+        const usedReviewed = usedLeadSchedules.filter((item) => item.reviewed).length;
+        const usedCaptain = usedLeadSchedules.filter(
+          (item) => item.captainCleared,
+        ).length;
+
+        const leadPoints = usedLeadSchedules.reduce(
+          (total, item) => ({
+            open: total.open + Number(item.reviewPoints.open || 0),
+            resolved: total.resolved + Number(item.reviewPoints.resolved || 0),
+            cleared: total.cleared + Number(item.reviewPoints.cleared || 0),
+          }),
+          { open: points.open, resolved: points.resolved, cleared: points.cleared },
+        );
+
+        return {
+          ...section,
+          applicability: "required" as Applicability,
+          storedApplicability: applicability,
+          applicabilityReason:
+            "Used lead schedules require individual sign-off.",
+          prepared: usedPrepared === usedLeadSchedules.length,
+          reviewed: usedReviewed === usedLeadSchedules.length,
+          captainCleared: usedCaptain === usedLeadSchedules.length,
+          complete:
+            usedComplete === usedLeadSchedules.length &&
+            leadPoints.open === 0,
+          preparedBy: null,
+          reviewedBy: null,
+          captainBy: null,
+          reviewPoints: leadPoints,
+          isLeadScheduleRollup: true,
+          usedLeadSchedules,
+          usedLeadScheduleCount: usedLeadSchedules.length,
+          usedLeadScheduleCompleteCount: usedComplete,
+        };
+      }
+
       const prepared = Boolean(signoff?.prepared_at);
       const reviewed = Boolean(signoff?.reviewed_at);
       const captainCleared = Boolean(signoff?.captain_cleared_at);
 
-      const complete =
+      const signedComplete =
         levels === 1
           ? captainCleared
           : prepared && reviewed && captainCleared;
+
+      // Same safety rule for normal sections:
+      // OPEN review points prevent Complete.
+      const complete = signedComplete && points.open === 0;
 
       return {
         ...section,
@@ -298,6 +469,7 @@ export async function GET(request: Request, context: any) {
     return NextResponse.json({
       workflow,
       sections,
+      usedLeadSchedules,
       summary: {
         total: sections.length,
         requiredTotal: requiredSections.length,

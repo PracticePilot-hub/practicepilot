@@ -112,6 +112,31 @@ function displayName(profile: Profile) {
   return profile.full_name?.trim() || profile.email;
 }
 
+
+async function trialBalanceOutOfBalance(
+  supabase: ReturnType<typeof adminClient>,
+  engagementId: string,
+) {
+  const { data: lines, error } = await supabase
+    .from("afs_trial_balance_lines")
+    .select("current_year_balance,debit,credit")
+    .eq("engagement_id", engagementId);
+
+  if (error) throw error;
+
+  const balance = (lines || []).reduce((sum: number, line: any) => {
+    const current =
+      line.current_year_balance !== null &&
+      line.current_year_balance !== undefined
+        ? Number(line.current_year_balance || 0)
+        : Number(line.debit || 0) - Number(line.credit || 0);
+
+    return sum + (Number.isFinite(current) ? current : 0);
+  }, 0);
+
+  return Math.abs(balance) < 0.005 ? 0 : balance;
+}
+
 export async function GET(request: Request, context: any) {
   try {
     const engagementId = await engagementIdFrom(context);
@@ -218,6 +243,32 @@ export async function PATCH(request: Request, context: any) {
     const isPilot = includesUser(workflow.pilot_user_ids, profile.id);
     const isFirstOfficer = includesUser(workflow.first_officer_user_ids, profile.id);
     const isCaptain = includesUser(workflow.captain_user_ids, profile.id);
+
+
+    if (
+      sectionKey === "trial-balance" &&
+      ["prepare", "review", "captain-clear"].includes(action)
+    ) {
+      const balanceDifference = await trialBalanceOutOfBalance(
+        supabase,
+        engagementId,
+      );
+
+      if (balanceDifference !== 0) {
+        const formatted = Math.abs(balanceDifference).toLocaleString("en-ZA", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+        return NextResponse.json(
+          {
+            error: `Trial Balance is out of balance by R ${formatted}. Resolve the difference before sign-off.`,
+            balanceDifference,
+          },
+          { status: 400 },
+        );
+      }
+    }
 
     const { data: existing, error: existingError } = await supabase
       .from("afs_section_signoffs")

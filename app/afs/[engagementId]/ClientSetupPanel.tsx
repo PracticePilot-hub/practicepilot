@@ -235,6 +235,11 @@ const supabase =
     ? createClient(supabaseUrl, supabaseAnonKey)
     : null;
 
+function isCloseCorporationEntity(value: unknown) {
+  const lower = String(value || "").trim().toLowerCase();
+  return lower === "cc" || lower.includes("close corporation");
+}
+
 export default function ClientSetupPanel({
   engagementId,
   clientName,
@@ -302,6 +307,17 @@ export default function ClientSetupPanel({
     }
   }
 
+  function notifyClientSetupSignoffRefresh() {
+    window.dispatchEvent(
+      new CustomEvent("afs-signoff-refresh", {
+        detail: {
+          engagementId,
+          sectionKey: "client-setup",
+        },
+      }),
+    );
+  }
+
   async function saveSetup() {
     setSaving(true);
 
@@ -337,6 +353,10 @@ export default function ClientSetupPanel({
 
       setSetup(savedSetup);
       onSaved?.({ setup: savedSetup, engagement: data.engagement || null, people });
+
+      if (data.signoffInvalidated) {
+        notifyClientSetupSignoffRefresh();
+      }
 
       alert("Client setup saved.");
     } catch (error: any) {
@@ -439,6 +459,10 @@ export default function ClientSetupPanel({
 
       setPeople((current) => [...current, data.person]);
       setNewPerson(blankPerson);
+
+      if (data.signoffInvalidated) {
+        notifyClientSetupSignoffRefresh();
+      }
     } catch (error: any) {
       alert(error.message || "Failed to add person.");
     }
@@ -465,6 +489,10 @@ export default function ClientSetupPanel({
       }
 
       setPeople((current) => current.filter((person) => person.id !== personId));
+
+      if (data.signoffInvalidated) {
+        notifyClientSetupSignoffRefresh();
+      }
     } catch (error: any) {
       alert(error.message || "Failed to delete person.");
     }
@@ -649,7 +677,17 @@ export default function ClientSetupPanel({
         <Field label="Legal framework">
           <input
             style={styles.input}
-            value={setup.legal_framework || ""}
+            value={
+              isCloseCorporationEntity(setup.entity_type)
+                ? (
+                    !setup.legal_framework ||
+                    String(setup.legal_framework).trim().toLowerCase() ===
+                      "companies act of south africa"
+                  )
+                  ? "Close Corporations Act 69 of 1984, as amended"
+                  : setup.legal_framework
+                : setup.legal_framework || ""
+            }
             onChange={(e) => update("legal_framework", e.target.value)}
           />
         </Field>
@@ -861,7 +899,13 @@ export default function ClientSetupPanel({
         </Field>
       </SetupSection>
 
-      <SetupSection title="Directors / Members / Trustees">
+      <SetupSection
+        title={
+          isCloseCorporationEntity(setup.entity_type)
+            ? "Members"
+            : "Directors / Members / Trustees"
+        }
+      >
         <div style={styles.peopleArea}>
           <div style={styles.peopleForm}>
             <Field label="Type">
@@ -992,7 +1036,13 @@ export default function ClientSetupPanel({
         </div>
       </SetupSection>
 
-      <SetupSection title="Public Officer and Secretary">
+      <SetupSection
+        title={
+          isCloseCorporationEntity(setup.entity_type)
+            ? "Public Officer"
+            : "Public Officer and Secretary"
+        }
+      >
         <Field label="Public officer name">
           <input
             style={styles.input}
@@ -1141,63 +1191,87 @@ export default function ClientSetupPanel({
           />
         </Field>
 
-        <Field label="Authorised ordinary shares">
-          <input
-            style={styles.input}
-            value={setup.authorised_ordinary_shares || ""}
-            onChange={(e) => update("authorised_ordinary_shares", e.target.value)}
-            placeholder="Example: 1 000"
-          />
-        </Field>
+        {String(setup.entity_type || "").toLowerCase().includes("close corporation") ? (
+          <>
+            <Field label="Member's contribution note / wording override">
+              <textarea
+                style={styles.textarea}
+                value={setup.share_capital_note || ""}
+                onChange={(e) => update("share_capital_note", e.target.value)}
+                placeholder="Leave blank to use the default wording."
+              />
+            </Field>
 
-        <Field label="Authorised ordinary share par value">
-          <input
-            style={styles.input}
-            value={setup.authorised_ordinary_share_par_value || ""}
-            onChange={(e) =>
-              update("authorised_ordinary_share_par_value", e.target.value)
-            }
-            placeholder="Example: 1.00"
-          />
-        </Field>
+            <Field label="Members / ownership wording override">
+              <textarea
+                style={styles.textarea}
+                value={setup.shareholder_note || ""}
+                onChange={(e) => update("shareholder_note", e.target.value)}
+                placeholder="Leave blank to use the default wording."
+              />
+            </Field>
+          </>
+        ) : (
+          <>
+            <Field label="Authorised ordinary shares">
+              <input
+                style={styles.input}
+                value={setup.authorised_ordinary_shares || ""}
+                onChange={(e) => update("authorised_ordinary_shares", e.target.value)}
+                placeholder="Example: 1 000"
+              />
+            </Field>
 
-        <Field label="Issued ordinary shares">
-          <input
-            style={styles.input}
-            value={setup.issued_ordinary_shares || ""}
-            onChange={(e) => update("issued_ordinary_shares", e.target.value)}
-            placeholder="Example: 100"
-          />
-        </Field>
+            <Field label="Authorised ordinary share par value">
+              <input
+                style={styles.input}
+                value={setup.authorised_ordinary_share_par_value || ""}
+                onChange={(e) =>
+                  update("authorised_ordinary_share_par_value", e.target.value)
+                }
+                placeholder="Example: 1.00"
+              />
+            </Field>
 
-        <Field label="Issued ordinary share par value">
-          <input
-            style={styles.input}
-            value={setup.issued_ordinary_share_par_value || ""}
-            onChange={(e) =>
-              update("issued_ordinary_share_par_value", e.target.value)
-            }
-            placeholder="Example: 1.00"
-          />
-        </Field>
+            <Field label="Issued ordinary shares">
+              <input
+                style={styles.input}
+                value={setup.issued_ordinary_shares || ""}
+                onChange={(e) => update("issued_ordinary_shares", e.target.value)}
+                placeholder="Example: 100"
+              />
+            </Field>
 
-        <Field label="Share capital note / wording override">
-          <textarea
-            style={styles.textarea}
-            value={setup.share_capital_note || ""}
-            onChange={(e) => update("share_capital_note", e.target.value)}
-            placeholder="Leave blank to use the default wording."
-          />
-        </Field>
+            <Field label="Issued ordinary share par value">
+              <input
+                style={styles.input}
+                value={setup.issued_ordinary_share_par_value || ""}
+                onChange={(e) =>
+                  update("issued_ordinary_share_par_value", e.target.value)
+                }
+                placeholder="Example: 1.00"
+              />
+            </Field>
 
-        <Field label="Shareholder / ownership wording override">
-          <textarea
-            style={styles.textarea}
-            value={setup.shareholder_note || ""}
-            onChange={(e) => update("shareholder_note", e.target.value)}
-            placeholder="Leave blank to use the default wording."
-          />
-        </Field>
+            <Field label="Share capital note / wording override">
+              <textarea
+                style={styles.textarea}
+                value={setup.share_capital_note || ""}
+                onChange={(e) => update("share_capital_note", e.target.value)}
+                placeholder="Leave blank to use the default wording."
+              />
+            </Field>
+
+            <Field label="Shareholder / ownership wording override">
+              <textarea
+                style={styles.textarea}
+                value={setup.shareholder_note || ""}
+                onChange={(e) => update("shareholder_note", e.target.value)}
+                placeholder="Leave blank to use the default wording."
+              />
+            </Field>
+          </>
+        )}
       </SetupSection>
     </section>
   );

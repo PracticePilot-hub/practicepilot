@@ -12,6 +12,74 @@ async function getIdFromContext(context: any) {
   return id;
 }
 
+function comparableValue(value: any) {
+  if (value === undefined) return null;
+  if (value === "") return null;
+  return value;
+}
+
+function setupPayloadChanged(existing: Record<string, any> | null, next: Record<string, any>) {
+  if (!existing) return true;
+
+  return Object.entries(next).some(([key, value]) => {
+    if (key === "updated_at" || key === "engagement_id") return false;
+
+    const left = comparableValue(existing[key]);
+    const right = comparableValue(value);
+
+    if (typeof left === "number" || typeof right === "number") {
+      return Number(left ?? 0) !== Number(right ?? 0);
+    }
+
+    return String(left ?? "") !== String(right ?? "");
+  });
+}
+
+async function invalidateClientSetupSignoff(
+  supabase: ReturnType<typeof getSupabaseServer>,
+  engagementId: string,
+  reason: string,
+) {
+  const { data: existing, error: existingError } = await supabase
+    .from("afs_section_signoffs")
+    .select("id,prepared_at,reviewed_at,captain_cleared_at")
+    .eq("engagement_id", engagementId)
+    .eq("section_key", "client-setup")
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  if (
+    !existing?.id ||
+    (!existing.prepared_at &&
+      !existing.reviewed_at &&
+      !existing.captain_cleared_at)
+  ) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+
+  const { error: reopenError } = await supabase
+    .from("afs_section_signoffs")
+    .update({
+      prepared_by: null,
+      prepared_at: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      captain_cleared_by: null,
+      captain_cleared_at: null,
+      reopened_at: now,
+      reopen_reason: reason,
+      updated_at: now,
+    })
+    .eq("id", existing.id);
+
+  if (reopenError) throw reopenError;
+
+  return true;
+}
+
 export async function GET(req: NextRequest, context: any) {
   try {
     const engagementId = await getIdFromContext(context);
@@ -70,6 +138,23 @@ export async function PATCH(req: NextRequest, context: any) {
     const engagementId = await getIdFromContext(context);
     const body = await req.json();
     const supabase = getSupabaseServer();
+
+    const { data: existingSetup, error: existingSetupError } = await supabase
+      .from("afs_client_setup")
+      .select("*")
+      .eq("engagement_id", engagementId)
+      .maybeSingle();
+
+    if (existingSetupError) throw existingSetupError;
+
+    const { data: existingEngagement, error: existingEngagementError } =
+      await supabase
+        .from("afs_engagements")
+        .select("*")
+        .eq("id", engagementId)
+        .single();
+
+    if (existingEngagementError) throw existingEngagementError;
 
     const setupData = {
       engagement_id: engagementId,
@@ -187,6 +272,13 @@ export async function PATCH(req: NextRequest, context: any) {
     if (updatedYearEnd) engagementUpdate.financial_year_end = updatedYearEnd;
     if (updatedPreparedBy) engagementUpdate.prepared_by = updatedPreparedBy;
 
+    const setupChanged = setupPayloadChanged(existingSetup, setupData);
+    const engagementChanged = Object.entries(engagementUpdate).some(
+      ([key, value]) =>
+        String(existingEngagement?.[key] ?? "") !== String(value ?? ""),
+    );
+    const materiallyChanged = setupChanged || engagementChanged;
+
     let updatedEngagement = null;
 
     if (Object.keys(engagementUpdate).length > 0) {
@@ -202,12 +294,24 @@ export async function PATCH(req: NextRequest, context: any) {
       updatedEngagement = engagementData;
     }
 
-    const enrichedSetup = enrichClientSetup(data, updatedEngagement);
+    const enrichedSetup = enrichClientSetup(
+      data,
+      updatedEngagement || existingEngagement,
+    );
+
+    const signoffInvalidated = materiallyChanged
+      ? await invalidateClientSetupSignoff(
+          supabase,
+          engagementId,
+          "Client Setup changed after sign-off.",
+        )
+      : false;
 
     return NextResponse.json({
       setup: enrichedSetup,
       clientSetup: enrichedSetup,
-      engagement: updatedEngagement,
+      engagement: updatedEngagement || existingEngagement,
+      signoffInvalidated,
       success: true,
     });
   } catch (error: any) {
