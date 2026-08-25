@@ -149,7 +149,15 @@ export async function GET(request: Request, context: any) {
     const engagementId = await engagementIdFrom(context);
     const supabase = adminClient();
     const { profile, response } = await currentProfile(request, supabase);
-    if (response || !profile) return response;
+
+    if (response) return response;
+
+    if (!profile) {
+      return NextResponse.json(
+        { error: "Not authenticated." },
+        { status: 401 },
+      );
+    }
 
     if (!profile.organisation_id) {
       return NextResponse.json(
@@ -222,7 +230,15 @@ export async function POST(request: Request, context: any) {
     const engagementId = await engagementIdFrom(context);
     const supabase = adminClient();
     const { profile, response } = await currentProfile(request, supabase);
-    if (response || !profile) return response;
+
+    if (response) return response;
+
+    if (!profile) {
+      return NextResponse.json(
+        { error: "Not authenticated." },
+        { status: 401 },
+      );
+    }
 
     if (!profile.organisation_id) {
       return NextResponse.json(
@@ -317,7 +333,15 @@ export async function PATCH(request: Request, context: any) {
     const engagementId = await engagementIdFrom(context);
     const supabase = adminClient();
     const { profile, response } = await currentProfile(request, supabase);
-    if (response || !profile) return response;
+
+    if (response) return response;
+
+    if (!profile) {
+      return NextResponse.json(
+        { error: "Not authenticated." },
+        { status: 401 },
+      );
+    }
 
     if (!profile.organisation_id) {
       return NextResponse.json(
