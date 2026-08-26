@@ -43,17 +43,41 @@ async function withTimeout<T>(
 }
 
 function safeFilename(value: string) {
-  const cleaned = String(value || "afs")
-    .replace(/[’']/g, "")
-    .replace(/&/g, "and")
-    .replace(/\(pty\)/gi, "pty")
-    .replace(/ltd\.?/gi, "ltd")
-    .replace(/[^a-z0-9-_]+/gi, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .toLowerCase();
+  const cleaned = String(value || "AFS")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[. ]+$/g, "")
+    .trim();
 
-  return cleaned || "afs";
+  return cleaned || "AFS";
+}
+
+function formatYearEndMonthYear(value: string) {
+  const clean = String(value || "").trim();
+
+  const isoMatch = clean.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (isoMatch) {
+    const year = Number(isoMatch[1]);
+    const month = Number(isoMatch[2]);
+
+    if (month >= 1 && month <= 12) {
+      return new Intl.DateTimeFormat("en-ZA", {
+        month: "long",
+        year: "numeric",
+      }).format(new Date(year, month - 1, 1));
+    }
+  }
+
+  const longDateMatch = clean.match(
+    /^(?:\d{1,2}\s+)?([A-Za-z]+)\s+(\d{4})$/,
+  );
+
+  if (longDateMatch) {
+    return `${longDateMatch[1]} ${longDateMatch[2]}`;
+  }
+
+  return clean;
 }
 
 function cleanTitle(value: string) {
@@ -289,7 +313,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         bodyText.match(/year ended\s+([^\n]+)/i);
 
       const yearEnd = String(yearEndMatch?.[1] || "").trim();
-      const title = [entityLine, "AFS", yearEnd].filter(Boolean).join(" - ");
+      const title = [entityLine, "AFS", yearEnd].filter(Boolean).join(" _ ");
 
       /*
         Keep the exact rendered Print Studio report pages, but physically remove
@@ -422,7 +446,14 @@ export async function GET(request: NextRequest, context: RouteContext) {
     );
 
     const pdfBuffer = Buffer.from(pdfBytes);
-    const finalTitle = cleanTitle(exportInfo?.title || `${id} AFS`);
+
+    const entityName = cleanTitle(
+      exportInfo?.entityName || "Annual Financial Statements",
+    );
+    const period = formatYearEndMonthYear(exportInfo?.yearEnd || "");
+    const finalTitle = [entityName, "AFS", period]
+      .filter(Boolean)
+      .join(" _ ");
     const finalFilename = `${safeFilename(finalTitle)}.pdf`;
 
     return new NextResponse(pdfBuffer, {
@@ -430,7 +461,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Length": String(pdfBuffer.byteLength),
-        "Content-Disposition": `attachment; filename="${finalFilename}"`,
+        "Content-Disposition": `attachment; filename="${finalFilename}"; filename*=UTF-8''${encodeURIComponent(finalFilename)}`,
         "Cache-Control": "no-store, max-age=0",
         "X-AFS-PDF-Title": finalTitle,
         "X-AFS-PDF-Draft": isDraft ? "true" : "false",

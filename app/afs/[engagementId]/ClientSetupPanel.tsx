@@ -336,9 +336,10 @@ export default function ClientSetupPanel({
           current_period_heading:
             data.setup.current_period_heading ||
             makeCurrentPeriodHeading(financialYearEnd),
-          prior_period_heading:
-            data.setup.prior_period_heading ||
-            makePriorPeriodHeading(financialYearEnd),
+          prior_period_heading: resolvePriorPeriodHeading(
+            data.setup.prior_period_heading,
+            financialYearEnd,
+          ),
         });
       } else {
         setSetup((current) => ({
@@ -396,9 +397,10 @@ export default function ClientSetupPanel({
         current_period_heading:
           data.setup.current_period_heading ||
           makeCurrentPeriodHeading(savedYearEnd),
-        prior_period_heading:
-          data.setup.prior_period_heading ||
-          makePriorPeriodHeading(savedYearEnd),
+        prior_period_heading: resolvePriorPeriodHeading(
+          data.setup.prior_period_heading,
+          savedYearEnd,
+        ),
       };
 
       setSetup(savedSetup);
@@ -1509,16 +1511,65 @@ function AddressBlock({
   );
 }
 
+function parseFinancialYearEnd(financialYearEnd: string) {
+  const match = String(financialYearEnd || "")
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+
+  return { year, month, day };
+}
+
+function daysInMonth(year: number, month: number) {
+  return new Date(year, month, 0).getDate();
+}
+
 function makeCurrentPeriodHeading(financialYearEnd: string) {
-  if (!financialYearEnd) return "";
+  const parsed = parseFinancialYearEnd(financialYearEnd);
+  if (!parsed) return "";
 
-  const date = new Date(financialYearEnd);
-  if (Number.isNaN(date.getTime())) return "";
-
-  return `Year ended ${formatDateLong(date)}`;
+  return `Year ended ${formatDateLongParts(
+    parsed.year,
+    parsed.month,
+    parsed.day,
+  )}`;
 }
 
 function makePriorPeriodHeading(financialYearEnd: string) {
+  const parsed = parseFinancialYearEnd(financialYearEnd);
+  if (!parsed) return "";
+
+  const priorYear = parsed.year - 1;
+  const priorDay = Math.min(
+    parsed.day,
+    daysInMonth(priorYear, parsed.month),
+  );
+
+  return `Year ended ${formatDateLongParts(
+    priorYear,
+    parsed.month,
+    priorDay,
+  )}`;
+}
+
+function makeLegacyPriorPeriodHeading(financialYearEnd: string) {
   if (!financialYearEnd) return "";
 
   const date = new Date(financialYearEnd);
@@ -1527,6 +1578,32 @@ function makePriorPeriodHeading(financialYearEnd: string) {
   date.setFullYear(date.getFullYear() - 1);
 
   return `Year ended ${formatDateLong(date)}`;
+}
+
+function resolvePriorPeriodHeading(
+  savedHeading: unknown,
+  financialYearEnd: string,
+) {
+  const saved = String(savedHeading || "").trim();
+  const correct = makePriorPeriodHeading(financialYearEnd);
+
+  if (!saved) return correct;
+
+  const legacy = makeLegacyPriorPeriodHeading(financialYearEnd);
+
+  // Migrate only the old automatically generated heading.
+  // Genuine manual overrides remain untouched.
+  if (saved === legacy) return correct;
+
+  return saved;
+}
+
+function formatDateLongParts(year: number, month: number, day: number) {
+  return new Intl.DateTimeFormat("en-ZA", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(year, month - 1, day));
 }
 
 function formatDateLong(date: Date) {
