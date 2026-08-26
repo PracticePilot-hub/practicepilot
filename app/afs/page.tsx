@@ -942,6 +942,16 @@ export default function AFSPage() {
           ) : (
             <div style={styles.tableWrap}>
               <table style={styles.table}>
+                <colgroup>
+                  <col style={{ width: "24%" }} />
+                  <col style={{ width: "11%" }} />
+                  <col style={{ width: "8%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "12%" }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th style={styles.th}>Entity</th>
@@ -969,11 +979,11 @@ export default function AFSPage() {
                         {engagement.client_name}
                       </td>
 
-                      <td style={styles.td}>
+                      <td style={{ ...styles.td, whiteSpace: "nowrap" }}>
                         {engagement.entity_type || "Entity"}
                       </td>
 
-                      <td style={styles.td}>
+                      <td style={{ ...styles.td, whiteSpace: "nowrap" }}>
                         {formatDate(
                           engagement.financial_year_end,
                         )}
@@ -992,7 +1002,7 @@ export default function AFSPage() {
                         {engagement.reviewed_by || "-"}
                       </td>
 
-                      <td style={styles.td}>
+                      <td style={{ ...styles.td, whiteSpace: "nowrap" }}>
                         <span style={styles.statusBadge}>
                           {normaliseStatus(engagement.status)}
                         </span>
@@ -1560,41 +1570,47 @@ const styles: Record<string, React.CSSProperties> = {
 
   tableWrap: {
     border: "1px solid #d8e2ef",
-    overflowX: "auto",
+    overflowX: "hidden",
+    width: "100%",
   },
 
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    fontSize: "13px",
+    tableLayout: "fixed",
+    fontSize: "12px",
   },
 
   th: {
     background: "#eef3f8",
     color: "#334155",
     textAlign: "left",
-    padding: "8px 7px",
+    padding: "7px 6px",
     borderBottom: "1px solid #cbd5e1",
-    fontSize: "12px",
+    fontSize: "11px",
     fontWeight: 900,
     whiteSpace: "nowrap",
   },
 
   td: {
-    padding: "8px 7px",
+    padding: "7px 6px",
     borderBottom: "1px solid #e5edf6",
     color: "#12304a",
     verticalAlign: "middle",
-    whiteSpace: "nowrap",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+    lineHeight: 1.25,
   },
 
   tdStrong: {
-    padding: "8px 7px",
+    padding: "7px 6px",
     borderBottom: "1px solid #e5edf6",
     color: "#0f2742",
     fontWeight: 900,
     verticalAlign: "middle",
-    whiteSpace: "nowrap",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+    lineHeight: 1.25,
   },
 
   statusBadge: {
@@ -1611,8 +1627,9 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     justifyContent: "flex-end",
     alignItems: "center",
-    gap: "18px",
+    gap: "6px",
     whiteSpace: "nowrap",
+    flexWrap: "wrap",
   },
 
   nextFlightButton: {
