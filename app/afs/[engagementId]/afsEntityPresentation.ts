@@ -1,5 +1,6 @@
 export type AfsEntityPresentation = {
   isNpc: boolean;
+  isTrust: boolean;
   entityLabel: string;
   incomeStatementTitle: string;
   incomeStatementShortTitle: string;
@@ -31,14 +32,22 @@ export function isNonProfitCompany(entityType: unknown) {
   );
 }
 
+export function isTrust(entityType: unknown) {
+  const value = cleanEntityType(entityType);
+
+  return value === "trust" || value.includes("trust");
+}
+
 export function getAfsEntityPresentation(
   entityType: unknown,
 ): AfsEntityPresentation {
   const npc = isNonProfitCompany(entityType);
+  const trust = isTrust(entityType);
 
   if (npc) {
     return {
       isNpc: true,
+      isTrust: false,
       entityLabel: "Non-Profit Company",
       incomeStatementTitle: "Statement of Income and Expenditure",
       incomeStatementShortTitle: "Income and Expenditure",
@@ -57,8 +66,32 @@ export function getAfsEntityPresentation(
     };
   }
 
+  if (trust) {
+    return {
+      isNpc: false,
+      isTrust: true,
+      entityLabel: "Trust",
+      incomeStatementTitle: "Statement of Comprehensive Income",
+      incomeStatementShortTitle: "Statement of Comprehensive Income",
+      resultCurrentLabel: "Profit / (loss) for the year",
+      resultPriorLabel: "Profit / (loss) for the prior year",
+      resultGenericLabel: "Profit / (loss)",
+      equityHeading: "Trust capital and accumulated funds",
+      equityStatementTitle:
+        "Statement of Changes in Trust Capital and Accumulated Funds",
+      accumulatedBalanceLabel: "Accumulated funds",
+      showShareCapital: false,
+      showShareCapitalPolicy: false,
+      enableRestrictedFunds: false,
+      responsiblePersonsLabel: "Trustees",
+      responsibilitiesTitle: "Trustees’ Responsibilities and Approval",
+      reportTitle: "Trustees’ Report",
+    };
+  }
+
   return {
     isNpc: false,
+    isTrust: false,
     entityLabel: String(entityType || "Company"),
     incomeStatementTitle: "Statement of Comprehensive Income",
     incomeStatementShortTitle: "Statement of Comprehensive Income",
@@ -82,39 +115,71 @@ export function getAfsEntityRowLabel(
   presentation: AfsEntityPresentation,
 ) {
   const original = String(value || "").trim();
-  if (!presentation.isNpc) return original;
-
   const label = original.toLowerCase();
 
-  const exact: Record<string, string> = {
-    "equity and liabilities": "Funds and liabilities",
-    "equity": "Funds",
-    "total equity": "Total funds",
-    "total equity and liabilities": "Total funds and liabilities",
-    "profit / (loss) for the year": "Surplus / (deficit) for the year",
-    "profit / (loss) before taxation": "Surplus / (deficit) before taxation",
-    "operating profit / (loss)": "Operating surplus / (deficit)",
-    "gross profit / (loss)": "Gross surplus / (deficit)",
-    "total comprehensive income / (loss)": "Total comprehensive surplus / (deficit)",
-    "retained income": "Accumulated funds",
-    "retained income / accumulated loss": "Accumulated funds",
-    "accumulated loss": "Accumulated funds",
-    "share capital": "Contributed funds",
-    "share capital / contributions": "Contributed funds",
-  };
+  if (presentation.isNpc) {
+    const exact: Record<string, string> = {
+      "equity and liabilities": "Funds and liabilities",
+      "equity": "Funds",
+      "total equity": "Total funds",
+      "total equity and liabilities": "Total funds and liabilities",
+      "profit / (loss) for the year": "Surplus / (deficit) for the year",
+      "profit / (loss) before taxation": "Surplus / (deficit) before taxation",
+      "operating profit / (loss)": "Operating surplus / (deficit)",
+      "gross profit / (loss)": "Gross surplus / (deficit)",
+      "total comprehensive income / (loss)":
+        "Total comprehensive surplus / (deficit)",
+      "retained income": "Accumulated funds",
+      "retained income / accumulated loss": "Accumulated funds",
+      "accumulated loss": "Accumulated funds",
+      "share capital": "Contributed funds",
+      "share capital / contributions": "Contributed funds",
+    };
 
-  if (exact[label]) return exact[label];
+    if (exact[label]) return exact[label];
 
-  if (label.includes("retained income") || label.includes("accumulated loss")) {
-    return "Accumulated funds";
+    if (label.includes("retained income") || label.includes("accumulated loss")) {
+      return "Accumulated funds";
+    }
+
+    if (label.includes("profit / (loss) for prior year")) {
+      return "Surplus / (deficit) for prior year";
+    }
+
+    if (label.includes("profit / (loss) for current year")) {
+      return "Surplus / (deficit) for current year";
+    }
+
+    return original;
   }
 
-  if (label.includes("profit / (loss) for prior year")) {
-    return "Surplus / (deficit) for prior year";
-  }
+  if (presentation.isTrust) {
+    const exact: Record<string, string> = {
+      "equity and liabilities": "Trust funds and liabilities",
+      "equity": "Trust capital and accumulated funds",
+      "total equity": "Total trust capital and accumulated funds",
+      "total equity and liabilities": "Total trust funds and liabilities",
+      "retained income": "Accumulated funds",
+      "retained income / accumulated loss": "Accumulated funds",
+      "accumulated loss": "Accumulated funds",
+      "share capital": "Trust capital",
+      "share capital / contributions": "Trust capital",
+      "members / owners contributions": "Trust capital",
+      "member / owner contributions": "Trust capital",
+      "owners contributions": "Trust capital",
+      "shareholder / director / member loans": "Trustee loans",
+      "shareholder/director/member loans": "Trustee loans",
+      "loans from shareholders": "Trustee loans",
+      "shareholder loans": "Trustee loans",
+    };
 
-  if (label.includes("profit / (loss) for current year")) {
-    return "Surplus / (deficit) for current year";
+    if (exact[label]) return exact[label];
+
+    if (label.includes("retained income") || label.includes("accumulated loss")) {
+      return "Accumulated funds";
+    }
+
+    return original;
   }
 
   return original;

@@ -49,7 +49,154 @@ type DocumentKey =
   | "going-concern"
   | "distribution"
   | "subsequent-events"
-  | "other";
+  | "other"
+  | "trust-income-allocation"
+  | "trust-capital-allocation"
+  | "trust-retention"
+  | "trust-remuneration"
+  | "trust-loan-approval"
+  | "trust-investment"
+  | "trust-conflicts"
+  | "trustee-changes"
+  | "trust-banking-authority";
+
+type TrustExtraDocumentKey = Exclude<
+  DocumentKey,
+  | "afs-approval"
+  | "annual-minutes"
+  | "loan-certificates"
+  | "subordination"
+  | "going-concern"
+  | "distribution"
+  | "subsequent-events"
+  | "other"
+>;
+
+type TrustExtraDocumentState = {
+  status: DocumentStatus;
+  text: string;
+  message: string;
+};
+
+type TrustDistributionEntry = {
+  id: string;
+  beneficiary: string;
+  category: string;
+  amount: string;
+  form: string;
+  vestingDate: string;
+  paymentTerms: string;
+  notes: string;
+};
+
+const TRUST_EXTRA_DOCUMENTS: Array<{
+  key: TrustExtraDocumentKey;
+  ref: string;
+  title: string;
+  requirement: string;
+  detail: string;
+  placeholder: string;
+}> = [
+  {
+    key: "trust-income-allocation",
+    ref: "YD09",
+    title: "Income, Profit and Loss Allocation Resolution",
+    requirement: "Available",
+    detail:
+      "Records the trustees' annual decision on income, profits, operating results and losses for the year.",
+    placeholder:
+      "Record the trustees' decision on the allocation, vesting, retention or treatment of income, profits and losses for the year.",
+  },
+  {
+    key: "trust-capital-allocation",
+    ref: "YD10",
+    title: "Capital Gain / Capital Profit Allocation Resolution",
+    requirement: "Available",
+    detail:
+      "Records the trustees' decision on capital gains, capital profits and related capital allocations.",
+    placeholder:
+      "Record the capital gain or capital profit considered, the relevant beneficiary or beneficiaries if any, and whether the amount is vested, distributed or retained.",
+  },
+  {
+    key: "trust-retention",
+    ref: "YD11",
+    title: "Retention / Accumulation Resolution",
+    requirement: "Available",
+    detail:
+      "Documents income, gains or other amounts retained and accumulated in the Trust rather than distributed.",
+    placeholder:
+      "Record the amounts or categories retained in the Trust, the reason for retention and any conditions or future purpose.",
+  },
+  {
+    key: "trust-remuneration",
+    ref: "YD12",
+    title: "Trustee Remuneration / Administration Fee Resolution",
+    requirement: "Conditional",
+    detail:
+      "Approves trustee remuneration, administration fees or professional charges where the trust deed permits them.",
+    placeholder:
+      "Record the trustee or service provider, nature of services, amount or basis of remuneration, period covered and approval terms.",
+  },
+  {
+    key: "trust-loan-approval",
+    ref: "YD13",
+    title: "Loan / Borrowing Approval Resolution",
+    requirement: "Conditional",
+    detail:
+      "Approves material lending, borrowing, security or related-party loan arrangements entered into by the Trust.",
+    placeholder:
+      "Record the lender or borrower, amount, interest, repayment terms, security, purpose and any related-party considerations.",
+  },
+  {
+    key: "trust-investment",
+    ref: "YD14",
+    title: "Investment / Asset Decision Resolution",
+    requirement: "Conditional",
+    detail:
+      "Documents material acquisitions, disposals, investments or changes to Trust assets requiring trustee approval.",
+    placeholder:
+      "Record the asset or investment, transaction, amount or value, rationale, authority and any conditions.",
+  },
+  {
+    key: "trust-conflicts",
+    ref: "YD15",
+    title: "Trustee Interests and Conflict Declaration",
+    requirement: "Available",
+    detail:
+      "Records trustee interests, related-party matters and conflicts considered at year end.",
+    placeholder:
+      "Record each trustee interest or conflict considered, how it was managed, any abstention and the trustees' conclusion.",
+  },
+  {
+    key: "trustee-changes",
+    ref: "YD16",
+    title: "Trustee Appointment / Resignation / Change Record",
+    requirement: "Conditional",
+    detail:
+      "Documents trustee appointments, resignations, vacancies, replacements or changes requiring year-end support.",
+    placeholder:
+      "Record the trustee change, effective date, authority under the trust deed, Master-related action required and signing/administrative follow-up.",
+  },
+  {
+    key: "trust-banking-authority",
+    ref: "YD17",
+    title: "Banking / Signing Authority Resolution",
+    requirement: "Conditional",
+    detail:
+      "Documents changes to Trust banking mandates, account authorities and document-signing powers.",
+    placeholder:
+      "Record the bank or account, authorised trustees/signatories, signing rule, mandate changes and effective date.",
+  },
+];
+
+function initialTrustExtraDocumentState() {
+  return Object.fromEntries(
+    TRUST_EXTRA_DOCUMENTS.map((document) => [
+      document.key,
+      { status: "draft", text: "", message: "" },
+    ]),
+  ) as Record<TrustExtraDocumentKey, TrustExtraDocumentState>;
+}
 
 type Props = {
   engagementId: string;
@@ -122,7 +269,12 @@ export default function YearEndDocumentsPanel({
 
   const [distributionStatus, setDistributionStatus] = useState<DocumentStatus>("draft");
   const [distributionText, setDistributionText] = useState("");
+  const [distributionEntries, setDistributionEntries] = useState<TrustDistributionEntry[]>([]);
   const [distributionMessage, setDistributionMessage] = useState("");
+
+  const [trustExtraDocuments, setTrustExtraDocuments] = useState<
+    Record<TrustExtraDocumentKey, TrustExtraDocumentState>
+  >(initialTrustExtraDocumentState);
 
   const [subsequentStatus, setSubsequentStatus] = useState<DocumentStatus>("draft");
   const [subsequentText, setSubsequentText] = useState("");
@@ -430,13 +582,30 @@ export default function YearEndDocumentsPanel({
     if (!engagementId) return;
 
     try {
-      const [loanDoc, subDoc, gcDoc, distDoc, eventDoc, otherDoc] = await Promise.all([
+      const standardDocumentsPromise = Promise.all([
         loadGenericDocument("loan-certificates"),
         loadGenericDocument("subordination"),
         loadGenericDocument("going-concern"),
         loadGenericDocument("distribution"),
         loadGenericDocument("subsequent-events"),
         loadGenericDocument("other"),
+      ]);
+
+      const trustDocumentsPromise =
+        entityKind === "trust"
+          ? Promise.all(
+              TRUST_EXTRA_DOCUMENTS.map((document) =>
+                loadGenericDocument(document.key),
+              ),
+            )
+          : Promise.resolve([]);
+
+      const [
+        [loanDoc, subDoc, gcDoc, distDoc, eventDoc, otherDoc],
+        trustDocuments,
+      ] = await Promise.all([
+        standardDocumentsPromise,
+        trustDocumentsPromise,
       ]);
 
       if (loanDoc) {
@@ -454,6 +623,39 @@ export default function YearEndDocumentsPanel({
       if (distDoc) {
         setDistributionStatus(normaliseStatus(distDoc.status));
         setDistributionText(String(distDoc.payload?.text || ""));
+        setDistributionEntries(
+          Array.isArray(distDoc.payload?.entries)
+            ? distDoc.payload.entries.map((entry: any) => ({
+                id: String(entry?.id || `${Date.now()}-${Math.random()}`),
+                beneficiary: String(entry?.beneficiary || ""),
+                category: String(entry?.category || "Income"),
+                amount: String(entry?.amount || ""),
+                form: String(entry?.form || "Cash"),
+                vestingDate: String(entry?.vestingDate || ""),
+                paymentTerms: String(entry?.paymentTerms || ""),
+                notes: String(entry?.notes || ""),
+              }))
+            : [],
+        );
+      }
+
+      if (trustDocuments.length) {
+        setTrustExtraDocuments((current) => {
+          const next = { ...current };
+
+          TRUST_EXTRA_DOCUMENTS.forEach((config, index) => {
+            const document = trustDocuments[index];
+            if (!document) return;
+
+            next[config.key] = {
+              status: normaliseStatus(document.status),
+              text: String(document.payload?.text || ""),
+              message: "",
+            };
+          });
+
+          return next;
+        });
       }
 
       if (eventDoc) {
@@ -503,6 +705,39 @@ export default function YearEndDocumentsPanel({
     }
   }
 
+  function updateTrustExtraDocument(
+    key: TrustExtraDocumentKey,
+    patch: Partial<TrustExtraDocumentState>,
+  ) {
+    setTrustExtraDocuments((current) => ({
+      ...current,
+      [key]: {
+        ...current[key],
+        ...patch,
+      },
+    }));
+  }
+
+  async function saveTrustExtraDocument(
+    key: TrustExtraDocumentKey,
+    refCode: string,
+    status: DocumentStatus,
+    text: string,
+  ) {
+    try {
+      updateTrustExtraDocument(key, { message: "" });
+      await saveGenericDocument(key, status, { text });
+      updateTrustExtraDocument(key, {
+        status,
+        message: statusMessage(refCode, status),
+      });
+    } catch (error: any) {
+      updateTrustExtraDocument(key, {
+        message: error?.message || `Could not save ${refCode}.`,
+      });
+    }
+  }
+
   const effectiveEntityType = String(
     clientSetup?.entity_type || entityType || "Company",
   ).trim();
@@ -525,6 +760,17 @@ export default function YearEndDocumentsPanel({
   const signatories = useMemo(
     () => getEntitySignatories(clientPeople, entityKind),
     [clientPeople, entityKind],
+  );
+
+  const beneficiaries = useMemo(
+    () =>
+      (clientPeople || [])
+        .filter((person) =>
+          String(person.person_type || "").toLowerCase().includes("beneficiary"),
+        )
+        .map((person) => person.full_name)
+        .filter(Boolean),
+    [clientPeople],
   );
 
   const effectiveApprovalSignatories =
@@ -684,7 +930,7 @@ export default function YearEndDocumentsPanel({
         ref: "YD06",
         title:
           entityKind === "trust"
-            ? "Distribution Resolution"
+            ? "Beneficiary Distribution / Vesting Resolution"
             : entityKind === "cc"
               ? "Members' Distribution Resolution"
               : "Dividend / Distribution Resolution",
@@ -719,7 +965,10 @@ export default function YearEndDocumentsPanel({
       {
         key: "other" as DocumentKey,
         ref: "YD08",
-        title: "Other Minute / Resolution",
+        title:
+          entityKind === "trust"
+            ? "Other Trustee Minute / Resolution"
+            : "Other Minute / Resolution",
         requirement: "Optional",
         status:
           otherStatus === "signed"
@@ -729,6 +978,21 @@ export default function YearEndDocumentsPanel({
               : "Draft",
         detail: "Additional year-end approval document where the standard set does not cover the matter.",
       },
+      ...(entityKind === "trust"
+        ? TRUST_EXTRA_DOCUMENTS.map((document) => ({
+            key: document.key as DocumentKey,
+            ref: document.ref,
+            title: document.title,
+            requirement: document.requirement,
+            status:
+              trustExtraDocuments[document.key].status === "signed"
+                ? "Signed"
+                : trustExtraDocuments[document.key].status === "prepared"
+                  ? "Prepared"
+                  : "Draft",
+            detail: document.detail,
+          }))
+        : []),
     ],
     [
       entityKind,
@@ -743,6 +1007,7 @@ export default function YearEndDocumentsPanel({
       detectedDistributionLines.length,
       subsequentStatus,
       otherStatus,
+      trustExtraDocuments,
     ],
   );
 
@@ -1125,70 +1390,121 @@ export default function YearEndDocumentsPanel({
           />
         )}
 
-        {selectedDocument === "distribution" && (
-          <EditableResolutionDocument
-            refCode="YD06"
-            title={
-              entityKind === "trust"
-                ? "Distribution Resolution"
-                : entityKind === "cc"
+        {selectedDocument === "distribution" &&
+          (entityKind === "trust" ? (
+            <TrustDistributionDocument
+              displayName={displayName}
+              registrationNumber={registrationNumber}
+              yearEnd={yearEnd}
+              bodyText={intelligentDistributionText}
+              entries={distributionEntries}
+              beneficiaries={beneficiaries}
+              status={distributionStatus}
+              message={distributionMessage}
+              practiceName={practiceName}
+              whiteLabel={whiteLabel}
+              signatories={signatories}
+              onTextChange={(value) => {
+                if (distributionStatus !== "draft") setDistributionStatus("draft");
+                setDistributionText(value);
+                setDistributionMessage("");
+              }}
+              onEntriesChange={(entries) => {
+                if (distributionStatus !== "draft") setDistributionStatus("draft");
+                setDistributionEntries(entries);
+                setDistributionMessage("");
+              }}
+              onSaveDraft={() =>
+                void saveSimpleDocument(
+                  "distribution",
+                  "draft",
+                  { text: intelligentDistributionText, entries: distributionEntries },
+                  setDistributionStatus,
+                  setDistributionMessage,
+                  "YD06",
+                )
+              }
+              onMarkPrepared={() =>
+                void saveSimpleDocument(
+                  "distribution",
+                  "prepared",
+                  { text: intelligentDistributionText, entries: distributionEntries },
+                  setDistributionStatus,
+                  setDistributionMessage,
+                  "YD06",
+                )
+              }
+              onMarkSigned={() =>
+                void saveSimpleDocument(
+                  "distribution",
+                  "signed",
+                  { text: intelligentDistributionText, entries: distributionEntries },
+                  setDistributionStatus,
+                  setDistributionMessage,
+                  "YD06",
+                )
+              }
+            />
+          ) : (
+            <EditableResolutionDocument
+              refCode="YD06"
+              title={
+                entityKind === "cc"
                   ? "Members' Distribution Resolution"
                   : "Dividend / Distribution Resolution"
-            }
-            displayName={displayName}
-            registrationNumber={registrationNumber}
-            yearEnd={yearEnd}
-            bodyText={intelligentDistributionText}
-            status={distributionStatus}
-            message={distributionMessage}
-            practiceName={practiceName}
-            whiteLabel={whiteLabel}
-            signatories={signatories}
-            signatureLabel={signatureFallbackLabel(entityKind)}
-            placeholder={
-              entityKind === "trust"
-                ? "Record the beneficiary distribution approved by the trustees, including the amount, beneficiary and any conditions."
-                : entityKind === "cc"
+              }
+              displayName={displayName}
+              registrationNumber={registrationNumber}
+              yearEnd={yearEnd}
+              bodyText={intelligentDistributionText}
+              status={distributionStatus}
+              message={distributionMessage}
+              practiceName={practiceName}
+              whiteLabel={whiteLabel}
+              signatories={signatories}
+              signatureLabel={signatureFallbackLabel(entityKind)}
+              placeholder={
+                entityKind === "cc"
                   ? "Record the distribution approved by the members, including the amount, recipient and any conditions."
                   : "Record the dividend/distribution approved by the directors, including the amount, shareholders and any conditions."
-            }
-            onTextChange={(value) => {
-              if (distributionStatus !== "draft") setDistributionStatus("draft");
-              setDistributionText(value);
-              setDistributionMessage("");
-            }}
-            onSaveDraft={() =>
-              void saveSimpleDocument(
-                "distribution",
-                "draft",
-                { text: intelligentDistributionText },
-                setDistributionStatus,
-                setDistributionMessage,
-                "YD06",
-              )
-            }
-            onMarkPrepared={() =>
-              void saveSimpleDocument(
-                "distribution",
-                "prepared",
-                { text: intelligentDistributionText },
-                setDistributionStatus,
-                setDistributionMessage,
-                "YD06",
-              )
-            }
-            onMarkSigned={() =>
-              void saveSimpleDocument(
-                "distribution",
-                "signed",
-                { text: intelligentDistributionText },
-                setDistributionStatus,
-                setDistributionMessage,
-                "YD06",
-              )
-            }
-          />
-        )}
+              }
+              onTextChange={(value) => {
+                if (distributionStatus !== "draft") setDistributionStatus("draft");
+                setDistributionText(value);
+                setDistributionMessage("");
+              }}
+              onSaveDraft={() =>
+                void saveSimpleDocument(
+                  "distribution",
+                  "draft",
+                  { text: intelligentDistributionText },
+                  setDistributionStatus,
+                  setDistributionMessage,
+                  "YD06",
+                )
+              }
+              onMarkPrepared={() =>
+                void saveSimpleDocument(
+                  "distribution",
+                  "prepared",
+                  { text: intelligentDistributionText },
+                  setDistributionStatus,
+                  setDistributionMessage,
+                  "YD06",
+                )
+              }
+              onMarkSigned={() =>
+                void saveSimpleDocument(
+                  "distribution",
+                  "signed",
+                  { text: intelligentDistributionText },
+                  setDistributionStatus,
+                  setDistributionMessage,
+                  "YD06",
+                )
+              }
+            />
+          ))}
 
         {selectedDocument === "subsequent-events" && (
           <EditableResolutionDocument
@@ -1252,7 +1568,12 @@ export default function YearEndDocumentsPanel({
         {selectedDocument === "other" && (
           <EditableResolutionDocument
             refCode="YD08"
-            title={otherTitle || "Other Minute / Resolution"}
+            title={
+              otherTitle ||
+              (entityKind === "trust"
+                ? "Other Trustee Minute / Resolution"
+                : "Other Minute / Resolution")
+            }
             displayName={displayName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
@@ -1307,6 +1628,72 @@ export default function YearEndDocumentsPanel({
             }
           />
         )}
+
+        {entityKind === "trust"
+          ? TRUST_EXTRA_DOCUMENTS.map((config) => {
+              if (selectedDocument !== config.key) return null;
+
+              const state = trustExtraDocuments[config.key];
+              const effectiveText =
+                state.text.trim() ||
+                defaultTrustExtraDocumentText(
+                  config.key,
+                  displayName,
+                  yearEnd,
+                );
+
+              return (
+                <div key={config.key}>
+                  <EditableResolutionDocument
+                  refCode={config.ref}
+                  title={config.title}
+                  displayName={displayName}
+                  registrationNumber={registrationNumber}
+                  yearEnd={yearEnd}
+                  bodyText={effectiveText}
+                  status={state.status}
+                  message={state.message}
+                  practiceName={practiceName}
+                  whiteLabel={whiteLabel}
+                  signatories={signatories}
+                  signatureLabel="Trustee / authorised signatory"
+                  placeholder={config.placeholder}
+                  onTextChange={(value) => {
+                    updateTrustExtraDocument(config.key, {
+                      status: "draft",
+                      text: value,
+                      message: "",
+                    });
+                  }}
+                  onSaveDraft={() =>
+                    void saveTrustExtraDocument(
+                      config.key,
+                      config.ref,
+                      "draft",
+                      effectiveText,
+                    )
+                  }
+                  onMarkPrepared={() =>
+                    void saveTrustExtraDocument(
+                      config.key,
+                      config.ref,
+                      "prepared",
+                      effectiveText,
+                    )
+                  }
+                  onMarkSigned={() =>
+                    void saveTrustExtraDocument(
+                      config.key,
+                      config.ref,
+                      "signed",
+                      effectiveText,
+                    )
+                  }
+                  />
+                </div>
+              );
+            })
+          : null}
       </div>
     </section>
   );
@@ -1949,11 +2336,23 @@ function MinutesDocument({
             under review be approved;
           </li>
           {entityKind === "trust" ? (
-            <li>
-              distributions reflected or provided for in the annual financial
-              statements, where applicable, be approved subject to the trust deed and
-              any separate distribution resolution;
-            </li>
+            <>
+              <li>
+                distributions or vestings reflected or provided for in the annual
+                financial statements, where applicable, be dealt with in the
+                Beneficiary Distribution / Vesting Resolution;
+              </li>
+              <li>
+                the trustees consider and document the annual treatment of income,
+                profits, losses, capital gains and capital profits, including whether
+                amounts are vested, distributed, retained or accumulated in the Trust;
+              </li>
+              <li>
+                trustee remuneration, material loans and borrowings, investments,
+                trustee interests, trustee changes and banking authorities be dealt
+                with in the relevant year-end resolution where applicable;
+              </li>
+            </>
           ) : null}
           <li>
             material matters arising from the accounts requiring separate approval,
@@ -2804,6 +3203,399 @@ function SimpleDocumentShell({
   );
 }
 
+function TrustDistributionDocument({
+  displayName,
+  registrationNumber,
+  yearEnd,
+  bodyText,
+  entries,
+  beneficiaries,
+  status,
+  message,
+  practiceName,
+  whiteLabel,
+  signatories,
+  onTextChange,
+  onEntriesChange,
+  onSaveDraft,
+  onMarkPrepared,
+  onMarkSigned,
+}: {
+  displayName: string;
+  registrationNumber: string;
+  yearEnd: string;
+  bodyText: string;
+  entries: TrustDistributionEntry[];
+  beneficiaries: string[];
+  status: DocumentStatus;
+  message: string;
+  practiceName: string;
+  whiteLabel: boolean;
+  signatories: string[];
+  onTextChange: (value: string) => void;
+  onEntriesChange: (entries: TrustDistributionEntry[]) => void;
+  onSaveDraft: () => void;
+  onMarkPrepared: () => void;
+  onMarkSigned: () => void;
+}) {
+  const documentId = `YD06-${displayName}`.replace(/\s+/g, "-");
+
+  function addEntry() {
+    onEntriesChange([
+      ...entries,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        beneficiary: "",
+        category: "Income",
+        amount: "",
+        form: "Cash",
+        vestingDate: "",
+        paymentTerms: "",
+        notes: "",
+      },
+    ]);
+  }
+
+  function updateEntry(
+    id: string,
+    patch: Partial<TrustDistributionEntry>,
+  ) {
+    onEntriesChange(
+      entries.map((entry) =>
+        entry.id === id ? { ...entry, ...patch } : entry,
+      ),
+    );
+  }
+
+  function removeEntry(id: string) {
+    onEntriesChange(entries.filter((entry) => entry.id !== id));
+  }
+
+  function printDocument() {
+    const node = document.getElementById(documentId);
+    if (!node) return;
+    printNode(
+      node,
+      `${displayName} - Beneficiary Distribution / Vesting Resolution`,
+    );
+  }
+
+  return (
+    <div style={styles.documentWorkspace}>
+      <DocumentActionToolbar
+        refCode="YD06"
+        title="Beneficiary Distribution / Vesting Resolution"
+        status={status}
+        saving={false}
+        onSaveDraft={onSaveDraft}
+        onMarkPrepared={onMarkPrepared}
+        onMarkSigned={onMarkSigned}
+        onPrint={printDocument}
+      />
+
+      {message ? <div style={styles.documentMessage}>{message}</div> : null}
+
+      <div style={styles.documentControls}>
+        <label style={{ ...styles.controlField, gridColumn: "1 / -1" }}>
+          <span>Resolution wording</span>
+          <textarea
+            value={bodyText}
+            onChange={(event) => onTextChange(event.target.value)}
+            placeholder="Record the Trust distribution / vesting decision."
+            style={styles.largeTextarea}
+          />
+        </label>
+
+        <div style={{ gridColumn: "1 / -1", display: "grid", gap: "6px" }}>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "8px",
+          }}>
+            <div>
+              <strong style={{ fontSize: "11px" }}>
+                Beneficiary distributions / vestings
+              </strong>
+              <div style={styles.controlHelp}>
+                Capture each beneficiary item separately so the resolution,
+                accounting record and Trust tax workpaper can be reconciled.
+              </div>
+            </div>
+            <button
+              type="button"
+              style={styles.secondaryActionButton}
+              onClick={addEntry}
+            >
+              + Add distribution
+            </button>
+          </div>
+
+          {entries.length ? (
+            entries.map((entry, index) => (
+              <div
+                key={entry.id}
+                style={{
+                  border: "1px solid #d7dee8",
+                  background: "#ffffff",
+                  padding: "8px",
+                  display: "grid",
+                  gap: "7px",
+                }}
+              >
+                <div style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "8px",
+                  alignItems: "center",
+                }}>
+                  <strong style={{ fontSize: "10px" }}>
+                    Distribution {index + 1}
+                  </strong>
+                  <button
+                    type="button"
+                    style={styles.secondaryActionButton}
+                    onClick={() => removeEntry(entry.id)}
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                  gap: "7px",
+                }}>
+                  <label style={styles.controlField}>
+                    <span>Beneficiary</span>
+                    {beneficiaries.length ? (
+                      <select
+                        value={entry.beneficiary}
+                        onChange={(event) =>
+                          updateEntry(entry.id, {
+                            beneficiary: event.target.value,
+                          })
+                        }
+                        style={styles.controlInput}
+                      >
+                        <option value="">Select beneficiary</option>
+                        {beneficiaries.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        value={entry.beneficiary}
+                        onChange={(event) =>
+                          updateEntry(entry.id, {
+                            beneficiary: event.target.value,
+                          })
+                        }
+                        placeholder="Beneficiary name"
+                        style={styles.controlInput}
+                      />
+                    )}
+                  </label>
+
+                  <label style={styles.controlField}>
+                    <span>Nature</span>
+                    <select
+                      value={entry.category}
+                      onChange={(event) =>
+                        updateEntry(entry.id, {
+                          category: event.target.value,
+                        })
+                      }
+                      style={styles.controlInput}
+                    >
+                      <option value="Income">Income</option>
+                      <option value="Capital">Capital</option>
+                      <option value="Capital gain">Capital gain</option>
+                      <option value="Trust property">Trust property</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </label>
+
+                  <label style={styles.controlField}>
+                    <span>Amount / value</span>
+                    <input
+                      value={entry.amount}
+                      onChange={(event) =>
+                        updateEntry(entry.id, {
+                          amount: event.target.value,
+                        })
+                      }
+                      placeholder="0.00"
+                      style={styles.controlInput}
+                    />
+                  </label>
+
+                  <label style={styles.controlField}>
+                    <span>Form of benefit</span>
+                    <select
+                      value={entry.form}
+                      onChange={(event) =>
+                        updateEntry(entry.id, {
+                          form: event.target.value,
+                        })
+                      }
+                      style={styles.controlInput}
+                    >
+                      <option value="Cash">Cash</option>
+                      <option value="In specie">In specie</option>
+                      <option value="Applied for beneficiary">
+                        Applied for beneficiary
+                      </option>
+                      <option value="Invested for beneficiary">
+                        Invested for beneficiary
+                      </option>
+                      <option value="Retained under trustee control">
+                        Retained under trustee control
+                      </option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </label>
+
+                  <label style={styles.controlField}>
+                    <span>Vesting date</span>
+                    <input
+                      type="date"
+                      value={entry.vestingDate}
+                      onChange={(event) =>
+                        updateEntry(entry.id, {
+                          vestingDate: event.target.value,
+                        })
+                      }
+                      style={styles.controlInput}
+                    />
+                  </label>
+
+                  <label style={styles.controlField}>
+                    <span>Payment / transfer terms</span>
+                    <input
+                      value={entry.paymentTerms}
+                      onChange={(event) =>
+                        updateEntry(entry.id, {
+                          paymentTerms: event.target.value,
+                        })
+                      }
+                      placeholder="Paid now / payable later / transfer details"
+                      style={styles.controlInput}
+                    />
+                  </label>
+                </div>
+
+                <label style={styles.controlField}>
+                  <span>Conditions / notes</span>
+                  <input
+                    value={entry.notes}
+                    onChange={(event) =>
+                      updateEntry(entry.id, {
+                        notes: event.target.value,
+                      })
+                    }
+                    placeholder="Conditions, asset details, conflict handling or supporting reference"
+                    style={styles.controlInput}
+                  />
+                </label>
+              </div>
+            ))
+          ) : (
+            <EmptyMessage text="No beneficiary distribution / vesting entries have been captured yet." />
+          )}
+        </div>
+      </div>
+
+      <article id={documentId} style={styles.paper}>
+        <DocumentIdentity
+          displayName={displayName}
+          registrationNumber={registrationNumber}
+          yearEnd={yearEnd}
+        />
+        <h1 style={styles.documentMainTitle}>
+          Beneficiary Distribution / Vesting Resolution
+        </h1>
+
+        <p style={styles.bodyText}>It was resolved that:</p>
+        <p style={styles.bodyText}>{bodyText}</p>
+
+        {entries.length ? (
+          <>
+            <h2 style={styles.documentHeading}>
+              Approved beneficiary distributions / vestings
+            </h2>
+            <table style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              marginTop: "8px",
+              fontSize: "10px",
+            }}>
+              <thead>
+                <tr>
+                  {[
+                    "Beneficiary",
+                    "Nature",
+                    "Amount / value",
+                    "Form",
+                    "Vesting date",
+                    "Payment / terms",
+                  ].map((heading) => (
+                    <th
+                      key={heading}
+                      style={{
+                        textAlign: "left",
+                        borderBottom: "1px solid #94a3b8",
+                        padding: "5px 4px",
+                      }}
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry) => (
+                  <tr key={entry.id}>
+                    <td style={{ padding: "5px 4px", verticalAlign: "top" }}>
+                      {entry.beneficiary || "—"}
+                    </td>
+                    <td style={{ padding: "5px 4px", verticalAlign: "top" }}>
+                      {entry.category || "—"}
+                    </td>
+                    <td style={{ padding: "5px 4px", verticalAlign: "top" }}>
+                      {entry.amount || "—"}
+                    </td>
+                    <td style={{ padding: "5px 4px", verticalAlign: "top" }}>
+                      {entry.form || "—"}
+                    </td>
+                    <td style={{ padding: "5px 4px", verticalAlign: "top" }}>
+                      {entry.vestingDate
+                        ? formatDate(entry.vestingDate)
+                        : "—"}
+                    </td>
+                    <td style={{ padding: "5px 4px", verticalAlign: "top" }}>
+                      {entry.paymentTerms || "—"}
+                      {entry.notes ? ` · ${entry.notes}` : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        ) : null}
+
+        <SignatureBlock
+          names={signatories}
+          fallbackLabel="Trustee / authorised signatory"
+        />
+        <DocumentFooter practiceName={practiceName} whiteLabel={whiteLabel} />
+      </article>
+    </div>
+  );
+}
+
 function EditableResolutionDocument({
   refCode,
   title,
@@ -3170,6 +3962,63 @@ function responsiblePeople(kind: EntityKind) {
 }
 
 
+function defaultTrustExtraDocumentText(
+  key: TrustExtraDocumentKey,
+  displayName: string,
+  yearEnd: string,
+) {
+  const yearEndLabel = formatDate(yearEnd);
+
+  switch (key) {
+    case "trust-income-allocation":
+      return `The trustees considered the income, profits, expenditure, operating result and losses of ${displayName} for the year ended ${yearEndLabel}, together with the provisions of the trust deed and the annual financial statements.
+
+It was resolved that the treatment of the Trust's income, profits and losses for the year be recorded in accordance with the trustees' decisions, the trust deed and applicable law. Any amount vested in a beneficiary must identify the beneficiary, nature and amount of the vested benefit and effective date. Any amount not vested or distributed is retained as part of the Trust property.`;
+
+    case "trust-capital-allocation":
+      return `The trustees considered all capital gains, capital profits, capital losses and other capital movements of ${displayName} for the year ended ${yearEndLabel}.
+
+It was resolved that each capital amount be allocated, vested, distributed or retained in accordance with the trust deed and applicable law. Any beneficiary allocation must identify the beneficiary, the capital amount or asset concerned, the amount or value and the effective vesting or distribution date.`;
+
+    case "trust-retention":
+      return `The trustees considered all income, profits, capital gains and other amounts not distributed or vested in beneficiaries during the year ended ${yearEndLabel}.
+
+It was resolved that such undistributed amounts be retained and accumulated as Trust property of ${displayName}, subject to the trust deed, and that the accounting records and annual financial statements reflect the resulting accumulated funds appropriately.`;
+
+    case "trust-remuneration":
+      return `The trustees considered remuneration, administration fees and professional charges paid or payable in connection with the administration of ${displayName} for the year ended ${yearEndLabel}.
+
+It was resolved that the remuneration or fees recorded in this resolution be approved only to the extent permitted by the trust deed, supported by the services rendered and properly recorded in the accounting records. Any trustee with a personal interest in the remuneration must not participate contrary to the trust deed or applicable law.`;
+
+    case "trust-loan-approval":
+      return `The trustees considered the material loans, borrowings, credit facilities, advances and security arrangements involving ${displayName} at or during the year ended ${yearEndLabel}.
+
+It was resolved that the arrangements recorded in this resolution be approved or ratified subject to the trust deed. The lender or borrower, amount, interest basis, repayment terms, security, purpose, related-party status and authority for the transaction must be documented.`;
+
+    case "trust-investment":
+      return `The trustees considered the material acquisitions, disposals, investments and changes in the composition of the Trust property of ${displayName} during the year ended ${yearEndLabel}.
+
+It was resolved that the transactions recorded in this resolution be approved or ratified where they fall within the powers granted to the trustees by the trust deed, and that the relevant assets, values, transaction terms and supporting documents be retained in the Trust records.`;
+
+    case "trust-conflicts":
+      return `The trustees considered their interests, related-party relationships and any actual or potential conflicts arising in connection with the affairs of ${displayName} for the year ended ${yearEndLabel}.
+
+It was resolved that each relevant interest or conflict be recorded, that affected trustees comply with the decision-making restrictions in the trust deed, and that any abstention, independent approval or other safeguard be documented in the Trust records.`;
+
+    case "trustee-changes":
+      return `The trustees considered all appointments, resignations, vacancies, replacements and changes in the trustees of ${displayName} during or after the year ended ${yearEndLabel}.
+
+It was resolved that the Trust records be updated for each change and that any acceptance, resignation, appointment, Master of the High Court filing, Letter of Authority update or other required administrative action be completed and retained in the year-end file.`;
+
+    case "trust-banking-authority":
+      return `The trustees considered the banking arrangements and document-signing authorities of ${displayName}.
+
+It was resolved that the banking mandates and signing authorities recorded in this resolution be approved, including the relevant account or facility, authorised trustee or trustees, signing rule and effective date, subject to the trust deed and the requirements of the financial institution.`;
+    default:
+      return "The trustees considered the matter and resolved that the decision be recorded in the Trust's year-end working file.";
+  }
+}
+
 function defaultDistributionResolutionText(
   entityKind: EntityKind,
   displayName: string,
@@ -3186,9 +4035,11 @@ function defaultDistributionResolutionText(
       : "";
 
   if (entityKind === "trust") {
-    return `The trustees considered the distributions made or proposed by ${displayName} in accordance with the trust deed and the information reflected in the annual financial statements.${detectedSentence}
+    return `The trustees considered all distributions, vestings and benefits made or proposed by ${displayName} in accordance with the trust deed and the information reflected in the annual financial statements.${detectedSentence}
 
-It was resolved that the distributions recorded in the annual financial statements be approved and ratified, subject to the trustees confirming the relevant beneficiaries, amounts and any conditions applicable to each distribution.`;
+It was resolved that each beneficiary distribution or vesting recorded below be approved subject to the terms of the trust deed and applicable law. For each item the trustees must identify the beneficiary, the nature of the amount or property (including income, capital or capital gain where applicable), the amount or value, whether the benefit is paid in cash, transferred in specie, applied for the beneficiary, invested on the beneficiary's behalf or retained under trustee control, the vesting date where relevant, and any payment terms or conditions.
+
+The trustees further confirm that the beneficiary concerned falls within the class of beneficiaries permitted by the trust deed and that any trustee who is also affected by the decision has complied with the conflict and decision-making requirements of the trust deed.`;
   }
 
   if (entityKind === "cc") {

@@ -576,25 +576,29 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
   const practitionerFirm = value(context, "practitionerFirm", "");
   const compilationDate = value(context, "compilationDate", "________________");
 
+  /*
+    Practitioner report branding must NEVER fall back to generic/client branding.
+    Only explicit firm / practitioner / compiler logo fields are allowed here.
+  */
   const logoSources = uniqueStrings([
     firstValue(context, [
       "practitionerLogoUrl",
       "firmLogoUrl",
-      "logoUrl",
       "letterheadLogoUrl",
-      "logo_url",
       "firm_logo_url",
       "letterhead_logo_url",
       "compiler_logo_url",
     ]),
   ]);
 
+  /*
+    Same rule for the footer: practitioner / firm branding only.
+    Generic footer_logo_url may belong to the client and is intentionally excluded.
+  */
   const footerLogoSources = uniqueStrings([
     firstValue(context, [
       "practitionerFooterLogoUrl",
       "firmFooterLogoUrl",
-      "footerLogoUrl",
-      "footer_logo_url",
       "firm_footer_logo_url",
       "letterhead_footer_logo_url",
       "compiler_footer_logo_url",

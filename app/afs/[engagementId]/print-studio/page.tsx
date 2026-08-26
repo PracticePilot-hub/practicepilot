@@ -1118,6 +1118,10 @@ function isCloseCorporationEntityType(value: unknown) {
   );
 }
 
+function isTrustEntityType(value: unknown) {
+  return String(value || "").trim().toLowerCase().includes("trust");
+}
+
 function isShareCapitalNoteSection(section: any) {
   const key = String(section?.key || "").toLowerCase();
   const optionKey = String(section?.optionKey || "").toLowerCase();
@@ -1286,6 +1290,160 @@ function CcMembersReportBlock({
             >
               <span style={{ fontWeight: 700 }}>Name</span>
               <span>{getPersonName(member)}</span>
+            </div>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TrustTrusteesResponsibilitiesBlock({
+  clientName,
+  yearEnd,
+  approvalDate,
+  trustees,
+}: {
+  clientName: string;
+  yearEnd: string;
+  approvalDate: string;
+  trustees: PersonData[];
+}) {
+  const trusteeCount = Math.max(1, trustees.length);
+  const trusteeWord = trusteeCount === 1 ? "trustee" : "trustees";
+
+  return (
+    <div>
+      <p style={paragraphStyle()}>
+        The {trusteeWord} {trusteeCount === 1 ? "is" : "are"} responsible for the
+        maintenance of adequate accounting records and for the preparation and
+        integrity of the annual financial statements and related information.
+      </p>
+
+      <p style={paragraphStyle()}>
+        The {trusteeWord} {trusteeCount === 1 ? "is" : "are"} also responsible for
+        the trust&apos;s system of internal financial control. These controls are
+        designed to provide reasonable, but not absolute, assurance as to the
+        reliability of the annual financial statements, to safeguard and maintain
+        accountability for the trust&apos;s assets, and to prevent and detect material
+        misstatement and loss.
+      </p>
+
+      <p style={paragraphStyle()}>
+        The annual financial statements have been prepared on the going concern
+        basis because the {trusteeWord} {trusteeCount === 1 ? "believes" : "believe"}{" "}
+        that {clientName} has adequate resources to continue in operation for the
+        foreseeable future.
+      </p>
+
+      <p style={paragraphStyle()}>
+        The annual financial statements for the year ended {yearEnd} were approved
+        by the {trusteeWord} on {approvalDate || "________________"} and are signed
+        below by the {trusteeWord} or on their behalf.
+      </p>
+
+      <h2 style={sectionHeadingStyle()}>Approval of annual financial statements</h2>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            trustees.length > 1 ? "repeat(2, minmax(0, 1fr))" : "minmax(0, 280px)",
+          gap: "28px 44px",
+          marginTop: 30,
+        }}
+      >
+        {(trustees.length ? trustees : [{ full_name: "Trustee" }]).map(
+          (trustee: PersonData, index: number) => (
+            <div key={trustee.id || `${getPersonName(trustee)}-${index}`}>
+              <div
+                style={{
+                  width: "100%",
+                  borderTop: "1px solid #111827",
+                  paddingTop: 5,
+                  fontWeight: 700,
+                }}
+              >
+                {getPersonName(trustee)}
+              </div>
+            </div>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TrustTrusteesReportBlock({
+  clientName,
+  yearEnd,
+  trustees,
+}: {
+  clientName: string;
+  yearEnd: string;
+  trustees: PersonData[];
+}) {
+  const trusteeCount = Math.max(1, trustees.length);
+  const trusteeWord = trusteeCount === 1 ? "trustee" : "trustees";
+
+  return (
+    <div>
+      <p style={paragraphStyle()}>
+        The {trusteeWord} {trusteeCount === 1 ? "submits" : "submit"}{" "}
+        {trusteeCount === 1 ? "his or her" : "their"} report for the year ended{" "}
+        {yearEnd}.
+      </p>
+
+      <h2 style={sectionHeadingStyle()}>1. Nature of the trust and its activities</h2>
+      <p style={paragraphStyle()}>
+        {clientName} is administered by the trustees in accordance with the trust
+        deed and the Trust Property Control Act 57 of 1988, as amended.
+      </p>
+
+      <h2 style={sectionHeadingStyle()}>2. Going concern</h2>
+      <p style={paragraphStyle()}>
+        The annual financial statements have been prepared on the basis of
+        accounting policies applicable to a going concern. The {trusteeWord}{" "}
+        {trusteeCount === 1 ? "believes" : "believe"} that {clientName} has
+        adequate financial resources to continue in operation for the foreseeable
+        future and has considered the trust&apos;s financial position, commitments and
+        expected cash requirements.
+      </p>
+
+      <h2 style={sectionHeadingStyle()}>3. Events after the reporting period</h2>
+      <p style={paragraphStyle()}>
+        The {trusteeWord} {trusteeCount === 1 ? "has" : "have"} considered events
+        occurring after the reporting date and up to the date on which these annual
+        financial statements are approved. Any material matter requiring adjustment
+        or disclosure is reflected in the annual financial statements.
+      </p>
+
+      <h2 style={sectionHeadingStyle()}>4. Trust capital and accumulated funds</h2>
+      <p style={paragraphStyle()}>
+        Details of the trust capital, accumulated funds and movements during the
+        reporting period are disclosed in the annual financial statements and
+        related notes.
+      </p>
+
+      <h2 style={sectionHeadingStyle()}>
+        5. {trusteeCount === 1 ? "Trustee" : "Trustees"}
+      </h2>
+
+      <div style={{ marginTop: 6 }}>
+        {(trustees.length ? trustees : [{ full_name: "Trustee not captured" }]).map(
+          (trustee: PersonData, index: number) => (
+            <div
+              key={trustee.id || `${getPersonName(trustee)}-${index}`}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "180px 1fr",
+                gap: 12,
+                padding: "4px 0",
+                borderBottom: "1px solid #e5e7eb",
+              }}
+            >
+              <span style={{ fontWeight: 700 }}>Name</span>
+              <span>{getPersonName(trustee)}</span>
             </div>
           ),
         )}
@@ -1996,6 +2154,7 @@ export default function AfsPrintStudioPage() {
 
   const entityPresentation = getAfsEntityPresentation(presentationEntityType);
   const isCloseCorporation = isCloseCorporationEntityType(presentationEntityType);
+  const isTrust = isTrustEntityType(presentationEntityType);
 
   const reportSectionOptions: AfsReportOption[] = [
     option("coverPage", "Cover page", "Show the AFS cover page."),
@@ -2003,13 +2162,25 @@ export default function AfsPrintStudioPage() {
     option("generalInformation", "General information", "Show entity and engagement details."),
     option(
       "directorsResponsibilities",
-      isCloseCorporation ? `${ccMemberPossessive(Math.max(1, clientPeople.filter(isDirectorLike).length))} responsibilities` : "Directors’ responsibilities",
+      isCloseCorporation
+        ? `${ccMemberPossessive(Math.max(1, clientPeople.filter(isDirectorLike).length))} responsibilities`
+        : isTrust
+          ? "Trustees’ responsibilities"
+          : "Directors’ responsibilities",
       "Show the approval and responsibility statement.",
     ),
     option(
       "directorsReport",
-      isCloseCorporation ? `${ccMemberPossessive(Math.max(1, clientPeople.filter(isDirectorLike).length))} report` : "Directors’ report",
-      isCloseCorporation ? "Show the close corporation member report." : "Show the directors’ report.",
+      isCloseCorporation
+        ? `${ccMemberPossessive(Math.max(1, clientPeople.filter(isDirectorLike).length))} report`
+        : isTrust
+          ? "Trustees’ report"
+          : "Directors’ report",
+      isCloseCorporation
+        ? "Show the close corporation member report."
+        : isTrust
+          ? "Show the trustees’ report."
+          : "Show the directors’ report.",
     ),
     option(
       "compilerReport",
@@ -2028,12 +2199,12 @@ export default function AfsPrintStudioPage() {
     ),
     option(
       "sce",
-      entityPresentation.isNpc
-        ? "Statement of changes in funds"
-        : "Statement of changes in equity",
+      entityPresentation.equityStatementTitle,
       entityPresentation.isNpc
         ? "Show statement of changes in funds."
-        : "Show statement of changes in equity.",
+        : isTrust
+          ? "Show statement of changes in trust capital and accumulated funds."
+          : "Show statement of changes in equity.",
     ),
     option("cashFlow", "Cash flow", "Show cash flow statement."),
     option("accountingPolicies", "Accounting policies", "Show accounting policies."),
@@ -2107,10 +2278,16 @@ const clientLogoUrl = cleanString(
         legalFrameworkRaw.trim().toLowerCase() === "close corporations act of south africa"
         ? "Close Corporations Act 69 of 1984, as amended"
         : legalFrameworkRaw
-      : !legalFrameworkRaw ||
-        legalFrameworkRaw.trim().toLowerCase() === "companies act of south africa"
-        ? "Companies Act 71 of 2008, as amended"
-        : legalFrameworkRaw;
+      : isTrustEntityType(entityType)
+        ? !legalFrameworkRaw ||
+          legalFrameworkRaw.trim().toLowerCase() === "companies act of south africa" ||
+          legalFrameworkRaw.trim().toLowerCase() === "companies act 71 of 2008, as amended"
+          ? "Trust Property Control Act 57 of 1988, as amended"
+          : legalFrameworkRaw
+        : !legalFrameworkRaw ||
+          legalFrameworkRaw.trim().toLowerCase() === "companies act of south africa"
+          ? "Companies Act 71 of 2008, as amended"
+          : legalFrameworkRaw;
 
   const registrationNumber =
     String(
@@ -2211,6 +2388,10 @@ const clientLogoUrl = cleanString(
     ]) ||
     "Professional Accountant (SA)";
 
+  /*
+    Practitioner report branding must come from the accounting firm only.
+    Do not fall back to the client's generic logo_url.
+  */
   const practitionerLogoUrl =
     firmSetting("logo_url") ||
     cleanString(
@@ -2219,10 +2400,12 @@ const clientLogoUrl = cleanString(
         "compiler_logo_url",
         "firm_logo_url",
         "letterhead_logo_url",
-        "logo_url",
       ]),
     );
 
+  /*
+    Same rule for the compilation-report footer: firm / practitioner branding only.
+  */
   const practitionerFooterLogoUrl =
     firmSetting("footer_logo_url") ||
     cleanString(
@@ -2231,7 +2414,6 @@ const clientLogoUrl = cleanString(
         "compiler_footer_logo_url",
         "firm_footer_logo_url",
         "letterhead_footer_logo_url",
-        "footer_logo_url",
       ]),
     );
 
@@ -2309,7 +2491,7 @@ const clientLogoUrl = cleanString(
     directors: directorsForDisplay,
   };
 
-  const defaultDirectorsReportTexts = useMemo(
+  const genericDirectorsReportTexts = useMemo(
     () => buildDefaultDirectorsReportTexts(baseNarrativeContext),
     [
       clientName,
@@ -2329,11 +2511,192 @@ const clientLogoUrl = cleanString(
       firmSettings,
       country,
       directorsForDisplay.length,
-    ]
+    ],
   );
 
-  const activeDirectorsReportTexts =
-    directorsReportTexts || defaultDirectorsReportTexts;
+  const defaultDirectorsReportTexts = useMemo(() => {
+    const defaults = genericDirectorsReportTexts;
+
+    if (isCloseCorporation) {
+      return {
+        ...defaults,
+        incorporation: {
+          title: "Registration",
+          text: `${clientName} is registered as a close corporation in South Africa.`,
+        },
+        natureBusiness: {
+          title: "Nature of the close corporation and its activities",
+          text:
+            "The principal activities of the close corporation are {natureOfBusiness}.",
+        },
+        reviewActivities: {
+          title: "Review of activities",
+          text:
+            "The close corporation continued to conduct its principal activities during the year under review. The operating results and financial position are fully set out in the annual financial statements and, in the opinion of the members, do not require further comment except as disclosed in this report.",
+        },
+        financialResults: {
+          title: "Financial results",
+          text:
+            "The financial results of the close corporation for the year ended {yearEnd} are set out in these annual financial statements. The members have considered the results for the year, the financial position at year end and the related disclosures, and are satisfied that the annual financial statements fairly reflect the affairs of the close corporation based on the accounting records and information available to them.",
+        },
+        dividends: {
+          title: "Distributions",
+          text:
+            "Distributions made or proposed during the year are disclosed in the annual financial statements where applicable.",
+        },
+        shareCapital: {
+          title: "Member's contribution",
+          text:
+            "Details of the member's contribution and movements during the year are disclosed in the annual financial statements and related notes.",
+        },
+        directors: {
+          title: "Members",
+          text:
+            "The members in office during the year and up to the date of this report are set out below.",
+        },
+        externalAccountant: {
+          title: "Accounting officer / compiler",
+          text:
+            "The accounting officer and compiler details are disclosed in the accompanying report and annual financial statements.",
+        },
+        interestContracts: {
+          title: "Members’ interests / related matters",
+          text:
+            "No material matters involving members' interests that significantly affected the affairs of the close corporation arose during the year, unless otherwise disclosed.",
+        },
+        borrowingLimitations: {
+          title: "Borrowing powers",
+          text:
+            "Borrowing powers are exercised by the members in accordance with the applicable founding documents and relevant legislation.",
+        },
+        litigation: {
+          title: "Litigation",
+          text:
+            "The members are not aware of any material legal or arbitration proceedings, pending or threatened, which may have a material effect on the financial position of the close corporation.",
+        },
+        authorisation: {
+          title: "Approval and authorisation",
+          text:
+            "The annual financial statements were approved and authorised for issue by the members on {approvalDate}.",
+        },
+      };
+    }
+
+    if (isTrust) {
+      return {
+        ...defaults,
+        incorporation: {
+          title: "Trust registration",
+          text:
+            `${clientName} is administered in accordance with the trust deed and the Trust Property Control Act 57 of 1988, as amended.`,
+        },
+        natureBusiness: {
+          title: "Nature of the trust and its activities",
+          text:
+            "The principal activities and purpose of the trust are {natureOfBusiness}.",
+        },
+        reviewActivities: {
+          title: "Review of trust activities",
+          text:
+            "The trust continued to conduct its activities during the year under review. The operating results and financial position are fully set out in the annual financial statements and, in the opinion of the trustees, do not require further comment except as disclosed in this report.",
+        },
+        financialResults: {
+          title: "Financial results",
+          text:
+            "The financial results of the trust for the year ended {yearEnd} are set out in these annual financial statements. The trustees have considered the results for the year, the financial position at year end and the related disclosures, and are satisfied that the annual financial statements fairly reflect the affairs of the trust based on the accounting records and information available to them.",
+        },
+        dividends: {
+          title: "Distributions to beneficiaries",
+          text:
+            "Distributions vested in or made to beneficiaries during the year are disclosed where applicable in the accounting records and annual financial statements.",
+        },
+        shareCapital: {
+          title: "Trust capital and accumulated funds",
+          text:
+            "Details of trust capital, accumulated funds and movements during the reporting period are disclosed in the annual financial statements and related notes.",
+        },
+        directors: {
+          title: "Trustees",
+          text:
+            "The trustees in office during the year and up to the date of this report are set out below.",
+        },
+        externalAccountant: {
+          title: "External accountant / compiler",
+          text:
+            "The external accountant and compiler details are disclosed in the accompanying report and annual financial statements.",
+        },
+        interestContracts: {
+          title: "Trustee interests / related matters",
+          text:
+            "The trustees have considered related-party matters and any interests requiring disclosure. Material matters are disclosed in the annual financial statements where applicable.",
+        },
+        borrowingLimitations: {
+          title: "Borrowing powers",
+          text:
+            "Borrowing powers are exercised by the trustees in accordance with the trust deed and applicable legislation.",
+        },
+        litigation: {
+          title: "Litigation",
+          text:
+            "The trustees are not aware of any material legal or arbitration proceedings, pending or threatened, which may have a material effect on the financial position of the trust.",
+        },
+        authorisation: {
+          title: "Approval and authorisation",
+          text:
+            "The annual financial statements were approved and authorised for issue by the trustees on {approvalDate}.",
+        },
+      };
+    }
+
+    return defaults;
+  }, [
+    genericDirectorsReportTexts,
+    clientName,
+    isCloseCorporation,
+    isTrust,
+  ]);
+
+  const activeDirectorsReportTexts = useMemo(() => {
+    if (!directorsReportTexts) return defaultDirectorsReportTexts;
+    if (!isCloseCorporation && !isTrust) return directorsReportTexts;
+
+    const next: DirectorsReportTextOverrides = {
+      ...directorsReportTexts,
+    };
+
+    (
+      Object.keys(defaultDirectorsReportTexts) as DirectorsReportSectionKey[]
+    ).forEach((key) => {
+      const saved = (directorsReportTexts as any)?.[key] || {};
+      const genericDefault = (genericDirectorsReportTexts as any)?.[key] || {};
+      const entityDefault = (defaultDirectorsReportTexts as any)?.[key] || {};
+
+      const savedTitle = String(saved.title ?? "");
+      const savedText = String(saved.text ?? "");
+      const genericTitle = String(genericDefault.title ?? "");
+      const genericText = String(genericDefault.text ?? "");
+
+      (next as any)[key] = {
+        ...saved,
+        title:
+          !savedTitle || savedTitle === genericTitle
+            ? entityDefault.title
+            : saved.title,
+        text:
+          !savedText || savedText === genericText
+            ? entityDefault.text
+            : saved.text,
+      };
+    });
+
+    return next;
+  }, [
+    directorsReportTexts,
+    genericDirectorsReportTexts,
+    defaultDirectorsReportTexts,
+    isCloseCorporation,
+    isTrust,
+  ]);
 
   const defaultAccountingPolicyTexts = useMemo(
     () => buildDefaultAccountingPolicyTexts(),
@@ -2607,7 +2970,8 @@ useEffect(() => {
     directorsReportShareCapital:
       !entityPresentation.isNpc && reportOptions.directorsReportShareCapital,
     directorsReportDirectors: reportOptions.directorsReportDirectors,
-    directorsReportSecretary: reportOptions.directorsReportSecretary,
+    directorsReportSecretary:
+      !isCloseCorporation && !isTrust && reportOptions.directorsReportSecretary,
     directorsReportExternalAccountant:
       reportOptions.directorsReportExternalAccountant,
     directorsReportInterestContracts:
@@ -2615,15 +2979,22 @@ useEffect(() => {
     directorsReportBorrowingLimitations:
       reportOptions.directorsReportBorrowingLimitations,
     directorsReportShareholder:
-      !entityPresentation.isNpc && reportOptions.directorsReportShareholder,
+      !entityPresentation.isNpc &&
+      !isCloseCorporation &&
+      !isTrust &&
+      reportOptions.directorsReportShareholder,
     directorsReportGoingConcern: reportOptions.directorsReportGoingConcern,
     directorsReportLiquiditySolvency:
       reportOptions.directorsReportLiquiditySolvency,
     directorsReportLitigation: reportOptions.directorsReportLitigation,
-    directorsReportSocialEthics: reportOptions.directorsReportSocialEthics,
-    directorsReportSubsidiaries: reportOptions.directorsReportSubsidiaries,
-    directorsReportAssociates: reportOptions.directorsReportAssociates,
-    directorsReportJointVentures: reportOptions.directorsReportJointVentures,
+    directorsReportSocialEthics:
+      !isCloseCorporation && !isTrust && reportOptions.directorsReportSocialEthics,
+    directorsReportSubsidiaries:
+      !isCloseCorporation && !isTrust && reportOptions.directorsReportSubsidiaries,
+    directorsReportAssociates:
+      !isCloseCorporation && !isTrust && reportOptions.directorsReportAssociates,
+    directorsReportJointVentures:
+      !isCloseCorporation && !isTrust && reportOptions.directorsReportJointVentures,
     directorsReportNonCurrentAssets:
       reportOptions.directorsReportNonCurrentAssets,
     directorsReportAuthorisation: reportOptions.directorsReportAuthorisation,
@@ -2725,12 +3096,30 @@ useEffect(() => {
         };
       }
 
+      if (isShareCapitalNoteSection(section) && isTrust) {
+        return {
+          ...section,
+          label: "Trust capital",
+          title: "Trust capital",
+          defaultTitle: "Trust capital",
+        };
+      }
+
       if (section.key === "notesShareholdersLoans" && isCloseCorporation) {
         return {
           ...section,
           label: "Member loans",
           title: "Member loans",
           defaultTitle: "Member loans",
+        };
+      }
+
+      if (section.key === "notesShareholdersLoans" && isTrust) {
+        return {
+          ...section,
+          label: "Trustee loans",
+          title: "Trustee loans",
+          defaultTitle: "Trustee loans",
         };
       }
 
@@ -2749,9 +3138,16 @@ useEffect(() => {
         };
       }
 
+      if (isTrust && section.group === "equity") {
+        return {
+          ...section,
+          groupLabel: "Trust capital and accumulated funds",
+        };
+      }
+
       return section;
     });
-  }, [trialBalanceLines, isCloseCorporation]);
+  }, [trialBalanceLines, isCloseCorporation, isTrust]);
 
   const noteNumberMap = useMemo(() => {
     const keyMap: Record<string, AfsNoteKey> = {
@@ -3320,7 +3716,9 @@ const adjustmentsPrior = adjustmentKeys.reduce(
       loansRaisedRow.prior = Math.round(manualLoanMovementPrior);
       loansRaisedRow.label = isCloseCorporation
         ? "Member loan movement"
-        : "Directors / shareholders loan movement";
+        : isTrust
+          ? "Trustee loan movement"
+          : "Directors / shareholders loan movement";
     }
 
     if (otherFinancingRow) {
@@ -5457,7 +5855,9 @@ const flightDeckIssues = useMemo(() => {
       id: "directors-responsibilities",
       label: isCloseCorporation
         ? `${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Responsibilities and Approval`
-        : "Directors’ Responsibilities",
+        : isTrust
+          ? "Trustees’ Responsibilities and Approval"
+          : "Directors’ Responsibilities",
       shortLabel: "Responsibilities",
       group: "report",
       hidden: !reportOptions.directorsResponsibilities,
@@ -5466,8 +5866,14 @@ const flightDeckIssues = useMemo(() => {
       id: "directors-report",
       label: isCloseCorporation
         ? `${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Report`
-        : "Directors’ Report",
-      shortLabel: isCloseCorporation ? "Member Report" : "Directors Report",
+        : isTrust
+          ? "Trustees’ Report"
+          : "Directors’ Report",
+      shortLabel: isCloseCorporation
+        ? "Member Report"
+        : isTrust
+          ? "Trustees Report"
+          : "Directors Report",
       group: "report",
       hidden: !reportOptions.directorsReport,
     },
@@ -5548,7 +5954,7 @@ const flightDeckIssues = useMemo(() => {
       );
 
       if (
-        entityPresentation.isNpc &&
+        !entityPresentation.showShareCapitalPolicy &&
         String(section.optionKey || "") === "policyShareCapitalEquity"
       ) {
         return;
@@ -5682,13 +6088,17 @@ const flightDeckIssues = useMemo(() => {
                   : String(lines[0]?.label || "").toLowerCase().includes("share capital")
                   ? isCloseCorporation
                     ? "Member's contribution"
-                    : "Issued share capital"
+                    : isTrust
+                      ? "Trust capital"
+                      : "Issued share capital"
                   : String(lines[0]?.label || "").toLowerCase().includes("inventor")
                   ? "Inventories on hand"
                   : String(lines[0]?.label || "").toLowerCase().includes("shareholder")
                   ? isCloseCorporation
                     ? "Member loans"
-                    : "Loans from shareholders"
+                    : isTrust
+                      ? "Trustee loans"
+                      : "Loans from shareholders"
                   : lines[0]?.label,
             },
           ]
@@ -5996,7 +6406,9 @@ const flightDeckIssues = useMemo(() => {
        {
         label: isCloseCorporation
           ? "Member's contribution movements - prior year"
-          : "Shares issued / cancelled - prior year",
+          : isTrust
+            ? "Trust capital movements - prior year"
+            : "Shares issued / cancelled - prior year",
         share: priorShareMovement,
         retained: 0,
         total: priorShareMovement,
@@ -6030,7 +6442,9 @@ const flightDeckIssues = useMemo(() => {
      {
         label: isCloseCorporation
           ? "Member's contribution movements - current year"
-          : "Shares issued / cancelled - current year",
+          : isTrust
+            ? "Trust capital movements - current year"
+            : "Shares issued / cancelled - current year",
         share: currentShareMovement,
         retained: 0,
         total: currentShareMovement,
@@ -6053,7 +6467,7 @@ const flightDeckIssues = useMemo(() => {
 
     return (
       <section style={{ fontSize: 11, color: "#111827" }}>
-        <h1 style={pageHeadingStyle()}>Statement of Changes in Equity</h1>
+        <h1 style={pageHeadingStyle()}>{entityPresentation.equityStatementTitle}</h1>
 
         <table
           style={{
@@ -6081,7 +6495,11 @@ const flightDeckIssues = useMemo(() => {
                   width: 90,
                 }}
               >
-                {isCloseCorporation ? "Member's contribution" : "Share capital"}
+                {isCloseCorporation
+                  ? "Member's contribution"
+                  : isTrust
+                    ? "Trust capital"
+                    : "Share capital"}
               </th>
               <th
                 style={{
@@ -6091,7 +6509,7 @@ const flightDeckIssues = useMemo(() => {
                   width: 110,
                 }}
               >
-                Accumulated loss
+                {isTrust ? "Accumulated funds" : "Accumulated loss"}
               </th>
               <th
                 style={{
@@ -6101,7 +6519,7 @@ const flightDeckIssues = useMemo(() => {
                   width: 90,
                 }}
               >
-                Total equity
+                {isTrust ? "Total trust funds" : "Total equity"}
               </th>
             </tr>
           </thead>
@@ -6378,34 +6796,12 @@ const flightDeckIssues = useMemo(() => {
     }
 
     if (activeSectionId === "directors-report") {
-      if (isCloseCorporation) {
-        return {
-          title: `${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Report`,
-          description:
-            "Close corporation report wording is generated from the CC reporting template and Client Setup member information.",
-          emptyMessage: "No additional CC report settings are required.",
-          options: [],
-          content: (
-            <div
-              style={{
-                border: "1px solid #cbd5e1",
-                background: "#f8fafc",
-                padding: 10,
-                fontSize: 11,
-                lineHeight: 1.45,
-                color: "#334155",
-              }}
-            >
-              The CC report includes going concern, events after the reporting
-              period, member&apos;s contribution and member details. Company-only
-              directors&apos; report sections are not used.
-            </div>
-          ),
-        };
-      }
-
       return {
-        title: "Directors’ Report settings",
+        title: isCloseCorporation
+          ? `${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Report settings`
+          : isTrust
+            ? "Trustees’ Report settings"
+            : "Directors’ Report settings",
         description:
           "Turn sections on/off, edit wording, or reset to PracticePilot defaults.",
         emptyMessage: "No directors’ report settings available.",
@@ -6421,6 +6817,16 @@ const flightDeckIssues = useMemo(() => {
                     directorsReportShareholder: false,
                   }
                 : {}),
+              ...((isCloseCorporation || isTrust)
+                ? {
+                    directorsReportSecretary: false,
+                    directorsReportShareholder: false,
+                    directorsReportSocialEthics: false,
+                    directorsReportSubsidiaries: false,
+                    directorsReportAssociates: false,
+                    directorsReportJointVentures: false,
+                  }
+                : {}),
             }}
             toggleReportOption={toggleReportOption}
             texts={activeDirectorsReportTexts}
@@ -6429,6 +6835,7 @@ const flightDeckIssues = useMemo(() => {
             onChangeText={updateDirectorsReportText}
             onReset={resetDirectorsReportSection}
             onResetAll={resetAllDirectorsReportSections}
+            entityType={presentationEntityType}
           />
         ),
       };
@@ -6436,7 +6843,9 @@ const flightDeckIssues = useMemo(() => {
 
     if (activeSectionId === "sce") {
       return {
-        title: "SCE settings",
+        title: isTrust
+          ? "Statement of Changes in Trust Capital and Accumulated Funds settings"
+          : "SCE settings",
         description:
           "Set manual opening balances where prior-year values are incomplete.",
         emptyMessage: "No statement override settings available.",
@@ -6447,6 +6856,7 @@ const flightDeckIssues = useMemo(() => {
             overrides={statementOverrides}
             onChange={updateStatementOverride}
             engineChecks={engineChecks}
+            entityType={presentationEntityType}
           />
         ),
       };
@@ -6807,7 +7217,7 @@ function elementOuterHeight(element: HTMLElement | null) {
     addSection(
       "directors-report",
       reportOptions.directorsReport,
-      isCloseCorporation ? 1 : balancedDirectorsReportPageGroups.length,
+      balancedDirectorsReportPageGroups.length,
     );
     addSection("compiler-report", reportOptions.compilerReport);
     addSection("sfp", reportOptions.sfp);
@@ -6829,7 +7239,6 @@ function elementOuterHeight(element: HTMLElement | null) {
     return pageMap;
   }, [
     reportOptions,
-    isCloseCorporation,
     balancedDirectorsReportPageGroups.length,
     accountingPolicyPageGroups.length,
     notesPageGroups.length,
@@ -7595,7 +8004,8 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
 
                   {registrationNumber ? (
                     <div style={{ fontSize: 11, color: "#374151" }}>
-                      Registration number: {registrationNumber}
+                      {isTrust ? "Master's reference number" : "Registration number"}:{" "}
+                      {registrationNumber}
                     </div>
                   ) : null}
                 </section>
@@ -7658,7 +8068,10 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                         "Trading name",
                         getSetupValue(clientSetup, ["trading_name"])
                       )}
-                      {renderInfoRow("Registration number", registrationNumber)}
+                      {renderInfoRow(
+                        isTrust ? "Master's reference number" : "Registration number",
+                        registrationNumber,
+                      )}
                       {renderInfoRow("Entity type", entityType)}
                       {renderInfoRow("Financial year end", displayYearEnd)}
                       {renderInfoRow(
@@ -7806,6 +8219,13 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       approvalDate={String(approvalDate)}
                       members={directorsForDisplay}
                     />
+                  ) : isTrust ? (
+                    <TrustTrusteesResponsibilitiesBlock
+                      clientName={clientName}
+                      yearEnd={displayYearEnd}
+                      approvalDate={String(approvalDate)}
+                      trustees={directorsForDisplay}
+                    />
                   ) : (
                     <DirectorsResponsibilitiesBlock context={narrativeContext} />
                   )}
@@ -7816,60 +8236,38 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
 
           {reportOptions.directorsReport ? (
             <div id="print-directors-report">
-              {isCloseCorporation ? (
-                <AfsA4Page {...reportHeaderProps}>
-                  <section
-                    style={{
-                      fontSize: 11,
-                      lineHeight: 1.45,
-                      color: "#111827",
-                    }}
+              {balancedDirectorsReportPageGroups.map((sectionKeys, pageIndex) => {
+                const previousSectionCount = balancedDirectorsReportPageGroups
+                  .slice(0, pageIndex)
+                  .reduce((total, page) => total + page.length, 0);
+
+                return (
+                  <AfsA4Page
+                    key={`directors-report-page-${pageIndex}`}
+                    {...reportHeaderProps}
                   >
-                    <h1 style={pageHeadingStyle()}>
-                      {`${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Report`}
-                    </h1>
-
-                    <CcMembersReportBlock
-                      clientName={clientName}
-                      yearEnd={displayYearEnd}
-                      members={directorsForDisplay}
-                    />
-                  </section>
-                </AfsA4Page>
-              ) : (
-                balancedDirectorsReportPageGroups.map((sectionKeys, pageIndex) => {
-                  const previousSectionCount = balancedDirectorsReportPageGroups
-                    .slice(0, pageIndex)
-                    .reduce((total, page) => total + page.length, 0);
-
-                  return (
-                    <AfsA4Page
-                      key={`directors-report-page-${pageIndex}`}
-                      {...reportHeaderProps}
+                    <section
+                      style={{
+                        fontSize: 11,
+                        lineHeight: 1.45,
+                        color: "#111827",
+                      }}
                     >
-                      <section
-                        style={{
-                          fontSize: 11,
-                          lineHeight: 1.45,
-                          color: "#111827",
-                        }}
-                      >
-                        <h1 style={pageHeadingStyle()}>
-                          {pageIndex === 0
-                            ? reportTitle(entityType)
-                            : `${reportTitle(entityType)} — continued`}
-                        </h1>
+                      <h1 style={pageHeadingStyle()}>
+                        {pageIndex === 0
+                          ? reportTitle(entityType)
+                          : `${reportTitle(entityType)} — continued`}
+                      </h1>
 
-                        <DirectorsReportBlock
-                          context={narrativeContext}
-                          sectionKeys={sectionKeys}
-                          startNumber={previousSectionCount}
-                        />
-                      </section>
-                    </AfsA4Page>
-                  );
-                })
-              )}
+                      <DirectorsReportBlock
+                        context={narrativeContext}
+                        sectionKeys={sectionKeys}
+                        startNumber={previousSectionCount}
+                      />
+                    </section>
+                  </AfsA4Page>
+                );
+              })}
             </div>
           ) : null}
 
@@ -7985,6 +8383,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     overrides={effectiveStatementOverrides}
                     onChange={updateStatementOverride}
                     engineChecks={engineChecks}
+                    entityType={presentationEntityType}
                   />
                 </section>
               </div>
@@ -8226,14 +8625,20 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                         assessedLossBroughtForward - assessedLossUsed
                       ) + currentYearAssessedLoss;
 
-                    const taxRegime =
-                      String(savedTax?.tax_regime || "normal").toLowerCase() === "sbc"
+                    const savedTaxRegime = String(
+                      savedTax?.tax_regime || "",
+                    ).toLowerCase();
+
+                    const taxRegime = isTrust
+                      ? "trust_ordinary"
+                      : savedTaxRegime === "sbc"
                         ? "sbc"
                         : "normal";
 
                     const savedRate = Number(savedTax?.tax_rate || 0);
-                    const normalTaxRate =
-                      savedRate > 0
+                    const normalTaxRate = isTrust
+                      ? 0.45
+                      : savedRate > 0
                         ? savedRate
                         : Number(
                             getSetupValue(clientSetup, [
@@ -8417,7 +8822,9 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     const taxBasisLabel =
                       taxRegime === "sbc"
                         ? "Small Business Corporation tax"
-                        : `Normal tax at ${(normalTaxRate * 100).toFixed(0)}%`;
+                        : taxRegime === "trust_ordinary"
+                          ? `Trust tax at ${(normalTaxRate * 100).toFixed(0)}%`
+                          : `Normal tax at ${(normalTaxRate * 100).toFixed(0)}%`;
 
                     const taxRows: Array<[string, number, "normal" | "bold"]> = [
                       [taxBasisLabel, currentTax, "bold"],

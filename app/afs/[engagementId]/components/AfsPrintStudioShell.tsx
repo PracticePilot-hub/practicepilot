@@ -61,6 +61,49 @@ function getFilenameFromContentDisposition(header: string | null) {
   return normalMatch?.[1]?.trim() || "";
 }
 
+function encodeUtf8Base64(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+
+  return window.btoa(binary);
+}
+
+function getSupabaseAuthStorageHeader() {
+  const authStorage: Record<string, string> = {};
+
+  try {
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (!key) continue;
+
+      const lowerKey = key.toLowerCase();
+      const isSupabaseAuthKey =
+        lowerKey.startsWith("sb-") ||
+        lowerKey.includes("supabase") ||
+        lowerKey.includes("auth-token");
+
+      if (!isSupabaseAuthKey) continue;
+
+      const value = window.localStorage.getItem(key);
+      if (value !== null) {
+        authStorage[key] = value;
+      }
+    }
+
+    if (Object.keys(authStorage).length === 0) {
+      return "";
+    }
+
+    return encodeUtf8Base64(JSON.stringify(authStorage));
+  } catch {
+    return "";
+  }
+}
+
 export default function AfsPrintStudioShell({
   engagementName,
   yearEndLabel,
@@ -145,6 +188,8 @@ export default function AfsPrintStudioShell({
 
     try {
       const draftQuery = exportAsDraft ? "?draft=1" : "";
+      const authStorageHeader = getSupabaseAuthStorageHeader();
+
       const response = await fetch(
         `/api/afs/engagements/${encodeURIComponent(
           engagementId,
@@ -152,6 +197,12 @@ export default function AfsPrintStudioShell({
         {
           method: "GET",
           cache: "no-store",
+          credentials: "include",
+          headers: authStorageHeader
+            ? {
+                "x-afs-auth-storage": authStorageHeader,
+              }
+            : undefined,
         },
       );
 

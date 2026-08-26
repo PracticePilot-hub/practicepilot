@@ -6,6 +6,7 @@ type Props = {
   mode: "sce" | "cashFlow";
   overrides: AfsStatementOverrides;
   onChange: (key: keyof AfsStatementOverrides, value: number | null) => void;
+  entityType?: string | null;
   engineChecks?: {
     profitForYear?: number;
     profitBeforeTax?: number;
@@ -146,12 +147,33 @@ function CashField({
   );
 }
 
+function normaliseEntityType(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isTrustEntity(value: unknown) {
+  return normaliseEntityType(value).includes("trust");
+}
+
+function isCloseCorporationEntity(value: unknown) {
+  const entity = normaliseEntityType(value);
+
+  return (
+    entity === "cc" ||
+    entity.includes("close corporation") ||
+    entity.includes("close-corporation")
+  );
+}
+
 export default function AfsStatementOverrideSettings({
   mode,
   overrides,
   onChange,
   engineChecks,
+  entityType = null,
 }: Props) {
+  const isTrust = isTrustEntity(entityType);
+  const isCloseCorporation = isCloseCorporationEntity(entityType);
   const cashMovementDiff = Math.round(
     Number(engineChecks?.cashFlowMovementDifference || 0)
   );
@@ -260,11 +282,19 @@ export default function AfsStatementOverrideSettings({
       {mode === "sce" ? (
         <div style={sectionStyle()}>
           <div style={{ fontSize: 11, fontWeight: 900 }}>
-            Statement of Changes in Equity
+            {isTrust
+              ? "Statement of Changes in Trust Capital and Accumulated Funds"
+              : "Statement of Changes in Equity"}
           </div>
 
           <label style={{ display: "grid", gap: 4 }}>
-            <span style={labelStyle()}>Opening share capital</span>
+            <span style={labelStyle()}>
+              {isTrust
+                ? "Opening trust capital"
+                : isCloseCorporation
+                  ? "Opening member's contribution"
+                  : "Opening share capital"}
+            </span>
             <input
               type="number"
               value={numberValue(overrides.sceOpeningShareCapital)}
@@ -280,7 +310,11 @@ export default function AfsStatementOverrideSettings({
 
           <label style={{ display: "grid", gap: 4 }}>
             <span style={labelStyle()}>
-              Opening retained income / accumulated loss
+              {isTrust
+                ? "Opening accumulated funds"
+                : isCloseCorporation
+                  ? "Opening accumulated profit / (loss)"
+                  : "Opening retained income / accumulated loss"}
             </span>
             <input
               type="number"
@@ -339,11 +373,16 @@ export default function AfsStatementOverrideSettings({
 
           {Number(engineChecks?.sceEquityDifferenceToSfp || 0) !== 0 ? (
             <div style={{ fontSize: 9, color: "#b45309", fontWeight: 800 }}>
-              SCE equity differs from SFP equity by {amount(engineChecks?.sceEquityDifferenceToSfp)}.
+              {isTrust
+                ? "SCE trust funds differ from SFP trust funds by "
+                : "SCE equity differs from SFP equity by "}
+              {amount(engineChecks?.sceEquityDifferenceToSfp)}.
             </div>
           ) : (
             <div style={{ fontSize: 9, color: "#047857", fontWeight: 800 }}>
-              SCE equity agrees to SFP equity.
+              {isTrust
+                ? "SCE trust funds agree to SFP trust funds."
+                : "SCE equity agrees to SFP equity."}
             </div>
           )}
         </div>
@@ -522,20 +561,6 @@ export default function AfsStatementOverrideSettings({
               overrides={overrides}
               onChange={onChange}
             />
-            <CashField
-              label="Other operating cash flows 2"
-              currentKey="cashOtherOperating2Current"
-              priorKey="cashOtherOperating2Prior"
-              overrides={overrides}
-              onChange={onChange}
-            />
-            <CashField
-              label="Other operating cash flows 3"
-              currentKey="cashOtherOperating3Current"
-              priorKey="cashOtherOperating3Prior"
-              overrides={overrides}
-              onChange={onChange}
-            />
 
             <div style={sectionTitleStyle()}>Investing activities</div>
             <CashField
@@ -559,31 +584,29 @@ export default function AfsStatementOverrideSettings({
               overrides={overrides}
               onChange={onChange}
             />
-            <CashField
-              label="Other investing cash flows 2"
-              currentKey="cashOtherInvesting2Current"
-              priorKey="cashOtherInvesting2Prior"
-              overrides={overrides}
-              onChange={onChange}
-            />
-            <CashField
-              label="Other investing cash flows 3"
-              currentKey="cashOtherInvesting3Current"
-              priorKey="cashOtherInvesting3Prior"
-              overrides={overrides}
-              onChange={onChange}
-            />
 
             <div style={sectionTitleStyle()}>Financing activities</div>
             <CashField
-              label="Directors / shareholders loan movement"
+              label={
+                isTrust
+                  ? "Trustee loan movement"
+                  : isCloseCorporation
+                    ? "Member loan movement"
+                    : "Directors / shareholders loan movement"
+              }
               currentKey="cashLoansRaisedCurrent"
               priorKey="cashLoansRaisedPrior"
               overrides={overrides}
               onChange={onChange}
             />
             <CashField
-              label="Dividends paid"
+              label={
+                isTrust
+                  ? "Distributions paid to beneficiaries"
+                  : isCloseCorporation
+                    ? "Distributions paid"
+                    : "Dividends paid"
+              }
               currentKey="cashDividendsPaidCurrent"
               priorKey="cashDividendsPaidPrior"
               overrides={overrides}
@@ -593,20 +616,6 @@ export default function AfsStatementOverrideSettings({
               label="Other financing cash flows"
               currentKey="cashOtherFinancingCurrent"
               priorKey="cashOtherFinancingPrior"
-              overrides={overrides}
-              onChange={onChange}
-            />
-            <CashField
-              label="Other financing cash flows 2"
-              currentKey="cashOtherFinancing2Current"
-              priorKey="cashOtherFinancing2Prior"
-              overrides={overrides}
-              onChange={onChange}
-            />
-            <CashField
-              label="Other financing cash flows 3"
-              currentKey="cashOtherFinancing3Current"
-              priorKey="cashOtherFinancing3Prior"
               overrides={overrides}
               onChange={onChange}
             />

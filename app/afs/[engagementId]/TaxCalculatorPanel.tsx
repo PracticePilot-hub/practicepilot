@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useParams } from "next/navigation";
 
-type TaxRegime = "normal" | "sbc";
+type TaxRegime = "normal" | "sbc" | "trust_ordinary";
 
 function num(value: string | number | null | undefined) {
   const n = Number(String(value ?? "0").replace(/,/g, ""));
@@ -31,6 +31,15 @@ function normalCompanyRate(yearEnd: string) {
 
   return 0.28;
 }
+
+function isTrustEntity(value: unknown) {
+  return String(value || "").trim().toLowerCase().includes("trust");
+}
+
+function ordinaryTrustRate() {
+  return 0.45;
+}
+
 
 function sbcBandLabel(yearEnd: string) {
   if (yearEnd >= "2026-04-01" && yearEnd <= "2027-03-31") {
@@ -70,6 +79,7 @@ type TaxTrialBalanceLine = {
 type TaxCalculatorPanelProps = {
   trialBalanceLines?: TaxTrialBalanceLine[];
   clientSetup?: Record<string, any> | null;
+  entityType?: string | null;
 };
 
 function rawCurrent(line: TaxTrialBalanceLine) {
@@ -195,9 +205,14 @@ function setupNumber(
 export default function TaxCalculatorPanel({
   trialBalanceLines = [],
   clientSetup = null,
+  entityType = null,
 }: TaxCalculatorPanelProps) {
   const params = useParams();
   const engagementId = String(params?.engagementId || "");
+  const effectiveEntityType = String(
+    entityType || clientSetup?.entity_type || "",
+  );
+  const trustEntity = isTrustEntity(effectiveEntityType);
 
   const [taxYear, setTaxYear] = useState("2026");
   const [financialYearEnd, setFinancialYearEnd] = useState("");
@@ -253,7 +268,9 @@ export default function TaxCalculatorPanel({
 
     const assessedLossRestriction =
       taxableBeforeLoss > 0
-        ? Math.max(1_000_000, taxableBeforeLoss * 0.8)
+        ? trustEntity
+          ? taxableBeforeLoss
+          : Math.max(1_000_000, taxableBeforeLoss * 0.8)
         : 0;
 
     const maximumAssessedLossDeduction =
@@ -274,7 +291,9 @@ export default function TaxCalculatorPanel({
     const currentTax =
       taxRegime === "sbc"
         ? calculateSbcTax(taxableIncome, financialYearEnd)
-        : taxableIncome * normalCompanyRate(financialYearEnd);
+        : taxRegime === "trust_ordinary"
+          ? taxableIncome * ordinaryTrustRate()
+          : taxableIncome * normalCompanyRate(financialYearEnd);
 
     const effectiveRate =
       taxableIncome > 0 ? currentTax / taxableIncome : 0;
@@ -287,7 +306,9 @@ export default function TaxCalculatorPanel({
       Math.max(0, assessedLossBf - assessedLossUsed) +
       currentYearAssessedLoss;
 
-    const deferredTaxMeasurementRate = normalCompanyRate(financialYearEnd);
+    const deferredTaxMeasurementRate = trustEntity
+      ? ordinaryTrustRate()
+      : normalCompanyRate(financialYearEnd);
     const potentialDeferredTaxAsset =
       assessedLossCf * deferredTaxMeasurementRate;
 
@@ -327,6 +348,7 @@ export default function TaxCalculatorPanel({
     financialYearEnd,
     recogniseDta,
     recognisedDta,
+    trustEntity,
   ]);
 
   useEffect(() => {
@@ -338,6 +360,14 @@ export default function TaxCalculatorPanel({
     if (!engagementId) return;
     void loadTax();
   }, [engagementId, taxYear]);
+
+  useEffect(() => {
+    if (trustEntity) {
+      setTaxRegime("trust_ordinary");
+    } else {
+      setTaxRegime((current) => (current === "sbc" ? "sbc" : "normal"));
+    }
+  }, [trustEntity]);
 
   async function loadEngagement() {
     try {
@@ -372,7 +402,13 @@ export default function TaxCalculatorPanel({
 
     setPermanent(String(row.permanent_differences || 0));
     setTemporary(String(row.temporary_differences || 0));
-    setTaxRegime(row.tax_regime === "sbc" ? "sbc" : "normal");
+    const savedRegime = String(row.tax_regime || "");
+
+    if (trustEntity) {
+      setTaxRegime("trust_ordinary");
+    } else {
+      setTaxRegime(savedRegime === "sbc" ? "sbc" : "normal");
+    }
     setNotes(row.notes || "");
     setRecogniseDta(Boolean(row.recognise_deferred_tax_asset));
     setRecognisedDta(String(row.deferred_tax_asset_recognised || 0));
@@ -410,7 +446,9 @@ export default function TaxCalculatorPanel({
             taxRate:
               taxRegime === "normal"
                 ? normalCompanyRate(financialYearEnd)
-                : calc.effectiveRate,
+                : taxRegime === "trust_ordinary"
+                  ? ordinaryTrustRate()
+                  : calc.effectiveRate,
             taxableIncome: calc.taxableIncome,
             currentTax: calc.currentTax,
             provisionalTaxPaid: calc.provisionalPaid,
@@ -445,8 +483,8 @@ export default function TaxCalculatorPanel({
           <p style={styles.kicker}>Tax workpaper</p>
           <h2 style={styles.title}>Current tax computation</h2>
           <p style={styles.subtitle}>
-            Reconcile accounting profit to taxable income and calculate normal
-            company or Small Business Corporation tax.
+            Reconcile accounting profit to taxable income and calculate the
+            applicable entity tax basis.
           </p>
         </div>
 
@@ -480,34 +518,52 @@ export default function TaxCalculatorPanel({
 
           <label style={styles.label}>Tax regime</label>
           <div style={styles.regimeButtons}>
-            <button
-              type="button"
-              style={{
-                ...styles.regimeButton,
-                ...(taxRegime === "normal" ? styles.regimeButtonActive : {}),
-              }}
-              onClick={() => setTaxRegime("normal")}
-            >
-              Normal company · 27%
-            </button>
+            {trustEntity ? (
+              <button
+                type="button"
+                style={{
+                  ...styles.regimeButton,
+                  ...styles.regimeButtonActive,
+                  gridColumn: "1 / -1",
+                }}
+                onClick={() => setTaxRegime("trust_ordinary")}
+              >
+                Trust · 45%
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.regimeButton,
+                    ...(taxRegime === "normal" ? styles.regimeButtonActive : {}),
+                  }}
+                  onClick={() => setTaxRegime("normal")}
+                >
+                  Normal company · {(normalCompanyRate(financialYearEnd) * 100).toFixed(0)}%
+                </button>
 
-            <button
-              type="button"
-              style={{
-                ...styles.regimeButton,
-                ...(taxRegime === "sbc" ? styles.regimeButtonActive : {}),
-              }}
-              onClick={() => setTaxRegime("sbc")}
-            >
-              Small Business Corporation (SBC)
-            </button>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.regimeButton,
+                    ...(taxRegime === "sbc" ? styles.regimeButtonActive : {}),
+                  }}
+                  onClick={() => setTaxRegime("sbc")}
+                >
+                  Small Business Corporation (SBC)
+                </button>
+              </>
+            )}
           </div>
 
           <label style={styles.label}>Rate basis</label>
           <div style={styles.readOnlyValue}>
-            {taxRegime === "normal"
-              ? `${(normalCompanyRate(financialYearEnd) * 100).toFixed(0)}% normal company rate`
-              : sbcBandLabel(financialYearEnd)}
+            {taxRegime === "trust_ordinary"
+              ? "45% Trust rate"
+              : taxRegime === "normal"
+                ? `${(normalCompanyRate(financialYearEnd) * 100).toFixed(0)}% normal company rate`
+                : sbcBandLabel(financialYearEnd)}
           </div>
         </div>
       </section>
@@ -519,6 +575,18 @@ export default function TaxCalculatorPanel({
             PracticePilot will apply the SARS progressive SBC tax table for the
             engagement year end. SBC qualification must be confirmed by the
             practitioner before using this basis.
+          </span>
+        </section>
+      ) : null}
+
+
+      {trustEntity ? (
+        <section style={styles.notice}>
+          <strong>Trust taxation</strong>
+          <span>
+            This workpaper currently calculates the amount taxable in the Trust.
+            Amounts vested in or distributed to beneficiaries must still be dealt
+            with in the Trust tax reconciliation before final tax sign-off.
           </span>
         </section>
       ) : null}
@@ -583,10 +651,12 @@ export default function TaxCalculatorPanel({
 
           {calc.taxableBeforeLoss > 0 && calc.assessedLossBf > 0 ? (
             <>
-              <div style={styles.reconLine}>
-                <span>SARS assessed-loss limit — higher of R1m or 80%</span>
-                <strong>{money(calc.assessedLossRestriction)}</strong>
-              </div>
+              {!trustEntity ? (
+                <div style={styles.reconLine}>
+                  <span>SARS assessed-loss limit — higher of R1m or 80%</span>
+                  <strong>{money(calc.assessedLossRestriction)}</strong>
+                </div>
+              ) : null}
               <div style={styles.reconLine}>
                 <span>Maximum assessed loss deduction for this year</span>
                 <strong>{money(calc.maximumAssessedLossDeduction)}</strong>
@@ -636,7 +706,9 @@ export default function TaxCalculatorPanel({
             <strong style={styles.resultValueSmall}>
               {taxRegime === "sbc"
                 ? "SBC progressive rates"
-                : `${(normalCompanyRate(financialYearEnd) * 100).toFixed(0)}%`}
+                : taxRegime === "trust_ordinary"
+                  ? "45%"
+                  : `${(normalCompanyRate(financialYearEnd) * 100).toFixed(0)}%`}
             </strong>
           </div>
 
@@ -736,7 +808,11 @@ export default function TaxCalculatorPanel({
           style={styles.textarea}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Document tax adjustments, assessed loss considerations and SBC qualification here."
+          placeholder={
+            trustEntity
+              ? "Document tax adjustments, beneficiary vesting/distributions and assessed loss considerations here."
+              : "Document tax adjustments, assessed loss considerations and SBC qualification here."
+          }
         />
       </section>
     </div>

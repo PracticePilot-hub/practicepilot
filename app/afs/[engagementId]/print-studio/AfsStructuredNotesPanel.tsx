@@ -53,6 +53,10 @@ function isCloseCorporation(value: unknown) {
   return lower === "cc" || lower.includes("close corporation");
 }
 
+function isTrust(value: unknown) {
+  return String(value || "").trim().toLowerCase().includes("trust");
+}
+
 function isShareCapitalSection(section: any) {
   const key = String(section?.key || "").toLowerCase();
   const optionKey = String(section?.optionKey || "").toLowerCase();
@@ -130,6 +134,7 @@ const NOTE_KEY_MAP: Record<string, string> = {
   notesRetainedIncome: "retainedIncome",
   notesShareholdersLoans: "shareholdersLoans",
   notesOtherFinancialLiabilities: "otherFinancialLiabilities",
+  notesDeferredTaxLiability: "deferredTax",
   notesAssetFinance: "assetFinance",
   notesBankOverdraft: "bankOverdraft",
   notesTradePayables: "tradePayables",
@@ -1104,26 +1109,34 @@ function GoingConcernNote({
   edit,
   state,
   update,
+  entityType,
 }: {
   edit: boolean;
   state: StructuredState;
   update: (path: string[], value: any) => void;
+  entityType?: string | null;
 }) {
   const values = state.goingConcernAssessment || {};
+  const trust = isTrust(entityType);
   const fields = [
     ["conditions", "Conditions or events requiring consideration"],
-    ["support", "Shareholder, lender or group support"],
+    [
+      "support",
+      trust
+        ? "Trustee, beneficiary, lender or related-party support"
+        : "Shareholder, lender or group support",
+    ],
     ["repayment", "Repayment demands, moratoriums or subordinations"],
     ["forecast", "Forecast period and expected operating performance"],
     ["funding", "Expected funding requirements and available facilities"],
-    ["conclusion", "Directors’ conclusion"],
+    ["conclusion", trust ? "Trustees’ conclusion" : "Directors’ conclusion"],
   ];
 
   if (edit) {
     return (
       <div style={styles.editGridSingle}>
         <p style={styles.paragraph}>
-          Complete this assessment only when company-specific going-concern disclosure is required. Blank fields do not print.
+          Complete this assessment only when entity-specific going-concern disclosure is required. Blank fields do not print.
         </p>
         {fields.map(([key, label]) => (
           <EditableTextBlock
@@ -3207,6 +3220,7 @@ function ShareholderLoansNote({
   state,
   update,
   isCloseCorporationEntity,
+  isTrustEntity,
 }: {
   rows: AmountLine[];
   trialBalanceLines: any[];
@@ -3214,6 +3228,7 @@ function ShareholderLoansNote({
   state: StructuredState;
   update: (path: string[], value: any) => void;
   isCloseCorporationEntity?: boolean;
+  isTrustEntity?: boolean;
 }) {
   const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
   const visibleRows = splitRows(
@@ -3265,7 +3280,9 @@ function ShareholderLoansNote({
               ? String(savedRelationship)
               : isCloseCorporationEntity
                 ? "Member"
-                : "Shareholder / director / member";
+                : isTrustEntity
+                  ? "Trustee"
+                  : "Shareholder / director / member";
 
           return (
             <FragmentWithKey key={key}>
@@ -3428,6 +3445,7 @@ function ShareCapitalNote({
   const isCc =
     Boolean(isCloseCorporationEntity) ||
     isCloseCorporation(entityType || clientSetup?.entity_type);
+  const isTrustEntity = isTrust(entityType || clientSetup?.entity_type);
 
   const mappedCurrent = rows.reduce(
     (sum, row) => sum + toNumber(row.current),
@@ -3476,6 +3494,54 @@ function ShareCapitalNote({
         <EditableTextBlock
           label="Member's contribution disclosure"
           value={contributionText}
+          edit={edit}
+          onChange={(value) => update(["shareCapital", "rightsText"], value)}
+        />
+      </>
+    );
+  }
+
+  if (isTrustEntity) {
+    const trustCapitalText =
+      state.shareCapital?.rightsText ||
+      clean(clientSetup?.share_capital_note) ||
+      "Trust capital is disclosed at the amount reflected in the accounting records.";
+
+    return (
+      <>
+        <table style={styles.table}>
+          <colgroup>
+            <col style={{ width: "auto" }} />
+            <col style={{ width: 76 }} />
+            {!hideComparatives ? <col style={{ width: 76 }} /> : null}
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={styles.thLeft}>Description</th>
+              <th style={styles.thRight}>{currentHeading}</th>
+              {!hideComparatives ? (
+                <th style={styles.thRight}>{priorHeading}</th>
+              ) : null}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={styles.tdLeft}>Trust capital</td>
+              <td data-total-amount="true" style={styles.totalAmount}>
+                {amount(mappedCurrent)}
+              </td>
+              {!hideComparatives ? (
+                <td data-total-amount="true" style={styles.totalAmount}>
+                  {amount(mappedPrior)}
+                </td>
+              ) : null}
+            </tr>
+          </tbody>
+        </table>
+
+        <EditableTextBlock
+          label="Trust capital disclosure"
+          value={trustCapitalText}
           edit={edit}
           onChange={(value) => update(["shareCapital", "rightsText"], value)}
         />
@@ -3885,6 +3951,7 @@ function CurrentTaxBalanceNote({
   update,
   stateKey,
   clientSetup,
+  trialBalanceLines = [],
 }: {
   rows: AmountLine[];
   edit: boolean;
@@ -3892,6 +3959,7 @@ function CurrentTaxBalanceNote({
   update: (path: string[], value: any) => void;
   stateKey: string;
   clientSetup: Record<string, any> | null;
+  trialBalanceLines?: any[];
 }) {
   const { currentHeading, priorHeading, hideComparatives } =
     useNotesDisplay();
@@ -3908,7 +3976,48 @@ function CurrentTaxBalanceNote({
   if (deferredRows.length > 0) {
     const deferredCurrent = rowsTotal(deferredRows, "current");
     const deferredPrior = rowsTotal(deferredRows, "prior");
+
+    /*
+      Current-year reconciliation is automatic from mapped closing balances.
+
+      Comparative opening and movement are working-file inputs, consistent with
+      the cash-flow workbench approach. The comparative closing balance remains
+      mapped and therefore stays the AFS source of truth.
+    */
+    const savedPriorOpening = state.deferredTaxReconciliation?.priorOpening;
+    const savedPriorMovement = state.deferredTaxReconciliation?.priorMovement;
+
+    const deferredPriorOpening =
+      savedPriorOpening !== undefined &&
+      savedPriorOpening !== null &&
+      savedPriorOpening !== ""
+        ? toNumber(savedPriorOpening)
+        : 0;
+
+    const movementPrior =
+      savedPriorMovement !== undefined &&
+      savedPriorMovement !== null &&
+      savedPriorMovement !== ""
+        ? toNumber(savedPriorMovement)
+        : deferredPrior - deferredPriorOpening;
+
     const movementCurrent = deferredCurrent - deferredPrior;
+    const calculatedPriorClosing = deferredPriorOpening + movementPrior;
+    const priorClosingDifference =
+      Math.round(calculatedPriorClosing) - Math.round(deferredPrior);
+
+    const deferredLabels = deferredRows
+      .map((row) => String(row.label || "").toLowerCase())
+      .join(" | ");
+    const hasDeferredAsset = deferredLabels.includes("asset");
+    const hasDeferredLiability = deferredLabels.includes("liability");
+    const deferredBalanceLabel =
+      hasDeferredAsset && !hasDeferredLiability
+        ? "Deferred tax asset"
+        : hasDeferredLiability && !hasDeferredAsset
+          ? "Deferred tax liability"
+          : "Deferred tax";
+
     const explanation =
       state[stateKey]?.extraText ||
       "Deferred tax arises from temporary differences between the carrying amounts of assets and liabilities and their corresponding tax bases.";
@@ -4009,17 +4118,67 @@ function CurrentTaxBalanceNote({
             <tr>
               <td style={styles.tdLeft}>Opening balance</td>
               <td style={styles.tdRight}>{amount(deferredPrior)}</td>
-              {!hideComparatives ? <td style={styles.tdRight}>–</td> : null}
+              {!hideComparatives ? (
+                <td style={styles.tdRight}>
+                  {edit ? (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={state.deferredTaxReconciliation?.priorOpening ?? ""}
+                      placeholder="0"
+                      onChange={(event) =>
+                        update(
+                          ["deferredTaxReconciliation", "priorOpening"],
+                          event.target.value,
+                        )
+                      }
+                      style={{
+                        ...numberInputStyle(),
+                        width: "72px",
+                        minWidth: "72px",
+                      }}
+                    />
+                  ) : (
+                    amount(deferredPriorOpening)
+                  )}
+                </td>
+              ) : null}
             </tr>
             <tr>
               <td style={styles.tdLeft}>
                 Recognised in profit or loss and other movements
               </td>
               <td style={styles.tdRight}>{amount(movementCurrent)}</td>
-              {!hideComparatives ? <td style={styles.tdRight}>–</td> : null}
+              {!hideComparatives ? (
+                <td style={styles.tdRight}>
+                  {edit ? (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={state.deferredTaxReconciliation?.priorMovement ?? ""}
+                      placeholder={String(
+                        Math.round(deferredPrior - deferredPriorOpening),
+                      )}
+                      onChange={(event) =>
+                        update(
+                          ["deferredTaxReconciliation", "priorMovement"],
+                          event.target.value,
+                        )
+                      }
+                      style={{
+                        ...numberInputStyle(),
+                        width: "72px",
+                        minWidth: "72px",
+                      }}
+                    />
+                  ) : (
+                    amount(movementPrior)
+                  )}
+                </td>
+              ) : null}
             </tr>
             <tr>
-              <td style={styles.totalLabel}>Closing deferred tax asset</td>
+              <td style={styles.totalLabel}>Closing {deferredBalanceLabel.toLowerCase()}</td>
               <td data-total-amount="true" style={styles.totalAmount}>
                 {amount(deferredCurrent)}
               </td>
@@ -4031,6 +4190,22 @@ function CurrentTaxBalanceNote({
             </tr>
           </tbody>
         </table>
+
+        {edit && priorClosingDifference !== 0 ? (
+          <div
+            data-work-only="true"
+            style={{
+              margin: "-8px 0 10px",
+              fontSize: 9.8,
+              fontWeight: 700,
+              color: "#991b1b",
+            }}
+          >
+            Prior-year reconciliation difference: {amount(priorClosingDifference)}.
+            Opening balance + movement must agree to the mapped closing balance of{" "}
+            {amount(deferredPrior)}.
+          </div>
+        ) : null}
 
         <EditableTextBlock
           label="Deferred tax explanation"
@@ -4061,7 +4236,7 @@ function CurrentTaxBalanceNote({
                     color: "#64748b",
                   }}
                 >
-                  Mapped closing deferred tax asset: {amount(deferredCurrent)} ·
+                  Mapped closing {deferredBalanceLabel.toLowerCase()}: {amount(deferredCurrent)} ·
                   Tax rate: {taxRate}% · Assessed losses from Tax Computation:
                   {" "}
                   {assessedLossesFromTaxComputation
@@ -4545,6 +4720,7 @@ export default function AfsStructuredNotesPanel({
   const effectiveIsCloseCorporation =
     Boolean(isCloseCorporationEntity) ||
     isCloseCorporation(effectiveEntityType);
+  const effectiveIsTrust = isTrust(effectiveEntityType);
 
   const [mode, setMode] = useState<"review" | "edit">(() => {
     if (forceReviewMode || typeof window === "undefined") return "review";
@@ -4752,15 +4928,21 @@ export default function AfsStructuredNotesPanel({
         const displayTitle =
           isShareCapitalSection(section) && effectiveIsCloseCorporation
             ? "Member's contribution"
-            : section.key === "notesShareholdersLoans" && effectiveIsCloseCorporation
-              ? "Member loans"
-              : section.key === "notesCashUsedInOperations"
+            : isShareCapitalSection(section) && effectiveIsTrust
+              ? "Trust capital"
+              : section.key === "notesShareholdersLoans" && effectiveIsCloseCorporation
+                ? "Member loans"
+                : section.key === "notesShareholdersLoans" && effectiveIsTrust
+                  ? "Trustee loans"
+                  : section.key === "notesCashUsedInOperations"
                 ? "Cash generated from operations"
-                : section.key === "notesCurrentTaxReceivable" && hasDeferredTaxRows(rows)
-                  ? "Deferred tax asset"
-                  : section.key === "notesCurrentTaxPayable" && hasDeferredTaxRows(rows)
-                    ? "Deferred tax liability"
-                    : title;
+                : section.key === "notesDeferredTaxLiability"
+                  ? "Deferred tax"
+                  : section.key === "notesCurrentTaxReceivable" && hasDeferredTaxRows(rows)
+                    ? "Deferred tax asset"
+                    : section.key === "notesCurrentTaxPayable" && hasDeferredTaxRows(rows)
+                      ? "Deferred tax liability"
+                      : title;
 
         if (section.key === "notesPropertyPlantEquipment") {
           return (
@@ -4850,6 +5032,7 @@ export default function AfsStructuredNotesPanel({
                     state={state}
                     update={update}
                     isCloseCorporationEntity={effectiveIsCloseCorporation}
+                    isTrustEntity={effectiveIsTrust}
                   />
                 ) : section.key === "notesCashUsedInOperations" ? (
                   <CashUsedInOperationsNote
@@ -4882,7 +5065,11 @@ export default function AfsStructuredNotesPanel({
                     rows={rows}
                     edit={isEditing}
                     stateKey="receivables"
-                    defaultText="The directors consider that the carrying amount of trade and other receivables approximates their fair value."
+                    defaultText={
+                      effectiveIsTrust
+                        ? "The trustees consider that the carrying amount of trade and other receivables approximates their fair value."
+                        : "The directors consider that the carrying amount of trade and other receivables approximates their fair value."
+                    }
                     state={state}
                     update={update}
                   />
@@ -4938,6 +5125,16 @@ export default function AfsStructuredNotesPanel({
                     currentTaxReceivableRows={noteData.currentTaxReceivable || []}
                     currentTaxPayableRows={noteData.currentTaxPayable || []}
                   />
+                ) : section.key === "notesDeferredTaxLiability" ? (
+                  <CurrentTaxBalanceNote
+                    rows={rows}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                    stateKey="deferredTax"
+                    clientSetup={clientSetup}
+                    trialBalanceLines={trialBalanceLines}
+                  />
                 ) : section.key === "notesCurrentTaxReceivable" ? (
                   <CurrentTaxBalanceNote
                     rows={rows}
@@ -4946,6 +5143,7 @@ export default function AfsStructuredNotesPanel({
                     update={update}
                     stateKey="currentTaxReceivable"
                     clientSetup={clientSetup}
+                    trialBalanceLines={trialBalanceLines}
                   />
                 ) : section.key === "notesCurrentTaxPayable" ? (
                   <CurrentTaxBalanceNote
@@ -4955,12 +5153,14 @@ export default function AfsStructuredNotesPanel({
                     update={update}
                     stateKey="currentTaxPayable"
                     clientSetup={clientSetup}
+                    trialBalanceLines={trialBalanceLines}
                   />
                 ) : section.key === "notesGoingConcern" ? (
                   <GoingConcernNote
                     edit={isEditing}
                     state={state}
                     update={update}
+                    entityType={effectiveEntityType}
                   />
                 ) : section.key === "notesRelatedParties" ? (
                   <RelatedPartiesNote

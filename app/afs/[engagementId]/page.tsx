@@ -1287,6 +1287,7 @@ activeSection !== "lead-schedules" ? (
             <TaxCalculatorPanel
               trialBalanceLines={trialBalanceLines}
               clientSetup={clientSetup}
+              entityType={displayEntityType}
             />
           )}
 

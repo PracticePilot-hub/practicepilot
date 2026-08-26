@@ -240,6 +240,56 @@ function isCloseCorporationEntity(value: unknown) {
   return lower === "cc" || lower.includes("close corporation");
 }
 
+function isTrustEntity(value: unknown) {
+  return String(value || "").trim().toLowerCase().includes("trust");
+}
+
+function defaultPersonForEntity(value: unknown): NewPerson {
+  if (isTrustEntity(value)) {
+    return {
+      ...blankPerson,
+      person_type: "Trustee",
+    };
+  }
+
+  if (isCloseCorporationEntity(value)) {
+    return {
+      ...blankPerson,
+      person_type: "Member",
+    };
+  }
+
+  return {
+    ...blankPerson,
+    person_type: "Director",
+  };
+}
+
+function defaultLegalFrameworkForEntity(value: unknown) {
+  if (isTrustEntity(value)) {
+    return "Trust Property Control Act 57 of 1988, as amended";
+  }
+
+  if (isCloseCorporationEntity(value)) {
+    return "Close Corporations Act 69 of 1984, as amended";
+  }
+
+  return "Companies Act 71 of 2008, as amended";
+}
+
+function isGenericLegalFramework(value: unknown) {
+  const clean = String(value || "").trim().toLowerCase();
+
+  return (
+    !clean ||
+    clean === "companies act of south africa" ||
+    clean === "companies act 71 of 2008, as amended" ||
+    clean === "close corporations act of south africa" ||
+    clean === "close corporations act 69 of 1984, as amended" ||
+    clean === "trust property control act 57 of 1988, as amended"
+  );
+}
+
 export default function ClientSetupPanel({
   engagementId,
   clientName,
@@ -259,7 +309,7 @@ export default function ClientSetupPanel({
   });
 
   const [people, setPeople] = useState<ClientPerson[]>([]);
-  const [newPerson, setNewPerson] = useState<NewPerson>(blankPerson);
+  const [newPerson, setNewPerson] = useState<NewPerson>(() => defaultPersonForEntity(entityType));
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -458,7 +508,7 @@ export default function ClientSetupPanel({
       }
 
       setPeople((current) => [...current, data.person]);
-      setNewPerson(blankPerson);
+      setNewPerson(defaultPersonForEntity(setup.entity_type));
 
       if (data.signoffInvalidated) {
         notifyClientSetupSignoffRefresh();
@@ -510,8 +560,27 @@ export default function ClientSetupPanel({
         next.prior_period_heading = makePriorPeriodHeading(String(value || ""));
       }
 
+      if (field === "entity_type") {
+        if (isGenericLegalFramework(current.legal_framework)) {
+          next.legal_framework = defaultLegalFrameworkForEntity(value);
+        }
+      }
+
       return next;
     });
+
+    if (field === "entity_type") {
+      setNewPerson((current) => ({
+        ...current,
+        person_type: isTrustEntity(value)
+          ? "Trustee"
+          : isCloseCorporationEntity(value)
+            ? "Member"
+            : current.person_type === "Trustee" || current.person_type === "Member"
+              ? "Director"
+              : current.person_type,
+      }));
+    }
   }
 
   function updatePerson(field: keyof NewPerson, value: string) {
@@ -554,7 +623,13 @@ export default function ClientSetupPanel({
           />
         </Field>
 
-        <Field label="Registration number">
+        <Field
+          label={
+            isTrustEntity(setup.entity_type)
+              ? "Trust registration number"
+              : "Registration number"
+          }
+        >
           <input
             style={styles.input}
             value={setup.registration_number || ""}
@@ -678,14 +753,8 @@ export default function ClientSetupPanel({
           <input
             style={styles.input}
             value={
-              isCloseCorporationEntity(setup.entity_type)
-                ? (
-                    !setup.legal_framework ||
-                    String(setup.legal_framework).trim().toLowerCase() ===
-                      "companies act of south africa"
-                  )
-                  ? "Close Corporations Act 69 of 1984, as amended"
-                  : setup.legal_framework
+              isGenericLegalFramework(setup.legal_framework)
+                ? defaultLegalFrameworkForEntity(setup.entity_type)
                 : setup.legal_framework || ""
             }
             onChange={(e) => update("legal_framework", e.target.value)}
@@ -901,9 +970,11 @@ export default function ClientSetupPanel({
 
       <SetupSection
         title={
-          isCloseCorporationEntity(setup.entity_type)
-            ? "Members"
-            : "Directors / Members / Trustees"
+          isTrustEntity(setup.entity_type)
+            ? "Trustees and Beneficiaries"
+            : isCloseCorporationEntity(setup.entity_type)
+              ? "Members"
+              : "Directors / Members / Trustees"
         }
       >
         <div style={styles.peopleArea}>
@@ -914,11 +985,26 @@ export default function ClientSetupPanel({
                 value={newPerson.person_type}
                 onChange={(e) => updatePerson("person_type", e.target.value)}
               >
-                <option value="Director">Director</option>
-                <option value="Member">Member</option>
-                <option value="Trustee">Trustee</option>
-                <option value="Shareholder">Shareholder</option>
-                <option value="Other">Other</option>
+                {isTrustEntity(setup.entity_type) ? (
+                  <>
+                    <option value="Trustee">Trustee</option>
+                    <option value="Beneficiary">Beneficiary</option>
+                    <option value="Other">Other</option>
+                  </>
+                ) : isCloseCorporationEntity(setup.entity_type) ? (
+                  <>
+                    <option value="Member">Member</option>
+                    <option value="Other">Other</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="Director">Director</option>
+                    <option value="Member">Member</option>
+                    <option value="Trustee">Trustee</option>
+                    <option value="Shareholder">Shareholder</option>
+                    <option value="Other">Other</option>
+                  </>
+                )}
               </select>
             </Field>
 
@@ -996,7 +1082,11 @@ export default function ClientSetupPanel({
           </div>
 
           {people.length === 0 ? (
-            <p style={styles.emptyText}>No people added yet.</p>
+            <p style={styles.emptyText}>
+              {isTrustEntity(setup.entity_type)
+                ? "No trustees or beneficiaries added yet."
+                : "No people added yet."}
+            </p>
           ) : (
             <table style={styles.peopleTable}>
               <thead>
@@ -1038,12 +1128,14 @@ export default function ClientSetupPanel({
 
       <SetupSection
         title={
-          isCloseCorporationEntity(setup.entity_type)
-            ? "Public Officer"
-            : "Public Officer and Secretary"
+          isTrustEntity(setup.entity_type)
+            ? "Tax Representative"
+            : isCloseCorporationEntity(setup.entity_type)
+              ? "Public Officer"
+              : "Public Officer and Secretary"
         }
       >
-        <Field label="Public officer name">
+        <Field label={isTrustEntity(setup.entity_type) ? "Tax representative name" : "Public officer name"}>
           <input
             style={styles.input}
             value={setup.public_officer_name || ""}
@@ -1051,7 +1143,7 @@ export default function ClientSetupPanel({
           />
         </Field>
 
-        <Field label="Public officer email">
+        <Field label={isTrustEntity(setup.entity_type) ? "Tax representative email" : "Public officer email"}>
           <input
             style={styles.input}
             value={setup.public_officer_email || ""}
@@ -1059,7 +1151,7 @@ export default function ClientSetupPanel({
           />
         </Field>
 
-        <Field label="Public officer cell">
+        <Field label={isTrustEntity(setup.entity_type) ? "Tax representative cell" : "Public officer cell"}>
           <input
             style={styles.input}
             value={setup.public_officer_cell || ""}
@@ -1067,7 +1159,7 @@ export default function ClientSetupPanel({
           />
         </Field>
 
-        <Field label="Public officer income tax number">
+        <Field label={isTrustEntity(setup.entity_type) ? "Tax representative income tax number" : "Public officer income tax number"}>
           <input
             style={styles.input}
             value={setup.public_officer_income_tax_number || ""}
@@ -1077,7 +1169,7 @@ export default function ClientSetupPanel({
           />
         </Field>
 
-        <Field label="Public officer ID number">
+        <Field label={isTrustEntity(setup.entity_type) ? "Tax representative ID number" : "Public officer ID number"}>
           <input
             style={styles.input}
             value={setup.public_officer_id_number || ""}
@@ -1085,25 +1177,38 @@ export default function ClientSetupPanel({
           />
         </Field>
 
-        <Field label="Secretary name">
-          <input
-            style={styles.input}
-            value={setup.secretary_name || ""}
-            onChange={(e) => update("secretary_name", e.target.value)}
-          />
-        </Field>
+        {!isTrustEntity(setup.entity_type) &&
+        !isCloseCorporationEntity(setup.entity_type) ? (
+          <>
+            <Field label="Secretary name">
+              <input
+                style={styles.input}
+                value={setup.secretary_name || ""}
+                onChange={(e) => update("secretary_name", e.target.value)}
+              />
+            </Field>
 
-        <Field label="Secretary address">
-          <textarea
-            style={{ ...styles.input, minHeight: 80 }}
-            value={setup.secretary_address || ""}
-            onChange={(e) => update("secretary_address", e.target.value)}
-          />
-        </Field>
+            <Field label="Secretary address">
+              <textarea
+                style={{ ...styles.input, minHeight: 80 }}
+                value={setup.secretary_address || ""}
+                onChange={(e) => update("secretary_address", e.target.value)}
+              />
+            </Field>
+          </>
+        ) : null}
       </SetupSection>
 
       <SetupSection title="Dates and Sign-offs">
-        <Field label="Number of directors">
+        <Field
+          label={
+            isTrustEntity(setup.entity_type)
+              ? "Number of trustees"
+              : isCloseCorporationEntity(setup.entity_type)
+                ? "Number of members"
+                : "Number of directors"
+          }
+        >
           <input
             style={styles.input}
             type="number"
@@ -1112,7 +1217,15 @@ export default function ClientSetupPanel({
           />
         </Field>
 
-        <Field label="Date of incorporation">
+        <Field
+          label={
+            isTrustEntity(setup.entity_type)
+              ? "Date trust registered / established"
+              : isCloseCorporationEntity(setup.entity_type)
+                ? "Date of registration"
+                : "Date of incorporation"
+          }
+        >
           <input
             style={styles.input}
             type="date"
@@ -1191,7 +1304,27 @@ export default function ClientSetupPanel({
           />
         </Field>
 
-        {String(setup.entity_type || "").toLowerCase().includes("close corporation") ? (
+        {isTrustEntity(setup.entity_type) ? (
+          <>
+            <Field label="Trust capital / accumulated funds wording override">
+              <textarea
+                style={styles.textarea}
+                value={setup.share_capital_note || ""}
+                onChange={(e) => update("share_capital_note", e.target.value)}
+                placeholder="Leave blank to use the default trust wording."
+              />
+            </Field>
+
+            <Field label="Trustee / beneficiary wording override">
+              <textarea
+                style={styles.textarea}
+                value={setup.shareholder_note || ""}
+                onChange={(e) => update("shareholder_note", e.target.value)}
+                placeholder="Leave blank to use the default trust wording."
+              />
+            </Field>
+          </>
+        ) : isCloseCorporationEntity(setup.entity_type) ? (
           <>
             <Field label="Member's contribution note / wording override">
               <textarea

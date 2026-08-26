@@ -458,11 +458,25 @@ function canonicalFromMapping(line: AfsEngineTrialBalanceLine): CanonicalBucket 
   if (mappingStartsWith(line, ["547"])) return { statement: "nonCurrentLiability", noteKey: "groupRelatedPartyBorrowings" };
   if (mappingStartsWith(line, ["548"])) return { statement: "nonCurrentLiability", noteKey: "shareholdersLoans" };
 
-  // Specific borrowing subtypes must be tested before the broad 550 family.
+  /*
+    550 and 551 are separate mapping families in the AFS mapping library:
+
+    - 550 = Financial liabilities
+    - 551 = Borrowings
+
+    Keep the existing asset-finance subtypes ahead of the broad 550 fallback.
+    Classification remains mapping-code-only.
+  */
   if (mappingStartsWith(line, ["550.40", "550.50"])) {
     return { statement: "nonCurrentLiability", noteKey: "assetFinance" };
   }
-  if (mappingStartsWith(line, ["550", "551"])) {
+  if (mappingStartsWith(line, ["550"])) {
+    return {
+      statement: "nonCurrentLiability",
+      noteKey: "otherFinancialLiabilities",
+    };
+  }
+  if (mappingStartsWith(line, ["551"])) {
     return { statement: "nonCurrentLiability", noteKey: "borrowings" };
   }
 
