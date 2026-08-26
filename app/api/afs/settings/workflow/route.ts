@@ -107,7 +107,14 @@ export async function GET(request: Request) {
   try {
     const supabase = getSupabaseAdmin();
     const { profile, response } = await currentProfile(request, supabase);
-    if (response || !profile) return response;
+    if (response) return response;
+
+    if (!profile) {
+      return NextResponse.json(
+        { error: "Profile access denied." },
+        { status: 403 },
+      );
+    }
 
     if (!profile.organisation_id) {
       return NextResponse.json(
@@ -159,7 +166,14 @@ export async function PATCH(request: Request) {
   try {
     const supabase = getSupabaseAdmin();
     const { profile, response } = await currentProfile(request, supabase);
-    if (response || !profile) return response;
+    if (response) return response;
+
+    if (!profile) {
+      return NextResponse.json(
+        { error: "Profile access denied." },
+        { status: 403 },
+      );
+    }
 
     if (!profile.organisation_id) {
       return NextResponse.json(

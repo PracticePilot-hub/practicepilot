@@ -600,7 +600,14 @@ export async function DELETE(req: NextRequest) {
     const supabase = getSupabaseServer();
     const { profile, response } = await currentDeleteProfile(req, supabase);
 
-    if (response || !profile) return response;
+    if (response) return response;
+
+    if (!profile) {
+      return NextResponse.json(
+        { error: "AFS access denied." },
+        { status: 403 },
+      );
+    }
 
     const body = await req.json();
     const engagementId = cleanText(body.engagementId);
