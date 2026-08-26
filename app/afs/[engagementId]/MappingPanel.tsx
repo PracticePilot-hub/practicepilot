@@ -82,6 +82,70 @@ type Props = {
   onDataChanged?: () => void | Promise<void>;
 };
 
+type EntityKind = "company" | "cc" | "trust" | "npc" | "other";
+
+function normaliseEntityKind(value: unknown): EntityKind {
+  const text = String(value || "").trim().toLowerCase();
+
+  if (text.includes("trust")) return "trust";
+  if (text.includes("close corporation") || text === "cc") return "cc";
+  if (text.includes("non-profit") || text.includes("non profit") || text === "npc") {
+    return "npc";
+  }
+  if (text.includes("company")) return "company";
+  return "other";
+}
+
+function displayMappingText(value: string, entityKind: EntityKind) {
+  if (entityKind !== "trust") return value;
+
+  const exact: Record<string, string> = {
+    "548 · Shareholder / director / member loans":
+      "548 · Trustee / beneficiary / related-party loans",
+    "Loans from shareholders / directors / members":
+      "Loans from trustees / beneficiaries / related parties",
+    "Loans from shareholders / directors / members - general":
+      "Loans from trustees / beneficiaries / related parties - general",
+    "Shareholder loan": "Trustee loan",
+    "Director loan": "Beneficiary loan",
+    "Member loan": "Related-party loan",
+    "Loans to shareholders / directors / members":
+      "Loans to trustees / beneficiaries / related parties",
+    "449 · Loans to directors, managers, employees and related parties":
+      "449 · Loans to trustees, beneficiaries, employees and related parties",
+    "Loans to directors / members / shareholders":
+      "Loans to trustees / beneficiaries / related parties",
+    "Members / owners contributions":
+      "Trust capital / accumulated funds",
+    "Directors / members remuneration":
+      "Trustee remuneration / administration fees",
+  };
+
+  if (exact[value]) return exact[value];
+
+  const numberedStakeholderLoan =
+    /^Shareholder \/ director \/ member loan (\d+)$/i.exec(value);
+
+  if (numberedStakeholderLoan) {
+    return `Trustee / beneficiary / related-party loan ${numberedStakeholderLoan[1]}`;
+  }
+
+  return value
+    .replace(
+      /shareholders\s*\/\s*directors\s*\/\s*members/gi,
+      "trustees / beneficiaries / related parties",
+    )
+    .replace(
+      /shareholder\s*\/\s*director\s*\/\s*member/gi,
+      "trustee / beneficiary / related-party",
+    )
+    .replace(
+      /directors\s*\/\s*members\s*\/\s*shareholders/gi,
+      "trustees / beneficiaries / related parties",
+    )
+    .replace(/directors\s*\/\s*members/gi, "trustees");
+}
+
 function cleanId(value: string) {
   return value
     .toLowerCase()
@@ -224,158 +288,388 @@ const mappingTree: MappingNode[] = [
           leaf("SFP", "Non-current assets", ["Property, plant and equipment", "Other PPE 4"], "Accumulated impairment", "305.133", "ppe"),
         ]),
       ]),
-      folder("sfp-nca-rou", "306 · Right-of-use assets", [
+
+      folder("sfp-nca-rou", "306 · Right-of-use assets (Full IFRS)", [
         leaf("SFP", "Non-current assets", ["Right-of-use assets"], "At cost", "306.10", "right-of-use-assets"),
         leaf("SFP", "Non-current assets", ["Right-of-use assets"], "Accumulated depreciation", "306.20", "right-of-use-assets"),
         leaf("SFP", "Non-current assets", ["Right-of-use assets"], "Accumulated impairment", "306.30", "right-of-use-assets"),
       ]),
+
       folder("sfp-nca-investment-property", "310 · Investment property", [
         leaf("SFP", "Non-current assets", ["Investment property"], "Investment property at cost / valuation", "310.10", "investment-property"),
         leaf("SFP", "Non-current assets", ["Investment property"], "Fair value adjustment", "310.20", "investment-property"),
+        leaf("SFP", "Non-current assets", ["Investment property"], "Accumulated depreciation", "310.25", "investment-property"),
         leaf("SFP", "Non-current assets", ["Investment property"], "Accumulated impairment", "310.30", "investment-property"),
       ]),
+
       folder("sfp-nca-intangibles", "320 · Intangible assets", [
         leaf("SFP", "Non-current assets", ["Intangible assets"], "At cost", "320.10", "intangibles"),
         leaf("SFP", "Non-current assets", ["Intangible assets"], "Accumulated amortisation", "320.20", "intangibles"),
         leaf("SFP", "Non-current assets", ["Intangible assets"], "Accumulated impairment", "320.30", "intangibles"),
       ]),
-      leaf("SFP", "Non-current assets", ["Goodwill"], "Goodwill", "321.10", "goodwill"),
-      leaf("SFP", "Non-current assets", ["Investments"], "Investments in subsidiaries", "326.10", "investments-subsidiaries"),
-      leaf("SFP", "Non-current assets", ["Investments"], "Investments in associates", "327.10", "investments-associates"),
-      leaf("SFP", "Non-current assets", ["Investments"], "Investments in joint ventures", "328.10", "investments-joint-ventures"),
-      folder("sfp-nca-loans-receivable", "340 · Loans receivable", [
-        leaf("SFP", "Non-current assets", ["Loans receivable"], "Loans to group companies", "340.10", "loans-receivable"),
-        leaf("SFP", "Non-current assets", ["Loans receivable"], "Loans to related parties", "340.20", "loans-receivable"),
-        leaf("SFP", "Non-current assets", ["Loans receivable"], "Loans to shareholders / directors", "340.30", "loans-receivable"),
-        leaf("SFP", "Non-current assets", ["Loans receivable"], "Other long-term loan receivable", "340.90", "loans-receivable"),
+
+      folder("sfp-nca-goodwill", "321 · Goodwill", [
+        leaf("SFP", "Non-current assets", ["Goodwill"], "Goodwill", "321.10", "goodwill"),
+        leaf("SFP", "Non-current assets", ["Goodwill"], "Accumulated impairment", "321.20", "goodwill"),
       ]),
-      leaf("SFP", "Non-current assets", ["Deferred tax asset"], "Deferred tax asset", "395.10", "deferred-tax-asset"),
+
+      folder("sfp-nca-investments", "325 · Investments and interests in other entities", [
+        leaf("SFP", "Non-current assets", ["Investments"], "Investments in subsidiaries", "326.10", "investments-subsidiaries"),
+        leaf("SFP", "Non-current assets", ["Investments"], "Investments in associates", "327.10", "investments-associates"),
+        leaf("SFP", "Non-current assets", ["Investments"], "Investments in joint ventures", "328.10", "investments-joint-ventures"),
+        leaf("SFP", "Non-current assets", ["Investments"], "Other non-current investments", "329.10", "financial-liabilities"),
+      ]),
+
+      folder("sfp-nca-biological", "330 · Biological assets", [
+        leaf("SFP", "Non-current assets", ["Biological assets"], "Biological assets - fair value model", "330.10", "other-non-current-assets"),
+        leaf("SFP", "Non-current assets", ["Biological assets"], "Biological assets - cost model", "330.20", "other-non-current-assets"),
+        leaf("SFP", "Non-current assets", ["Biological assets"], "Accumulated depreciation", "330.30", "other-non-current-assets"),
+        leaf("SFP", "Non-current assets", ["Biological assets"], "Accumulated impairment", "330.40", "other-non-current-assets"),
+      ]),
+
+      folder("sfp-nca-loans-receivable", "340 · Loans and non-current receivables", [
+        leaf("SFP", "Non-current assets", ["Loans receivable"], "Loans to parent company", "340.10", "loans-receivable"),
+        leaf("SFP", "Non-current assets", ["Loans receivable"], "Loans to subsidiaries", "340.11", "loans-receivable"),
+        leaf("SFP", "Non-current assets", ["Loans receivable"], "Loans to fellow subsidiaries", "340.12", "loans-receivable"),
+        leaf("SFP", "Non-current assets", ["Loans receivable"], "Loans to associates", "340.13", "loans-receivable"),
+        leaf("SFP", "Non-current assets", ["Loans receivable"], "Loans to joint ventures", "340.14", "loans-receivable"),
+        leaf("SFP", "Non-current assets", ["Loans receivable"], "Loans to shareholders / directors / members", "340.20", "loans-receivable"),
+        leaf("SFP", "Non-current assets", ["Loans receivable"], "Loans to employees", "340.30", "loans-receivable"),
+        leaf("SFP", "Non-current assets", ["Loans receivable"], "Other related-party loans receivable", "340.40", "loans-receivable"),
+        leaf("SFP", "Non-current assets", ["Loans receivable"], "Other non-current loan receivable", "340.90", "loans-receivable"),
+      ]),
+
+      folder("sfp-nca-financial-assets", "350 · Other non-current financial assets", [
+        leaf("SFP", "Non-current assets", ["Financial assets"], "Debt instruments / deposits at amortised cost", "350.10", "other-non-current-assets"),
+        leaf("SFP", "Non-current assets", ["Financial assets"], "Debt instruments at fair value", "350.20", "other-non-current-assets"),
+        leaf("SFP", "Non-current assets", ["Financial assets"], "Equity instruments at fair value", "350.30", "other-non-current-assets"),
+        leaf("SFP", "Non-current assets", ["Financial assets"], "Derivative financial assets", "350.40", "other-non-current-assets"),
+        leaf("SFP", "Non-current assets", ["Financial assets"], "Other non-current financial assets", "350.90", "other-non-current-assets"),
+      ]),
+
       folder("sfp-nca-other", "390 · Other non-current assets", [
-        leaf("SFP", "Non-current assets", ["Other non-current assets"], "Operating lease asset", "390.10", "other-non-current-assets"),
+        leaf("SFP", "Non-current assets", ["Other non-current assets"], "Operating lease / straight-line rental asset", "390.10", "other-non-current-assets"),
         leaf("SFP", "Non-current assets", ["Other non-current assets"], "Retirement benefit asset", "390.20", "other-non-current-assets"),
+        leaf("SFP", "Non-current assets", ["Other non-current assets"], "Long-term deposits", "390.30", "other-non-current-assets"),
         leaf("SFP", "Non-current assets", ["Other non-current assets"], "Other non-current asset 1", "390.91", "other-non-current-assets"),
         leaf("SFP", "Non-current assets", ["Other non-current assets"], "Other non-current asset 2", "390.92", "other-non-current-assets"),
         leaf("SFP", "Non-current assets", ["Other non-current assets"], "Other non-current asset 3", "390.93", "other-non-current-assets"),
       ]),
+
+      leaf("SFP", "Non-current assets", ["Deferred tax asset"], "Deferred tax asset", "395.10", "deferred-tax-asset"),
     ]),
+
     folder("sfp-current-assets", "400 · Current assets", [
       folder("sfp-ca-inventory", "405 · Inventories", [
         leaf("SFP", "Current assets", ["Inventories"], "Raw materials", "405.10", "inventory"),
         leaf("SFP", "Current assets", ["Inventories"], "Work in progress", "405.20", "inventory"),
         leaf("SFP", "Current assets", ["Inventories"], "Finished goods", "405.30", "inventory"),
+        leaf("SFP", "Current assets", ["Inventories"], "Merchandise / goods for resale", "405.40", "inventory"),
+        leaf("SFP", "Current assets", ["Inventories"], "Agricultural produce after harvest", "405.50", "inventory"),
         leaf("SFP", "Current assets", ["Inventories"], "Consumables / stock on hand", "405.90", "inventory"),
       ]),
+
+      folder("sfp-ca-biological", "410 · Current biological assets", [
+        leaf("SFP", "Current assets", ["Biological assets"], "Current biological assets - fair value model", "410.10", "inventory"),
+        leaf("SFP", "Current assets", ["Biological assets"], "Current biological assets - cost model", "410.20", "inventory"),
+      ]),
+
+      folder("sfp-ca-contract-assets", "415 · Contract assets / work performed not billed", [
+        leaf("SFP", "Current assets", ["Contract assets"], "Contract assets", "415.10", "construction-contracts-receivable"),
+        leaf("SFP", "Current assets", ["Contract assets"], "Construction contract asset / receivable", "415.20", "construction-contracts-receivable"),
+      ]),
+
       folder("sfp-ca-cash", "420 · Cash and cash equivalents", [
         leaf("SFP", "Current assets", ["Cash and cash equivalents"], "Current bank account", "420.10", "cash", "bank"),
         leaf("SFP", "Current assets", ["Cash and cash equivalents"], "Savings account", "420.20", "cash", "bank"),
         leaf("SFP", "Current assets", ["Cash and cash equivalents"], "Call account", "420.30", "cash", "bank"),
-        leaf("SFP", "Current assets", ["Cash and cash equivalents"], "Short-term deposits", "420.35", "cash"),
+        leaf("SFP", "Current assets", ["Cash and cash equivalents"], "Short-term deposits / money market", "420.35", "cash"),
         leaf("SFP", "Current assets", ["Cash and cash equivalents"], "Petty cash", "420.40", "cash", "cash"),
         leaf("SFP", "Current assets", ["Cash and cash equivalents"], "Cash on hand", "420.50", "cash", "cash"),
+        leaf("SFP", "Current assets", ["Cash and cash equivalents"], "Restricted cash - current", "420.60", "cash"),
       ]),
+
       folder("sfp-ca-receivables", "430 · Trade and other receivables", [
         leaf("SFP", "Current assets", ["Trade and other receivables"], "Trade receivables", "430.10", "receivables"),
-        leaf("SFP", "Current assets", ["Trade and other receivables"], "Provision for impairment of receivables", "430.20", "receivables"),
+        leaf("SFP", "Current assets", ["Trade and other receivables"], "Allowance / provision for impairment", "430.20", "receivables"),
         leaf("SFP", "Current assets", ["Trade and other receivables"], "Other receivable 1", "430.31", "receivables"),
         leaf("SFP", "Current assets", ["Trade and other receivables"], "Other receivable 2", "430.32", "receivables"),
         leaf("SFP", "Current assets", ["Trade and other receivables"], "Prepayments", "430.40", "receivables"),
         leaf("SFP", "Current assets", ["Trade and other receivables"], "Deposits paid", "430.50", "receivables"),
+        leaf("SFP", "Current assets", ["Trade and other receivables"], "Accrued income", "430.60", "receivables"),
+        leaf("SFP", "Current assets", ["Trade and other receivables"], "VAT / indirect tax receivable not mapped to tax control", "430.70", "receivables"),
       ]),
-      leaf("SFP", "Current assets", ["Construction contracts and receivables"], "Construction contract asset / receivable", "432.10", "construction-contracts-receivable"),
-      leaf("SFP", "Current assets", ["Loans to directors, managers and employees"], "Loans to directors, managers and employees", "449.10", "directors-employee-loans"),
+
+      folder("sfp-ca-financial-assets", "435 · Current financial assets / short-term investments", [
+        leaf("SFP", "Current assets", ["Current financial assets"], "Short-term investments / deposits", "435.10", "receivables"),
+        leaf("SFP", "Current assets", ["Current financial assets"], "Derivative financial assets", "435.20", "receivables"),
+        leaf("SFP", "Current assets", ["Current financial assets"], "Other current financial assets", "435.90", "receivables"),
+      ]),
+
+      folder("sfp-ca-related-loans", "449 · Loans to directors, managers, employees and related parties", [
+        leaf("SFP", "Current assets", ["Current loans receivable"], "Loans to directors / members / shareholders", "449.10", "directors-employee-loans"),
+        leaf("SFP", "Current assets", ["Current loans receivable"], "Loans to employees", "449.20", "directors-employee-loans"),
+        leaf("SFP", "Current assets", ["Current loans receivable"], "Current related-party loans receivable", "449.30", "directors-employee-loans"),
+        leaf("SFP", "Current assets", ["Current loans receivable"], "Current portion of other loan receivable", "449.90", "directors-employee-loans"),
+      ]),
+
       folder("sfp-ca-tax-controls", "490 · Tax and statutory controls", [
         leaf("SFP", "Current assets", ["Tax and statutory controls"], "VAT receivable", "490.10", "tax-controls", smartDebitCredit),
         leaf("SFP", "Current assets", ["Tax and statutory controls"], "PAYE / UIF / SDL receivable", "490.20", "tax-controls", smartDebitCredit),
         leaf("SFP", "Current assets", ["Tax and statutory controls"], "Other SARS / statutory receivable", "490.90", "tax-controls", smartDebitCredit),
       ]),
+
       leaf("SFP", "Current assets", ["Current tax receivable"], "Current tax receivable", "495.10", "current-tax-receivable"),
-      leaf("SFP", "Current assets", ["Assets held for sale"], "Assets held for sale", "499.10", "assets-held-for-sale"),
+      leaf("SFP", "Current assets", ["Assets held for sale"], "Assets held for sale (Full IFRS)", "499.10", "assets-held-for-sale"),
     ]),
+
     folder("sfp-equity", "800 · Equity", [
-      leaf("SFP", "Equity", ["Share capital / contributions"], "Share capital", "805.10", "share-capital"),
-      leaf("SFP", "Equity", ["Share capital / contributions"], "Share premium", "805.20", "share-capital"),
-      leaf("SFP", "Equity", ["Share capital / contributions"], "Members / owners contributions", "805.30", "share-capital"),
+      folder("sfp-equity-capital", "805 · Share capital / contributions", [
+        leaf("SFP", "Equity", ["Share capital / contributions"], "Ordinary share capital", "805.10", "share-capital"),
+        leaf("SFP", "Equity", ["Share capital / contributions"], "Share premium", "805.20", "share-capital"),
+        leaf("SFP", "Equity", ["Share capital / contributions"], "Members / owners contributions", "805.30", "share-capital"),
+        leaf("SFP", "Equity", ["Share capital / contributions"], "Preference shares classified as equity", "805.40", "share-capital"),
+        leaf("SFP", "Equity", ["Share capital / contributions"], "Treasury / own shares", "805.90", "share-capital"),
+      ]),
       leaf("SFP", "Equity", ["Retained income"], "Retained income / accumulated loss", "810.10", "retained-income"),
-      leaf("SFP", "Equity", ["Reserves"], "Revaluation reserve", "820.10", "reserves"),
-      leaf("SFP", "Equity", ["Reserves"], "Other reserve 1", "820.91", "reserves"),
-      leaf("SFP", "Equity", ["Reserves"], "Other reserve 2", "820.92", "reserves"),
+      folder("sfp-equity-reserves", "820 · Reserves", [
+        leaf("SFP", "Equity", ["Reserves"], "Revaluation reserve", "820.10", "reserves"),
+        leaf("SFP", "Equity", ["Reserves"], "Foreign currency translation reserve", "820.20", "reserves"),
+        leaf("SFP", "Equity", ["Reserves"], "Fair value / OCI reserve", "820.30", "reserves"),
+        leaf("SFP", "Equity", ["Reserves"], "Hedging reserve", "820.40", "reserves"),
+        leaf("SFP", "Equity", ["Reserves"], "Share-based payment reserve", "820.50", "reserves"),
+        leaf("SFP", "Equity", ["Reserves"], "Other reserve 1", "820.91", "reserves"),
+        leaf("SFP", "Equity", ["Reserves"], "Other reserve 2", "820.92", "reserves"),
+      ]),
+      leaf("SFP", "Equity", ["Non-controlling interests"], "Non-controlling interests", "830.10", "reserves"),
+      leaf("SFP", "Equity", ["Other equity"], "Other equity / compound instrument equity component", "840.10", "reserves"),
     ]),
+
     folder("sfp-non-current-liabilities", "500 · Non-current liabilities", [
-      leaf("SFP", "Non-current liabilities", ["Provisions"], "Long-term provisions", "515.10", "provisions"),
-      leaf("SFP", "Non-current liabilities", ["Deferred income"], "Deferred income", "531.10", "deferred-income"),
-      leaf("SFP", "Non-current liabilities", ["Loans from group companies"], "Loans from group companies", "547.10", "loans-group-companies-payable"),
-      folder("sfp-ncl-stakeholder-loans", "548 · Loans from shareholders / directors / members", [
-        leaf("SFP", "Non-current liabilities", ["Loans from stakeholders"], "Loans from shareholders / directors / members - general", "548.10", "loans-stakeholders-payable"),
+      folder("sfp-ncl-provisions", "515 · Non-current provisions", [
+        leaf("SFP", "Non-current liabilities", ["Provisions"], "Long-term provisions - general", "515.10", "provisions"),
+        leaf("SFP", "Non-current liabilities", ["Provisions"], "Warranty provision", "515.20", "provisions"),
+        leaf("SFP", "Non-current liabilities", ["Provisions"], "Legal claims provision", "515.30", "provisions"),
+        leaf("SFP", "Non-current liabilities", ["Provisions"], "Restoration / decommissioning provision", "515.40", "provisions"),
+        leaf("SFP", "Non-current liabilities", ["Provisions"], "Other non-current provision", "515.90", "provisions"),
+      ]),
+
+      folder("sfp-ncl-employee-benefits", "520 · Non-current employee benefit obligations", [
+        leaf("SFP", "Non-current liabilities", ["Employee benefit obligations"], "Defined benefit / post-employment obligation", "520.10", "provisions"),
+        leaf("SFP", "Non-current liabilities", ["Employee benefit obligations"], "Long-service / other long-term employee benefits", "520.20", "provisions"),
+        leaf("SFP", "Non-current liabilities", ["Employee benefit obligations"], "Other non-current employee benefit liability", "520.90", "provisions"),
+      ]),
+
+      folder("sfp-ncl-deferred-income", "531 · Deferred income / grants", [
+        leaf("SFP", "Non-current liabilities", ["Deferred income"], "Deferred income", "531.10", "deferred-income"),
+        leaf("SFP", "Non-current liabilities", ["Deferred income"], "Government grant liability / deferred grant income", "531.20", "deferred-income"),
+        leaf("SFP", "Non-current liabilities", ["Deferred income"], "Other non-current deferred income", "531.90", "deferred-income"),
+      ]),
+
+      folder("sfp-ncl-related-party", "547 · Group and related-party borrowings", [
+        leaf("SFP", "Non-current liabilities", ["Group and related-party borrowings"], "Loan from parent company", "547.10", "loans-group-companies-payable"),
+        leaf("SFP", "Non-current liabilities", ["Group and related-party borrowings"], "Loan from subsidiary", "547.20", "loans-group-companies-payable"),
+        leaf("SFP", "Non-current liabilities", ["Group and related-party borrowings"], "Loan from fellow subsidiary", "547.30", "loans-group-companies-payable"),
+        leaf("SFP", "Non-current liabilities", ["Group and related-party borrowings"], "Loan from associate", "547.40", "loans-group-companies-payable"),
+        leaf("SFP", "Non-current liabilities", ["Group and related-party borrowings"], "Loan from joint venture", "547.50", "loans-group-companies-payable"),
+        leaf("SFP", "Non-current liabilities", ["Group and related-party borrowings"], "Other related-party borrowing", "547.90", "loans-group-companies-payable"),
+      ]),
+
+      folder("sfp-ncl-stakeholder-loans", "548 · Shareholder / director / member loans", [
+        leaf("SFP", "Non-current liabilities", ["Loans from stakeholders"], "Stakeholder loan - general", "548.10", "loans-stakeholders-payable"),
+        leaf("SFP", "Non-current liabilities", ["Loans from stakeholders"], "Shareholder loan", "548.20", "loans-stakeholders-payable"),
+        leaf("SFP", "Non-current liabilities", ["Loans from stakeholders"], "Director loan", "548.30", "loans-stakeholders-payable"),
+        leaf("SFP", "Non-current liabilities", ["Loans from stakeholders"], "Member loan", "548.40", "loans-stakeholders-payable"),
         ...numberedStakeholderLoanLeaves(),
       ]),
-      leaf("SFP", "Non-current liabilities", ["Financial liabilities"], "Financial liabilities", "550.10", "financial-liabilities"),
-      leaf("SFP", "Non-current liabilities", ["Borrowings"], "Borrowings", "551.10", "borrowings"),
-      leaf("SFP", "Non-current liabilities", ["Lease liabilities"], "Lease liabilities", "555.10", "lease-liabilities"),
-      leaf("SFP", "Non-current liabilities", ["Other non-current liabilities"], "Other non-current liabilities", "590.10", "other-non-current-liabilities"),
+
+      folder("sfp-ncl-borrowings", "550 · Borrowings and other financial liabilities", [
+        leaf("SFP", "Non-current liabilities", ["Borrowings"], "Borrowings / financial liabilities - general", "550.10", "financial-liabilities"),
+        leaf("SFP", "Non-current liabilities", ["Borrowings"], "Bank loan", "550.20", "borrowings"),
+        leaf("SFP", "Non-current liabilities", ["Borrowings"], "Mortgage bond", "550.30", "borrowings"),
+        leaf("SFP", "Non-current liabilities", ["Borrowings"], "Asset finance / vehicle finance", "550.40", "borrowings"),
+        leaf("SFP", "Non-current liabilities", ["Borrowings"], "Instalment sale liability", "550.50", "borrowings"),
+        leaf("SFP", "Non-current liabilities", ["Borrowings"], "Debenture / bond liability", "550.60", "borrowings"),
+        leaf("SFP", "Non-current liabilities", ["Borrowings"], "Preference shares classified as liability", "550.70", "borrowings"),
+        leaf("SFP", "Non-current liabilities", ["Borrowings"], "Private lender borrowing", "550.80", "borrowings"),
+        leaf("SFP", "Non-current liabilities", ["Borrowings"], "Other secured borrowing", "550.91", "borrowings"),
+        leaf("SFP", "Non-current liabilities", ["Borrowings"], "Other unsecured borrowing", "550.92", "borrowings"),
+        leaf("SFP", "Non-current liabilities", ["Borrowings"], "Other non-current borrowing", "550.99", "borrowings"),
+      ]),
+
+      /* Legacy code retained so existing engagements do not break. */
+      leaf("SFP", "Non-current liabilities", ["Borrowings"], "Borrowings - legacy", "551.10", "borrowings"),
+
+      folder("sfp-ncl-leases", "555 · Lease liabilities", [
+        leaf("SFP", "Non-current liabilities", ["Lease liabilities"], "Lease liabilities - non-current", "555.10", "lease-liabilities"),
+        leaf("SFP", "Non-current liabilities", ["Lease liabilities"], "Finance lease liability - non-current", "555.20", "lease-liabilities"),
+      ]),
+
+      folder("sfp-ncl-derivatives", "560 · Derivative and other complex financial liabilities", [
+        leaf("SFP", "Non-current liabilities", ["Financial liabilities"], "Derivative financial liability", "560.10", "financial-liabilities"),
+        leaf("SFP", "Non-current liabilities", ["Financial liabilities"], "Other complex financial liability", "560.90", "financial-liabilities"),
+      ]),
+
+      folder("sfp-ncl-supplier-finance", "580 · Supplier finance arrangements - non-current", [
+        leaf("SFP", "Non-current liabilities", ["Supplier finance arrangements"], "Supplier finance arrangement - non-current", "580.10", "financial-liabilities"),
+      ]),
+
+      folder("sfp-ncl-other", "590 · Other non-current liabilities", [
+        leaf("SFP", "Non-current liabilities", ["Other non-current liabilities"], "Other non-current financial liability", "590.10", "other-non-current-liabilities"),
+        leaf("SFP", "Non-current liabilities", ["Other non-current liabilities"], "Other non-current non-financial liability", "590.20", "other-non-current-liabilities"),
+      ]),
+
       leaf("SFP", "Non-current liabilities", ["Deferred tax liability"], "Deferred tax liability", "595.10", "deferred-tax-liability"),
     ]),
+
     folder("sfp-current-liabilities", "600 · Current liabilities", [
+      folder("sfp-cl-current-borrowings", "610 · Current borrowings", [
+        leaf("SFP", "Current liabilities", ["Current borrowings"], "Current portion of bank loan", "610.10", "borrowings"),
+        leaf("SFP", "Current liabilities", ["Current borrowings"], "Current portion of mortgage bond", "610.20", "borrowings"),
+        leaf("SFP", "Current liabilities", ["Current borrowings"], "Current portion of asset / vehicle finance", "610.30", "borrowings"),
+        leaf("SFP", "Current liabilities", ["Current borrowings"], "Current portion of instalment sale liability", "610.40", "borrowings"),
+        leaf("SFP", "Current liabilities", ["Current borrowings"], "Current related-party borrowing", "610.50", "borrowings"),
+        leaf("SFP", "Current liabilities", ["Current borrowings"], "Short-term loan / revolving credit facility", "610.60", "borrowings"),
+        leaf("SFP", "Current liabilities", ["Current borrowings"], "Other current borrowing", "610.90", "borrowings"),
+      ]),
+
+      folder("sfp-cl-current-leases", "615 · Current lease liabilities", [
+        leaf("SFP", "Current liabilities", ["Lease liabilities"], "Lease liabilities - current", "615.10", "lease-liabilities"),
+        leaf("SFP", "Current liabilities", ["Lease liabilities"], "Finance lease liability - current", "615.20", "lease-liabilities"),
+      ]),
+
       leaf("SFP", "Current liabilities", ["Bank overdraft"], "Bank overdraft", "620.10", "bank-overdraft"),
+
+      folder("sfp-cl-derivatives", "625 · Current derivative financial liabilities", [
+        leaf("SFP", "Current liabilities", ["Financial liabilities"], "Derivative financial liability - current", "625.10", "financial-liabilities"),
+      ]),
+
       folder("sfp-cl-payables", "630 · Trade and other payables", [
         leaf("SFP", "Current liabilities", ["Trade and other payables"], "Trade payables", "630.10", "payables"),
-        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Accruals", "630.20", "payables"),
-        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Other payable 1", "630.31", "payables"),
-        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Other payable 2", "630.32", "payables"),
-        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Income received in advance", "630.40", "payables"),
+        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Accrued expenses", "630.20", "payables"),
+        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Payroll / salaries payable", "630.30", "payables"),
+        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Leave pay / bonus payable", "630.35", "payables"),
+        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Other payable 1", "630.41", "payables"),
+        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Other payable 2", "630.42", "payables"),
+        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Customer deposits / amounts received in advance", "630.50", "payables"),
+        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Retentions payable", "630.60", "payables"),
+        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Related-party payable", "630.70", "payables"),
+        leaf("SFP", "Current liabilities", ["Trade and other payables"], "Other trade and other payable", "630.90", "payables"),
       ]),
+
+      folder("sfp-cl-contract-liabilities", "640 · Contract liabilities / deferred revenue", [
+        leaf("SFP", "Current liabilities", ["Contract liabilities"], "Contract liability / deferred revenue", "640.10", "deferred-income"),
+        leaf("SFP", "Current liabilities", ["Contract liabilities"], "Construction contract liability", "640.20", "deferred-income"),
+      ]),
+
+      folder("sfp-cl-grants", "650 · Current deferred income / grants", [
+        leaf("SFP", "Current liabilities", ["Deferred income"], "Deferred income - current", "650.10", "deferred-income"),
+        leaf("SFP", "Current liabilities", ["Deferred income"], "Government grant liability - current", "650.20", "deferred-income"),
+      ]),
+
+      folder("sfp-cl-provisions", "660 · Current provisions", [
+        leaf("SFP", "Current liabilities", ["Provisions"], "Provision - current portion", "660.10", "provisions"),
+        leaf("SFP", "Current liabilities", ["Provisions"], "Warranty provision - current", "660.20", "provisions"),
+        leaf("SFP", "Current liabilities", ["Provisions"], "Other current provision", "660.90", "provisions"),
+      ]),
+
+      folder("sfp-cl-employee-benefits", "670 · Current employee benefit liabilities", [
+        leaf("SFP", "Current liabilities", ["Employee benefit liabilities"], "Employee benefits payable", "670.10", "payables"),
+        leaf("SFP", "Current liabilities", ["Employee benefit liabilities"], "Bonus / incentive provision", "670.20", "payables"),
+        leaf("SFP", "Current liabilities", ["Employee benefit liabilities"], "Other current employee benefit liability", "670.90", "payables"),
+      ]),
+
+      folder("sfp-cl-supplier-finance", "680 · Supplier finance arrangements - current", [
+        leaf("SFP", "Current liabilities", ["Supplier finance arrangements"], "Supplier finance arrangement - current", "680.10", "financial-liabilities"),
+      ]),
+
       leaf("SFP", "Current liabilities", ["Dividend payable"], "Dividend payable", "688.10", "dividend-payable"),
+
       folder("sfp-cl-tax-controls", "690 · Tax and statutory controls", [
         leaf("SFP", "Current liabilities", ["Tax and statutory controls"], "VAT payable", "690.10", "tax-controls", smartDebitCredit),
         leaf("SFP", "Current liabilities", ["Tax and statutory controls"], "PAYE / UIF / SDL payable", "690.20", "tax-controls", smartDebitCredit),
         leaf("SFP", "Current liabilities", ["Tax and statutory controls"], "Other SARS / statutory payable", "690.90", "tax-controls", smartDebitCredit),
       ]),
+
       leaf("SFP", "Current liabilities", ["Current tax payable"], "Current tax payable", "695.10", "current-tax-payable"),
-      leaf("SFP", "Current liabilities", ["Liabilities held for sale"], "Liabilities held for sale", "699.10", "liabilities-held-for-sale"),
+      leaf("SFP", "Current liabilities", ["Liabilities held for sale"], "Liabilities held for sale (Full IFRS)", "699.10", "liabilities-held-for-sale"),
     ]),
   ]),
+
   folder("pl", "Income Statement", [
     folder("pl-revenue-income", "700 · Revenue and income", [
-      leaf("P/L", "Revenue and income", ["Revenue"], "Revenue", "700.10", "revenue"),
-      leaf("P/L", "Revenue and income", ["Revenue"], "Sales", "700.20", "revenue", "sales"),
-      leaf("P/L", "Revenue and income", ["Operating income"], "Operating income", "730.10", "operating-income"),
-      leaf("P/L", "Revenue and income", ["Investment income"], "Interest received", "770.10", "investment-income"),
-      leaf("P/L", "Revenue and income", ["Investment income"], "Dividend income", "770.20", "investment-income"),
+      folder("pl-revenue", "700 · Revenue", [
+        leaf("P/L", "Revenue and income", ["Revenue"], "Revenue - general", "700.10", "revenue"),
+        leaf("P/L", "Revenue and income", ["Revenue"], "Sales / goods", "700.20", "revenue", "sales"),
+        leaf("P/L", "Revenue and income", ["Revenue"], "Services", "700.30", "revenue"),
+        leaf("P/L", "Revenue and income", ["Revenue"], "Construction / long-term contract revenue", "700.40", "revenue"),
+        leaf("P/L", "Revenue and income", ["Revenue"], "Rental income", "700.50", "revenue"),
+        leaf("P/L", "Revenue and income", ["Revenue"], "Commission income", "700.60", "revenue"),
+        leaf("P/L", "Revenue and income", ["Revenue"], "Franchise income", "700.70", "revenue"),
+        leaf("P/L", "Revenue and income", ["Revenue"], "Subscription / recurring service income", "700.80", "revenue"),
+        leaf("P/L", "Revenue and income", ["Revenue"], "Royalty income", "700.90", "revenue"),
+      ]),
+
+      folder("pl-operating-income", "730 · Other operating income", [
+        leaf("P/L", "Revenue and income", ["Operating income"], "Operating income - general", "730.10", "operating-income"),
+        leaf("P/L", "Revenue and income", ["Operating income"], "Government grant income", "730.20", "operating-income"),
+        leaf("P/L", "Revenue and income", ["Operating income"], "Insurance recoveries", "730.30", "operating-income"),
+        leaf("P/L", "Revenue and income", ["Operating income"], "Other operating income", "730.90", "operating-income"),
+      ]),
+
+      folder("pl-investment-income", "770 · Investment and finance income", [
+        leaf("P/L", "Revenue and income", ["Investment income"], "Interest received", "770.10", "investment-income"),
+        leaf("P/L", "Revenue and income", ["Investment income"], "Dividend income", "770.20", "investment-income"),
+        leaf("P/L", "Revenue and income", ["Investment income"], "Fair value income on financial assets", "770.30", "investment-income"),
+        leaf("P/L", "Revenue and income", ["Investment income"], "Other investment income", "770.90", "investment-income"),
+      ]),
+
       leaf("P/L", "Revenue and income", ["Non-operating income"], "Non-operating income", "785.10", "non-operating-income"),
     ]),
+
     folder("pl-cost-sales", "720 · Cost of sales", [
       leaf("P/L", "Cost of sales", ["Cost of sales"], "Cost of sales", "720.10", "cost-of-sales"),
       leaf("P/L", "Cost of sales", ["Cost of sales"], "Purchases", "720.20", "cost-of-sales"),
       leaf("P/L", "Cost of sales", ["Cost of sales"], "Opening / closing stock movement", "720.30", "cost-of-sales"),
+      leaf("P/L", "Cost of sales", ["Cost of sales"], "Direct labour", "720.40", "cost-of-sales"),
+      leaf("P/L", "Cost of sales", ["Cost of sales"], "Direct production / contract costs", "720.50", "cost-of-sales"),
+      leaf("P/L", "Cost of sales", ["Cost of sales"], "Other direct costs", "720.90", "cost-of-sales"),
     ]),
+
     folder("pl-expenses", "750 · Operating expenses", [
       folder("pl-expenses-admin", "Administration", [
         leaf("P/L", "Operating expenses", ["Administration"], "Accounting fees", "750.10", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Audit / independent review fees", "750.11", "operating-expenses"),
-        leaf("P/L", "Operating expenses", ["Administration"], "Bad debts", "750.12", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Administration"], "Bad debts / impairment losses", "750.12", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Bank charges", "750.13", "operating-expenses", "bank charges"),
         leaf("P/L", "Operating expenses", ["Administration"], "Depreciation", "750.14", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Administration"], "Amortisation", "750.141", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Insurance", "750.15", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Legal fees", "750.16", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Motor vehicle expenses", "750.17", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Rent paid", "750.18", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Repairs and maintenance", "750.19", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Salaries and wages", "750.20", "operating-expenses"),
-        leaf("P/L", "Operating expenses", ["Administration"], "Staff costs", "750.21", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Administration"], "Staff costs / employee benefits", "750.21", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Telephone and internet", "750.22", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Travel and accommodation", "750.23", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Fines and penalties", "750.24", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Software subscriptions", "750.25", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Printing and stationery", "750.26", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Courier and postage", "750.27", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Administration"], "Directors / members remuneration", "750.28", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Administration"], "Employee benefit expense", "750.29", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Other expenses - deductible", "750.80", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Administration"], "Other expenses - non-deductible", "750.81", "operating-expenses"),
       ]),
+
       folder("pl-expenses-premises", "Premises", [
         leaf("P/L", "Operating expenses", ["Premises"], "Rates and taxes", "750.30", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Premises"], "Electricity and water", "750.31", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Premises"], "Cleaning", "750.32", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Premises"], "Security", "750.33", "operating-expenses"),
       ]),
+
       folder("pl-expenses-selling", "Selling and marketing", [
         leaf("P/L", "Operating expenses", ["Selling and marketing"], "Advertising", "750.40", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Selling and marketing"], "Marketing", "750.41", "operating-expenses"),
@@ -383,29 +677,49 @@ const mappingTree: MappingNode[] = [
         leaf("P/L", "Operating expenses", ["Selling and marketing"], "Entertainment", "750.43", "operating-expenses"),
         leaf("P/L", "Operating expenses", ["Selling and marketing"], "Gifts", "750.44", "operating-expenses"),
       ]),
+
       folder("pl-expenses-other", "Other expenses", numberedExpenseLeaves()),
       leaf("P/L", "Operating expenses", ["Operating expenses"], "Other operating expenses", "750.90", "operating-expenses"),
     ]),
-    folder("pl-finance-tax", "775 · Finance and taxation", [
-      leaf("P/L", "Finance and taxation", ["Finance costs"], "Interest paid", "775.10", "finance-costs"),
-      leaf("P/L", "Finance and taxation", ["Finance costs"], "Bank interest", "775.20", "finance-costs"),
-      leaf("P/L", "Finance and taxation", ["Finance costs"], "Finance lease interest", "775.30", "finance-costs"),
-      leaf("P/L", "Finance and taxation", ["Finance costs"], "Loan interest", "775.40", "finance-costs"),
-      leaf("P/L", "Finance and taxation", ["Finance costs"], "Other finance costs", "775.90", "finance-costs"),
-      leaf("P/L", "Finance and taxation", ["Taxation"], "Current tax expense", "795.10", "taxation"),
-      leaf("P/L", "Finance and taxation", ["Taxation"], "Deferred tax expense", "795.20", "taxation"),
-      leaf("P/L", "Finance and taxation", ["Taxation"], "Prior year tax under / over provision", "795.30", "taxation"),
-      leaf("P/L", "Finance and taxation", ["Taxation"], "Other taxation", "795.90", "taxation"),
+
+    folder("pl-finance-tax", "775 · Finance costs and taxation", [
+      folder("pl-finance-costs", "775 · Finance costs", [
+        leaf("P/L", "Finance and taxation", ["Finance costs"], "Interest paid - general", "775.10", "finance-costs"),
+        leaf("P/L", "Finance and taxation", ["Finance costs"], "Bank interest", "775.20", "finance-costs"),
+        leaf("P/L", "Finance and taxation", ["Finance costs"], "Lease / finance lease interest", "775.30", "finance-costs"),
+        leaf("P/L", "Finance and taxation", ["Finance costs"], "Loan / borrowing interest", "775.40", "finance-costs"),
+        leaf("P/L", "Finance and taxation", ["Finance costs"], "Unwinding of discount", "775.50", "finance-costs"),
+        leaf("P/L", "Finance and taxation", ["Finance costs"], "Other finance costs", "775.90", "finance-costs"),
+      ]),
+
+      folder("pl-taxation", "795 · Taxation", [
+        leaf("P/L", "Finance and taxation", ["Taxation"], "Current tax expense", "795.10", "taxation"),
+        leaf("P/L", "Finance and taxation", ["Taxation"], "Deferred tax expense / (income)", "795.20", "taxation"),
+        leaf("P/L", "Finance and taxation", ["Taxation"], "Prior year tax under / over provision", "795.30", "taxation"),
+        leaf("P/L", "Finance and taxation", ["Taxation"], "Other taxation", "795.90", "taxation"),
+      ]),
     ]),
-    folder("pl-other-performance", "780 · Other performance", [
+
+    folder("pl-other-performance", "780 · Other gains, losses and OCI", [
       leaf("P/L", "Other performance", ["Non-operating gains / losses"], "Gain / loss on disposal of assets", "780.10", "non-operating-gains-losses"),
       leaf("P/L", "Other performance", ["Non-operating gains / losses"], "Fair value gains / losses", "780.20", "non-operating-gains-losses"),
+      leaf("P/L", "Other performance", ["Non-operating gains / losses"], "Foreign exchange gains / losses", "780.30", "non-operating-gains-losses"),
+      leaf("P/L", "Other performance", ["Non-operating gains / losses"], "Impairment / reversal outside operating expenses", "780.40", "non-operating-gains-losses"),
       leaf("P/L", "Other performance", ["Non-operating expenses"], "Non-operating expenses", "781.10", "non-operating-expenses"),
-      leaf("P/L", "Other performance", ["Other comprehensive income"], "Other comprehensive income", "797.10", "other-comprehensive-income"),
-      leaf("P/L", "Other performance", ["Discontinued operations"], "Discontinued operations", "799.10", "discontinued-operations"),
+
+      folder("pl-oci", "797 · Other comprehensive income", [
+        leaf("P/L", "Other performance", ["Other comprehensive income"], "Other comprehensive income - general", "797.10", "other-comprehensive-income"),
+        leaf("P/L", "Other performance", ["Other comprehensive income"], "Revaluation surplus / (loss)", "797.20", "other-comprehensive-income"),
+        leaf("P/L", "Other performance", ["Other comprehensive income"], "Foreign currency translation differences", "797.30", "other-comprehensive-income"),
+        leaf("P/L", "Other performance", ["Other comprehensive income"], "Fair value / hedging reserve movement", "797.40", "other-comprehensive-income"),
+        leaf("P/L", "Other performance", ["Other comprehensive income"], "Remeasurement of defined benefit obligation", "797.50", "other-comprehensive-income"),
+      ]),
+
+      leaf("P/L", "Other performance", ["Discontinued operations"], "Discontinued operations (Full IFRS)", "799.10", "discontinued-operations"),
     ]),
   ]),
-  folder("other", "Other", [
+
+  folder("other", "Other / disclosure-only mappings", [
     leaf("Other", "Other", ["Related parties"], "Related party balances / disclosures", "850.10", "related-parties"),
     leaf("Other", "Other", ["Commitments and contingencies"], "Commitments and contingencies", "857.10", "commitments-contingencies"),
     leaf("Other", "Other", ["Statement of cash flows"], "Statement of cash flows", "880.10", "cash-flow"),
@@ -434,11 +748,41 @@ export default function MappingPanel({ trialBalanceLines, onTrialBalanceLinesCha
   const [accountFilter, setAccountFilter] = useState("Unmapped");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [entityKind, setEntityKind] = useState<EntityKind>("company");
 const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setLocalLines(trialBalanceLines);
   }, [trialBalanceLines]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEntityKind() {
+      if (!engagementId) return;
+
+      try {
+        const response = await fetch(
+          `/api/afs/engagements/${engagementId}/client-setup`,
+          { cache: "no-store" },
+        );
+        const result = await response.json();
+
+        if (!cancelled && response.ok) {
+          setEntityKind(normaliseEntityKind(result?.setup?.entity_type));
+        }
+      } catch {
+        // Presentation-only enhancement. Mapping behaviour must continue
+        // even if Client Setup cannot be loaded temporarily.
+      }
+    }
+
+    void loadEntityKind();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [engagementId]);
 
   const enrichedLines = useMemo(() => {
     return localLines.map((line, index) => ({
@@ -508,7 +852,10 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
     }
 
     setFinancialStatementLabel(
-      String(line.mapping_label || mappedLeaf?.label || "").trim()
+      displayMappingText(
+        String(line.mapping_label || mappedLeaf?.label || "").trim(),
+        entityKind,
+      ),
     );
   }
 
@@ -521,30 +868,20 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
         ? String(selectedLine.mapping_label || "").trim()
         : "";
 
-    setFinancialStatementLabel(existingLabel || mappingLeaf.label);
+    setFinancialStatementLabel(
+      displayMappingText(existingLabel || mappingLeaf.label, entityKind),
+    );
   }
 
   function toggleNode(id: string) {
     setOpenNodes((current) => ({ ...current, [id]: !current[id] }));
   }
 
-  function notifyMappingSignoffRefresh() {
-    window.dispatchEvent(
-      new CustomEvent("afs-signoff-refresh", {
-        detail: {
-          engagementId,
-          sectionKey: "mapping",
-        },
-      }),
-    );
-  }
-
-
   async function saveMapping(
     line: EnrichedLine,
     mappingLeaf: MappingLeaf,
     confidence = "Manual",
-    presentationLabel = mappingLeaf.label
+    presentationLabel = ""
   ) {
     if (!line.id && !line.account_code) {
       alert("This trial balance line does not have an ID or account number yet.");
@@ -554,6 +891,10 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
     try {
       setSaving(true);
       setMessage("");
+
+      const effectivePresentationLabel =
+        presentationLabel.trim() ||
+        displayMappingText(mappingLeaf.label, entityKind);
 
       const response = await fetch(
         `/api/afs/engagements/${engagementId}/trial-balance-line-mapping`,
@@ -567,9 +908,8 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
             account_code: line.account_code,
             mappingLeafId: mappingLeaf.id,
             mappingCategory: mappingLeaf.label,
-            mappingLabel: presentationLabel.trim() || mappingLeaf.label,
-            financialStatementLabel:
-              presentationLabel.trim() || mappingLeaf.label,
+            mappingLabel: effectivePresentationLabel,
+            financialStatementLabel: effectivePresentationLabel,
             mappingStatement: mappingLeaf.statement,
             mappingSection: mappingLeaf.section,
             mappingPath: [...mappingLeaf.path, mappingLeaf.label].join(" > "),
@@ -603,11 +943,16 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
       setSelectedLineKey(line.lineKey);
       setSelectedLeaf(mappingLeaf);
       setFinancialStatementLabel(
-        String(updatedLine.mapping_label || presentationLabel || mappingLeaf.label)
+        displayMappingText(
+          String(
+            updatedLine.mapping_label ||
+              effectivePresentationLabel ||
+              mappingLeaf.label,
+          ),
+          entityKind,
+        ),
       );
       setMessage("Mapping saved.");
-      notifyMappingSignoffRefresh();
-      await onDataChanged?.();
     } catch (error: any) {
       alert(error?.message || "Failed to save mapping.");
     } finally {
@@ -659,8 +1004,6 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
       });
       setSelectedLineKey(line.lineKey);
       setMessage("Mapping cleared.");
-      notifyMappingSignoffRefresh();
-      await onDataChanged?.();
     } catch (error: any) {
       alert(error?.message || "Failed to clear mapping.");
     } finally {
@@ -817,7 +1160,10 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
                             <span>
                               <strong>{line.mapping_code || "No code"}</strong>
                               <br />
-                              {line.mapping_label || "Mapped"}
+                              {displayMappingText(
+                                line.mapping_label || "Mapped",
+                                entityKind,
+                              )}
                               <br />
                               <small>
                                 {line.lead_schedule_number || ""} · {leadScheduleLabel(line.lead_schedule_key)}
@@ -832,7 +1178,10 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
                             <span>
                               <strong>{line.suggested.leaf.mappingCode}</strong>
                               <br />
-                              {line.suggested.leaf.label}
+                              {displayMappingText(
+                                line.suggested.leaf.label,
+                                entityKind,
+                              )}
                               <br />
                               <small>{line.suggested.reason}</small>
                             </span>
@@ -907,6 +1256,7 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
                 selectedLeaf={selectedLeaf}
                 setSelectedLeaf={selectMappingLeaf}
                 leafUsage={leafUsage}
+                entityKind={entityKind}
               />
             ))}
           </div>
@@ -929,7 +1279,12 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
           <span>Selected AFS mapping</span>
           <strong>
             {selectedLeaf
-              ? `${selectedLeaf.mappingCode} · ${selectedLeaf.path.join(" > ")} > ${selectedLeaf.label}`
+              ? `${selectedLeaf.mappingCode} · ${selectedLeaf.path
+                  .map((item) => displayMappingText(item, entityKind))
+                  .join(" > ")} > ${displayMappingText(
+                  selectedLeaf.label,
+                  entityKind,
+                )}`
               : "None selected"}
           </strong>
 
@@ -940,7 +1295,11 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
               style={styles.presentationLabelInput}
               value={financialStatementLabel}
               disabled={!selectedLeaf || saving}
-              placeholder={selectedLeaf?.label || "Select a mapping first"}
+              placeholder={
+                selectedLeaf
+                  ? displayMappingText(selectedLeaf.label, entityKind)
+                  : "Select a mapping first"
+              }
               onChange={(event) =>
                 setFinancialStatementLabel(event.target.value)
               }
@@ -972,6 +1331,7 @@ function TreeNode({
   selectedLeaf,
   setSelectedLeaf,
   leafUsage,
+  entityKind,
 }: {
   node: MappingNode;
   level: number;
@@ -980,6 +1340,7 @@ function TreeNode({
   selectedLeaf: MappingLeaf | null;
   setSelectedLeaf: (leaf: MappingLeaf) => void;
   leafUsage: Record<string, LeafUsage>;
+  entityKind: EntityKind;
 }) {
   const isOpen = Boolean(openNodes[node.id]);
   const isSelected = selectedLeaf?.id === node.leaf?.id;
@@ -1001,7 +1362,7 @@ function TreeNode({
         <span>
           <strong>{node.leaf.mappingCode}</strong>
           {" · "}
-          {node.label}
+          {displayMappingText(node.label, entityKind)}
           {usage ? (
             <small style={styles.usageText}>
               Used by {usage.count} account{usage.count === 1 ? "" : "s"} · {formatMoney(usage.total)}
@@ -1028,7 +1389,7 @@ function TreeNode({
         onClick={() => toggleNode(node.id)}
       >
         <span>{isOpen ? "−" : "+"}</span>
-        <strong>{node.label}</strong>
+        <strong>{displayMappingText(node.label, entityKind)}</strong>
       </button>
 
       {isOpen && node.children ? (
@@ -1043,6 +1404,7 @@ function TreeNode({
               selectedLeaf={selectedLeaf}
               setSelectedLeaf={setSelectedLeaf}
               leafUsage={leafUsage}
+              entityKind={entityKind}
             />
           ))}
         </div>
@@ -1132,8 +1494,13 @@ function findLeafByLabel(label: string) {
 }
 
 function suggestMapping(line: TrialBalanceLine): SuggestedMapping {
+  /*
+    IMPORTANT:
+    Suggestions may inspect the account description to help the preparer.
+    They NEVER classify the AFS themselves. Only the mapping code selected
+    and saved by the preparer drives statements, notes and lead schedules.
+  */
   const name = String(line.account_name || "").toLowerCase();
-  const code = String(line.account_code || "").toLowerCase();
   const balance = currentBalance(line);
 
   function high(mappingCode: string, reason: string): SuggestedMapping {
@@ -1152,8 +1519,30 @@ function suggestMapping(line: TrialBalanceLine): SuggestedMapping {
   if (name.includes("fines") || name.includes("penalties")) return high("750.24", "Fines / penalties detected.");
   if (name.includes("courier") || name.includes("postage")) return medium("750.27", "Courier / postage detected.");
   if (name.includes("printing") || name.includes("stationery")) return medium("750.26", "Printing / stationery detected.");
+
   if (name.includes("petty cash")) return high("420.40", "Petty cash detected.");
   if (name.includes("cash on hand")) return high("420.50", "Cash on hand detected.");
+
+  if (
+    name.includes("vehicle finance") ||
+    name.includes("asset finance") ||
+    name.includes("wesbank") ||
+    name.includes("mfc")
+  ) {
+    return medium(
+      balance < 0 ? "550.40" : "340.90",
+      "Vehicle / asset finance wording detected. Review legal agreement before assigning."
+    );
+  }
+
+  if (name.includes("mortgage") || name.includes("bond")) {
+    return medium(balance < 0 ? "550.30" : "340.90", "Mortgage / bond wording detected.");
+  }
+
+  if (name.includes("instalment sale") || name.includes("installment sale")) {
+    return medium(balance < 0 ? "550.50" : "340.90", "Instalment sale wording detected.");
+  }
+
   if (
     name.includes("nedbank") ||
     name.includes("absa") ||
@@ -1162,34 +1551,60 @@ function suggestMapping(line: TrialBalanceLine): SuggestedMapping {
     name.includes("capitec") ||
     (name.includes("bank") && !name.includes("charges") && !name.includes("interest"))
   ) {
-    return high(balance < 0 ? "620.10" : "420.10", "Bank account detected.");
+    return high(balance < 0 ? "620.10" : "420.10", "Bank account detected. Review whether a credit balance is a true overdraft or other financing.");
   }
+
   if (name.includes("vat")) return high(balance < 0 ? "690.10" : "490.10", "VAT control detected.");
-  if (name.includes("paye") || name.includes("uif") || name.includes("sdl")) return high(balance < 0 ? "690.20" : "490.20", "Payroll statutory control detected.");
-  if (name.includes("income tax") || name.includes("current tax")) return high(balance < 0 ? "695.10" : "495.10", "Income tax detected.");
-  if (name.includes("debtor") || name.includes("accounts receivable") || name.includes("trade receivable")) return high("430.10", "Receivable detected.");
-  if (name.includes("creditor") || name.includes("accounts payable") || name.includes("trade payable")) return high("630.10", "Payable detected.");
+  if (name.includes("paye") || name.includes("uif") || name.includes("sdl")) {
+    return high(balance < 0 ? "690.20" : "490.20", "Payroll statutory control detected.");
+  }
+  if (name.includes("income tax") || name.includes("current tax")) {
+    return high(balance < 0 ? "695.10" : "495.10", "Income tax detected.");
+  }
+
+  if (name.includes("debtor") || name.includes("accounts receivable") || name.includes("trade receivable")) {
+    return high("430.10", "Trade receivable detected.");
+  }
+  if (name.includes("creditor") || name.includes("accounts payable") || name.includes("trade payable")) {
+    return high("630.10", "Trade payable detected.");
+  }
   if (name.includes("accrual")) return high("630.20", "Accrual detected.");
   if (name.includes("inventory") || name.includes("stock")) return medium("405.90", "Inventory / stock detected.");
+
   if (name.includes("share premium")) return high("805.20", "Share premium detected.");
   if (name.includes("share capital") || name === "capital") return high("805.10", "Share capital / capital detected.");
   if (name.includes("retained income") || name.includes("accumulated loss")) return high("810.10", "Retained income detected.");
-  if (name.includes("sales") || name.includes("revenue") || name.includes("turnover")) return high("700.20", "Revenue detected.");
+
+  if (name.includes("sales") || name.includes("turnover")) return high("700.20", "Sales / turnover detected.");
+  if (name.includes("service income") || name.includes("service revenue")) return medium("700.30", "Service revenue detected.");
+  if (name.includes("rental income")) return medium("700.50", "Rental income detected.");
+  if (name.includes("commission income")) return medium("700.60", "Commission income detected.");
+  if (name.includes("franchise income")) return medium("700.70", "Franchise income detected.");
+  if (name.includes("subscription income")) return medium("700.80", "Subscription income detected.");
+  if (name.includes("revenue")) return medium("700.10", "Revenue detected.");
+
   if (name.includes("cost of sales")) return high("720.10", "Cost of sales detected.");
   if (name.includes("purchases")) return high("720.20", "Purchases detected.");
   if (name.includes("interest received")) return high("770.10", "Interest received detected.");
-  if (name.includes("interest paid") || name.includes("loan interest")) return high("775.10", "Interest paid detected.");
-  if (name.includes("loan") && balance >= 0) return medium("340.90", "Loan receivable detected.");
-  if (name.includes("loan") && balance < 0) return medium("548.10", "Loan payable detected.");
-  if (name.includes("motor vehicle")) return medium("305.40", "Motor vehicle detected.");
-  if (name.includes("office equipment") || name.includes("computer equipment")) return medium("305.50", "Office/computer equipment detected.");
+  if (name.includes("interest paid") || name.includes("loan interest")) return high("775.40", "Borrowing interest detected.");
+
+  if (name.includes("shareholder loan")) return medium(balance < 0 ? "548.20" : "340.20", "Shareholder loan wording detected.");
+  if (name.includes("director loan")) return medium(balance < 0 ? "548.30" : "340.20", "Director loan wording detected.");
+  if (name.includes("member loan")) return medium(balance < 0 ? "548.40" : "340.20", "Member loan wording detected.");
+
+  if (name.includes("loan") && balance >= 0) return low("340.90", "Loan receivable detected. Confirm counterparty and current/non-current classification.");
+  if (name.includes("loan") && balance < 0) return low("550.99", "Loan payable detected. Confirm lender, relationship, security and current/non-current classification.");
+
+  if (name.includes("motor vehicle")) return medium("305.60", "Motor vehicle asset detected.");
+  if (name.includes("office equipment")) return medium("305.70", "Office equipment detected.");
+  if (name.includes("computer equipment")) return medium("305.80", "Computer equipment detected.");
 
   const expense1 = findLeafByLabel("Other expenses 1");
-  if (expense1) {
-    return { leaf: expense1, confidence: "Low", reason: "Debit balance defaulted to Other expenses 1." };
+  if (expense1 && balance > 0) {
+    return { leaf: expense1, confidence: "Low", reason: "Debit balance requires preparer review." };
   }
 
-  return low("750.90", "Review manually.");
+  return low("750.90", "No reliable suggestion. Review manually.");
 }
 
 function leadScheduleLabel(value?: string | null) {

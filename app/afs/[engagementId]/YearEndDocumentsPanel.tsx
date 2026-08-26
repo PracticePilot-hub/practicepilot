@@ -13,6 +13,108 @@ const supabase =
 
 type DocumentStatus = "draft" | "prepared" | "signed";
 
+type TrustApprovalClauseKey =
+  | "completeness"
+  | "framework"
+  | "incomeExpenditure"
+  | "beneficiaryDistributions"
+  | "incomeCapitalAllocation"
+  | "goingConcern"
+  | "subsequentEvents"
+  | "trusteeRemuneration"
+  | "loansBorrowings"
+  | "investmentsAssets"
+  | "conflictsInterests"
+  | "trusteeChanges"
+  | "bankingAuthority"
+  | "otherMatters";
+
+const TRUST_APPROVAL_CLAUSES: Array<{
+  key: TrustApprovalClauseKey;
+  label: string;
+  help: string;
+}> = [
+  {
+    key: "completeness",
+    label: "Assets, liabilities and completeness",
+    help: "Confirms material balances and disclosures were considered.",
+  },
+  {
+    key: "framework",
+    label: "Reporting framework and trust deed",
+    help: "Approves the accounting basis subject to the trust deed.",
+  },
+  {
+    key: "incomeExpenditure",
+    label: "Income and expenditure",
+    help: "Approves income, expenditure and unsupported items where applicable.",
+  },
+  {
+    key: "beneficiaryDistributions",
+    label: "Beneficiary distributions / vestings",
+    help: "Approves or ratifies beneficiary benefits and allocations.",
+  },
+  {
+    key: "incomeCapitalAllocation",
+    label: "Income, losses and capital allocation",
+    help: "Covers revenue profits, losses, capital gains and retained amounts.",
+  },
+  {
+    key: "goingConcern",
+    label: "Going concern",
+    help: "Records the trustees' annual going-concern consideration.",
+  },
+  {
+    key: "subsequentEvents",
+    label: "Events after reporting date",
+    help: "Records consideration of adjusting and disclosure events.",
+  },
+  {
+    key: "trusteeRemuneration",
+    label: "Trustee remuneration / administration fees",
+    help: "Approves supported remuneration and administration charges.",
+  },
+  {
+    key: "loansBorrowings",
+    label: "Loans, borrowings, guarantees and security",
+    help: "Covers Trust funding, credit facilities and security arrangements.",
+  },
+  {
+    key: "investmentsAssets",
+    label: "Investments, acquisitions and disposals",
+    help: "Covers material changes in Trust property and investments.",
+  },
+  {
+    key: "conflictsInterests",
+    label: "Trustee interests and conflicts",
+    help: "Records related-party interests, conflicts and safeguards.",
+  },
+  {
+    key: "trusteeChanges",
+    label: "Trustee appointments / resignations / changes",
+    help: "Covers trustee changes, Master filings and Letters of Authority.",
+  },
+  {
+    key: "bankingAuthority",
+    label: "Banking and signing authority",
+    help: "Confirms banking mandates and document-signing arrangements.",
+  },
+  {
+    key: "otherMatters",
+    label: "Other material year-end matters",
+    help: "Captures any remaining matter requiring separate support or follow-up.",
+  },
+];
+
+const DEFAULT_TRUST_APPROVAL_CLAUSES: Record<TrustApprovalClauseKey, boolean> =
+  TRUST_APPROVAL_CLAUSES.reduce(
+    (result, clause) => {
+      result[clause.key] = true;
+      return result;
+    },
+    {} as Record<TrustApprovalClauseKey, boolean>,
+  );
+
 type TrialBalanceLine = {
   id?: string;
   account_code: string | null;
@@ -235,6 +337,10 @@ export default function YearEndDocumentsPanel({
   const [approvalPlace, setApprovalPlace] = useState("");
   const [approvalDate, setApprovalDate] = useState("");
   const [approvalSignatories, setApprovalSignatories] = useState<string[]>([]);
+  const [approvalClauses, setApprovalClauses] =
+    useState<Record<TrustApprovalClauseKey, boolean>>({
+      ...DEFAULT_TRUST_APPROVAL_CLAUSES,
+    });
   const [approvalStatus, setApprovalStatus] = useState<DocumentStatus>("draft");
   const [approvalSaving, setApprovalSaving] = useState(false);
   const [approvalMessage, setApprovalMessage] = useState("");
@@ -243,6 +349,10 @@ export default function YearEndDocumentsPanel({
   const [minutesDate, setMinutesDate] = useState("");
   const [minutesChairperson, setMinutesChairperson] = useState("");
   const [minutesAttendees, setMinutesAttendees] = useState<string[]>([]);
+  const [minutesClauses, setMinutesClauses] =
+    useState<Record<TrustApprovalClauseKey, boolean>>({
+      ...DEFAULT_TRUST_APPROVAL_CLAUSES,
+    });
   const [minutesStatus, setMinutesStatus] = useState<DocumentStatus>("draft");
   const [minutesSaving, setMinutesSaving] = useState(false);
   const [minutesMessage, setMinutesMessage] = useState("");
@@ -392,6 +502,24 @@ export default function YearEndDocumentsPanel({
           ? payload.signatories.map(String).filter(Boolean)
           : [],
       );
+      const savedClauses =
+        payload.enabledClauses && typeof payload.enabledClauses === "object"
+          ? payload.enabledClauses
+          : null;
+
+      setApprovalClauses(
+        TRUST_APPROVAL_CLAUSES.reduce(
+          (result, clause) => {
+            result[clause.key] =
+              savedClauses &&
+              Object.prototype.hasOwnProperty.call(savedClauses, clause.key)
+                ? Boolean(savedClauses[clause.key])
+                : true;
+            return result;
+          },
+          {} as Record<TrustApprovalClauseKey, boolean>,
+        ),
+      );
       setApprovalStatus(
         document.status === "signed"
           ? "signed"
@@ -426,6 +554,7 @@ export default function YearEndDocumentsPanel({
               place: approvalPlace.trim(),
               approvalDate,
               signatories: effectiveApprovalSignatories,
+              enabledClauses: approvalClauses,
             },
           }),
         },
@@ -505,6 +634,26 @@ export default function YearEndDocumentsPanel({
           ? payload.attendees.map(String).filter(Boolean)
           : [],
       );
+
+      const savedClauses =
+        payload.enabledClauses && typeof payload.enabledClauses === "object"
+          ? payload.enabledClauses
+          : null;
+
+      setMinutesClauses(
+        TRUST_APPROVAL_CLAUSES.reduce(
+          (result, clause) => {
+            result[clause.key] =
+              savedClauses &&
+              Object.prototype.hasOwnProperty.call(savedClauses, clause.key)
+                ? Boolean(savedClauses[clause.key])
+                : true;
+            return result;
+          },
+          {} as Record<TrustApprovalClauseKey, boolean>,
+        ),
+      );
+
       setMinutesStatus(
         document.status === "signed"
           ? "signed"
@@ -540,6 +689,7 @@ export default function YearEndDocumentsPanel({
               meetingDate: minutesDate,
               chairperson: effectiveMinutesChairperson,
               attendees: effectiveMinutesAttendees,
+              enabledClauses: minutesClauses,
             },
           }),
         },
@@ -860,7 +1010,10 @@ export default function YearEndDocumentsPanel({
             : approvalStatus === "prepared"
               ? "Prepared"
               : "Draft",
-        detail: "Adoption and approval of the annual financial statements and signing authority.",
+        detail:
+          entityKind === "trust"
+            ? "Comprehensive annual trustee resolution covering the financial statements, allocations, governance matters, authority and year-end decisions."
+            : "Adoption and approval of the annual financial statements and signing authority.",
       },
       {
         key: "annual-minutes" as DocumentKey,
@@ -993,7 +1146,11 @@ export default function YearEndDocumentsPanel({
             detail: document.detail,
           }))
         : []),
-    ],
+    ].filter(
+      (document) =>
+        entityKind !== "trust" ||
+        ["YD01", "YD02", "YD03"].includes(document.ref),
+    ),
     [
       entityKind,
       loanLines.length,
@@ -1071,6 +1228,7 @@ export default function YearEndDocumentsPanel({
             selectedSignatories={effectiveApprovalSignatories}
             approvalPlace={approvalPlace}
             approvalDate={approvalDate}
+            enabledClauses={approvalClauses}
             status={approvalStatus}
             saving={approvalSaving}
             message={approvalMessage}
@@ -1087,6 +1245,19 @@ export default function YearEndDocumentsPanel({
             onSignatoriesChange={(value) => {
               approvalChanged();
               setApprovalSignatories(value);
+            }}
+            onClauseChange={(key, checked) => {
+              approvalChanged();
+              setApprovalClauses((current) => ({
+                ...current,
+                [key]: checked,
+              }));
+            }}
+            onResetClauses={() => {
+              approvalChanged();
+              setApprovalClauses({
+                ...DEFAULT_TRUST_APPROVAL_CLAUSES,
+              });
             }}
             onSaveDraft={() => void saveApprovalDocument("draft")}
             onMarkPrepared={() => void saveApprovalDocument("prepared")}
@@ -1106,6 +1277,7 @@ export default function YearEndDocumentsPanel({
             chairperson={effectiveMinutesChairperson}
             meetingPlace={minutesPlace}
             meetingDate={minutesDate}
+            enabledClauses={minutesClauses}
             status={minutesStatus}
             saving={minutesSaving}
             message={minutesMessage}
@@ -1126,6 +1298,19 @@ export default function YearEndDocumentsPanel({
             onAttendeesChange={(value) => {
               minutesChanged();
               setMinutesAttendees(value);
+            }}
+            onClauseChange={(key, checked) => {
+              minutesChanged();
+              setMinutesClauses((current) => ({
+                ...current,
+                [key]: checked,
+              }));
+            }}
+            onResetClauses={() => {
+              minutesChanged();
+              setMinutesClauses({
+                ...DEFAULT_TRUST_APPROVAL_CLAUSES,
+              });
             }}
             onSaveDraft={() => void saveMinutesDocument("draft")}
             onMarkPrepared={() => void saveMinutesDocument("prepared")}
@@ -1305,6 +1490,7 @@ export default function YearEndDocumentsPanel({
                           {updateSubordinationSelection &&
                           saveSubordinationSelection ? (
                             <SingleSubordinationEditor
+                              engagementId={engagementId}
                               line={line}
                               lineIndex={index}
                               selection={selection}
@@ -1339,6 +1525,7 @@ export default function YearEndDocumentsPanel({
 
         {selectedDocument === "going-concern" && (
           <EditableResolutionDocument
+            engagementId={engagementId}
             refCode="YD05"
             title="Going Concern Resolution"
             displayName={displayName}
@@ -1393,6 +1580,7 @@ export default function YearEndDocumentsPanel({
         {selectedDocument === "distribution" &&
           (entityKind === "trust" ? (
             <TrustDistributionDocument
+              engagementId={engagementId}
               displayName={displayName}
               registrationNumber={registrationNumber}
               yearEnd={yearEnd}
@@ -1447,6 +1635,7 @@ export default function YearEndDocumentsPanel({
             />
           ) : (
             <EditableResolutionDocument
+              engagementId={engagementId}
               refCode="YD06"
               title={
                 entityKind === "cc"
@@ -1508,6 +1697,7 @@ export default function YearEndDocumentsPanel({
 
         {selectedDocument === "subsequent-events" && (
           <EditableResolutionDocument
+            engagementId={engagementId}
             refCode="YD07"
             title="Events After Reporting Date Resolution"
             displayName={displayName}
@@ -1567,6 +1757,7 @@ export default function YearEndDocumentsPanel({
 
         {selectedDocument === "other" && (
           <EditableResolutionDocument
+            engagementId={engagementId}
             refCode="YD08"
             title={
               otherTitle ||
@@ -1645,6 +1836,7 @@ export default function YearEndDocumentsPanel({
               return (
                 <div key={config.key}>
                   <EditableResolutionDocument
+                  engagementId={engagementId}
                   refCode={config.ref}
                   title={config.title}
                   displayName={displayName}
@@ -1710,6 +1902,7 @@ function ApprovalDocument({
   selectedSignatories,
   approvalPlace,
   approvalDate,
+  enabledClauses,
   status,
   saving,
   message,
@@ -1718,6 +1911,8 @@ function ApprovalDocument({
   onPlaceChange,
   onDateChange,
   onSignatoriesChange,
+  onClauseChange,
+  onResetClauses,
   onSaveDraft,
   onMarkPrepared,
   onMarkSigned,
@@ -1732,6 +1927,7 @@ function ApprovalDocument({
   selectedSignatories: string[];
   approvalPlace: string;
   approvalDate: string;
+  enabledClauses: Record<TrustApprovalClauseKey, boolean>;
   status: DocumentStatus;
   saving: boolean;
   message: string;
@@ -1740,6 +1936,8 @@ function ApprovalDocument({
   onPlaceChange: (value: string) => void;
   onDateChange: (value: string) => void;
   onSignatoriesChange: (value: string[]) => void;
+  onClauseChange: (key: TrustApprovalClauseKey, checked: boolean) => void;
+  onResetClauses: () => void;
   onSaveDraft: () => void;
   onMarkPrepared: () => void;
   onMarkSigned: () => void;
@@ -1757,76 +1955,182 @@ function ApprovalDocument({
   function printDocument() {
     const node = document.getElementById(documentId);
     if (!node) return;
-
-    const printWindow = window.open("", "_blank", "width=900,height=1000");
-    if (!printWindow) return;
-
-    printWindow.document.write(`
-      <!doctype html>
-      <html>
-        <head>
-          <title>${escapeHtml(displayName)} - AFS Approval Resolution</title>
-          <meta charset="utf-8" />
-          <style>
-            body {
-              font-family: Arial, Helvetica, sans-serif;
-              color: #111827;
-              margin: 0;
-              padding: 32px;
-              font-size: 12px;
-              line-height: 1.55;
-            }
-            .document {
-              max-width: 760px;
-              margin: 0 auto;
-              padding-bottom: 18mm;
-            }
-            h1 { font-size: 18px; margin: 0 0 4px; }
-            h2 { font-size: 14px; margin: 24px 0 10px; }
-            p { margin: 8px 0; }
-            ol { padding-left: 22px; }
-            li { margin: 8px 0; }
-            .identity { margin-bottom: 24px; }
-            .identity strong, .identity span { display: block; margin: 2px 0; }
-            .signature-grid {
-              display: grid;
-              grid-template-columns: repeat(2, minmax(0, 1fr));
-              gap: 34px;
-              margin-top: 54px;
-            }
-            .signature { break-inside: avoid; }
-            .line { margin-bottom: 5px; }
-            .meta {
-              position: fixed;
-              left: 18mm;
-              right: 18mm;
-              bottom: 8mm;
-              margin: 0;
-              padding-top: 6px;
-              border-top: 1px solid #e5e7eb;
-              font-size: 9px;
-              color: #6b7280;
-              background: #ffffff;
-              display: flex;
-              justify-content: space-between;
-              gap: 20px;
-            }
-            @page { size: A4; margin: 18mm; }
-          </style>
-        </head>
-        <body>
-          <div class="document">${node.innerHTML}</div>
-          <script>
-            window.onload = () => {
-              window.print();
-              window.onafterprint = () => window.close();
-            };
-          </script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+    printDocumentNode(
+      node,
+      entityKind === "trust"
+        ? `${displayName} - YD01 - Comprehensive Annual Trustees Resolution`
+        : `${displayName} - YD01 - AFS Approval Resolution`,
+    );
   }
+
+  function downloadDocument() {
+    const node = document.getElementById(documentId);
+    if (!node) return;
+    void downloadNodePdf(
+      node,
+      entityKind === "trust"
+        ? `${displayName} - YD01 - Comprehensive Annual Trustees Resolution`
+        : `${displayName} - YD01 - AFS Approval Resolution`,
+      engagementId,
+    );
+  }
+
+  const trustPreviewItems: React.ReactNode[] =
+    entityKind === "trust"
+      ? [
+          <li key="afs-approval" style={styles.resolutionClause}>
+            the annual financial statements of {displayName} for the year ended{" "}
+            {formatDate(yearEnd)} be adopted and approved;
+          </li>,
+
+          enabledClauses.completeness ? (
+            <li key="completeness" style={styles.resolutionClause}>
+              the trustees confirm that, to the best of their knowledge and having
+              considered the accounting records and supporting information available to
+              them, all material assets, liabilities, income, expenditure and other
+              balances of the Trust have been appropriately recognised, measured,
+              presented and disclosed in the annual financial statements;
+            </li>
+          ) : null,
+
+          enabledClauses.framework ? (
+            framework ? (
+              <li key="framework" style={styles.resolutionClause}>
+                the annual financial statements have been prepared in accordance with{" "}
+                {framework}, read together with the accounting policies adopted by the
+                trustees and the provisions of the trust deed;
+              </li>
+            ) : (
+              <li key="framework">
+                the accounting policies and basis of preparation applied in the annual
+                financial statements be approved, subject to the provisions of the trust
+                deed and the applicable financial reporting framework;
+              </li>
+            )
+          ) : null,
+
+          enabledClauses.incomeExpenditure ? (
+            <li key="income-expenditure" style={styles.resolutionClause}>
+              the income and expenditure reflected in the annual financial statements
+              for the year under review be approved and ratified, and any expenditure
+              for which normal source documentation is unavailable, where applicable, be
+              specifically considered by the trustees and retained in the year-end file
+              with the available supporting explanation or evidence;
+            </li>
+          ) : null,
+
+          enabledClauses.beneficiaryDistributions ? (
+            <li key="beneficiary-distributions" style={styles.resolutionClause}>
+              all distributions, vestings, benefits and allocations made or proposed to
+              beneficiaries during or in respect of the year under review be approved or
+              ratified, where applicable, subject to the trust deed, the accounting
+              records and any separate beneficiary distribution or vesting resolution;
+            </li>
+          ) : null,
+
+          enabledClauses.incomeCapitalAllocation ? (
+            <li key="income-capital-allocation" style={styles.resolutionClause}>
+              the treatment and allocation of income, revenue profits, losses, capital
+              gains and capital profits for the year be approved, and any amount not
+              vested in or distributed to a beneficiary be retained or accumulated as
+              part of the Trust property in accordance with the trust deed;
+            </li>
+          ) : null,
+
+          enabledClauses.goingConcern ? (
+            <li key="going-concern" style={styles.resolutionClause}>
+              the trustees have considered the Trust&apos;s ability to continue as a going
+              concern and, unless separately resolved otherwise, are satisfied that the
+              going-concern basis remains appropriate for the preparation of the annual
+              financial statements;
+            </li>
+          ) : null,
+
+          enabledClauses.subsequentEvents ? (
+            <li key="subsequent-events" style={styles.resolutionClause}>
+              events and circumstances arising after the reporting date and up to the
+              date on which the annual financial statements are approved have been
+              considered, and any matter requiring adjustment or disclosure has been
+              appropriately dealt with in the annual financial statements or in a
+              separate resolution where necessary;
+            </li>
+          ) : null,
+
+          enabledClauses.trusteeRemuneration ? (
+            <li key="trustee-remuneration" style={styles.resolutionClause}>
+              trustee remuneration, administration fees and similar charges recorded or
+              payable for the year, where applicable, be approved only to the extent
+              permitted by the trust deed, properly supported and appropriately recorded
+              in the accounting records;
+            </li>
+          ) : null,
+
+          enabledClauses.loansBorrowings ? (
+            <li key="loans-borrowings" style={styles.resolutionClause}>
+              all material loans, advances, borrowings, credit facilities, guarantees,
+              security arrangements and related-party funding involving the Trust during
+              or at the end of the year be approved or ratified where applicable,
+              subject to the trust deed and the detailed terms being supported in the
+              Trust records;
+            </li>
+          ) : null,
+
+          enabledClauses.investmentsAssets ? (
+            <li key="investments-assets" style={styles.resolutionClause}>
+              all material acquisitions, disposals, investments and changes in the
+              composition of the Trust property during the year be approved or ratified
+              where they fall within the powers of the trustees under the trust deed and
+              are supported by the relevant records;
+            </li>
+          ) : null,
+
+          enabledClauses.conflictsInterests ? (
+            <li key="conflicts-interests" style={styles.resolutionClause}>
+              the trustees have considered their interests, related-party relationships
+              and any actual or potential conflicts arising in connection with the
+              affairs of the Trust, and any required disclosure, abstention, independent
+              approval or other safeguard be recorded and applied in accordance with the
+              trust deed and applicable law;
+            </li>
+          ) : null,
+
+          enabledClauses.trusteeChanges ? (
+            <li key="trustee-changes" style={styles.resolutionClause}>
+              all trustee appointments, resignations, vacancies, replacements or other
+              changes during or after the year under review, where applicable, be noted
+              and the Trust records, Master of the High Court filings and Letters of
+              Authority be updated or followed up as required;
+            </li>
+          ) : null,
+
+          enabledClauses.bankingAuthority ? (
+            <li key="banking-authority" style={styles.resolutionClause}>
+              the Trust&apos;s banking mandates, account authorities and document-signing
+              arrangements be confirmed or approved, and any changes thereto be
+              documented in a separate banking or signing-authority resolution where
+              required;
+            </li>
+          ) : null,
+
+          enabledClauses.otherMatters ? (
+            <li key="other-matters" style={styles.resolutionClause}>
+              all other material matters arising from the annual financial statements or
+              the administration of the Trust requiring separate approval, support,
+              disclosure or follow-up be dealt with in the relevant supporting
+              resolution, minute, certificate or working paper and retained as part of
+              the year-end file;
+            </li>
+          ) : null,
+
+          <li key="authority-sign-issue" style={styles.resolutionClause}>
+            the annual financial statements be signed on behalf of the trustees by the
+            authorised trustee or trustees appearing below, and the annual financial
+            statements may thereafter be issued once the required signatures and
+            approvals have been applied.
+          </li>,
+        ].filter(Boolean)
+      : [];
+
 
   return (
     <div style={styles.documentWorkspace}>
@@ -1834,7 +2138,9 @@ function ApprovalDocument({
         <div>
           <strong>YD01 · {approvalTitle(entityKind)}</strong>
           <span>
-            Complete the approval details, select the signatories and print the final resolution.
+            {entityKind === "trust"
+              ? "Complete the annual trustee approval details, select the signatories, then print or download the comprehensive resolution."
+              : "Complete the approval details, select the signatories and download the final resolution."}
           </span>
         </div>
         <div style={styles.documentActions}>
@@ -1880,8 +2186,11 @@ function ApprovalDocument({
             Mark Signed
           </button>
 
-          <button type="button" style={styles.printButton} onClick={printDocument}>
-            Print / Save PDF
+          <button type="button" style={styles.secondaryActionButton} onClick={printDocument}>
+            Print
+          </button>
+          <button type="button" style={styles.printButton} onClick={downloadDocument}>
+            Download PDF
           </button>
         </div>
       </div>
@@ -1938,16 +2247,157 @@ function ApprovalDocument({
         </div>
       </div>
 
-      <article id={documentId} style={styles.paper}>
-        <div className="identity">
-          <div style={styles.identity}>
+      <div
+        style={
+          entityKind === "trust"
+            ? styles.trustApprovalWorkspace
+            : styles.standardApprovalWorkspace
+        }
+      >
+        {entityKind === "trust" ? (
+          <aside style={styles.trustApprovalChecklist}>
+            <div style={styles.trustChecklistHeader}>
+              <div>
+                <strong>Annual matters included</strong>
+                <span>
+                  All are included by default. Switch off only matters that are not
+                  relevant to this Trust for the year.
+                </span>
+              </div>
+
+              <button
+                type="button"
+                style={styles.smallResetButton}
+                onClick={onResetClauses}
+              >
+                All on
+              </button>
+            </div>
+
+            <div style={styles.trustChecklistCore}>
+              <span style={styles.trustMandatoryBadge}>Required</span>
+              <div>
+                <strong>AFS adoption and approval</strong>
+                <span>Always included.</span>
+              </div>
+            </div>
+
+            {TRUST_APPROVAL_CLAUSES.map((clause) => (
+              <label key={clause.key} style={styles.trustChecklistRow}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(enabledClauses[clause.key])}
+                  onChange={(event) =>
+                    onClauseChange(clause.key, event.target.checked)
+                  }
+                />
+                <span>
+                  <strong>{clause.label}</strong>
+                  <small>{clause.help}</small>
+                </span>
+              </label>
+            ))}
+
+            <div style={styles.trustChecklistCore}>
+              <span style={styles.trustMandatoryBadge}>Required</span>
+              <div>
+                <strong>Authority to sign and issue</strong>
+                <span>Always included.</span>
+              </div>
+            </div>
+          </aside>
+        ) : null}
+
+        <div
+          style={
+            entityKind === "trust"
+              ? styles.liveDocumentPreview
+              : styles.standardDocumentPreview
+          }
+        >
+          {entityKind === "trust" ? (
+            <>
+              <div style={styles.livePreviewHeading}>
+                <strong>Live document preview</strong>
+                <span>
+                  The downloaded PDF uses this content with the final A4 export layout.
+                </span>
+              </div>
+
+              <div style={styles.previewContinuousShell}>
+                <section style={styles.previewContinuousPage}>
+                  <div style={styles.previewPageContent}>
+                    <div style={styles.identity}>
+                      <strong>{displayName}</strong>
+                      {registrationNumber ? (
+                        <span>Registration No. {registrationNumber}</span>
+                      ) : null}
+                      <span>
+                        Annual financial statements for the year ended{" "}
+                        {formatDate(yearEnd)}
+                      </span>
+                    </div>
+
+                    <h1 style={styles.documentMainTitle}>
+                      {approvalTitle(entityKind)}
+                    </h1>
+
+                    <p style={styles.bodyText}>
+                      {approvalPlace || approvalDate ? (
+                        <>
+                          Adopted at {approvalPlace || "________________"} on{" "}
+                          {approvalDate
+                            ? formatDate(approvalDate)
+                            : "________________"}.
+                        </>
+                      ) : (
+                        <>Adopted at __________________ on __________________.</>
+                      )}
+                    </p>
+
+                    <h2 style={styles.documentHeading}>It was resolved that:</h2>
+
+                    <ul style={styles.documentList}>
+                      {trustPreviewItems}
+                    </ul>
+
+                    <div
+                      className="signature-grid"
+                      style={styles.previewSignatureArea}
+                    >
+                      <SignatureBlock
+                        names={selectedSignatories}
+                        fallbackLabel={signatureFallbackLabel(entityKind)}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={styles.previewPageFooter}>
+                    <span>
+                      Prepared as part of {practiceName}&apos;s year-end working file.
+                    </span>
+                    {!whiteLabel ? <span>Powered by PracticePilot</span> : null}
+                  </div>
+                </section>
+              </div>
+            </>
+          ) : null}
+
+          <div
+            style={
+              entityKind === "trust"
+                ? styles.hiddenExportSource
+                : styles.visibleDocumentSource
+            }
+          >
+            <article id={documentId} style={styles.paper}>
+            <div className="identity" style={styles.identity}>
             <strong>{displayName}</strong>
             {registrationNumber ? <span>Registration No. {registrationNumber}</span> : null}
             <span>Annual financial statements for the year ended {formatDate(yearEnd)}</span>
-          </div>
-        </div>
+            </div>
 
-        <h1 style={styles.documentMainTitle}>{approvalTitle(entityKind)}</h1>
+            <h1 style={styles.documentMainTitle}>{approvalTitle(entityKind)}</h1>
 
         <p style={styles.bodyText}>
           {approvalPlace || approvalDate ? (
@@ -1962,44 +2412,192 @@ function ApprovalDocument({
 
         <h2 style={styles.documentHeading}>It was resolved that:</h2>
 
-        <ol style={styles.documentList}>
-          <li>
-            the annual financial statements of {displayName} for the year ended{" "}
-            {formatDate(yearEnd)} be adopted and approved;
-          </li>
-          <li>
-            the {responsiblePlural(entityKind)} confirm that, to the best of their
-            knowledge, all material assets and liabilities of the entity have been
-            appropriately included in the annual financial statements;
-          </li>
-          {framework ? (
-            <li>
-              the annual financial statements have been prepared in accordance with{" "}
-              {framework};
+        {entityKind === "trust" ? (
+          <ul style={styles.documentList}>
+            <li style={styles.resolutionClause}>
+              the annual financial statements of {displayName} for the year ended{" "}
+              {formatDate(yearEnd)} be adopted and approved;
             </li>
-          ) : null}
-          <li>
-            the income and expenditure reflected in the annual financial statements,
-            together with material matters arising from the accounts for the year under
-            review, be approved;
-          </li>
-          {entityKind === "trust" ? (
+
+            {enabledClauses.completeness ? (
+              <li style={styles.resolutionClause}>
+                the trustees confirm that, to the best of their knowledge and having
+                considered the accounting records and supporting information available to
+                them, all material assets, liabilities, income, expenditure and other
+                balances of the Trust have been appropriately recognised, measured,
+                presented and disclosed in the annual financial statements;
+              </li>
+            ) : null}
+
+            {enabledClauses.framework ? (
+              framework ? (
+                <li style={styles.resolutionClause}>
+                  the annual financial statements have been prepared in accordance with{" "}
+                  {framework}, read together with the accounting policies adopted by the
+                  trustees and the provisions of the trust deed;
+                </li>
+              ) : (
+                <li style={styles.resolutionClause}>
+                  the accounting policies and basis of preparation applied in the annual
+                  financial statements be approved, subject to the provisions of the trust
+                  deed and the applicable financial reporting framework;
+                </li>
+              )
+            ) : null}
+
+            {enabledClauses.incomeExpenditure ? (
+              <li style={styles.resolutionClause}>
+                the income and expenditure reflected in the annual financial statements
+                for the year under review be approved and ratified, and any expenditure
+                for which normal source documentation is unavailable, where applicable, be
+                specifically considered by the trustees and retained in the year-end file
+                with the available supporting explanation or evidence;
+              </li>
+            ) : null}
+
+            {enabledClauses.beneficiaryDistributions ? (
+              <li style={styles.resolutionClause}>
+                all distributions, vestings, benefits and allocations made or proposed to
+                beneficiaries during or in respect of the year under review be approved or
+                ratified, where applicable, subject to the trust deed, the accounting
+                records and any separate beneficiary distribution or vesting resolution;
+              </li>
+            ) : null}
+
+            {enabledClauses.incomeCapitalAllocation ? (
+              <li style={styles.resolutionClause}>
+                the treatment and allocation of income, revenue profits, losses, capital
+                gains and capital profits for the year be approved, and any amount not
+                vested in or distributed to a beneficiary be retained or accumulated as
+                part of the Trust property in accordance with the trust deed;
+              </li>
+            ) : null}
+
+            {enabledClauses.goingConcern ? (
+              <li style={styles.resolutionClause}>
+                the trustees have considered the Trust&apos;s ability to continue as a going
+                concern and, unless separately resolved otherwise, are satisfied that the
+                going-concern basis remains appropriate for the preparation of the annual
+                financial statements;
+              </li>
+            ) : null}
+
+            {enabledClauses.subsequentEvents ? (
+              <li style={styles.resolutionClause}>
+                events and circumstances arising after the reporting date and up to the
+                date on which the annual financial statements are approved have been
+                considered, and any matter requiring adjustment or disclosure has been
+                appropriately dealt with in the annual financial statements or in a
+                separate resolution where necessary;
+              </li>
+            ) : null}
+
+            {enabledClauses.trusteeRemuneration ? (
+              <li style={styles.resolutionClause}>
+                trustee remuneration, administration fees and similar charges recorded or
+                payable for the year, where applicable, be approved only to the extent
+                permitted by the trust deed, properly supported and appropriately recorded
+                in the accounting records;
+              </li>
+            ) : null}
+
+            {enabledClauses.loansBorrowings ? (
+              <li style={styles.resolutionClause}>
+                all material loans, advances, borrowings, credit facilities, guarantees,
+                security arrangements and related-party funding involving the Trust during
+                or at the end of the year be approved or ratified where applicable,
+                subject to the trust deed and the detailed terms being supported in the
+                Trust records;
+              </li>
+            ) : null}
+
+            {enabledClauses.investmentsAssets ? (
+              <li style={styles.resolutionClause}>
+                all material acquisitions, disposals, investments and changes in the
+                composition of the Trust property during the year be approved or ratified
+                where they fall within the powers of the trustees under the trust deed and
+                are supported by the relevant records;
+              </li>
+            ) : null}
+
+            {enabledClauses.conflictsInterests ? (
+              <li style={styles.resolutionClause}>
+                the trustees have considered their interests, related-party relationships
+                and any actual or potential conflicts arising in connection with the
+                affairs of the Trust, and any required disclosure, abstention, independent
+                approval or other safeguard be recorded and applied in accordance with the
+                trust deed and applicable law;
+              </li>
+            ) : null}
+
+            {enabledClauses.trusteeChanges ? (
+              <li style={styles.resolutionClause}>
+                all trustee appointments, resignations, vacancies, replacements or other
+                changes during or after the year under review, where applicable, be noted
+                and the Trust records, Master of the High Court filings and Letters of
+                Authority be updated or followed up as required;
+              </li>
+            ) : null}
+
+            {enabledClauses.bankingAuthority ? (
+              <li style={styles.resolutionClause}>
+                the Trust&apos;s banking mandates, account authorities and document-signing
+                arrangements be confirmed or approved, and any changes thereto be
+                documented in a separate banking or signing-authority resolution where
+                required;
+              </li>
+            ) : null}
+
+            {enabledClauses.otherMatters ? (
+              <li style={styles.resolutionClause}>
+                all other material matters arising from the annual financial statements or
+                the administration of the Trust requiring separate approval, support,
+                disclosure or follow-up be dealt with in the relevant supporting
+                resolution, minute, certificate or working paper and retained as part of
+                the year-end file;
+              </li>
+            ) : null}
+
             <li>
-              distributions provided for in the annual financial statements, where
-              applicable, be approved subject to the terms of the trust deed and any
-              separate distribution resolution;
+              the annual financial statements be signed on behalf of the trustees by the
+              authorised trustee or trustees appearing below, and the annual financial
+              statements may thereafter be issued once the required signatures and
+              approvals have been applied.
             </li>
-          ) : null}
-          <li>
-            the annual financial statements be signed on behalf of the{" "}
-            {governingBody(entityKind)} by the authorised signatory or signatories
-            appearing below; and
-          </li>
-          <li>
-            the annual financial statements may be issued once the required signatures
-            have been applied.
-          </li>
-        </ol>
+          </ul>
+        ) : (
+          <ol style={styles.documentList}>
+            <li>
+              the annual financial statements of {displayName} for the year ended{" "}
+              {formatDate(yearEnd)} be adopted and approved;
+            </li>
+            <li>
+              the {responsiblePlural(entityKind)} confirm that, to the best of their
+              knowledge, all material assets and liabilities of the entity have been
+              appropriately included in the annual financial statements;
+            </li>
+            {framework ? (
+              <li>
+                the annual financial statements have been prepared in accordance with{" "}
+                {framework};
+              </li>
+            ) : null}
+            <li>
+              the income and expenditure reflected in the annual financial statements,
+              together with material matters arising from the accounts for the year under
+              review, be approved;
+            </li>
+            <li>
+              the annual financial statements be signed on behalf of the{" "}
+              {governingBody(entityKind)} by the authorised signatory or signatories
+              appearing below; and
+            </li>
+            <li>
+              the annual financial statements may be issued once the required signatures
+              have been applied.
+            </li>
+          </ol>
+        )}
 
         <div className="signature-grid">
           <SignatureBlock names={selectedSignatories} fallbackLabel={signatureFallbackLabel(entityKind)} />
@@ -2009,7 +2607,11 @@ function ApprovalDocument({
           <span>Prepared as part of {practiceName}&apos;s year-end working file.</span>
           {!whiteLabel ? <span>Powered by PracticePilot</span> : null}
         </div>
-      </article>
+
+          </article>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2025,6 +2627,7 @@ function MinutesDocument({
   chairperson,
   meetingPlace,
   meetingDate,
+  enabledClauses,
   status,
   saving,
   message,
@@ -2034,6 +2637,8 @@ function MinutesDocument({
   onDateChange,
   onChairpersonChange,
   onAttendeesChange,
+  onClauseChange,
+  onResetClauses,
   onSaveDraft,
   onMarkPrepared,
   onMarkSigned,
@@ -2048,6 +2653,7 @@ function MinutesDocument({
   chairperson: string;
   meetingPlace: string;
   meetingDate: string;
+  enabledClauses: Record<TrustApprovalClauseKey, boolean>;
   status: DocumentStatus;
   saving: boolean;
   message: string;
@@ -2057,6 +2663,8 @@ function MinutesDocument({
   onDateChange: (value: string) => void;
   onChairpersonChange: (value: string) => void;
   onAttendeesChange: (value: string[]) => void;
+  onClauseChange: (key: TrustApprovalClauseKey, checked: boolean) => void;
+  onResetClauses: () => void;
   onSaveDraft: () => void;
   onMarkPrepared: () => void;
   onMarkSigned: () => void;
@@ -2074,75 +2682,324 @@ function MinutesDocument({
   function printDocument() {
     const node = document.getElementById(documentId);
     if (!node) return;
-
-    const printWindow = window.open("", "_blank", "width=900,height=1000");
-    if (!printWindow) return;
-
-    printWindow.document.write(`
-      <!doctype html>
-      <html>
-        <head>
-          <title>${escapeHtml(displayName)} - Annual Meeting Minutes</title>
-          <meta charset="utf-8" />
-          <style>
-            body {
-              font-family: Arial, Helvetica, sans-serif;
-              color: #111827;
-              margin: 0;
-              padding: 32px;
-              font-size: 12px;
-              line-height: 1.55;
-            }
-            .document {
-              max-width: 760px;
-              margin: 0 auto;
-              padding-bottom: 18mm;
-            }
-            h1 { font-size: 18px; margin: 0 0 8px; }
-            h2 { font-size: 13px; margin: 20px 0 7px; }
-            p { margin: 7px 0; }
-            ul { padding-left: 20px; }
-            li { margin: 5px 0; }
-            .identity { margin-bottom: 22px; }
-            .identity strong, .identity span { display: block; margin: 2px 0; }
-            .attendance { margin: 12px 0 20px; }
-            .signature-grid {
-              display: grid;
-              grid-template-columns: repeat(2, minmax(0, 1fr));
-              gap: 34px;
-              margin-top: 46px;
-            }
-            .meta {
-              position: fixed;
-              left: 18mm;
-              right: 18mm;
-              bottom: 8mm;
-              margin: 0;
-              padding-top: 6px;
-              border-top: 1px solid #e5e7eb;
-              font-size: 9px;
-              color: #6b7280;
-              background: #ffffff;
-              display: flex;
-              justify-content: space-between;
-              gap: 20px;
-            }
-            @page { size: A4; margin: 18mm; }
-          </style>
-        </head>
-        <body>
-          <div class="document">${node.innerHTML}</div>
-          <script>
-            window.onload = () => {
-              window.print();
-              window.onafterprint = () => window.close();
-            };
-          </script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+    printDocumentNode(
+      node,
+      entityKind === "trust"
+        ? `${displayName} - YD02 - Comprehensive Annual Trustees Meeting Minutes`
+        : `${displayName} - YD02 - Annual Meeting Minutes`,
+    );
   }
+
+  function downloadDocument() {
+    const node = document.getElementById(documentId);
+    if (!node) return;
+    void downloadNodePdf(
+      node,
+      entityKind === "trust"
+        ? `${displayName} - YD02 - Comprehensive Annual Trustees Meeting Minutes`
+        : `${displayName} - YD02 - Annual Meeting Minutes`,
+      engagementId,
+    );
+  }
+
+  const trustMinuteItems: React.ReactNode[] = [
+    <li key="afs" style={styles.resolutionClause}>
+      the annual financial statements of {displayName} for the year ended{" "}
+      {formatDate(yearEnd)} were laid before the meeting, considered and approved for
+      issue subject to the required signatures;
+    </li>,
+
+    enabledClauses.completeness ? (
+      <li key="completeness" style={styles.resolutionClause}>
+        the trustees considered the accounting records and supporting information and
+        confirmed that, to the best of their knowledge, all material assets,
+        liabilities, income, expenditure and other balances were appropriately
+        reflected and disclosed in the annual financial statements;
+      </li>
+    ) : null,
+
+    enabledClauses.framework ? (
+      <li key="framework" style={styles.resolutionClause}>
+        the accounting policies, applicable financial reporting framework and the
+        provisions of the trust deed relevant to the annual financial statements were
+        considered and approved;
+      </li>
+    ) : null,
+
+    enabledClauses.incomeExpenditure ? (
+      <li key="income" style={styles.resolutionClause}>
+        the income and expenditure for the year were considered and approved. Where
+        normal source documentation was unavailable for a material item, the available
+        explanation or supporting evidence was considered and is to be retained in the
+        year-end file;
+      </li>
+    ) : null,
+
+    enabledClauses.beneficiaryDistributions ? (
+      <li key="distributions" style={styles.resolutionClause}>
+        distributions, vestings, benefits and allocations made or proposed to
+        beneficiaries were considered and, where applicable, approved or ratified
+        subject to the trust deed, the accounting records and any separate beneficiary
+        distribution or vesting resolution;
+      </li>
+    ) : null,
+
+    enabledClauses.incomeCapitalAllocation ? (
+      <li key="allocation" style={styles.resolutionClause}>
+        the annual treatment of income, revenue profits, losses, capital gains and
+        capital profits was considered, including whether amounts were vested,
+        distributed, retained or accumulated as part of the Trust property;
+      </li>
+    ) : null,
+
+    enabledClauses.goingConcern ? (
+      <li key="going-concern" style={styles.resolutionClause}>
+        the trustees considered the Trust&apos;s ability to continue as a going concern
+        and, unless separately resolved otherwise, concluded that the going-concern
+        basis remains appropriate;
+      </li>
+    ) : null,
+
+    enabledClauses.subsequentEvents ? (
+      <li key="subsequent-events" style={styles.resolutionClause}>
+        events and circumstances arising after the reporting date and up to the date of
+        approval of the annual financial statements were considered, and matters
+        requiring adjustment, disclosure or separate approval were dealt with
+        accordingly;
+      </li>
+    ) : null,
+
+    enabledClauses.trusteeRemuneration ? (
+      <li key="remuneration" style={styles.resolutionClause}>
+        trustee remuneration, administration fees and similar charges for the year,
+        where applicable, were considered and approved to the extent permitted by the
+        trust deed and supported by the accounting records;
+      </li>
+    ) : null,
+
+    enabledClauses.loansBorrowings ? (
+      <li key="loans" style={styles.resolutionClause}>
+        material loans, advances, borrowings, credit facilities, guarantees, security
+        arrangements and related-party funding involving the Trust were considered,
+        and any matter requiring detailed approval or support was referred to the
+        relevant supporting resolution or agreement;
+      </li>
+    ) : null,
+
+    enabledClauses.investmentsAssets ? (
+      <li key="investments" style={styles.resolutionClause}>
+        material acquisitions, disposals, investments and changes in the composition of
+        the Trust property during the year were considered and, where applicable,
+        approved or ratified within the powers of the trustees under the trust deed;
+      </li>
+    ) : null,
+
+    enabledClauses.conflictsInterests ? (
+      <li key="conflicts" style={styles.resolutionClause}>
+        trustee interests, related-party relationships and actual or potential conflicts
+        were considered, and any required disclosure, abstention, independent approval
+        or other safeguard was noted and dealt with in accordance with the trust deed
+        and applicable law;
+      </li>
+    ) : null,
+
+    enabledClauses.trusteeChanges ? (
+      <li key="trustee-changes" style={styles.resolutionClause}>
+        trustee appointments, resignations, vacancies, replacements or other changes
+        during or after the year were considered, and any required Trust record, Master
+        of the High Court or Letter of Authority update was noted for completion or
+        follow-up;
+      </li>
+    ) : null,
+
+    enabledClauses.bankingAuthority ? (
+      <li key="banking" style={styles.resolutionClause}>
+        the Trust&apos;s banking mandates, account authorities and document-signing
+        arrangements were considered and confirmed, with changes to be documented in a
+        separate banking or signing-authority resolution where required;
+      </li>
+    ) : null,
+
+    enabledClauses.otherMatters ? (
+      <li key="other" style={styles.resolutionClause}>
+        any other material matter arising from the annual financial statements or the
+        administration of the Trust requiring approval, support, disclosure or follow-up
+        was referred to the appropriate supporting resolution, minute, certificate or
+        working paper;
+      </li>
+    ) : null,
+
+    <li key="authority" style={styles.resolutionClause}>
+      the trustees authorised the approved annual financial statements to be signed and
+      issued once all required signatures and approvals have been applied.
+    </li>,
+  ].filter(Boolean);
+
+  const trustMinutesBody = (
+    <>
+      <div className="identity">
+        <div style={styles.identity}>
+          <strong>{displayName}</strong>
+          {registrationNumber ? (
+            <span>Registration No. {registrationNumber}</span>
+          ) : null}
+          <span>
+            Annual financial statements for the year ended {formatDate(yearEnd)}
+          </span>
+        </div>
+      </div>
+
+      <h1 style={styles.documentMainTitle}>{minutesTitle(entityKind)}</h1>
+
+      <p style={styles.bodyText}>
+        Held at {meetingPlace || "________________"} on{" "}
+        {meetingDate ? formatDate(meetingDate) : "________________"}.
+      </p>
+
+      <div className="attendance" style={styles.minutesAttendance}>
+        <strong>Present</strong>
+        {attendees.length ? (
+          <ul style={styles.minutesAttendanceList}>
+            {attendees.map((name) => (
+              <li key={name}>
+                {name}
+                {name === chairperson ? " (Chairperson)" : ""}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p style={styles.bodyText}>[Attendance to be completed]</p>
+        )}
+      </div>
+
+      <h2 style={styles.documentHeading}>Business of the meeting</h2>
+      <ul style={styles.documentList}>{trustMinuteItems}</ul>
+
+      <h2 style={styles.documentHeading}>Closure</h2>
+      <p style={styles.bodyText}>
+        There being no further year-end business to discuss, the meeting was declared
+        closed.
+      </p>
+
+      <div style={styles.minutesApprovalBlock}>
+        <strong>Approved as a true record of the meeting</strong>
+        <span>Chairperson: {chairperson || "____________________________"}</span>
+        <span>
+          Date: {meetingDate ? formatDate(meetingDate) : "________________"}
+        </span>
+      </div>
+
+      <div style={styles.minutesAttendanceRegister}>
+        <strong>Trustee attendance / signature register</strong>
+        <table style={styles.minutesRegisterTable}>
+          <thead>
+            <tr>
+              <th style={styles.minutesRegisterCell}>Trustee</th>
+              <th style={styles.minutesRegisterCell}>Capacity</th>
+              <th style={styles.minutesRegisterCell}>Signature</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(attendees.length ? attendees : [""]).map((name, index) => (
+              <tr key={`${name || "blank"}-${index}`}>
+                <td style={styles.minutesRegisterCell}>
+                  {name || "____________________________"}
+                </td>
+                <td style={styles.minutesRegisterCell}>
+                  {name === chairperson ? "Chairperson / Trustee" : "Trustee"}
+                </td>
+                <td style={styles.minutesRegisterCell}>____________________________</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+
+  const genericMinutesDocument = (
+    <article id={documentId} style={styles.paper}>
+      <div className="identity">
+        <div style={styles.identity}>
+          <strong>{displayName}</strong>
+          {registrationNumber ? <span>Registration No. {registrationNumber}</span> : null}
+          <span>Annual financial statements for the year ended {formatDate(yearEnd)}</span>
+        </div>
+      </div>
+
+      <h1 style={styles.documentMainTitle}>{minutesTitle(entityKind)}</h1>
+
+      <p style={styles.bodyText}>
+        Held at {meetingPlace || "________________"} on{" "}
+        {meetingDate ? formatDate(meetingDate) : "________________"}.
+      </p>
+
+      <div className="attendance" style={styles.minutesAttendance}>
+        <strong>Present</strong>
+        {attendees.length ? (
+          <ul style={styles.minutesAttendanceList}>
+            {attendees.map((name) => (
+              <li key={name}>
+                {name}
+                {name === chairperson ? " (Chairperson)" : ""}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p style={styles.bodyText}>[Attendance to be completed]</p>
+        )}
+      </div>
+
+      <h2 style={styles.documentHeading}>Annual Financial Statements</h2>
+      <p style={styles.bodyText}>
+        The annual financial statements of {displayName} for the year ended{" "}
+        {formatDate(yearEnd)} were laid before the meeting and considered.
+      </p>
+
+      <p style={styles.bodyText}>
+        It was resolved that the annual financial statements be adopted as the accounts
+        of the entity for the year under review and that the {responsiblePlural(entityKind)}{" "}
+        approve the financial statements for issue subject to the required signatures.
+      </p>
+
+      <h2 style={styles.documentHeading}>Matters arising from the accounts</h2>
+      <p style={styles.bodyText}>It was further resolved that:</p>
+      <ul style={styles.documentList}>
+        <li>the income reflected in the annual financial statements be approved;</li>
+        <li>the expenditure reflected in the annual financial statements be approved;</li>
+        <li>
+          material matters arising from the accounts requiring separate approval,
+          support or disclosure be dealt with in the relevant year-end resolution.
+        </li>
+      </ul>
+
+      <h2 style={styles.documentHeading}>
+        Interests of the {entityKind === "cc" ? "Members" : "Directors"}
+      </h2>
+      <p style={styles.bodyText}>
+        Any interests required to be disclosed by the {responsiblePlural(entityKind)} were
+        noted and are to be dealt with in accordance with the entity&apos;s governing
+        documents and applicable law.
+      </p>
+
+      <h2 style={styles.documentHeading}>Closure</h2>
+      <p style={styles.bodyText}>
+        There being no further year-end business to discuss, the meeting was closed.
+      </p>
+
+      <div className="signature-grid">
+        <SignatureBlock
+          names={chairperson ? [chairperson] : attendees.slice(0, 1)}
+          fallbackLabel={signatureFallbackLabel(entityKind)}
+        />
+      </div>
+
+      <div className="meta" style={styles.documentFooterNote}>
+        <span>Prepared as part of {practiceName}&apos;s year-end working file.</span>
+        {!whiteLabel ? <span>Powered by PracticePilot</span> : null}
+      </div>
+    </article>
+  );
 
   return (
     <div style={styles.documentWorkspace}>
@@ -2150,7 +3007,9 @@ function MinutesDocument({
         <div>
           <strong>YD02 · {minutesTitle(entityKind)}</strong>
           <span>
-            Complete the meeting details, attendance and chairperson, then prepare and sign the minutes.
+            {entityKind === "trust"
+              ? "Record attendance and the annual financial and governance matters considered by the trustees."
+              : "Complete the meeting details, attendance and chairperson, then prepare, sign and download the minutes."}
           </span>
         </div>
 
@@ -2168,24 +3027,12 @@ function MinutesDocument({
             {status === "signed" ? "Signed" : status === "prepared" ? "Prepared" : "Draft"}
           </span>
 
-          <button
-            type="button"
-            style={styles.secondaryActionButton}
-            onClick={onSaveDraft}
-            disabled={saving}
-          >
+          <button type="button" style={styles.secondaryActionButton} onClick={onSaveDraft} disabled={saving}>
             Save Draft
           </button>
-
-          <button
-            type="button"
-            style={styles.secondaryActionButton}
-            onClick={onMarkPrepared}
-            disabled={saving}
-          >
+          <button type="button" style={styles.secondaryActionButton} onClick={onMarkPrepared} disabled={saving}>
             Mark Prepared
           </button>
-
           <button
             type="button"
             style={{
@@ -2194,17 +3041,14 @@ function MinutesDocument({
             }}
             onClick={onMarkSigned}
             disabled={saving || status !== "prepared"}
-            title={
-              status !== "prepared"
-                ? "Mark the minutes Prepared before marking them Signed."
-                : undefined
-            }
           >
             Mark Signed
           </button>
-
-          <button type="button" style={styles.printButton} onClick={printDocument}>
-            Print / Save PDF
+          <button type="button" style={styles.secondaryActionButton} onClick={printDocument}>
+            Print
+          </button>
+          <button type="button" style={styles.printButton} onClick={downloadDocument}>
+            Download PDF
           </button>
         </div>
       </div>
@@ -2214,175 +3058,99 @@ function MinutesDocument({
       <div style={styles.documentControls}>
         <label style={styles.controlField}>
           <span>Meeting place</span>
-          <input
-            value={meetingPlace}
-            onChange={(event) => onPlaceChange(event.target.value)}
-            placeholder="Pretoria"
-            style={styles.controlInput}
-          />
+          <input value={meetingPlace} onChange={(event) => onPlaceChange(event.target.value)} placeholder="Pretoria" style={styles.controlInput} />
         </label>
-
         <label style={styles.controlField}>
           <span>Meeting date</span>
-          <input
-            type="date"
-            value={meetingDate}
-            onChange={(event) => onDateChange(event.target.value)}
-            style={styles.controlInput}
-          />
+          <input type="date" value={meetingDate} onChange={(event) => onDateChange(event.target.value)} style={styles.controlInput} />
         </label>
-
         <label style={styles.controlField}>
           <span>Chairperson</span>
-          <select
-            value={chairperson}
-            onChange={(event) => onChairpersonChange(event.target.value)}
-            style={styles.controlInput}
-          >
+          <select value={chairperson} onChange={(event) => onChairpersonChange(event.target.value)} style={styles.controlInput}>
             <option value="">Select chairperson</option>
             {availablePeople.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
+              <option key={name} value={name}>{name}</option>
             ))}
           </select>
         </label>
-
         <div style={{ ...styles.signatoryControl, gridColumn: "1 / -1" }}>
           <span style={styles.controlLabel}>Attendance</span>
           {availablePeople.length ? (
             <div style={styles.signatoryChoices}>
               {availablePeople.map((name) => {
                 const selected = attendees.includes(name);
-
                 return (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => toggleAttendee(name)}
-                    style={{
-                      ...styles.signatoryChoice,
-                      ...(selected ? styles.signatoryChoiceSelected : {}),
-                    }}
-                  >
-                    {selected ? "✓ " : ""}
-                    {name}
+                  <button key={name} type="button" onClick={() => toggleAttendee(name)} style={{ ...styles.signatoryChoice, ...(selected ? styles.signatoryChoiceSelected : {}) }}>
+                    {selected ? "✓ " : ""}{name}
                   </button>
                 );
               })}
             </div>
           ) : (
-            <span style={styles.controlHelp}>
-              No {responsiblePlural(entityKind)} have been loaded in Client Setup.
-            </span>
+            <span style={styles.controlHelp}>No {responsiblePlural(entityKind)} have been loaded in Client Setup.</span>
           )}
         </div>
       </div>
 
-      <article id={documentId} style={styles.paper}>
-        <div className="identity">
-          <div style={styles.identity}>
-            <strong>{displayName}</strong>
-            {registrationNumber ? <span>Registration No. {registrationNumber}</span> : null}
-            <span>Annual financial statements for the year ended {formatDate(yearEnd)}</span>
+      {entityKind === "trust" ? (
+        <div style={styles.trustApprovalWorkspace}>
+          <aside style={styles.trustApprovalChecklist}>
+            <div style={styles.trustChecklistHeader}>
+              <div>
+                <strong>Annual matters recorded</strong>
+                <span>All are included by default. Switch off only matters that were not relevant to this Trust for the year.</span>
+              </div>
+              <button type="button" style={styles.smallResetButton} onClick={onResetClauses}>All on</button>
+            </div>
+
+            <div style={styles.trustChecklistCore}>
+              <span style={styles.trustMandatoryBadge}>Required</span>
+              <div><strong>AFS considered and approved</strong><span>Always recorded in the minutes.</span></div>
+            </div>
+
+            {TRUST_APPROVAL_CLAUSES.map((clause) => (
+              <label key={clause.key} style={styles.trustChecklistRow}>
+                <input type="checkbox" checked={Boolean(enabledClauses[clause.key])} onChange={(event) => onClauseChange(clause.key, event.target.checked)} />
+                <span><strong>{clause.label}</strong><small>{clause.help}</small></span>
+              </label>
+            ))}
+
+            <div style={styles.trustChecklistCore}>
+              <span style={styles.trustMandatoryBadge}>Required</span>
+              <div><strong>Authority to sign and issue</strong><span>Always recorded in the minutes.</span></div>
+            </div>
+          </aside>
+
+          <div style={styles.liveDocumentPreview}>
+            <div style={styles.livePreviewHeading}>
+              <strong>Live minutes preview</strong>
+              <span>Continuous working preview. The downloaded PDF remains properly paginated.</span>
+            </div>
+
+            <div style={styles.previewContinuousShell}>
+              <section style={styles.previewContinuousPage}>
+                <div style={styles.previewPageContent}>{trustMinutesBody}</div>
+                <div style={styles.previewPageFooter}>
+                  <span>Prepared as part of {practiceName}&apos;s year-end working file.</span>
+                  {!whiteLabel ? <span>Powered by PracticePilot</span> : null}
+                </div>
+              </section>
+            </div>
+
+            <div style={styles.hiddenExportSource}>
+              <article id={documentId} style={styles.paper}>
+                {trustMinutesBody}
+                <div className="meta" style={styles.documentFooterNote}>
+                  <span>Prepared as part of {practiceName}&apos;s year-end working file.</span>
+                  {!whiteLabel ? <span>Powered by PracticePilot</span> : null}
+                </div>
+              </article>
+            </div>
           </div>
         </div>
-
-        <h1 style={styles.documentMainTitle}>{minutesTitle(entityKind)}</h1>
-
-        <p style={styles.bodyText}>
-          Held at {meetingPlace || "________________"} on{" "}
-          {meetingDate ? formatDate(meetingDate) : "________________"}.
-        </p>
-
-        <div className="attendance" style={styles.minutesAttendance}>
-          <strong>Present</strong>
-          {attendees.length ? (
-            <ul style={styles.minutesAttendanceList}>
-              {attendees.map((name) => (
-                <li key={name}>
-                  {name}
-                  {name === chairperson ? " (Chairperson)" : ""}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p style={styles.bodyText}>[Attendance to be completed]</p>
-          )}
-        </div>
-
-        <h2 style={styles.documentHeading}>Annual Financial Statements</h2>
-        <p style={styles.bodyText}>
-          The annual financial statements of {displayName} for the year ended{" "}
-          {formatDate(yearEnd)} were laid before the meeting and considered.
-        </p>
-
-        <p style={styles.bodyText}>
-          It was resolved that the annual financial statements be adopted as the
-          accounts of the entity for the year under review and that the{" "}
-          {responsiblePlural(entityKind)} approve the financial statements for issue
-          subject to the required signatures.
-        </p>
-
-        <h2 style={styles.documentHeading}>Matters arising from the accounts</h2>
-        <p style={styles.bodyText}>It was further resolved that:</p>
-        <ul style={styles.documentList}>
-          <li>
-            the income reflected in the annual financial statements for the year under
-            review be approved;
-          </li>
-          <li>
-            the expenditure reflected in the annual financial statements for the year
-            under review be approved;
-          </li>
-          {entityKind === "trust" ? (
-            <>
-              <li>
-                distributions or vestings reflected or provided for in the annual
-                financial statements, where applicable, be dealt with in the
-                Beneficiary Distribution / Vesting Resolution;
-              </li>
-              <li>
-                the trustees consider and document the annual treatment of income,
-                profits, losses, capital gains and capital profits, including whether
-                amounts are vested, distributed, retained or accumulated in the Trust;
-              </li>
-              <li>
-                trustee remuneration, material loans and borrowings, investments,
-                trustee interests, trustee changes and banking authorities be dealt
-                with in the relevant year-end resolution where applicable;
-              </li>
-            </>
-          ) : null}
-          <li>
-            material matters arising from the accounts requiring separate approval,
-            support or disclosure be dealt with in the relevant year-end resolution.
-          </li>
-        </ul>
-
-        <h2 style={styles.documentHeading}>
-          Interests of the {entityKind === "trust" ? "Trustees" : entityKind === "cc" ? "Members" : "Directors"}
-        </h2>
-        <p style={styles.bodyText}>
-          Any interests required to be disclosed by the{" "}
-          {responsiblePlural(entityKind)} were noted and are to be dealt with in
-          accordance with the entity&apos;s governing documents and applicable law.
-        </p>
-
-        <h2 style={styles.documentHeading}>Closure</h2>
-        <p style={styles.bodyText}>
-          There being no further year-end business to discuss, the meeting was closed.
-        </p>
-
-        <div className="signature-grid">
-          <SignatureBlock names={chairperson ? [chairperson] : attendees.slice(0, 1)} fallbackLabel={signatureFallbackLabel(entityKind)} />
-        </div>
-
-        <div className="meta" style={styles.documentFooterNote}>
-          <span>Prepared as part of {practiceName}&apos;s year-end working file.</span>
-          {!whiteLabel ? <span>Powered by PracticePilot</span> : null}
-        </div>
-      </article>
+      ) : (
+        genericMinutesDocument
+      )}
     </div>
   );
 }
@@ -2477,12 +3245,28 @@ function LoanCertificatesDocument({
 
   function printLoan(line: TrialBalanceLine, index: number) {
     const key = getLoanKey(line, index);
-    const node = document.getElementById(`yd03-certificate-${engagementId}-${key}`);
+    const node = document.getElementById(
+      `yd03-certificate-${engagementId}-${key}`,
+    );
     if (!node) return;
 
-    printNode(
+    printDocumentNode(
       node,
       `${displayName} - Loan Certificate - ${effectiveTerms(line, index).creditorName}`,
+    );
+  }
+
+  function downloadLoan(line: TrialBalanceLine, index: number) {
+    const key = getLoanKey(line, index);
+    const node = document.getElementById(
+      `yd03-certificate-${engagementId}-${key}`,
+    );
+    if (!node) return;
+
+    void downloadNodePdf(
+      node,
+      `${displayName} - Loan Certificate - ${effectiveTerms(line, index).creditorName}`,
+      engagementId,
     );
   }
 
@@ -2655,10 +3439,17 @@ function LoanCertificatesDocument({
                   <div style={styles.loanExpandedActions}>
                     <button
                       type="button"
-                      style={styles.printButton}
+                      style={styles.secondaryActionButton}
                       onClick={() => printLoan(line, index)}
                     >
-                      Print this certificate
+                      Print
+                    </button>
+                    <button
+                      type="button"
+                      style={styles.printButton}
+                      onClick={() => downloadLoan(line, index)}
+                    >
+                      Download PDF
                     </button>
                   </div>
 
@@ -2730,6 +3521,7 @@ function LoanCertificatesDocument({
 
 
 function SingleSubordinationEditor({
+  engagementId,
   line,
   lineIndex,
   selection,
@@ -2745,6 +3537,7 @@ function SingleSubordinationEditor({
   onChange,
   onSave,
 }: {
+  engagementId: string;
   line: TrialBalanceLine;
   lineIndex: number;
   selection: Record<string, any>;
@@ -2820,9 +3613,23 @@ function SingleSubordinationEditor({
 
     if (!node) return;
 
-    printNode(
+    printDocumentNode(
       node,
       `${displayName} - Subordination Agreement - ${creditorName || line.account_name}`,
+    );
+  }
+
+  function downloadAgreement() {
+    const node = document.getElementById(
+      `yd04-agreement-${selectionKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+    );
+
+    if (!node) return;
+
+    void downloadNodePdf(
+      node,
+      `${displayName} - Subordination Agreement - ${creditorName || line.account_name}`,
+      engagementId,
     );
   }
 
@@ -2979,7 +3786,15 @@ function SingleSubordinationEditor({
                 style={styles.secondaryActionButton}
                 onClick={printAgreement}
               >
-                Print agreement
+                Print
+              </button>
+
+              <button
+                type="button"
+                style={styles.printButton}
+                onClick={downloadAgreement}
+              >
+                Download PDF
               </button>
 
               <button
@@ -3204,6 +4019,7 @@ function SimpleDocumentShell({
 }
 
 function TrustDistributionDocument({
+  engagementId,
   displayName,
   registrationNumber,
   yearEnd,
@@ -3221,6 +4037,7 @@ function TrustDistributionDocument({
   onMarkPrepared,
   onMarkSigned,
 }: {
+  engagementId: string;
   displayName: string;
   registrationNumber: string;
   yearEnd: string;
@@ -3274,9 +4091,19 @@ function TrustDistributionDocument({
   function printDocument() {
     const node = document.getElementById(documentId);
     if (!node) return;
-    printNode(
+    printDocumentNode(
       node,
       `${displayName} - Beneficiary Distribution / Vesting Resolution`,
+    );
+  }
+
+  function downloadDocument() {
+    const node = document.getElementById(documentId);
+    if (!node) return;
+    void downloadNodePdf(
+      node,
+      `${displayName} - Beneficiary Distribution / Vesting Resolution`,
+      engagementId,
     );
   }
 
@@ -3291,6 +4118,7 @@ function TrustDistributionDocument({
         onMarkPrepared={onMarkPrepared}
         onMarkSigned={onMarkSigned}
         onPrint={printDocument}
+        onDownload={downloadDocument}
       />
 
       {message ? <div style={styles.documentMessage}>{message}</div> : null}
@@ -3597,6 +4425,7 @@ function TrustDistributionDocument({
 }
 
 function EditableResolutionDocument({
+  engagementId,
   refCode,
   title,
   displayName,
@@ -3617,6 +4446,7 @@ function EditableResolutionDocument({
   onMarkPrepared,
   onMarkSigned,
 }: {
+  engagementId: string;
   refCode: string;
   title: string;
   displayName: string;
@@ -3642,7 +4472,17 @@ function EditableResolutionDocument({
   function printDocument() {
     const node = document.getElementById(documentId);
     if (!node) return;
-    printNode(node, `${displayName} - ${title}`);
+    printDocumentNode(node, `${displayName} - ${title}`);
+  }
+
+  function downloadDocument() {
+    const node = document.getElementById(documentId);
+    if (!node) return;
+    void downloadNodePdf(
+      node,
+      `${displayName} - ${title}`,
+      engagementId,
+    );
   }
 
   return (
@@ -3656,6 +4496,7 @@ function EditableResolutionDocument({
         onMarkPrepared={onMarkPrepared}
         onMarkSigned={onMarkSigned}
         onPrint={printDocument}
+        onDownload={downloadDocument}
       />
 
       {message ? <div style={styles.documentMessage}>{message}</div> : null}
@@ -3709,6 +4550,7 @@ function DocumentActionToolbar({
   onMarkPrepared,
   onMarkSigned,
   onPrint,
+  onDownload,
 }: {
   refCode: string;
   title: string;
@@ -3718,6 +4560,7 @@ function DocumentActionToolbar({
   onMarkPrepared: () => void;
   onMarkSigned: () => void;
   onPrint?: () => void;
+  onDownload?: () => void;
 }) {
   return (
     <div style={styles.documentToolbar}>
@@ -3755,8 +4598,22 @@ function DocumentActionToolbar({
           Mark Signed
         </button>
         {onPrint ? (
-          <button type="button" style={styles.printButton} onClick={onPrint}>
-            Print / Save PDF
+          <button
+            type="button"
+            style={styles.secondaryActionButton}
+            onClick={onPrint}
+          >
+            Print
+          </button>
+        ) : null}
+
+        {onDownload ? (
+          <button
+            type="button"
+            style={styles.printButton}
+            onClick={onDownload}
+          >
+            Download PDF
           </button>
         ) : null}
       </div>
@@ -3779,82 +4636,228 @@ function DocumentFooter({
   );
 }
 
-function printNode(node: HTMLElement, title: string) {
+function printDocumentNode(node: HTMLElement, title: string) {
   const printWindow = window.open("", "_blank", "width=900,height=1000");
-  if (!printWindow) return;
 
-  printWindow.document.write(`
-    <!doctype html>
-    <html>
-      <head>
-        <title>${escapeHtml(title)}</title>
-        <meta charset="utf-8" />
-        <style>
-          body {
-            font-family: Arial, Helvetica, sans-serif;
-            color: #111827;
-            margin: 0;
-            padding: 0;
-            font-size: 12px;
-            line-height: 1.55;
-          }
-          article {
-            max-width: 760px;
-            margin: 0 auto;
-            box-sizing: border-box;
-          }
+  if (!printWindow) {
+    window.alert("Could not open the print window.");
+    return;
+  }
 
-          .no-print {
-            display: none !important;
-          }
+  printWindow.document.write(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${title}</title>
+    <style>
+      * { box-sizing: border-box; }
 
-          .certificate-page {
-            display: block !important;
-            width: 100%;
-            padding-bottom: 18mm;
-            box-sizing: border-box;
-            border: none !important;
-            box-shadow: none !important;
-            background: #ffffff !important;
-          }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #ffffff;
+        color: #111827;
+        font-family: Arial, Helvetica, sans-serif;
+      }
 
-          .meta {
-            position: fixed !important;
-            left: 18mm !important;
-            right: 18mm !important;
-            bottom: 8mm !important;
-            margin: 0 !important;
-            padding-top: 6px;
-            border-top: 1px solid #e5e7eb;
-            font-size: 9px;
-            color: #6b7280;
-            background: #fff;
-            display: flex;
-            justify-content: space-between;
-            gap: 20px;
-          }
+      body {
+        padding: 16mm;
+        font-size: 10.5pt;
+        line-height: 1.45;
+      }
 
-          input, select, textarea, button {
-            display: none !important;
-          }
+      article,
+      .document,
+      .certificate-page {
+        display: block !important;
+        width: 100% !important;
+        max-width: none !important;
+        min-height: 248mm;
+        margin: 0 !important;
+        padding: 0 0 20mm !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        background: #ffffff !important;
+        color: #111827 !important;
+      }
 
-          @page {
-            size: A4;
-            margin: 18mm;
-          }
-        </style>
-      </head>
-      <body>${node.outerHTML}
-      <script>
-        window.onload = () => {
-          window.print();
-          window.onafterprint = () => window.close();
-        };
-      </script>
-      </body>
-    </html>
-  `);
+      h1 {
+        margin: 0 0 6mm !important;
+        padding: 0 0 2.5mm !important;
+        border-bottom: 1px solid #111827;
+        color: #111827 !important;
+        font-size: 15.5pt !important;
+        line-height: 1.2 !important;
+        font-weight: 700 !important;
+      }
+
+      h2 {
+        margin: 6mm 0 2mm !important;
+        font-size: 11.5pt !important;
+      }
+
+      h3,
+      h4 {
+        margin: 5mm 0 1.5mm !important;
+        font-size: 10.5pt !important;
+      }
+
+      p,
+      li {
+        font-size: 10.5pt !important;
+        line-height: 1.48 !important;
+      }
+
+      p {
+        margin: 0 0 3mm !important;
+      }
+
+      ol,
+      ul {
+        margin: 2mm 0 4mm !important;
+        padding-left: 6mm !important;
+      }
+
+      li {
+        margin: 0 0 2mm !important;
+      }
+
+      table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        margin: 4mm 0 !important;
+      }
+
+      th,
+      td {
+        padding: 2.2mm 1.6mm !important;
+        vertical-align: top !important;
+        font-size: 8.8pt !important;
+        line-height: 1.35 !important;
+      }
+
+      .identity {
+        margin: 0 0 7mm !important;
+        color: #334155 !important;
+        font-size: 9pt !important;
+        line-height: 1.35 !important;
+      }
+
+      .signature-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 10mm 14mm !important;
+        margin-top: 14mm !important;
+      }
+
+      .signature {
+        break-inside: avoid;
+        font-size: 9pt !important;
+      }
+
+      .meta {
+        position: fixed !important;
+        left: 16mm !important;
+        right: 16mm !important;
+        bottom: 7mm !important;
+        margin: 0 !important;
+        padding-top: 2mm !important;
+        border-top: 1px solid #e5e7eb !important;
+        background: #ffffff !important;
+        color: #6b7280 !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        gap: 8mm !important;
+        font-size: 7.5pt !important;
+        line-height: 1.2 !important;
+      }
+
+      input,
+      select,
+      textarea,
+      button,
+      .no-print {
+        display: none !important;
+      }
+
+      @page {
+        size: A4;
+        margin: 16mm 16mm 18mm;
+      }
+    </style>
+  </head>
+  <body>
+    ${node.outerHTML}
+    <script>
+      window.addEventListener("load", function () {
+        window.print();
+      });
+    </script>
+  </body>
+</html>`);
+
   printWindow.document.close();
+}
+
+async function downloadNodePdf(
+  node: HTMLElement,
+  title: string,
+  engagementId: string,
+) {
+  try {
+    if (!supabase) {
+      throw new Error("Supabase client is not available.");
+    }
+
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token || "";
+
+    if (!token) {
+      throw new Error("Not authenticated.");
+    }
+
+    const response = await fetch(
+      `/api/afs/engagements/${engagementId}/year-end-documents`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title,
+          html: node.outerHTML,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Could not generate the PDF.");
+    }
+
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const filenameMatch = disposition.match(/filename="([^"]+)"/i);
+    const filename =
+      filenameMatch?.[1] ||
+      `${title.replace(/\s+-\s+/g, " _ ").replace(/[\\/:*?"<>|]/g, "").trim()}.pdf`;
+
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  } catch (error: any) {
+    console.error("YEAR-END DOCUMENT PDF ERROR:", error);
+    window.alert(error?.message || "Could not download the PDF.");
+  }
 }
 
 function normaliseStatus(value: unknown): DocumentStatus {
@@ -3908,9 +4911,9 @@ function SignatureBlock({
 }) {
   const shownNames = names.length ? names : [fallbackLabel];
   return (
-    <div style={styles.signatures}>
+    <div className="signature-grid" style={styles.signatures}>
       {shownNames.slice(0, 3).map((name) => (
-        <div key={name} style={styles.signature}>
+        <div key={name} className="signature" style={styles.signature}>
           <span>________________________________</span>
           <strong>{name}</strong>
           <small>Date: __________________</small>
@@ -3936,13 +4939,13 @@ function normaliseEntityKind(value: string): EntityKind {
 }
 
 function approvalTitle(kind: EntityKind) {
-  if (kind === "trust") return "Trustees' Resolution – Approval of Annual Financial Statements";
+  if (kind === "trust") return "Comprehensive Annual Trustees' Resolution";
   if (kind === "cc") return "Members' Resolution – Approval of Annual Financial Statements";
   return "Directors' Resolution – Approval of Annual Financial Statements";
 }
 
 function minutesTitle(kind: EntityKind) {
-  if (kind === "trust") return "Minutes of Trustees' Meeting";
+  if (kind === "trust") return "Comprehensive Annual Trustees' Meeting Minutes";
   if (kind === "cc") return "Minutes of Members' Meeting";
   return "Minutes of Directors' Meeting";
 }
@@ -4257,6 +5260,131 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: "nowrap",
   },
   documentWorkspace: { display: "grid", gap: "10px" },
+  previewContinuousShell: {
+    display: "flex",
+    justifyContent: "center",
+  },
+  previewContinuousPage: {
+    position: "relative",
+    width: "min(100%, 794px)",
+    minHeight: "1123px",
+    padding: "54px 58px 74px",
+    background: "#ffffff",
+    border: "1px solid #d7dee8",
+    boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06)",
+  },
+  previewPageContent: {
+    fontSize: "12px",
+    lineHeight: 1.55,
+  },
+  previewSignatureArea: {
+    marginTop: "34px",
+  },
+  previewPageFooter: {
+    marginTop: "48px",
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "20px",
+    paddingTop: "8px",
+    borderTop: "1px solid #e5e7eb",
+    color: "#6b7280",
+    fontSize: "8px",
+    lineHeight: 1.2,
+  },
+  hiddenExportSource: {
+    position: "absolute",
+    left: "-100000px",
+    top: 0,
+    width: "794px",
+    pointerEvents: "none",
+  },
+  visibleDocumentSource: {
+    display: "block",
+  },
+  standardApprovalWorkspace: {
+    display: "block",
+  },
+  standardDocumentPreview: {
+    minWidth: 0,
+  },
+  trustApprovalWorkspace: {
+    display: "grid",
+    gridTemplateColumns: "360px minmax(0, 1fr)",
+    gap: "14px",
+    alignItems: "start",
+  },
+  trustApprovalChecklist: {
+    position: "sticky",
+    top: "10px",
+    display: "grid",
+    gap: "6px",
+    padding: "10px",
+    border: "1px solid #d7dee8",
+    background: "#ffffff",
+  },
+  trustChecklistHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "start",
+    gap: "10px",
+    paddingBottom: "8px",
+    borderBottom: "1px solid #e5e7eb",
+  },
+  smallResetButton: {
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    padding: "4px 7px",
+    fontSize: "9px",
+    fontWeight: 850,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  trustChecklistCore: {
+    display: "grid",
+    gridTemplateColumns: "60px 1fr",
+    gap: "8px",
+    alignItems: "start",
+    padding: "7px 6px",
+    background: "#f8fafc",
+    borderBottom: "1px solid #eef2f7",
+    fontSize: "10px",
+  },
+  trustMandatoryBadge: {
+    display: "inline-flex",
+    justifyContent: "center",
+    border: "1px solid #bfdbfe",
+    background: "#eff6ff",
+    color: "#1d4ed8",
+    padding: "2px 4px",
+    fontSize: "8px",
+    fontWeight: 900,
+  },
+  trustChecklistRow: {
+    display: "grid",
+    gridTemplateColumns: "18px 1fr",
+    gap: "7px",
+    alignItems: "start",
+    padding: "6px",
+    borderBottom: "1px solid #eef2f7",
+    cursor: "pointer",
+    fontSize: "10px",
+    color: "#0f172a",
+  },
+  liveDocumentPreview: {
+    minWidth: 0,
+    padding: "10px",
+    background: "#eef3f8",
+    border: "1px solid #d7dee8",
+  },
+  livePreviewHeading: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "12px",
+    padding: "0 2px 8px",
+    color: "#475569",
+    fontSize: "9px",
+  },
   documentToolbar: {
     background: "#ffffff",
     border: "1px solid #d7dee8",
@@ -4369,7 +5497,20 @@ const styles: Record<string, CSSProperties> = {
   },
   identity: { display: "grid", gap: "3px", marginBottom: "20px", fontSize: "11px", color: "#334155" },
   bodyText: { fontSize: "11px", lineHeight: 1.65, color: "#1e293b" },
-  documentList: { paddingLeft: "20px", fontSize: "11px", lineHeight: 1.65, color: "#1e293b" },
+  documentList: {
+    paddingLeft: "24px",
+    fontSize: "11px",
+    lineHeight: 1.5,
+    color: "#1e293b",
+    margin: 0,
+    listStyleType: "disc",
+    listStylePosition: "outside",
+  },
+  resolutionClause: {
+    display: "list-item",
+    marginBottom: "10px",
+    paddingLeft: "4px",
+  },
   documentHeading: { fontSize: "12px", margin: "18px 0 6px", color: "#0f172a" },
   signatures: { display: "flex", gap: "34px", flexWrap: "wrap", marginTop: "34px" },
   signature: { minWidth: "220px", display: "grid", gap: "5px", fontSize: "10px", color: "#334155" },
@@ -4383,6 +5524,33 @@ const styles: Record<string, CSSProperties> = {
     paddingLeft: "20px",
     fontSize: "11px",
     lineHeight: 1.55,
+  },
+  minutesApprovalBlock: {
+    display: "grid",
+    gap: "6px",
+    marginTop: "28px",
+    paddingTop: "12px",
+    borderTop: "1px solid #cbd5e1",
+    fontSize: "10px",
+    color: "#334155",
+  },
+  minutesAttendanceRegister: {
+    display: "grid",
+    gap: "8px",
+    marginTop: "24px",
+    fontSize: "10px",
+    color: "#334155",
+  },
+  minutesRegisterTable: {
+    width: "100%",
+    borderCollapse: "collapse",
+  },
+  minutesRegisterCell: {
+    padding: "8px 6px",
+    borderBottom: "1px solid #e2e8f0",
+    textAlign: "left",
+    verticalAlign: "top",
+    fontSize: "9px",
   },
   linkedDataNotice: {
     marginBottom: "12px",
