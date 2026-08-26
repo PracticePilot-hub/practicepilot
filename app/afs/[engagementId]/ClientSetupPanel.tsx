@@ -892,14 +892,29 @@ export default function ClientSetupPanel({
               style={styles.input}
               type="number"
               min="0"
+              step="0.01"
               value={setup.tax_loss_prior_year ?? ""}
-              onChange={(e) => update("tax_loss_prior_year", e.target.value)}
-              placeholder="Unused assessed loss available at the start of this year"
+              onChange={(e) => {
+                const raw = e.target.value;
+
+                if (raw === "") {
+                  update("tax_loss_prior_year", "");
+                  return;
+                }
+
+                const amount = Number(raw);
+
+                update(
+                  "tax_loss_prior_year",
+                  Number.isFinite(amount) ? Math.max(0, amount) : "",
+                );
+              }}
+              placeholder="Example: 250000"
             />
             <span style={styles.fieldHelp}>
-              Opening assessed loss available for utilisation in the current tax
-              calculation. The current-year assessed loss is calculated automatically
-              in the Tax Calculator.
+              Enter the unused assessed loss brought forward as a positive amount.
+              Example: an assessed loss of R250,000 must be entered as 250000, not
+              -250000. PracticePilot deducts the available loss in the Tax Calculator.
             </span>
           </div>
         </Field>

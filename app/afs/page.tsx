@@ -42,6 +42,31 @@ type NextFlightFileType =
   | "Annual Financial Statements"
   | "Management Accounts";
 
+type EntityView =
+  | "All"
+  | "Companies"
+  | "CCs"
+  | "Trusts"
+  | "NPCs"
+  | "Other";
+
+function getEntityView(entityType: string | null | undefined): EntityView {
+  const value = String(entityType || "").trim().toLowerCase();
+
+  if (value === "company") return "Companies";
+  if (value === "close corporation" || value === "cc") return "CCs";
+  if (value.includes("trust")) return "Trusts";
+  if (
+    value === "non-profit company" ||
+    value === "non profit company" ||
+    value === "npc"
+  ) {
+    return "NPCs";
+  }
+
+  return "Other";
+}
+
 type UserProfile = {
   id: string;
   user_id: string;
@@ -128,6 +153,7 @@ export default function AFSPage() {
   const [notes, setNotes] = useState("");
 
   const [searchText, setSearchText] = useState("");
+  const [entityView, setEntityView] = useState<EntityView>("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [sortBy, setSortBy] = useState("Entity A-Z");
 
@@ -156,8 +182,36 @@ export default function AFSPage() {
     );
   }, [engagements, nextFlightEngagement, nextFlightPeriodEnd]);
 
-  const visibleEngagements = useMemo(() => {
+  const organisationScopedEngagements = useMemo(() => {
     let rows = [...engagements];
+
+    return rows;
+  }, [
+    engagements,
+    selectedOrganisationId,
+    profile,
+    internalUser,
+  ]);
+
+  const entityViewCounts = useMemo(() => {
+    const counts: Record<EntityView, number> = {
+      All: organisationScopedEngagements.length,
+      Companies: 0,
+      CCs: 0,
+      Trusts: 0,
+      NPCs: 0,
+      Other: 0,
+    };
+
+    organisationScopedEngagements.forEach((engagement) => {
+      counts[getEntityView(engagement.entity_type)] += 1;
+    });
+
+    return counts;
+  }, [organisationScopedEngagements]);
+
+  const visibleEngagements = useMemo(() => {
+    let rows = [...organisationScopedEngagements];
 
     if (profile) {
       if (internalUser) {
@@ -174,6 +228,12 @@ export default function AFSPage() {
             engagement.organisation_id === profile.organisation_id,
         );
       }
+    }
+
+    if (entityView !== "All") {
+      rows = rows.filter(
+        (engagement) => getEntityView(engagement.entity_type) === entityView,
+      );
     }
 
     const search = searchText.trim().toLowerCase();
@@ -244,10 +304,8 @@ export default function AFSPage() {
 
     return rows;
   }, [
-    engagements,
-    selectedOrganisationId,
-    profile,
-    internalUser,
+    organisationScopedEngagements,
+    entityView,
     searchText,
     statusFilter,
     sortBy,
@@ -573,6 +631,7 @@ export default function AFSPage() {
 
   function clearFilters() {
     setSearchText("");
+    setEntityView("All");
     setStatusFilter("All");
     setSortBy("Entity A-Z");
   }
@@ -615,6 +674,7 @@ export default function AFSPage() {
                 onChange={(e) => {
                   setSelectedOrganisationId(e.target.value);
                   setSearchText("");
+                  setEntityView("All");
                 }}
               >
                 <option value="">Choose firm/client</option>
@@ -770,7 +830,7 @@ export default function AFSPage() {
 
               <p style={styles.resultText}>
                 Showing {visibleEngagements.length} of{" "}
-                {engagements.length} engagement(s)
+                {organisationScopedEngagements.length} engagement(s)
               </p>
             </div>
 
@@ -780,6 +840,45 @@ export default function AFSPage() {
             >
               Clear filters
             </button>
+          </div>
+
+          <div style={styles.entityViewBar}>
+            <div style={styles.entityViewLabel}>View</div>
+
+            {(
+              [
+                "All",
+                "Companies",
+                "CCs",
+                "Trusts",
+                "NPCs",
+                "Other",
+              ] as EntityView[]
+            ).map((view) => {
+              const active = entityView === view;
+
+              return (
+                <button
+                  key={view}
+                  type="button"
+                  style={{
+                    ...styles.entityViewButton,
+                    ...(active ? styles.entityViewButtonActive : {}),
+                  }}
+                  onClick={() => setEntityView(view)}
+                >
+                  {view}
+                  <span
+                    style={{
+                      ...styles.entityViewCount,
+                      ...(active ? styles.entityViewCountActive : {}),
+                    }}
+                  >
+                    {entityViewCounts[view]}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           <div style={styles.filtersGrid}>
@@ -1385,6 +1484,71 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 900,
     cursor: "pointer",
     borderRadius: 0,
+  },
+
+  entityViewBar: {
+    display: "flex",
+    alignItems: "stretch",
+    gap: 0,
+    marginBottom: "8px",
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    width: "fit-content",
+    maxWidth: "100%",
+    overflowX: "auto",
+  },
+
+  entityViewLabel: {
+    display: "flex",
+    alignItems: "center",
+    padding: "6px 9px",
+    background: "#eef3f8",
+    borderRight: "1px solid #cbd5e1",
+    color: "#64748b",
+    fontSize: "11px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    whiteSpace: "nowrap",
+  },
+
+  entityViewButton: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    border: 0,
+    borderRight: "1px solid #d8e2ef",
+    background: "#ffffff",
+    color: "#334155",
+    padding: "6px 10px",
+    fontSize: "12px",
+    fontWeight: 900,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    borderRadius: 0,
+  },
+
+  entityViewButtonActive: {
+    background: "#0f2742",
+    color: "#ffffff",
+  },
+
+  entityViewCount: {
+    minWidth: "18px",
+    padding: "1px 4px",
+    border: "1px solid #cbd5e1",
+    background: "#f8fafc",
+    color: "#64748b",
+    fontSize: "10px",
+    fontWeight: 900,
+    textAlign: "center",
+    lineHeight: 1.2,
+  },
+
+  entityViewCountActive: {
+    border: "1px solid rgba(255,255,255,0.45)",
+    background: "rgba(255,255,255,0.12)",
+    color: "#ffffff",
   },
 
   filtersGrid: {
