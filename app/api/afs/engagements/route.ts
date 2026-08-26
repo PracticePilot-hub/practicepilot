@@ -7,6 +7,56 @@ function cleanText(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function bearerToken(request: Request) {
+  return (request.headers.get("authorization") || "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+}
+
+async function currentDeleteProfile(
+  request: Request,
+  supabase: ReturnType<typeof getSupabaseServer>,
+) {
+  const token = bearerToken(request);
+
+  if (!token) {
+    return {
+      profile: null as any,
+      response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
+    };
+  }
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser(token);
+
+  if (authError || !user) {
+    return {
+      profile: null as any,
+      response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
+    };
+  }
+
+  const { data: profile, error } = await supabase
+    .from("user_profiles")
+    .select(
+      "id,user_id,organisation_id,role,access_enabled,can_access_afs,afs_authority,can_delete_afs_drafts",
+    )
+    .eq("user_id", user.id)
+    .single();
+
+  if (error || !profile || !profile.access_enabled || !profile.can_access_afs) {
+    return {
+      profile: null as any,
+      response: NextResponse.json({ error: "AFS access denied." }, { status: 403 }),
+    };
+  }
+
+  return { profile, response: null as NextResponse | null };
+}
+
+
 const AFS_METHODOLOGY_VERSION = "afs-2026.08.25.1";
 
 async function buildMethodologySnapshot(
@@ -411,11 +461,264 @@ export async function GET() {
       throw error;
     }
 
-    return NextResponse.json({ engagements: data || [] });
+    const engagements = data || [];
+
+    const organisationIds = Array.from(
+      new Set(
+        engagements
+          .map((engagement: any) => cleanText(engagement.organisation_id))
+          .filter(Boolean),
+      ),
+    );
+
+    const planByOrganisation = new Map<string, string | null>();
+
+    if (organisationIds.length > 0) {
+      const { data: organisations, error: organisationsError } = await supabase
+        .from("organisations")
+        .select("id,afs_plan")
+        .in("id", organisationIds);
+
+      if (organisationsError) throw organisationsError;
+
+      for (const organisation of organisations || []) {
+        planByOrganisation.set(
+          cleanText(organisation.id),
+          cleanText(organisation.afs_plan) || null,
+        );
+      }
+    }
+
+    const { data: staffProfiles, error: staffProfilesError } =
+      organisationIds.length > 0
+        ? await supabase
+            .from("user_profiles")
+            .select("organisation_id,full_name,staff_code")
+            .in("organisation_id", organisationIds)
+            .not("full_name", "is", null)
+        : { data: [], error: null };
+
+    if (staffProfilesError) throw staffProfilesError;
+
+    const codeByOrganisationAndName = new Map<string, string>();
+    const staffByOrganisation = new Map<
+      string,
+      Array<{ fullName: string; staffCode: string }>
+    >();
+
+    function surnamePhrase(value: unknown) {
+      const words = cleanText(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, " ")
+        .split(/\s+/)
+        .filter(Boolean);
+
+      if (words.length === 0) return "";
+
+      const particles = new Set(["van", "von", "de", "du", "del", "der", "la", "le"]);
+      const last = words[words.length - 1];
+      const beforeLast = words[words.length - 2];
+
+      if (beforeLast && particles.has(beforeLast)) {
+        return `${beforeLast} ${last}`;
+      }
+
+      return last;
+    }
+
+    function resolveStaffCode(organisationId: string, storedName: string) {
+      if (!organisationId || !storedName) return null;
+
+      const exact = codeByOrganisationAndName.get(
+        `${organisationId}::${storedName.toLowerCase()}`,
+      );
+
+      if (exact) return exact;
+
+      // Legacy AFS files stored preparer/reviewer as free-text names.
+      // If that historical name has the same surname phrase as exactly one
+      // coded user in the practice, use that user's current staff code.
+      const targetSurname = surnamePhrase(storedName);
+      if (!targetSurname) return null;
+
+      const candidates = (staffByOrganisation.get(organisationId) || []).filter(
+        (staff) => surnamePhrase(staff.fullName) === targetSurname,
+      );
+
+      return candidates.length === 1 ? candidates[0].staffCode : null;
+    }
+
+    for (const staff of staffProfiles || []) {
+      const organisationId = cleanText(staff.organisation_id);
+      const fullName = cleanText(staff.full_name);
+      const staffCode = cleanText(staff.staff_code).toUpperCase();
+
+      if (organisationId && fullName && staffCode) {
+        codeByOrganisationAndName.set(
+          `${organisationId}::${fullName.toLowerCase()}`,
+          staffCode,
+        );
+
+        const current = staffByOrganisation.get(organisationId) || [];
+        current.push({ fullName, staffCode });
+        staffByOrganisation.set(organisationId, current);
+      }
+    }
+
+    const enriched = engagements.map((engagement: any) => {
+      const organisationId = cleanText(engagement.organisation_id);
+      const plan = planByOrganisation.get(organisationId) || null;
+      const status = cleanText(engagement.status) || "Draft";
+
+      const preparedName = cleanText(engagement.prepared_by);
+      const reviewedName = cleanText(engagement.reviewed_by);
+
+      return {
+        ...engagement,
+        afs_plan: plan,
+        prepared_code: preparedName
+          ? resolveStaffCode(organisationId, preparedName)
+          : null,
+        reviewed_code: reviewedName
+          ? resolveStaffCode(organisationId, reviewedName)
+          : null,
+        can_delete: plan === "unlimited" && status === "Draft",
+      };
+    });
+
+    return NextResponse.json({ engagements: enriched });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Failed to load AFS engagements." },
       { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const supabase = getSupabaseServer();
+    const { profile, response } = await currentDeleteProfile(req, supabase);
+
+    if (response || !profile) return response;
+
+    const body = await req.json();
+    const engagementId = cleanText(body.engagementId);
+
+    if (!engagementId) {
+      return NextResponse.json(
+        { error: "Engagement id is required." },
+        { status: 400 },
+      );
+    }
+
+    const { data: engagement, error: engagementError } = await supabase
+      .from("afs_engagements")
+      .select("id,client_name,status,organisation_id")
+      .eq("id", engagementId)
+      .single();
+
+    if (engagementError || !engagement) {
+      return NextResponse.json(
+        { error: engagementError?.message || "AFS engagement not found." },
+        { status: 404 },
+      );
+    }
+
+    const status = cleanText(engagement.status) || "Draft";
+
+    if (status !== "Draft") {
+      return NextResponse.json(
+        {
+          error:
+            "Only Draft AFS engagements can be permanently deleted. Final, Reopened and Archived files are protected.",
+          code: "AFS_DELETE_STATUS_BLOCKED",
+        },
+        { status: 409 },
+      );
+    }
+
+    const organisationId = cleanText(engagement.organisation_id);
+
+    if (!organisationId) {
+      return NextResponse.json(
+        {
+          error:
+            "This AFS engagement is not linked to a PracticePilot organisation.",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (cleanText(profile.organisation_id) !== organisationId) {
+      return NextResponse.json(
+        { error: "You do not have permission to delete AFS files for this practice." },
+        { status: 403 },
+      );
+    }
+
+    const canDeleteDrafts =
+      cleanText(profile.afs_authority) === "Captain" ||
+      Boolean(profile.can_delete_afs_drafts);
+
+    if (!canDeleteDrafts) {
+      return NextResponse.json(
+        {
+          error:
+            "Only the Captain, or a user specifically authorised by the Captain, may permanently delete Draft AFS files.",
+          code: "AFS_DELETE_PERMISSION_BLOCKED",
+        },
+        { status: 403 },
+      );
+    }
+
+    const { data: organisation, error: organisationError } = await supabase
+      .from("organisations")
+      .select("id,afs_plan")
+      .eq("id", organisationId)
+      .single();
+
+    if (organisationError || !organisation) {
+      return NextResponse.json(
+        {
+          error:
+            organisationError?.message ||
+            "Could not confirm the AFS billing plan for this firm.",
+        },
+        { status: 500 },
+      );
+    }
+
+    if (cleanText(organisation.afs_plan) !== "unlimited") {
+      return NextResponse.json(
+        {
+          error:
+            "Permanent deletion is available only on the AFS Unlimited plan. Flex and pay-per-set AFS files remain part of the billing record.",
+          code: "AFS_DELETE_PLAN_BLOCKED",
+        },
+        { status: 409 },
+      );
+    }
+
+    const { error: deleteError } = await supabase
+      .from("afs_engagements")
+      .delete()
+      .eq("id", engagementId);
+
+    if (deleteError) throw deleteError;
+
+    return NextResponse.json({
+      success: true,
+      deletedEngagementId: engagementId,
+      clientName: engagement.client_name || null,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      {
+        error:
+          error.message || "Failed to permanently delete the AFS engagement.",
+      },
+      { status: 500 },
     );
   }
 }

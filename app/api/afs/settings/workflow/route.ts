@@ -18,6 +18,8 @@ type UserProfile = {
   afs_authority?: Authority | null;
   can_restrict_afs_files?: boolean | null;
   can_manage_practice_users?: boolean | null;
+  staff_code?: string | null;
+  can_delete_afs_drafts?: boolean | null;
 };
 
 function getSupabaseAdmin() {
@@ -58,19 +60,15 @@ function normalAuthority(value: unknown): Authority {
   return "Pilot";
 }
 
-type CurrentProfileResult =
-  | { profile: UserProfile; response: null }
-  | { profile: null; response: NextResponse };
-
 async function currentProfile(
   request: Request,
   supabase: ReturnType<typeof getSupabaseAdmin>,
-): Promise<CurrentProfileResult> {
+) {
   const token = bearerToken(request);
 
   if (!token) {
     return {
-      profile: null,
+      profile: null as UserProfile | null,
       response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
     };
   }
@@ -82,7 +80,7 @@ async function currentProfile(
 
   if (authError || !user) {
     return {
-      profile: null,
+      profile: null as UserProfile | null,
       response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
     };
   }
@@ -90,26 +88,26 @@ async function currentProfile(
   const { data, error } = await supabase
     .from("user_profiles")
     .select(
-      "id,user_id,organisation_id,full_name,email,role,access_enabled,can_access_afs,afs_authority,can_restrict_afs_files,can_manage_practice_users",
+      "id,user_id,organisation_id,full_name,email,role,access_enabled,can_access_afs,afs_authority,can_restrict_afs_files,can_manage_practice_users,staff_code,can_delete_afs_drafts",
     )
     .eq("user_id", user.id)
     .single();
 
   if (error || !data || !data.access_enabled) {
     return {
-      profile: null,
+      profile: null as UserProfile | null,
       response: NextResponse.json({ error: "Profile access denied." }, { status: 403 }),
     };
   }
 
-  return { profile: data as UserProfile, response: null };
+  return { profile: data as UserProfile, response: null as NextResponse | null };
 }
 
 export async function GET(request: Request) {
   try {
     const supabase = getSupabaseAdmin();
     const { profile, response } = await currentProfile(request, supabase);
-    if (response) return response;
+    if (response || !profile) return response;
 
     if (!profile.organisation_id) {
       return NextResponse.json(
@@ -128,7 +126,7 @@ export async function GET(request: Request) {
         supabase
           .from("user_profiles")
           .select(
-            "id,user_id,full_name,email,role,access_enabled,can_access_afs,afs_authority,can_restrict_afs_files,can_manage_practice_users",
+            "id,user_id,full_name,email,role,access_enabled,can_access_afs,afs_authority,can_restrict_afs_files,can_manage_practice_users,staff_code,can_delete_afs_drafts",
           )
           .eq("organisation_id", profile.organisation_id)
           .order("full_name", { ascending: true }),
@@ -141,6 +139,8 @@ export async function GET(request: Request) {
       organisation,
       currentUserId: profile.id,
       canManage: canManage(profile),
+      canManageRegisterSettings:
+        isGlobalAdmin(profile.role) || normalAuthority(profile.afs_authority) === "Captain",
       users: (users || []).map((user: any) => ({
         ...user,
         afs_authority: normalAuthority(user.afs_authority),
@@ -159,7 +159,7 @@ export async function PATCH(request: Request) {
   try {
     const supabase = getSupabaseAdmin();
     const { profile, response } = await currentProfile(request, supabase);
-    if (response) return response;
+    if (response || !profile) return response;
 
     if (!profile.organisation_id) {
       return NextResponse.json(
@@ -188,6 +188,93 @@ export async function PATCH(request: Request) {
       if (error) throw error;
 
       return NextResponse.json({ success: true, mode });
+    }
+
+    if (body.action === "user-register-settings") {
+      const targetUserId = String(body.userId || "").trim();
+      const requestedCode = String(body.staffCode || "").trim().toUpperCase();
+      const canDeleteDrafts = Boolean(body.canDeleteAfsDrafts);
+
+      const canManageRegister =
+        isGlobalAdmin(profile.role) ||
+        normalAuthority(profile.afs_authority) === "Captain";
+
+      if (!canManageRegister) {
+        return NextResponse.json(
+          { error: "Only a Captain can manage AFS register codes and delegated Draft deletion." },
+          { status: 403 },
+        );
+      }
+
+      if (!targetUserId) {
+        return NextResponse.json({ error: "User is required." }, { status: 400 });
+      }
+
+      if (requestedCode && !/^[A-Z0-9]{2,8}$/.test(requestedCode)) {
+        return NextResponse.json(
+          { error: "Staff code must be 2 to 8 letters or numbers." },
+          { status: 400 },
+        );
+      }
+
+      const { data: target, error: targetError } = await supabase
+        .from("user_profiles")
+        .select("id,organisation_id,afs_authority")
+        .eq("id", targetUserId)
+        .single();
+
+      if (targetError || !target) {
+        return NextResponse.json({ error: "User not found." }, { status: 404 });
+      }
+
+      if (target.organisation_id !== profile.organisation_id) {
+        return NextResponse.json(
+          { error: "User is outside your practice." },
+          { status: 403 },
+        );
+      }
+
+      if (requestedCode) {
+        const { data: duplicate, error: duplicateError } = await supabase
+          .from("user_profiles")
+          .select("id")
+          .eq("organisation_id", profile.organisation_id)
+          .ilike("staff_code", requestedCode)
+          .neq("id", targetUserId)
+          .limit(1)
+          .maybeSingle();
+
+        if (duplicateError) throw duplicateError;
+
+        if (duplicate) {
+          return NextResponse.json(
+            { error: `Staff code ${requestedCode} is already in use in this practice.` },
+            { status: 409 },
+          );
+        }
+      }
+
+      const targetAuthority = normalAuthority(target.afs_authority);
+      const delegatedDelete =
+        targetAuthority === "Captain" ? false : canDeleteDrafts;
+
+      const { error } = await supabase
+        .from("user_profiles")
+        .update({
+          staff_code: requestedCode || null,
+          can_delete_afs_drafts: delegatedDelete,
+        })
+        .eq("id", targetUserId)
+        .eq("organisation_id", profile.organisation_id);
+
+      if (error) throw error;
+
+      return NextResponse.json({
+        success: true,
+        userId: targetUserId,
+        staffCode: requestedCode || null,
+        canDeleteAfsDrafts: delegatedDelete,
+      });
     }
 
     if (body.action === "user-authority") {

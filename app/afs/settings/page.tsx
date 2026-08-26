@@ -362,15 +362,36 @@ export default function AfsFirmSettingsPage() {
             </div>
 
             <div style={styles.uploadRow}>
-              <div>
+              <div style={styles.uploadMain}>
                 <h3 style={styles.uploadTitle}>Firm logo</h3>
                 <p style={styles.uploadText}>
                   Logo only. PracticePilot will create the letterhead layout around it.
                 </p>
+
                 {settings.logo_url ? (
-                  <div style={styles.currentFile}>Logo uploaded</div>
-                ) : null}
+                  <div style={styles.uploadedState}>
+                    <div style={styles.uploadedThumb}>
+                      <img
+                        src={settings.logo_url}
+                        alt="Current firm logo"
+                        style={styles.uploadedThumbImage}
+                      />
+                    </div>
+
+                    <div style={styles.uploadedCopy}>
+                      <strong style={styles.uploadedTitle}>✓ Firm logo uploaded</strong>
+                      <span style={styles.uploadedHint}>
+                        This logo is currently used on the report letterhead.
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={styles.missingUploadState}>
+                    No firm logo uploaded yet.
+                  </div>
+                )}
               </div>
+
               <div style={styles.uploadActions}>
                 <button
                   type="button"
@@ -378,7 +399,11 @@ export default function AfsFirmSettingsPage() {
                   onClick={() => logoInputRef.current?.click()}
                   disabled={uploadingField === "logo_url"}
                 >
-                  {uploadingField === "logo_url" ? "Uploading..." : "Upload"}
+                  {uploadingField === "logo_url"
+                    ? "Uploading..."
+                    : settings.logo_url
+                      ? "Replace logo"
+                      : "Upload logo"}
                 </button>
                 <input
                   ref={logoInputRef}
@@ -965,6 +990,55 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 11,
     color: "#475569",
   },
+  uploadMain: {
+    minWidth: 0,
+  },
+  uploadedState: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+    padding: "8px 10px",
+    border: "1px solid #bbd7c8",
+    background: "#f6fbf8",
+    maxWidth: 420,
+  },
+  uploadedThumb: {
+    width: 74,
+    height: 42,
+    border: "1px solid #d7e2dc",
+    background: "#ffffff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 4,
+  },
+  uploadedThumbImage: {
+    maxWidth: "100%",
+    maxHeight: "100%",
+    objectFit: "contain",
+  },
+  uploadedCopy: {
+    display: "grid",
+    gap: 2,
+  },
+  uploadedTitle: {
+    color: "#166534",
+    fontSize: 10.5,
+    fontWeight: 900,
+  },
+  uploadedHint: {
+    color: "#64748b",
+    fontSize: 9,
+    lineHeight: 1.3,
+  },
+  missingUploadState: {
+    marginTop: 7,
+    color: "#94a3b8",
+    fontSize: 9.5,
+    fontWeight: 750,
+  },
+
   uploadRow: {
     display: "grid",
     gridTemplateColumns: "minmax(0, 1fr) auto",

@@ -29,6 +29,10 @@ type AFSEngagement = {
   created_at: string;
   organisation_id?: string | null;
   firm_client_name?: string | null;
+  afs_plan?: string | null;
+  can_delete?: boolean;
+  prepared_code?: string | null;
+  reviewed_code?: string | null;
 };
 
 type Organisation = {
@@ -76,6 +80,8 @@ type UserProfile = {
   organisation_id: string | null;
   access_enabled: boolean;
   can_access_afs?: boolean | null;
+  afs_authority?: "Pilot" | "First Officer" | "Captain" | null;
+  can_delete_afs_drafts?: boolean | null;
 };
 
 function isInternalRole(role: string) {
@@ -118,6 +124,61 @@ function calculateDefaultNextPeriodEnd(financialYearEnd: string) {
   ].join("-");
 }
 
+
+function makeStaffCode(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "-";
+
+  const words = raw
+    .replace(/[()[\].,]/g, " ")
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+  if (words.length === 0) return "-";
+
+  const ignored = new Set([
+    "mr",
+    "mrs",
+    "ms",
+    "miss",
+    "dr",
+    "prof",
+    "pty",
+    "ltd",
+    "sa",
+  ]);
+
+  const useful = words.filter(
+    (word) => !ignored.has(word.toLowerCase()),
+  );
+
+  const source = useful.length > 0 ? useful : words;
+  const initials = source
+    .map((word) => word[0]?.toUpperCase() || "")
+    .join("");
+
+  if (initials.length >= 3) return initials.slice(0, 3);
+  if (source.length === 1) return source[0].slice(0, 3).toUpperCase();
+
+  return initials || "-";
+}
+
+function compactStatus(status: unknown) {
+  const clean = normaliseStatus(status as string | null | undefined);
+
+  if (clean === "Draft") return { code: "D", label: "Draft" };
+  if (clean === "Ready for review") return { code: "R", label: "Ready for review" };
+  if (clean === "Final") return { code: "F", label: "Final" };
+  if (clean === "Archived") return { code: "A", label: "Archived" };
+  if (clean === "Reopened") return { code: "O", label: "Reopened" };
+
+  return {
+    code: clean.slice(0, 1).toUpperCase() || "?",
+    label: clean || "Unknown status",
+  };
+}
+
 export default function AFSPage() {
   const router = useRouter();
 
@@ -156,6 +217,8 @@ export default function AFSPage() {
   const [entityView, setEntityView] = useState<EntityView>("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [sortBy, setSortBy] = useState("Entity A-Z");
+  const [deletingEngagementId, setDeletingEngagementId] = useState<string | null>(null);
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
 
   const internalUser = isInternalRole(profile?.role || "");
 
@@ -310,6 +373,10 @@ export default function AFSPage() {
     statusFilter,
     sortBy,
   ]);
+
+  const userCanDeleteAfsDrafts =
+    profile?.afs_authority === "Captain" ||
+    Boolean(profile?.can_delete_afs_drafts);
 
   async function loadPage() {
     setLoading(true);
@@ -629,6 +696,58 @@ export default function AFSPage() {
     }
   }
 
+  async function deleteEngagement(engagement: AFSEngagement) {
+    if (!engagement.can_delete) return;
+
+    const confirmed = window.confirm(
+      `Permanently delete the Draft AFS working file for ${engagement.client_name}?\n\n` +
+        "This will delete the trial balance, journals, mappings, working papers and related AFS data. This cannot be undone.",
+    );
+
+    if (!confirmed) return;
+
+    const finalConfirmed = window.confirm(
+      "Delete permanently? There is no undo.",
+    );
+
+    if (!finalConfirmed) return;
+
+    setDeletingEngagementId(engagement.id);
+
+    try {
+      const response = await fetch("/api/afs/engagements", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${
+            (await supabase.auth.getSession()).data.session?.access_token || ""
+          }`,
+        },
+        body: JSON.stringify({
+          engagementId: engagement.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error || "Could not permanently delete the AFS engagement.",
+        );
+      }
+
+      setEngagements((current) =>
+        current.filter((item) => item.id !== engagement.id),
+      );
+    } catch (error: any) {
+      alert(
+        error?.message || "Could not permanently delete the AFS engagement.",
+      );
+    } finally {
+      setDeletingEngagementId(null);
+    }
+  }
+
   function clearFilters() {
     setSearchText("");
     setEntityView("All");
@@ -940,17 +1059,37 @@ export default function AFSPage() {
               No AFS engagements found for the current selection.
             </div>
           ) : (
-            <div style={styles.tableWrap}>
+            <>
+              <div style={styles.statusLegend}>
+            <span style={styles.statusLegendLabel}>Status:</span>
+
+            {[
+              ["D", "Draft"],
+              ["R", "Ready for review"],
+              ["F", "Final"],
+              ["A", "Archived"],
+              ["O", "Reopened"],
+            ].map(([code, label]) => (
+              <span key={code} style={styles.statusLegendItem}>
+                <span style={styles.statusLegendCode}>{code}</span>
+                <span>{label}</span>
+              </span>
+            ))}
+          </div>
+
+          <div style={styles.tableWrap}>
               <table style={styles.table}>
                 <colgroup>
-                  <col style={{ width: "24%" }} />
+                  <col style={{ width: "30%" }} />
                   <col style={{ width: "11%" }} />
-                  <col style={{ width: "8%" }} />
-                  <col style={{ width: "14%" }} />
-                  <col style={{ width: "12%" }} />
                   <col style={{ width: "9%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "18%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "4%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "8%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
                 </colgroup>
                 <thead>
                   <tr>
@@ -958,17 +1097,12 @@ export default function AFSPage() {
                     <th style={styles.th}>Type</th>
                     <th style={styles.th}>Year end</th>
                     <th style={styles.th}>Firm / client</th>
-                    <th style={styles.th}>Prepared</th>
-                    <th style={styles.th}>Reviewed</th>
-                    <th style={styles.th}>Status</th>
-                    <th
-                      style={{
-                        ...styles.th,
-                        textAlign: "right",
-                      }}
-                    >
-                      Action
-                    </th>
+                    <th style={{ ...styles.th, textAlign: "center" }}>Prep</th>
+                    <th style={{ ...styles.th, textAlign: "center" }}>Rev</th>
+                    <th style={{ ...styles.th, textAlign: "center" }}>Status</th>
+                    <th style={styles.th}>Next</th>
+                    <th style={styles.th}>Open</th>
+                    <th style={styles.th}>More</th>
                   </tr>
                 </thead>
 
@@ -994,76 +1128,141 @@ export default function AFSPage() {
                           "Not allocated"}
                       </td>
 
-                      <td style={styles.td}>
-                        {engagement.prepared_by || "-"}
+                      <td style={{ ...styles.td, textAlign: "center", whiteSpace: "nowrap" }}>
+                        <span
+                          style={styles.staffCode}
+                          title={engagement.prepared_by || "Not assigned"}
+                        >
+                          {engagement.prepared_code ||
+                            makeStaffCode(engagement.prepared_by)}
+                        </span>
                       </td>
 
-                      <td style={styles.td}>
-                        {engagement.reviewed_by || "-"}
-                      </td>
-
-                      <td style={{ ...styles.td, whiteSpace: "nowrap" }}>
-                        <span style={styles.statusBadge}>
-                          {normaliseStatus(engagement.status)}
+                      <td style={{ ...styles.td, textAlign: "center", whiteSpace: "nowrap" }}>
+                        <span
+                          style={styles.staffCode}
+                          title={engagement.reviewed_by || "Not assigned"}
+                        >
+                          {engagement.reviewed_code ||
+                            makeStaffCode(engagement.reviewed_by)}
                         </span>
                       </td>
 
                       <td
                         style={{
                           ...styles.td,
-                          textAlign: "right",
+                          textAlign: "center",
+                          whiteSpace: "nowrap",
                         }}
                       >
-                        <div style={styles.actionButtons}>
-                          {["Ready for review", "Final"].includes(
-                            normaliseStatus(engagement.status),
-                          ) ? (
-                            <>
-                              <button
-                                type="button"
-                                style={styles.nextFlightButton}
-                                onClick={() =>
-                                  launchNextFlight(engagement)
-                                }
-                              >
-                                Next Flight
-                              </button>
+                        {(() => {
+                          const status = compactStatus(engagement.status);
 
-                              {normaliseStatus(engagement.status) === "Final" ? (
-                                <button
-                                  type="button"
-                                  style={styles.archiveButton}
-                                  onClick={() => requestArchiveEngagement(engagement)}
-                                  disabled={archivingEngagementId === engagement.id}
-                                >
-                                  {archivingEngagementId === engagement.id
-                                    ? "Archiving..."
-                                    : "Archive"}
-                                </button>
-                              ) : null}
-                            </>
-                          ) : null}
+                          return (
+                            <span
+                              style={styles.compactStatusBadge}
+                              title={status.label}
+                              aria-label={status.label}
+                            >
+                              {status.code}
+                            </span>
+                          );
+                        })()}
+                      </td>
 
+                      <td style={{ ...styles.td, whiteSpace: "nowrap" }}>
+                        {["Ready for review", "Final"].includes(
+                          normaliseStatus(engagement.status),
+                        ) ? (
                           <button
                             type="button"
-                            style={styles.openButton}
-                            onClick={() =>
-                              router.push(
-                                `/afs/${engagement.id}`,
-                              )
-                            }
+                            style={styles.nextFlightInlineButton}
+                            onClick={() => launchNextFlight(engagement)}
                           >
-                            {normaliseStatus(engagement.status) === "Archived"
-                              ? "View"
-                              : "Open"}
+                            Next Flight
                           </button>
-                        </div>
+                        ) : null}
+                      </td>
+
+                      <td style={{ ...styles.td, whiteSpace: "nowrap" }}>
+                        <button
+                          type="button"
+                          style={styles.openButton}
+                          onClick={() =>
+                            router.push(
+                              `/afs/${engagement.id}`,
+                            )
+                          }
+                        >
+                          {normaliseStatus(engagement.status) === "Archived"
+                            ? "View"
+                            : "Open"}
+                        </button>
+                      </td>
+
+                      <td style={{ ...styles.td, whiteSpace: "nowrap" }}>
+                        {normaliseStatus(engagement.status) === "Final" ||
+                        (engagement.can_delete && userCanDeleteAfsDrafts) ? (
+                          <span style={styles.actionMenuWrap}>
+                            <button
+                              type="button"
+                              style={styles.moreButton}
+                              onClick={() =>
+                                setOpenActionMenuId((current) =>
+                                  current === engagement.id ? null : engagement.id,
+                                )
+                              }
+                              aria-label={`More actions for ${engagement.client_name}`}
+                              title="More actions"
+                            >
+                              More ▾
+                            </button>
+
+                            {openActionMenuId === engagement.id ? (
+                              <span style={styles.actionMenu}>
+                                {normaliseStatus(engagement.status) === "Final" ? (
+                                  <button
+                                    type="button"
+                                    style={styles.menuActionButton}
+                                    onClick={() => {
+                                      setOpenActionMenuId(null);
+                                      void requestArchiveEngagement(engagement);
+                                    }}
+                                    disabled={archivingEngagementId === engagement.id}
+                                  >
+                                    {archivingEngagementId === engagement.id
+                                      ? "Archiving..."
+                                      : "Archive"}
+                                  </button>
+                                ) : null}
+
+                                {engagement.can_delete &&
+                                userCanDeleteAfsDrafts ? (
+                                  <button
+                                    type="button"
+                                    style={styles.menuDeleteButton}
+                                    disabled={deletingEngagementId === engagement.id}
+                                    onClick={() => {
+                                      setOpenActionMenuId(null);
+                                      void deleteEngagement(engagement);
+                                    }}
+                                  >
+                                    {deletingEngagementId === engagement.id
+                                      ? "Deleting..."
+                                      : "Delete Draft"}
+                                  </button>
+                                ) : null}
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : null}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </section>
       </div>
@@ -1568,9 +1767,47 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: "8px",
   },
 
+  statusLegend: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    flexWrap: "wrap",
+    margin: "2px 0 7px",
+    padding: "4px 0",
+    color: "#64748b",
+    fontSize: "9.5px",
+    lineHeight: 1.2,
+  },
+
+  statusLegendLabel: {
+    color: "#334155",
+    fontWeight: 900,
+  },
+
+  statusLegendItem: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "4px",
+    whiteSpace: "nowrap",
+  },
+
+  statusLegendCode: {
+    display: "inline-flex",
+    width: "18px",
+    height: "18px",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#0f2742",
+    fontSize: "9px",
+    fontWeight: 900,
+    lineHeight: 1,
+  },
+
   tableWrap: {
     border: "1px solid #d8e2ef",
-    overflowX: "hidden",
+    overflow: "visible",
     width: "100%",
   },
 
@@ -1593,7 +1830,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   td: {
-    padding: "7px 6px",
+    padding: "6px 6px",
     borderBottom: "1px solid #e5edf6",
     color: "#12304a",
     verticalAlign: "middle",
@@ -1603,7 +1840,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   tdStrong: {
-    padding: "7px 6px",
+    padding: "6px 6px",
     borderBottom: "1px solid #e5edf6",
     color: "#0f2742",
     fontWeight: 900,
@@ -1611,6 +1848,44 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: "normal",
     overflowWrap: "anywhere",
     lineHeight: 1.25,
+  },
+
+  staffCode: {
+    display: "inline-block",
+    minWidth: "28px",
+    color: "#0f2742",
+    fontWeight: 900,
+    letterSpacing: "0.04em",
+    textAlign: "center",
+  },
+
+  nextFlightInlineButton: {
+    border: "1px solid #0891b2",
+    background: "#ffffff",
+    color: "#0e7490",
+    fontWeight: 900,
+    cursor: "pointer",
+    padding: "3px 7px",
+    fontSize: "10px",
+    lineHeight: 1.1,
+    whiteSpace: "nowrap",
+    borderRadius: 0,
+  },
+
+  compactStatusBadge: {
+    display: "inline-flex",
+    width: "22px",
+    height: "22px",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#0f2742",
+    fontSize: "10px",
+    fontWeight: 900,
+    lineHeight: 1,
+    borderRadius: 0,
+    cursor: "help",
   },
 
   statusBadge: {
@@ -1623,13 +1898,73 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 900,
   },
 
+  actionMenuWrap: {
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+
+  moreButton: {
+    minWidth: "46px",
+    height: "18px",
+    border: 0,
+    background: "transparent",
+    color: "#64748b",
+    padding: "0 2px",
+    fontSize: "9px",
+    fontWeight: 800,
+    lineHeight: 1,
+    cursor: "pointer",
+    borderRadius: 0,
+    whiteSpace: "nowrap",
+  },
+
+  actionMenu: {
+    position: "absolute",
+    zIndex: 20,
+    top: "28px",
+    right: 0,
+    minWidth: "112px",
+    border: "1px solid #94a3b8",
+    background: "#ffffff",
+    boxShadow: "0 4px 12px rgba(15, 23, 42, 0.12)",
+    padding: "3px",
+  },
+
+  menuActionButton: {
+    width: "100%",
+    border: 0,
+    background: "#ffffff",
+    color: "#0f2742",
+    padding: "7px 8px",
+    textAlign: "left",
+    fontSize: "10px",
+    fontWeight: 850,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+
+  menuDeleteButton: {
+    width: "100%",
+    border: 0,
+    background: "#ffffff",
+    color: "#334155",
+    padding: "7px 8px",
+    textAlign: "left",
+    fontSize: "10px",
+    fontWeight: 850,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+
   actionButtons: {
     display: "flex",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    gap: "6px",
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "flex-end",
+    gap: "2px",
     whiteSpace: "nowrap",
-    flexWrap: "wrap",
   },
 
   nextFlightButton: {
