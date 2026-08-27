@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState, type CSSProperties } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 type SectionKey =
+  | "flight-settings"
   | "client-setup"
   | "trial-balance"
   | "adjusting-journals"
@@ -140,8 +141,20 @@ export default function AfsFlightControlOverview({
     return (
       <section style={styles.panel}>
         <div style={styles.notStarted}>
-          <strong>Flight not started</strong>
-          <span>Open Settings and choose the workflow and crew first.</span>
+          <div>
+            <strong style={styles.notStartedTitle}>Flight not started</strong>
+            <span style={styles.notStartedText}>
+              Choose the workflow and crew for this AFS file before Flight Control can begin.
+            </span>
+          </div>
+
+          <button
+            type="button"
+            style={styles.settingsButton}
+            onClick={() => onJump?.("flight-settings")}
+          >
+            Open File Settings
+          </button>
         </div>
       </section>
     );
@@ -812,9 +825,33 @@ const styles: Record<string, CSSProperties> = {
   },
   notStarted: {
     padding: 12,
-    display: "grid",
-    gap: 3,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
     color: "#475569",
     fontSize: 10.5,
+  },
+  notStartedTitle: {
+    display: "block",
+    color: "#0f172a",
+    fontSize: 11,
+    fontWeight: 900,
+  },
+  notStartedText: {
+    display: "block",
+    marginTop: 3,
+    color: "#64748b",
+    fontSize: 9.5,
+  },
+  settingsButton: {
+    border: "1px solid #1d4ed8",
+    background: "#2563eb",
+    color: "#ffffff",
+    padding: "6px 10px",
+    fontSize: 9.5,
+    fontWeight: 900,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
   },
 };
