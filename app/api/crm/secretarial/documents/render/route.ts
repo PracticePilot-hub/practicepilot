@@ -208,6 +208,48 @@ function shareCertificateBackground() {
   return `data:image/png;base64,${fs.readFileSync(filePath).toString("base64")}`;
 }
 
+
+function localBizzaccLogo() {
+  const candidates = [
+    path.join(process.cwd(), "public", "bizzacc", "Logo.png"),
+    path.join(process.cwd(), "public", "bizzacc", "logo.png"),
+    path.join(process.cwd(), "public", "bizzacc", "BizzaccLogo.png"),
+    path.join(process.cwd(), "public", "bizzacc", "bizzacc-logo.png"),
+  ];
+
+  const filePath = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!filePath) return "";
+  return `data:image/png;base64,${fs.readFileSync(filePath).toString("base64")}`;
+}
+
+function addressLines(value: unknown) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+async function imageAsDataUri(value: unknown) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (url.startsWith("data:")) return url;
+
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return "";
+
+    const contentType =
+      response.headers.get("content-type") ||
+      (url.toLowerCase().includes(".svg") ? "image/svg+xml" : "image/png");
+
+    const bytes = Buffer.from(await response.arrayBuffer());
+    return `data:${contentType};base64,${bytes.toString("base64")}`;
+  } catch (error) {
+    console.warn("Could not embed firm logo for Secretarial PDF:", error);
+    return "";
+  }
+}
+
 function certificateHtml({
   client,
   certificate,
@@ -383,6 +425,14 @@ export async function POST(request: Request) {
         { status: 403 }
       );
     }
+
+    const { data: firmSettings } = await supabase
+      .from("afs_firm_settings")
+      .select(
+        "firm_name,trading_name,logo_url,address_lines,telephone,email,website,practitioner_name,practitioner_designation,governing_body_name,governing_body_registration_number,governing_body_logo_url,second_governing_body_name,second_governing_body_registration_number,second_governing_body_logo_url,footer_text,footer_logo_url"
+      )
+      .eq("user_id", user.id)
+      .maybeSingle();
 
     const body = (await request.json()) as RenderBody;
     const clientId = String(body.clientId || "");
@@ -567,26 +617,39 @@ export async function POST(request: Request) {
       )}.pdf`;
     } else if (
       documentType === "securities-register" ||
-      documentType === "shareholder-register"
+      documentType === "shareholder-register" ||
+      documentType === "shareholding-confirmation" ||
+      documentType === "shareholding-confirmation-detailed"
     ) {
-      const [{ data: transactions }, { data: shareholders }, { data: classes }] =
-        await Promise.all([
-          supabase
-            .from("secretarial_share_transactions")
-            .select(
-              "id, transaction_type, transaction_date, number_of_shares, shareholder_id, share_class_id, notes"
-            )
-            .eq("client_id", clientId)
-            .order("transaction_date", { ascending: true }),
-          supabase
-            .from("secretarial_shareholders")
-            .select("id, full_legal_name, id_registration_number, holder_type, physical_address_line_1, physical_address_line_2, physical_address_city, physical_address_province, physical_address_postal_code, physical_address_country")
-            .eq("client_id", clientId),
-          supabase
-            .from("secretarial_share_classes")
-            .select("id, class_name")
-            .eq("client_id", clientId),
-        ]);
+      const [
+        { data: transactions },
+        { data: shareholders },
+        { data: classes },
+        { data: certificates },
+      ] = await Promise.all([
+        supabase
+          .from("secretarial_share_transactions")
+          .select(
+            "id, transaction_type, transaction_date, number_of_shares, shareholder_id, share_class_id, notes"
+          )
+          .eq("client_id", clientId)
+          .order("transaction_date", { ascending: true }),
+        supabase
+          .from("secretarial_shareholders")
+          .select("id, full_legal_name, id_registration_number, holder_type, physical_address_line_1, physical_address_line_2, physical_address_city, physical_address_province, physical_address_postal_code, physical_address_country")
+          .eq("client_id", clientId),
+        supabase
+          .from("secretarial_share_classes")
+          .select("id, class_name")
+          .eq("client_id", clientId),
+        supabase
+          .from("secretarial_share_certificates")
+          .select(
+            "certificate_number, certificate_status, issue_date, shareholder_id, share_class_id"
+          )
+          .eq("client_id", clientId)
+          .order("issue_date", { ascending: true }),
+      ]);
 
       const holderMap = new Map(
         (shareholders || []).map((row: any) => [row.id, row])
@@ -658,6 +721,20 @@ export async function POST(request: Request) {
           balances.set(key, (balances.get(key) || 0) + signed);
         }
 
+        const certificateMap = new Map<string, string[]>();
+        for (const certificate of certificates || []) {
+          const status = String(certificate.certificate_status || "").toLowerCase();
+          if (!["issued", "current"].includes(status)) continue;
+
+          const key = `${certificate.shareholder_id}:${certificate.share_class_id}`;
+          const certificateNumber = String(certificate.certificate_number || "").trim();
+          if (!certificateNumber) continue;
+
+          const existing = certificateMap.get(key) || [];
+          if (!existing.includes(certificateNumber)) existing.push(certificateNumber);
+          certificateMap.set(key, existing);
+        }
+
         const totalLiveShares = Array.from(balances.values()).reduce(
           (sum, qty) => sum + Math.max(0, qty),
           0
@@ -668,35 +745,280 @@ export async function POST(request: Request) {
           .map(([key, qty]) => {
             const [holderId, classId] = key.split(":");
             const holder = holderMap.get(holderId);
+            const certificateNumbers = certificateMap.get(key) || [];
             return `
             <tr>
               <td><strong>${esc(holder?.full_legal_name || "")}</strong><br/><span class="muted">${esc(holder?.holder_type || "")}</span></td>
               <td>${esc(holder?.id_registration_number || "")}</td>
               <td>${esc(compactAddress(holder) || "—")}</td>
               <td>${esc(classMap.get(classId)?.class_name || "")}</td>
+              <td>${esc(certificateNumbers.join(", ") || "—")}</td>
               <td style="text-align:right;font-weight:800;">${qty.toLocaleString("en-ZA")}</td>
               <td style="text-align:right;font-weight:800;">${totalLiveShares > 0 ? ((qty / totalLiveShares) * 100).toFixed(2) : "0.00"}%</td>
             </tr>`;
           })
           .join("");
 
-        html = registerHtml(
-          "Current Shareholder Register",
-          client,
-          `<table>
+        const registerTable = `<table>
             <colgroup>
-              <col style="width:17%" />
-              <col style="width:13%" />
-              <col style="width:34%" />
-              <col style="width:16%" />
+              <col style="width:15%" />
+              <col style="width:12%" />
+              <col style="width:27%" />
+              <col style="width:14%" />
+              <col style="width:12%" />
               <col style="width:10%" />
               <col style="width:10%" />
             </colgroup>
-            <thead><tr><th>Shareholder</th><th>ID / Registration</th><th>Registered / Residential Address</th><th>Class</th><th>Current Shares</th><th>% of Issued</th></tr></thead>
-            <tbody>${liveRows || '<tr><td colspan="6">No current holdings recorded.</td></tr>'}</tbody>
-          </table>`
-        );
-        fileName = `${fileSafe(client.client_name)}-Current-Shareholder-Register.pdf`;
+            <thead><tr><th>Shareholder</th><th>ID / Registration</th><th>Registered / Residential Address</th><th>Class</th><th>Certificate No.</th><th>Current Shares</th><th>% of Issued</th></tr></thead>
+            <tbody>${liveRows || '<tr><td colspan="7">No current holdings recorded.</td></tr>'}</tbody>
+          </table>`;
+
+        const confirmationRows = Array.from(balances.entries())
+          .filter(([, qty]) => qty !== 0)
+          .map(([key, qty]) => {
+            const [holderId, classId] = key.split(":");
+            const holder = holderMap.get(holderId);
+            const certificateNumbers = certificateMap.get(key) || [];
+            return `
+            <tr>
+              <td><strong>${esc(holder?.full_legal_name || "")}</strong></td>
+              <td>${esc(holder?.id_registration_number || "")}</td>
+              <td>${esc(classMap.get(classId)?.class_name || "")}</td>
+              <td>${esc(certificateNumbers.join(", ") || "—")}</td>
+              <td style="text-align:right;font-weight:800;">${qty.toLocaleString("en-ZA")}</td>
+              <td style="text-align:right;font-weight:800;">${totalLiveShares > 0 ? ((qty / totalLiveShares) * 100).toFixed(2) : "0.00"}%</td>
+            </tr>`;
+          })
+          .join("");
+
+        const confirmationTable = `<table class="confirmation-table">
+          <colgroup>
+            <col style="width:25%" />
+            <col style="width:20%" />
+            <col style="width:18%" />
+            <col style="width:15%" />
+            <col style="width:10%" />
+            <col style="width:12%" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Shareholder</th>
+              <th>ID / Registration Number</th>
+              <th>Share Class</th>
+              <th>Certificate No.</th>
+              <th>Shares</th>
+              <th>Shareholding</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${confirmationRows || '<tr><td colspan="6">No current holdings recorded.</td></tr>'}
+            <tr>
+              <td colspan="4" style="text-align:right;font-weight:900;">Total issued shares</td>
+              <td style="text-align:right;font-weight:900;">${totalLiveShares.toLocaleString("en-ZA")}</td>
+              <td style="text-align:right;font-weight:900;">${totalLiveShares > 0 ? "100.00%" : "0.00%"}</td>
+            </tr>
+          </tbody>
+        </table>`;
+
+        if (documentType === "shareholder-register") {
+          html = registerHtml(
+            "Current Shareholder Register",
+            client,
+            registerTable
+          );
+          fileName = `${fileSafe(client.client_name)}-Current-Shareholder-Register.pdf`;
+        } else if (documentType === "shareholding-confirmation-detailed") {
+          const today = dateText(new Date().toISOString());
+          const firmName = String(firmSettings?.firm_name || "Bizzacc Menlyn (Pty) Ltd");
+          const firmLogo =
+            (await imageAsDataUri(firmSettings?.logo_url)) || localBizzaccLogo();
+          const firmAddress = addressLines(firmSettings?.address_lines);
+          const firmTelephone = String(firmSettings?.telephone || "");
+          const firmEmail = String(firmSettings?.email || "");
+          const firmWebsite = String(firmSettings?.website || "");
+          const practitionerName = String(firmSettings?.practitioner_name || "").trim();
+          const practitionerDesignation = String(firmSettings?.practitioner_designation || "").trim();
+          const professionalRegistration = String(
+            firmSettings?.governing_body_registration_number || ""
+          ).trim();
+
+          html = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  @page { size: A4 portrait; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; width: 210mm; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #10233a; font-size: 10.5px; }
+  .letter-page { position: relative; width: 210mm; min-height: 297mm; padding: 12mm 15mm 18mm; page-break-after: always; }
+  .afs-letterhead { display: grid; grid-template-columns: 1fr 58mm; align-items: center; column-gap: 18px; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1.25px solid #111827; }
+  .afs-logo-wrap { min-height: 52px; display: flex; align-items: center; justify-content: flex-start; }
+  .afs-logo { width: 62mm; max-width: 100%; height: auto; max-height: 23mm; object-fit: contain; object-position: left center; display: block; }
+  .afs-contact { text-align: right; font-size: 8.5px; line-height: 1.25; color: #111827; }
+  .afs-firm-name { font-weight: 900; margin-bottom: 3px; }
+  .letter-body { padding: 2mm 7mm 0; }
+  .letter-date { margin-bottom: 18px; }
+  .letter-to { margin-bottom: 18px; font-weight: 700; }
+  .letter-subject { margin-bottom: 18px; font-weight: 900; text-transform: uppercase; }
+  .letter-page p { margin: 0 0 12px; line-height: 1.55; }
+  .confirmation-table { margin: 14px 0 16px; width: 100%; border-collapse: collapse; font-size: 8.5px; }
+  .confirmation-table th { background: #f3f6f9; color: #52647a; font-size: 7.3px; letter-spacing: .03em; text-align: left; }
+  .confirmation-table th, .confirmation-table td { border: 1px solid #d8dee7; padding: 5px 6px; vertical-align: top; }
+  .signoff { margin-top: 24px; }
+  .signature-space { margin-top: 28px; line-height: 1.45; }
+  .register-page { position: relative; width: 210mm; min-height: 297mm; padding: 12mm 15mm 18mm; page-break-before: always; }
+  .client { font-size: 20px; font-weight: 900; line-height: 1.05; }
+  .reg { margin-top: 4px; color: #52647a; font-size: 10px; font-weight: 800; }
+  .line { margin-top: 9px; border-bottom: 2px solid #10233a; }
+  .register-title { margin: 11px 0 15px; text-align: center; font-size: 21px; font-weight: 900; }
+  table { width: 100%; border-collapse: collapse; font-size: 9px; }
+  tr { page-break-inside: avoid; }
+  th { text-align: left; background: #f3f6f9; color: #52647a; font-size: 7.2px; letter-spacing: .04em; }
+  th, td { padding: 5px 6px; border: 1px solid #d8dee7; vertical-align: top; }
+  .muted { color: #64748b; }
+  .powered { position: absolute; left: 15mm; right: 15mm; bottom: 7mm; display: flex; justify-content: space-between; align-items: center; color: #94a3b8; font-size: 7px; letter-spacing: .03em; }
+  .powered strong { color: #64748b; font-weight: 700; }
+</style>
+</head>
+<body>
+  <section class="letter-page">
+    <div class="afs-letterhead">
+      <div class="afs-logo-wrap">${firmLogo ? `<img class="afs-logo" src="${esc(firmLogo)}" alt="${esc(firmName)} logo" />` : ""}</div>
+      <div class="afs-contact">
+        <div class="afs-firm-name">${esc(firmName)}</div>
+        ${firmAddress.map((line) => `<div>${esc(line)}</div>`).join("")}
+        ${firmTelephone ? `<div>Tel: ${esc(firmTelephone)}</div>` : ""}
+        ${firmEmail ? `<div>Email: ${esc(firmEmail)}</div>` : ""}
+        ${firmWebsite ? `<div>${esc(firmWebsite)}</div>` : ""}
+      </div>
+    </div>
+
+    <div class="letter-body">
+      <div class="letter-date">${today}</div>
+      <div class="letter-to">TO WHOM IT MAY CONCERN</div>
+      <div class="letter-subject">RE: ${esc(client.client_name)}<br/>REGISTRATION NUMBER: ${esc(client.registration_number || "")}</div>
+
+      <p>We hereby confirm that, according to the company's current statutory records, the issued shareholding as at <strong>${today}</strong> is as follows:</p>
+
+      ${confirmationTable}
+
+      <p>We confirm that the above reflects the current shareholding recorded in the company's statutory records as at the date of this letter.</p>
+      <p>This confirmation is issued at the request of the company.</p>
+
+      <div class="signoff">Yours faithfully</div>
+      <div class="signature-space">
+        ______________________________<br/>
+        ${practitionerName ? `<strong>${esc(practitionerName)}</strong><br/>` : ""}
+        ${practitionerDesignation ? `${esc(practitionerDesignation)}${professionalRegistration ? ` - ${esc(professionalRegistration)}` : ""}<br/>` : ""}
+        ${esc(firmName)}
+      </div>
+    </div>
+
+    <div class="powered"><strong>Prepared by ${esc(firmName)}</strong><span>Powered by PracticePilot</span></div>
+  </section>
+
+  <section class="register-page">
+    <div class="client">${esc(client.client_name)}</div>
+    <div class="reg">${esc(client.registration_number || "")}</div>
+    <div class="line"></div>
+    <div class="register-title">Current Shareholder Register</div>
+    ${registerTable}
+    <div class="powered"><strong>Prepared by ${esc(firmName)}</strong><span>Powered by PracticePilot</span></div>
+  </section>
+</body>
+</html>`;
+
+          fileName = `${fileSafe(client.client_name)}-Detailed-Shareholding-Confirmation.pdf`;
+        } else {
+          const today = dateText(new Date().toISOString());
+          const firmName = String(firmSettings?.firm_name || "Bizzacc Menlyn (Pty) Ltd");
+          const firmLogo =
+            (await imageAsDataUri(firmSettings?.logo_url)) || localBizzaccLogo();
+          const firmAddress = addressLines(firmSettings?.address_lines);
+          const firmTelephone = String(firmSettings?.telephone || "");
+          const firmEmail = String(firmSettings?.email || "");
+          const firmWebsite = String(firmSettings?.website || "");
+          const practitionerName = String(firmSettings?.practitioner_name || "").trim();
+          const practitionerDesignation = String(firmSettings?.practitioner_designation || "").trim();
+
+          html = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  @page { size: A4 portrait; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; width: 210mm; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #10233a; font-size: 10.5px; }
+  .letter-page { position: relative; width: 210mm; min-height: 297mm; padding: 12mm 15mm 18mm; page-break-after: always; }
+  .afs-letterhead { display: grid; grid-template-columns: 1fr 58mm; align-items: center; column-gap: 18px; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1.25px solid #111827; }
+  .afs-logo-wrap { min-height: 52px; display: flex; align-items: center; justify-content: flex-start; }
+  .afs-logo { width: 62mm; max-width: 100%; height: auto; max-height: 23mm; object-fit: contain; object-position: left center; display: block; }
+  .afs-contact { text-align: right; font-size: 8.5px; line-height: 1.25; color: #111827; }
+  .afs-firm-name { font-weight: 900; margin-bottom: 3px; }
+  .letter-body { padding: 2mm 7mm 0; }
+  .letter-date { margin-bottom: 18px; }
+  .letter-to { margin-bottom: 18px; font-weight: 700; }
+  .letter-subject { margin-bottom: 18px; font-weight: 900; text-transform: uppercase; }
+  .letter-page p { margin: 0 0 12px; line-height: 1.6; }
+  .signoff { margin-top: 28px; }
+  .signature-space { margin-top: 34px; }
+  .register-page { position: relative; width: 210mm; min-height: 297mm; padding: 12mm 15mm 18mm; page-break-before: always; }
+  .client { font-size: 20px; font-weight: 900; line-height: 1.05; }
+  .reg { margin-top: 4px; color: #52647a; font-size: 10px; font-weight: 800; }
+  .line { margin-top: 9px; border-bottom: 2px solid #10233a; }
+  .register-title { margin: 11px 0 15px; text-align: center; font-size: 21px; font-weight: 900; }
+  table { width: 100%; border-collapse: collapse; font-size: 9px; }
+  tr { page-break-inside: avoid; }
+  th { text-align: left; background: #f3f6f9; color: #52647a; font-size: 7.2px; letter-spacing: .04em; }
+  th, td { padding: 5px 6px; border: 1px solid #d8dee7; vertical-align: top; }
+  .muted { color: #64748b; }
+  .powered { position: absolute; left: 15mm; right: 15mm; bottom: 7mm; display: flex; justify-content: space-between; align-items: center; color: #94a3b8; font-size: 7px; letter-spacing: .03em; }
+  .powered strong { color: #64748b; font-weight: 700; }
+</style>
+</head>
+<body>
+  <section class="letter-page">
+    <div class="afs-letterhead">
+      <div class="afs-logo-wrap">${firmLogo ? `<img class="afs-logo" src="${esc(firmLogo)}" alt="${esc(firmName)} logo" />` : ""}</div>
+      <div class="afs-contact">
+        <div class="afs-firm-name">${esc(firmName)}</div>
+        ${firmAddress.map((line) => `<div>${esc(line)}</div>`).join("")}
+        ${firmTelephone ? `<div>Tel: ${esc(firmTelephone)}</div>` : ""}
+        ${firmEmail ? `<div>Email: ${esc(firmEmail)}</div>` : ""}
+        ${firmWebsite ? `<div>${esc(firmWebsite)}</div>` : ""}
+      </div>
+    </div>
+    <div class="letter-body">
+    <div class="letter-date">${today}</div>
+    <div class="letter-to">TO WHOM IT MAY CONCERN</div>
+    <div class="letter-subject">RE: ${esc(client.client_name)}<br/>REGISTRATION NUMBER: ${esc(client.registration_number || "")}</div>
+
+    <p>We hereby confirm that the shareholding of the above-mentioned company is reflected in the shareholder register attached hereto.</p>
+
+    <p>The attached shareholder register reflects the shareholding recorded in the company's statutory records as at ${today}.</p>
+
+    <p>This letter is issued at the request of the company for purposes of confirming its current shareholding.</p>
+
+    <div class="signoff">Yours faithfully</div>
+    <div class="signature-space">______________________________<br/>${practitionerName ? `<strong>${esc(practitionerName)}</strong><br/>` : ""}${practitionerDesignation ? `${esc(practitionerDesignation)}<br/>` : ""}Authorised Signatory</div>
+    </div>
+    <div class="powered"><strong>Prepared by ${esc(firmName)}</strong><span>Powered by PracticePilot</span></div>
+  </section>
+
+  <section class="register-page">
+    <div class="client">${esc(client.client_name)}</div>
+    <div class="reg">${esc(client.registration_number || "")}</div>
+    <div class="line"></div>
+    <div class="register-title">Current Shareholder Register</div>
+    ${registerTable}
+    <div class="powered"><strong>Prepared by ${esc(firmName)}</strong><span>Powered by PracticePilot</span></div>
+  </section>
+</body>
+</html>`;
+          fileName = `${fileSafe(client.client_name)}-Shareholding-Confirmation.pdf`;
+        }
       }
     } else if (documentType === "bo-mandate") {
       const [{ data: transactions }, { data: shareholders }, { data: classes }, { data: savedBoOwners }, { data: directors }] = await Promise.all([
@@ -846,7 +1168,7 @@ export async function POST(request: Request) {
 
     try {
       const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 15000 });
+      await page.setContent(html, { waitUntil: "load", timeout: 20000 });
 
       const pdf = await page.pdf({
         format: "A4",

@@ -4986,57 +4986,53 @@ if (
     (row: any) => String(row?.id || "") === "sce-retained-closing",
   );
 
-  const mappedCurrentRetained = Number(
-    retainedIncomeRow?.current || 0,
-  );
-
   /*
-    Prior-year SCE closing retained income must agree to the comparative SFP.
-    Use the comparative retained-income balance as the source of truth.
+    The statement engine owns the SCE roll-forward.
+
+    Print Studio must not manufacture an "Other movements" amount from the
+    mapped retained-income TB line. That creates false equity movements on
+    first-year PracticePilot files and prevents the current-year profit/loss
+    from flowing correctly into accumulated income/loss on the SFP.
   */
   const priorClosingRetained = Math.round(
-    Number(retainedIncomeRow?.prior || priorClosingRetainedRow?.current || 0),
+    Number(priorClosingRetainedRow?.current || retainedIncomeRow?.prior || 0),
   );
+
+  const currentProfit = Math.round(
+    Number(currentProfitRow?.current || 0),
+  );
+
+  const currentOtherMovement = Math.round(
+    Number(currentOtherMovementRow?.current || 0),
+  );
+
+  const correctedCurrentClosingRetained = Math.round(
+    Number(
+      currentClosingRetainedRow?.current ??
+        (priorClosingRetained + currentProfit + currentOtherMovement),
+    ),
+  );
+
+  const retainedIncomeAdjustment =
+    correctedCurrentClosingRetained -
+    Math.round(Number(retainedIncomeRow?.current || 0));
 
   if (priorClosingRetainedRow) {
     priorClosingRetainedRow.current = priorClosingRetained;
   }
 
-  const currentProfit = Number(currentProfitRow?.current || 0);
-
-  /*
-    The mapped retained-income account represents the accumulated
-    retained-income balance before the current-year profit is transferred.
-
-    Any movement between the prior closing retained income and the mapped
-    current retained-income account is therefore a genuine other movement,
-    such as a distribution or prior-period adjustment.
-  */
-  const currentOtherMovement =
-    mappedCurrentRetained - priorClosingRetained;
-
-  const correctedCurrentClosingRetained =
-    priorClosingRetained +
-    currentProfit +
-    currentOtherMovement;
-
-  const retainedIncomeAdjustment =
-    correctedCurrentClosingRetained - mappedCurrentRetained;
-
   if (retainedIncomeRow) {
-    retainedIncomeRow.current = Math.round(
-      correctedCurrentClosingRetained,
-    );
+    retainedIncomeRow.current = correctedCurrentClosingRetained;
   }
 
-  if (totalEquityRow) {
+  if (totalEquityRow && retainedIncomeAdjustment !== 0) {
     totalEquityRow.current = Math.round(
       Number(totalEquityRow.current || 0) +
         retainedIncomeAdjustment,
     );
   }
 
-  if (totalEquityAndLiabilitiesRow) {
+  if (totalEquityAndLiabilitiesRow && retainedIncomeAdjustment !== 0) {
     totalEquityAndLiabilitiesRow.current = Math.round(
       Number(totalEquityAndLiabilitiesRow.current || 0) +
         retainedIncomeAdjustment,
@@ -5044,15 +5040,11 @@ if (
   }
 
   if (currentOtherMovementRow) {
-    currentOtherMovementRow.current = Math.round(
-      currentOtherMovement,
-    );
+    currentOtherMovementRow.current = currentOtherMovement;
   }
 
   if (currentClosingRetainedRow) {
-    currentClosingRetainedRow.current = Math.round(
-      correctedCurrentClosingRetained,
-    );
+    currentClosingRetainedRow.current = correctedCurrentClosingRetained;
   }
 
   /*
@@ -8994,3 +8986,11 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
     </AfsPrintStudioShell>
   );
 }
+  // preservation-first: no additional logic
+  // preservation-first: no additional logic
+  // preservation-first: no additional logic
+  // preservation-first: no additional logic
+  // preservation-first: no additional logic
+  // preservation-first: no additional logic
+  // preservation-first: no additional logic
+  // preservation-first: no additional logic

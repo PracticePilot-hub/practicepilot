@@ -1241,9 +1241,7 @@ activeSection !== "lead-schedules" ? (
             <MappingPanelNew
               trialBalanceLines={trialBalanceLines}
               onTrialBalanceLinesChanged={(lines) => setTrialBalanceLines(lines)}
-              onDataChanged={() => {
-                window.dispatchEvent(new Event("afs-signoff-refresh"));
-              }}
+              onDataChanged={loadEngagement}
             />
           )}
 
@@ -1287,7 +1285,6 @@ activeSection !== "lead-schedules" ? (
             <TaxCalculatorPanel
               trialBalanceLines={trialBalanceLines}
               clientSetup={clientSetup}
-              entityType={displayEntityType}
             />
           )}
 
@@ -2279,7 +2276,7 @@ function ExportPrintPanel({
 
   function exportSelectedToExcel() {
     if (selectedDocument === "full-working-file-pack") {
-      alert("Excel export is not available for the combined Working File Pack. Use Print / Save PDF.");
+      alert("Excel export is not available for the combined Working File Pack. Use Print or Download PDF.");
       return;
     }
 
@@ -2322,7 +2319,80 @@ function ExportPrintPanel({
   }
 
   function printSelectedDocument() {
-    window.print();
+    const printArea = window.document.getElementById("afs-export-print-area");
+    if (!printArea) return;
+
+    const orientation =
+      selectedDocument === "final-tb-pilot-view" ||
+      selectedDocument === "final-trial-balance" ||
+      selectedDocument === "full-working-file-pack"
+        ? "landscape"
+        : "portrait";
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("The print window was blocked by the browser. Please allow pop-ups for PracticePilot and try again.");
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${selectedDocumentTitle()}</title>
+          <style>
+            @page {
+              size: A4 ${orientation};
+              margin: 10mm;
+            }
+
+            * {
+              box-sizing: border-box;
+            }
+
+            html,
+            body {
+              margin: 0;
+              padding: 0;
+              background: #ffffff;
+              color: #0f172a;
+              font-family: Arial, Helvetica, sans-serif;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+
+            #afs-export-print-area {
+              width: 100% !important;
+              max-width: none !important;
+              min-height: auto !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              border: 0 !important;
+              box-shadow: none !important;
+              overflow: visible !important;
+              background: #ffffff !important;
+            }
+
+            #afs-export-print-area > div > section:first-child {
+              break-before: auto !important;
+              page-break-before: auto !important;
+            }
+          </style>
+        </head>
+        <body>
+          ${printArea.outerHTML}
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+
+    printWindow.onload = () => {
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+    };
   }
 
   return (
@@ -2373,7 +2443,7 @@ function ExportPrintPanel({
         <div>
           <h3 style={styles.exportTitle}>Working File Pack</h3>
           <p style={styles.exportSubtitle}>
-            Print or export the working-paper pack. Flight Control remains the source of truth for completion and sign-off.
+            Print or download the working-paper pack. Flight Control remains the source of truth for completion and sign-off.
           </p>
         </div>
 
@@ -2383,7 +2453,7 @@ function ExportPrintPanel({
             style={styles.exportSecondaryButton}
             onClick={printSelectedDocument}
           >
-            Print selected
+            Print
           </button>
           <button
             type="button"
@@ -2392,29 +2462,17 @@ function ExportPrintPanel({
           >
             Export Excel
           </button>
-          {selectedDocument === "full-working-file-pack" ? (
-            <button
-              type="button"
-              style={styles.exportPrimaryButton}
-              onClick={printSelectedDocument}
-            >
-              Print / Save PDF
-            </button>
-          ) : (
-            <a
-              href={selectedExportPdfUrl()}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                ...styles.exportPrimaryButton,
-                textDecoration: "none",
-                display: "inline-flex",
-                alignItems: "center",
-              }}
-            >
-              Export PDF
-            </a>
-          )}
+          <a
+            href={selectedExportPdfUrl()}
+            style={{
+              ...styles.exportPrimaryButton,
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+            }}
+          >
+            Download PDF
+          </a>
         </div>
       </div>
 

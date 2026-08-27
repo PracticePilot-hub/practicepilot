@@ -73,7 +73,7 @@ async function sendWelcomeEmail({
     to: email,
     subject: "Welcome to PracticePilot",
     html: `
-      <div style="font-family: Arial, sans-serif; color: #0B2F4F; line-height: 1.6;">
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
         <h2>Welcome to PracticePilot</h2>
 
         <p>Hi ${displayName},</p>
@@ -155,14 +155,15 @@ export async function POST(req: Request) {
     ? true
     : Boolean(body.canAccessManagementReports);
   const canAccessPaia = adminRole ? true : Boolean(body.canAccessPaia);
+  const canAccessProposals = adminRole ? true : Boolean(body.canAccessProposals);
   const canAccessBudgeting = adminRole ? true : Boolean(body.canAccessBudgeting);
 
   const canEditProjects =
     adminRole || role === "Client Manager"
       ? true
       : canAccessProjects
-      ? Boolean(body.canEditProjects)
-      : false;
+        ? Boolean(body.canEditProjects)
+        : false;
 
   if (!email) {
     return NextResponse.json({ error: "Email is required" }, { status: 400 });
@@ -222,6 +223,7 @@ export async function POST(req: Request) {
         can_access_budgeting: canAccessBudgeting,
         can_access_management_reports: canAccessManagementReports,
         can_access_paia: canAccessPaia,
+        can_access_proposals: canAccessProposals,
 
         access_enabled: true,
       },

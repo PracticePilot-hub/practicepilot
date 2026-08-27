@@ -284,7 +284,6 @@ export const noteSections: EditableDisclosureSection[] = [
   section("notesDeferredTaxLiability", "notesDeferredTaxLiability", "Deferred tax", "non-current-assets", "Non-current assets"),
 
   // CURRENT LIABILITIES
-  section("notesBankOverdraft", "notesBankOverdraft", "Bank overdraft", "current-liabilities", "Current liabilities"),
   section("notesTradePayables", "notesTradePayables", "Trade and other payables", "current-liabilities", "Current liabilities"),
   section("notesContractLiabilities", "notesContractLiabilities", "Contract liabilities / deferred revenue", "current-liabilities", "Current liabilities"),
   section("notesDividendPayable", "notesDividendPayable", "Dividend payable", "current-liabilities", "Current liabilities"),

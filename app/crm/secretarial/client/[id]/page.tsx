@@ -3259,6 +3259,40 @@ export default function SecretarialClientPage() {
                   Preview PDF
                 </button>
               </TableRow>
+              <TableRow
+                columns="220px 1.4fr 160px 170px 220px"
+              >
+                <div>Shareholding Confirmation</div>
+                <strong>Shareholding Confirmation Letter + Register</strong>
+                <div>Current</div>
+                <StatusPill text="Available to Preview" />
+                <button
+                  type="button"
+                  onClick={() =>
+                    previewSecretarialDocument("shareholding-confirmation")
+                  }
+                  style={downloadButton}
+                >
+                  Preview PDF
+                </button>
+              </TableRow>
+              <TableRow
+                columns="220px 1.4fr 160px 170px 220px"
+              >
+                <div>Shareholding Confirmation</div>
+                <strong>Detailed Shareholding Confirmation</strong>
+                <div>Current</div>
+                <StatusPill text="Available to Preview" />
+                <button
+                  type="button"
+                  onClick={() =>
+                    previewSecretarialDocument("shareholding-confirmation-detailed")
+                  }
+                  style={downloadButton}
+                >
+                  Preview PDF
+                </button>
+              </TableRow>
             </>
           ) : null}
 

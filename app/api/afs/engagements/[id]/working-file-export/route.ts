@@ -20,7 +20,8 @@ type ExportDocumentKey =
   | "final-trial-balance"
   | "journals-passed"
   | "lead-sheets-used"
-  | "subordination-agreements";
+  | "subordination-agreements"
+  | "full-working-file-pack";
 
 async function getId(context: any) {
   const params = await context?.params;
@@ -111,6 +112,7 @@ function documentTitle(document: ExportDocumentKey) {
   if (document === "journals-passed") return "Journals Passed";
   if (document === "lead-sheets-used") return "Lead Sheets Used";
   if (document === "subordination-agreements") return "Subordination Agreements";
+  if (document === "full-working-file-pack") return "Working File Pack";
   return "Final Trial Balance - Working File";
 }
 
@@ -446,23 +448,7 @@ function renderJournalsPassed(journals: Record<string, any>[]) {
 
 function renderLeadSheetsUsed(lines: Record<string, any>[], journals: Record<string, any>[]) {
   const journalMap = buildJournalAdjustmentMap(journals);
-
-  const grouped = new Map<
-    string,
-    {
-      key: string;
-      title: string;
-      total: number;
-      priorTotal: number;
-      rows: {
-        accountCode: string;
-        accountName: string;
-        mapping: string;
-        finalAmount: number;
-        prior: number;
-      }[];
-    }
-  >();
+  const grouped = new Map<string, { title: string; amount: number; count: number }>();
 
   lines.forEach((line) => {
     const key = cleanText(line.lead_schedule_key);
@@ -472,392 +458,55 @@ function renderLeadSheetsUsed(lines: Record<string, any>[], journals: Record<str
     const manual = manualAdjustmentAmount(line);
     const journal = journalAmountForLine(line, journalMap);
     const reclass = reclassificationAmount(line);
-    const finalAmount = finalAmountForLine(imported, manual, journal, reclass);
-    const prior = safeNumber(line.prior_year_balance);
-
-    if (Math.abs(finalAmount) < 0.005 && Math.abs(prior) < 0.005) return;
+    const amount = finalAmountForLine(imported, manual, journal, reclass);
+    if (Math.abs(amount) < 0.005) return;
 
     const title = cleanText(line.lead_schedule_number)
       ? `${cleanText(line.lead_schedule_number)} · ${key.replaceAll("-", " ")}`
       : key.replaceAll("-", " ");
 
-    if (!grouped.has(key)) {
-      grouped.set(key, {
-        key,
-        title,
-        total: 0,
-        priorTotal: 0,
-        rows: [],
-      });
-    }
+    if (!grouped.has(key)) grouped.set(key, { title, amount: 0, count: 0 });
 
     const item = grouped.get(key);
     if (!item) return;
-
-    item.rows.push({
-      accountCode: cleanText(line.account_code),
-      accountName: cleanText(line.account_name || line.description),
-      mapping: mappingLabel(line),
-      finalAmount,
-      prior,
-    });
-    item.total += finalAmount;
-    item.priorTotal += prior;
+    item.amount += amount;
+    item.count += 1;
   });
 
-  const groups = Array.from(grouped.values())
-    .map((group) => ({
-      ...group,
-      rows: [...group.rows].sort((a, b) =>
-        a.accountCode.localeCompare(b.accountCode, undefined, { numeric: true }),
-      ),
-    }))
-    .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
+  const rows = Array.from(grouped.entries())
+    .map(([key, value]) => ({ key, ...value }))
+    .sort((a, b) => a.title.localeCompare(b.title));
 
-  if (!groups.length) {
-    return `<p class="empty">No lead schedules are currently linked to balances.</p>`;
-  }
+  if (!rows.length) return `<p class="empty">No lead schedules are currently linked to balances.</p>`;
 
   return `
-    <div class="lead-used-list">
-      ${groups
-        .map(
-          (group) => `
-            <section class="lead-used-block">
-              <div class="lead-used-heading">
-                <div>
-                  <strong>${escapeHtml(group.title)}</strong>
-                  <span>${group.rows.length} account${group.rows.length === 1 ? "" : "s"} linked</span>
-                </div>
-                <div class="lead-used-meta">
-                  <span>Final balance</span>
-                  <strong>${formatCents(group.total)}</strong>
-                </div>
-              </div>
-
-              <table class="lead-used-table">
-                <thead>
-                  <tr>
-                    <th class="code">Account</th>
-                    <th>Description</th>
-                    <th>Mapping</th>
-                    <th class="amount">Final current year</th>
-                    <th class="amount">Final prior year</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${group.rows
-                    .map(
-                      (row) => `
-                        <tr>
-                          <td>${escapeHtml(row.accountCode)}</td>
-                          <td>${escapeHtml(row.accountName)}</td>
-                          <td>${escapeHtml(row.mapping)}</td>
-                          <td class="amount">${formatCents(row.finalAmount)}</td>
-                          <td class="amount">${formatCents(row.prior)}</td>
-                        </tr>
-                      `,
-                    )
-                    .join("")}
-                  <tr class="total">
-                    <td colspan="3">Total</td>
-                    <td class="amount">${formatCents(group.total)}</td>
-                    <td class="amount">${formatCents(group.priorTotal)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </section>
-          `,
-        )
-        .join("")}
-    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Lead sheet</th>
+          <th class="amount">Accounts</th>
+          <th class="amount">Balance</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows
+          .map(
+            (row) => `
+              <tr>
+                <td>${escapeHtml(row.title)}</td>
+                <td class="amount">${row.count}</td>
+                <td class="amount">${formatWhole(row.amount)}</td>
+              </tr>
+            `,
+          )
+          .join("")}
+      </tbody>
+    </table>
   `;
 }
 
-function isEligibleSubordinationLoanLine(line: Record<string, any>) {
-  const mappingLabelText = cleanText(
-    line.mapping_label || line.mapping_name || line.mapping_category,
-  ).toLowerCase();
-
-  if (
-    mappingLabelText.includes("other non-current liabilities") ||
-    mappingLabelText.includes("other non current liabilities")
-  ) {
-    return false;
-  }
-
-  const mappingValues = [
-    line.mapping_code,
-    line.mapping_key,
-    line.lead_schedule_key,
-    line.lead_schedule_number,
-  ]
-    .map((value) => cleanText(value).toLowerCase().replace(/\s+/g, ""))
-    .filter(Boolean);
-
-  const hasEligibleMappingCode = mappingValues.some(
-    (value) =>
-      value === "548" ||
-      value.startsWith("548.") ||
-      value === "500.548" ||
-      value.startsWith("500.548."),
-  );
-
-  if (hasEligibleMappingCode) {
-    return true;
-  }
-
-  return (
-    mappingLabelText.includes("shareholder") ||
-    mappingLabelText.includes("director") ||
-    mappingLabelText.includes("member loan")
-  );
-}
-
-function buildSubordinationLoanRows(
-  lines: Record<string, any>[],
-  journals: Record<string, any>[],
-  selections: Record<string, any>[],
-) {
-  const journalMap = buildJournalAdjustmentMap(journals);
-  const lineMap = new Map(
-    lines.map((line) => [cleanText(line.id), line]),
-  );
-
-  return selections
-    .filter((selection) => Boolean(selection.include_in_agreement))
-    .map((selection) => {
-      const trialBalanceLineId = cleanText(selection.trial_balance_line_id);
-      const line = lineMap.get(trialBalanceLineId);
-
-      if (!line || !isEligibleSubordinationLoanLine(line)) {
-        return null;
-      }
-
-      const imported = preliminaryAmountFromTbLine(line);
-      const manual = manualAdjustmentAmount(line);
-      const journal = journalAmountForLine(line, journalMap);
-      const reclass = reclassificationAmount(line);
-      const finalAmount = finalAmountForLine(imported, manual, journal, reclass);
-      const prior = safeNumber(line.prior_year_balance);
-
-      return {
-        accountCode: cleanText(selection.account_code || line.account_code),
-        accountName: cleanText(
-          selection.account_name ||
-            line.account_name ||
-            line.description ||
-            "Loan account",
-        ),
-        creditorName: cleanText(
-          selection.creditor_name ||
-            selection.account_name ||
-            line.account_name ||
-            line.description ||
-            "Loan account",
-        ),
-        mapping: mappingLabel(line),
-        finalAmount,
-        prior,
-        interestTerms: cleanText(selection.interest_terms),
-        repaymentTerms: cleanText(selection.repayment_terms),
-        securityTerms: cleanText(selection.security_terms),
-        subordinationTerms: cleanText(selection.subordination_terms),
-        companySignatoryName: cleanText(selection.company_signatory_name),
-        companySignatoryCapacity: cleanText(
-          selection.company_signatory_capacity || "Director"
-        ),
-      };
-    })
-    .filter(
-      (row): row is NonNullable<typeof row> =>
-        row !== null && row.finalAmount < -0.005,
-    )
-    .sort((a, b) =>
-      a.accountCode.localeCompare(b.accountCode, undefined, { numeric: true }),
-    );
-}
-
-function renderSubordinationAgreements(args: {
-  engagement: Record<string, any> | null;
-  clientSetup: Record<string, any> | null;
-  trialBalanceLines: Record<string, any>[];
-  journals: Record<string, any>[];
-  subordinationSelections: Record<string, any>[];
-}) {
-  const companyName = cleanText(args.clientSetup?.registered_name || args.engagement?.client_name || "the Company");
-  const registrationNumber = cleanText(args.clientSetup?.registration_number || args.engagement?.registration_number || "");
-  const yearEnd = cleanText(args.clientSetup?.financial_year_end || args.engagement?.financial_year_end || "");
-  const loanRows = buildSubordinationLoanRows(
-    args.trialBalanceLines,
-    args.journals,
-    args.subordinationSelections,
-  );
-
-  if (!loanRows.length) {
-    return `
-      <section class="agreement-empty">
-        <h2>No subordination agreement generated</h2>
-        <p>
-          No eligible shareholder, director or member loan accounts have been selected for inclusion.
-          Select the required qualifying accounts in the working file and save the selection before exporting.
-        </p>
-      </section>
-    `;
-  }
-
-  return `
-    <div class="agreement-pack">
-      ${loanRows
-        .map((loan, index) => {
-          const creditorName = loan.creditorName;
-          const amountOwing = Math.abs(loan.finalAmount);
-
-          return `
-            <section class="agreement-document">
-              <div class="agreement-title-block">
-                <p class="agreement-kicker">Agreement ${index + 1} of ${loanRows.length}</p>
-                <h2>Subordination Agreement</h2>
-                <p>in respect of amounts owing by</p>
-                <h3>${escapeHtml(companyName)}</h3>
-                ${
-                  registrationNumber
-                    ? `<p class="agreement-muted">Registration number: ${escapeHtml(registrationNumber)}</p>`
-                    : ""
-                }
-              </div>
-
-              <div class="agreement-parties">
-                <p>
-                  This agreement is entered into between <strong>${escapeHtml(creditorName)}</strong>
-                  ("the Creditor") and <strong>${escapeHtml(companyName)}</strong> ("the Company").
-                </p>
-                <p>
-                  The Creditor is reflected in the accounting records of the Company as having advanced or left
-                  amounts owing by the Company under account <strong>${escapeHtml(loan.accountCode || "N/A")}</strong>.
-                </p>
-              </div>
-
-              <table class="agreement-summary">
-                <tbody>
-                  <tr>
-                    <td>Company</td>
-                    <td>${escapeHtml(companyName)}</td>
-                  </tr>
-                  ${
-                    registrationNumber
-                      ? `<tr><td>Registration number</td><td>${escapeHtml(registrationNumber)}</td></tr>`
-                      : ""
-                  }
-                  <tr>
-                    <td>Financial year end</td>
-                    <td>${escapeHtml(yearEnd || "Not specified")}</td>
-                  </tr>
-                  <tr>
-                    <td>Creditor / loan account</td>
-                    <td>${escapeHtml(creditorName)}</td>
-                  </tr>
-                  <tr>
-                    <td>Amount reflected as owing by the Company</td>
-                    <td>${formatCents(amountOwing)}</td>
-                  </tr>
-                  <tr>
-                    <td>Interest terms</td>
-                    <td>${escapeHtml(loan.interestTerms || "Not specified")}</td>
-                  </tr>
-                  <tr>
-                    <td>Repayment terms</td>
-                    <td>${escapeHtml(loan.repaymentTerms || "Not specified")}</td>
-                  </tr>
-                  <tr>
-                    <td>Security</td>
-                    <td>${escapeHtml(loan.securityTerms || "Unsecured")}</td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <ol class="agreement-clauses">
-                <li>
-                  <strong>Indebtedness.</strong>
-                  The Creditor acknowledges that the Company is indebted to the Creditor in respect of the loan
-                  account and any further amounts which may become owing by the Company to the Creditor from time
-                  to time, whether by way of loan, advance, credit, capital contribution or any similar arrangement.
-                </li>
-                <li>
-                  <strong>Subordination.</strong>
-                  The Creditor irrevocably subordinates, in favour of the other present and future creditors of the
-                  Company, all claims which the Creditor has or may in future have against the Company, to the extent
-                  necessary to ensure that the claims of such other creditors rank in priority to the Creditor's claim.
-                </li>
-                <li>
-                  <strong>Repayment restriction.</strong>
-                  The Company shall not repay, settle, set off, reduce or otherwise discharge any subordinated amount
-                  to the Creditor while such repayment would result in the Company being unable to pay its debts as
-                  they become due in the ordinary course of business, or where the liabilities of the Company would
-                  exceed its assets fairly valued.
-                </li>
-                <li>
-                  <strong>No demand for payment.</strong>
-                  The Creditor undertakes not to demand, sue for, prove a claim for, accept payment of, or otherwise
-                  seek to recover the subordinated amount, except to the extent that the Company is solvent and liquid
-                  after taking such payment into account.
-                </li>
-                <li>
-                  <strong>No preference or security.</strong>
-                  The Creditor shall not obtain or enforce any security, preference, cession, pledge, lien, set-off or
-                  other advantage in respect of the subordinated amount which would prejudice the rights of the other
-                  creditors of the Company.
-                </li>
-                <li>
-                  <strong>Continuing effect.</strong>
-                  This subordination shall remain in force until the directors or members of the Company are satisfied
-                  that the assets of the Company, fairly valued, exceed its liabilities and that the Company is able to
-                  pay its debts as they become due in the ordinary course of business.
-                </li>
-                <li>
-                  <strong>Accounting records.</strong>
-                  This agreement is prepared with reference to the accounting records and working papers of the Company
-                  for the financial year ended <strong>${escapeHtml(yearEnd || "as reflected above")}</strong>. The
-                  parties acknowledge that the final amount owing may be adjusted by subsequent accounting entries,
-                  repayments, advances or other transactions.
-                </li>
-                <li>
-                  <strong>Governing law.</strong>
-                  This agreement shall be governed by and interpreted in accordance with the laws of the Republic of
-                  South Africa.
-                </li>
-              </ol>
-
-              <div class="agreement-signatures">
-                <div class="signature-block">
-                  <div class="signature-line"></div>
-                  <strong>For and on behalf of the Creditor</strong>
-                  <span>Name: ${escapeHtml(creditorName)}</span>
-                  <span>Date: __________________________</span>
-                </div>
-
-                <div class="signature-block">
-                  <div class="signature-line"></div>
-                  <strong>For and on behalf of the Company</strong>
-                  <span>Name: ${
-                    loan.companySignatoryName
-                      ? escapeHtml(loan.companySignatoryName)
-                      : "__________________________"
-                  }</span>
-                  <span>Capacity: ${
-                    loan.companySignatoryCapacity
-                      ? escapeHtml(loan.companySignatoryCapacity)
-                      : "Director / authorised representative"
-                  }</span>
-                  <span>Date: __________________________</span>
-                </div>
-              </div>
-            </section>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
+function renderSubordinationAgreements() {
+  return `<p class="empty">Subordination agreements will be generated from selected shareholder / director loan balances after the TB and journal pack are finalised.</p>`;
 }
 
 function renderHtml(args: {
@@ -866,7 +515,6 @@ function renderHtml(args: {
   clientSetup: Record<string, any> | null;
   trialBalanceLines: Record<string, any>[];
   journals: Record<string, any>[];
-  subordinationSelections: Record<string, any>[];
 }) {
   const clientName = args.clientSetup?.registered_name || args.engagement?.client_name || "AFS engagement";
   const yearEnd = args.clientSetup?.financial_year_end || args.engagement?.financial_year_end || "";
@@ -875,22 +523,40 @@ function renderHtml(args: {
     args.document === "final-tb-pilot-view" ||
     args.document === "final-trial-balance";
   const isPassengerTb = args.document === "final-tb-passenger-view";
-  const pageCss = isPilotTb ? "A4 landscape" : "A4 portrait";
-  const bodyClass = isPilotTb ? "tbLandscape" : isPassengerTb ? "tbPassenger" : "normalDocument";
+  const isFullPack = args.document === "full-working-file-pack";
+  const pageCss = isPilotTb || isFullPack ? "A4 landscape" : "A4 portrait";
+  const bodyClass =
+    isPilotTb || isFullPack
+      ? "tbLandscape"
+      : isPassengerTb
+        ? "tbPassenger"
+        : "normalDocument";
 
   let body = "";
-  if (args.document === "journals-passed") body = renderJournalsPassed(args.journals);
-  else if (args.document === "lead-sheets-used") body = renderLeadSheetsUsed(args.trialBalanceLines, args.journals);
-  else if (args.document === "subordination-agreements") {
-    body = renderSubordinationAgreements({
-      engagement: args.engagement,
-      clientSetup: args.clientSetup,
-      trialBalanceLines: args.trialBalanceLines,
-      journals: args.journals,
-      subordinationSelections: args.subordinationSelections,
-    });
-  }
-  else if (args.document === "final-tb-passenger-view") {
+  if (args.document === "full-working-file-pack") {
+    body = `
+      <section class="pack-section pack-first">
+        <h1>Final Trial Balance - Working File</h1>
+        ${renderFinalTrialBalancePilotView(args.trialBalanceLines, args.journals)}
+      </section>
+
+      <section class="pack-section">
+        <h1>Journals Passed</h1>
+        ${renderJournalsPassed(args.journals)}
+      </section>
+
+      <section class="pack-section">
+        <h1>Lead Sheets Used</h1>
+        ${renderLeadSheetsUsed(args.trialBalanceLines, args.journals)}
+      </section>
+    `;
+  } else if (args.document === "journals-passed") {
+    body = renderJournalsPassed(args.journals);
+  } else if (args.document === "lead-sheets-used") {
+    body = renderLeadSheetsUsed(args.trialBalanceLines, args.journals);
+  } else if (args.document === "subordination-agreements") {
+    body = renderSubordinationAgreements();
+  } else if (args.document === "final-tb-passenger-view") {
     body = renderFinalTrialBalancePassengerView(args.trialBalanceLines, args.journals);
   } else {
     body = renderFinalTrialBalancePilotView(args.trialBalanceLines, args.journals);
@@ -979,154 +645,22 @@ function renderHtml(args: {
     .journal-table { margin-top: 0; }
     .journal-table th { font-size: 8.5px; padding: 3px 4px; }
     .journal-table td { font-size: 8.7px; padding: 3px 4px; }
-    .lead-used-list { display: grid; gap: 10px; }
-    .lead-used-block {
-      border: 1px solid #d3dce9;
-      break-inside: avoid;
-      page-break-inside: avoid;
+    .pack-section {
+      break-before: page;
+      page-break-before: always;
     }
-    .lead-used-heading {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: flex-start;
-      background: #f8fafc;
-      border-bottom: 1px solid #d3dce9;
-      padding: 7px 8px;
-    }
-    .lead-used-heading strong { display: block; font-size: 12px; font-weight: 700; }
-    .lead-used-heading span { display: block; font-size: 9.5px; color: #334155; margin-top: 1px; }
-    .lead-used-meta { text-align: right; min-width: 95px; }
-    .lead-used-table { margin-top: 0; }
-    .lead-used-table th { font-size: 8.5px; padding: 3px 4px; }
-    .lead-used-table td { font-size: 8.7px; padding: 3px 4px; }
-
-    .agreement-pack {
-      display: grid;
-      gap: 16px;
-    }
-    .agreement-document {
-      break-after: page;
-      page-break-after: always;
-      font-size: 10.5px;
-      line-height: 1.45;
-      color: #0f172a;
-    }
-    .agreement-document:last-child {
-      break-after: auto;
-      page-break-after: auto;
-    }
-    .agreement-title-block {
-      text-align: center;
-      border: 1.4px solid #0f172a;
-      padding: 16px 18px;
-      margin-bottom: 14px;
-    }
-    .agreement-kicker {
-      margin: 0 0 8px;
-      color: #475569;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      font-weight: 800;
-    }
-    .agreement-title-block h2 {
-      margin: 0 0 7px;
-      font-size: 22px;
-      line-height: 1.1;
-      font-weight: 800;
-      text-transform: uppercase;
-    }
-    .agreement-title-block h3 {
-      margin: 7px 0 3px;
-      font-size: 15px;
-      font-weight: 800;
-    }
-    .agreement-title-block p {
-      margin: 2px 0;
-    }
-    .agreement-muted {
-      color: #475569;
-    }
-    .agreement-parties {
-      margin-bottom: 12px;
-    }
-    .agreement-parties p {
-      margin: 0 0 8px;
-    }
-    .agreement-summary {
-      margin: 10px 0 14px;
-      border: 1px solid #cbd5e1;
-    }
-    .agreement-summary td {
-      font-size: 9.8px;
-      padding: 6px 7px;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    .agreement-summary td:first-child {
-      width: 34%;
-      background: #f8fafc;
-      font-weight: 800;
-      color: #334155;
-    }
-    .agreement-clauses {
-      margin: 0;
-      padding-left: 18px;
-    }
-    .agreement-clauses li {
-      margin: 0 0 8px;
-      padding-left: 3px;
-      break-inside: avoid;
-    }
-    .agreement-signatures {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 22px;
-      margin-top: 26px;
-      break-inside: avoid;
-    }
-    .signature-block {
-      display: grid;
-      gap: 5px;
-      font-size: 9.8px;
-    }
-    .signature-line {
-      border-top: 1.2px solid #0f172a;
-      height: 1px;
-      margin-bottom: 4px;
-    }
-    .signature-block strong {
-      font-size: 10px;
-    }
-    .signature-block span {
-      display: block;
-      color: #334155;
-    }
-    .agreement-empty {
-      border: 1px solid #d3dce9;
-      background: #f8fafc;
-      padding: 16px;
-      font-size: 11px;
-      line-height: 1.45;
-    }
-    .agreement-empty h2 {
-      margin: 0 0 8px;
-      font-size: 15px;
+    .pack-section.pack-first {
+      break-before: auto;
+      page-break-before: auto;
     }
   </style>
 </head>
 <body class="${bodyClass}">
-  ${
-    args.document === "subordination-agreements"
-      ? ""
-      : `
   <header>
     <strong>${escapeHtml(clientName)}</strong>
     <span>Financial year end ${escapeHtml(yearEnd)}</span>
   </header>
-  <h1>${escapeHtml(title)}</h1>
-  `
-  }
+  ${isFullPack ? "" : `<h1>${escapeHtml(title)}</h1>`}
   ${body}
 </body>
 </html>`;
@@ -1156,6 +690,7 @@ export async function GET(request: NextRequest, context: any) {
       "journals-passed",
       "lead-sheets-used",
       "subordination-agreements",
+      "full-working-file-pack",
     ].includes(requestedDocument)
       ? requestedDocument
       : "final-tb-pilot-view";
@@ -1192,25 +727,12 @@ export async function GET(request: NextRequest, context: any) {
 
     if (journalsError) throw journalsError;
 
-    const { data: subordinationSelections, error: subordinationSelectionsError } =
-      await supabase
-        .from("afs_subordination_selections")
-        .select("*")
-        .eq("engagement_id", engagementId)
-        .eq("include_in_agreement", true)
-        .order("account_code", { ascending: true });
-
-    if (subordinationSelectionsError) {
-      throw subordinationSelectionsError;
-    }
-
     const html = renderHtml({
       document,
       engagement: engagement || null,
       clientSetup: clientSetup || null,
       trialBalanceLines: trialBalanceLines || [],
       journals: journals || [],
-      subordinationSelections: subordinationSelections || [],
     });
 
     const isVercel = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
@@ -1250,7 +772,10 @@ export async function GET(request: NextRequest, context: any) {
 
     const pdfBytes = await page.pdf({
       format: "A4",
-      landscape: document === "final-trial-balance" || document === "final-tb-pilot-view",
+      landscape:
+        document === "final-trial-balance" ||
+        document === "final-tb-pilot-view" ||
+        document === "full-working-file-pack",
       printBackground: true,
       preferCSSPageSize: true,
       displayHeaderFooter: false,

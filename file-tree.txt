@@ -136,7 +136,7 @@ app/components/paia/PaiaSecurityPanel.tsx
 app/crm/edit-client/page.tsx
 app/crm/layout.tsx
 app/crm/new-client/page.tsx
-app/crm/page.tsx
+app/crm/page.tsxﬁ
 app/crm/tasks/[id]/page.tsx
 app/crm/tasks/page.tsx
 app/cubechem/components/CubeChemShell.tsx
