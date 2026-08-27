@@ -1315,19 +1315,42 @@ export function buildAfsPrintStatementEngine(
       ? Number(overrides.sceOpeningShareCapital)
       : shareCapitalTotal.prior;
 
-  /*
-    Opening retained income must come from the mapped prior-year retained
-    income balance wherever that balance exists. A manual override is only
-    used for genuinely incomplete first-year or legacy files.
+  const priorOtherMovements =
+    overrides.scePriorOtherMovements !== null &&
+    overrides.scePriorOtherMovements !== undefined
+      ? Number(overrides.scePriorOtherMovements)
+      : 0;
 
-    This prevents an old saved override from surviving a Next Flight refresh
-    and incorrectly replacing the rolled-forward comparative balance.
+  /*
+    The mapped prior-year retained-income balance is the CLOSING retained
+    income for the comparative year, not the opening retained income at the
+    beginning of that year.
+
+    Therefore:
+      opening retained income
+        = mapped prior-year closing retained income
+        - prior-year profit / (loss)
+        - genuine prior-year other equity movements
+
+    A manual opening override remains available only where the comparative
+    retained-income balance is genuinely unavailable (for example a first-year
+    or incomplete legacy file).
+
+    This keeps the SCE chronology correct:
+      opening comparative equity
+      + comparative profit / loss
+      + genuine comparative movements
+      = comparative closing equity
   */
   const hasMappedPriorRetainedIncome =
     Math.abs(retainedIncomeTotal.prior) >= 0.005;
 
+  const mappedPriorClosingRetainedIncome = retainedIncomeTotal.prior;
+
   const rawOpeningRetainedInput = hasMappedPriorRetainedIncome
-    ? retainedIncomeTotal.prior
+    ? mappedPriorClosingRetainedIncome -
+      profitForYear.prior -
+      priorOtherMovements
     : overrides.sceOpeningRetainedIncome !== null &&
       overrides.sceOpeningRetainedIncome !== undefined
     ? Number(overrides.sceOpeningRetainedIncome)
@@ -1341,14 +1364,9 @@ export function buildAfsPrintStatementEngine(
       ? -Math.abs(rawOpeningRetainedInput)
       : rawOpeningRetainedInput;
 
-  const priorOtherMovements =
-    overrides.scePriorOtherMovements !== null &&
-    overrides.scePriorOtherMovements !== undefined
-      ? Number(overrides.scePriorOtherMovements)
-      : 0;
-
-  const priorClosingRetainedIncome =
-    openingRetainedIncome + profitForYear.prior + priorOtherMovements;
+  const priorClosingRetainedIncome = hasMappedPriorRetainedIncome
+    ? mappedPriorClosingRetainedIncome
+    : openingRetainedIncome + profitForYear.prior + priorOtherMovements;
 
   const roundingTolerance = Math.max(
     0,
@@ -1388,13 +1406,18 @@ export function buildAfsPrintStatementEngine(
     };
   }
 
+  /*
+    Current-year "Other movements / distributions" must only ever represent
+    an explicitly recorded genuine current-year equity movement.
+
+    Do NOT fall back to the legacy generic sceOtherMovements field. That field
+    can contain historical/pre-rollover values and must never be used to plug
+    a retained-income reconciliation difference.
+  */
   const savedCurrentOtherMovements =
     overrides.sceCurrentOtherMovements !== null &&
     overrides.sceCurrentOtherMovements !== undefined
       ? Number(overrides.sceCurrentOtherMovements)
-      : overrides.sceOtherMovements !== null &&
-        overrides.sceOtherMovements !== undefined
-      ? Number(overrides.sceOtherMovements)
       : 0;
 
   /*

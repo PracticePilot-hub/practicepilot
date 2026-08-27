@@ -6242,7 +6242,7 @@ const flightDeckIssues = useMemo(() => {
     );
 
     const currentOther = Math.round(
-      currentClosingRetained - priorClosingRetained - currentProfit,
+      sceValue("sce-current-other-movement"),
     );
 
     const priorShareMovement = 0;

@@ -598,7 +598,18 @@ export default function AFSPage() {
         },
       );
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any = {};
+
+      if (responseText.trim()) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          throw new Error(
+            `Next Flight returned an invalid server response (${response.status}).`,
+          );
+        }
+      }
 
       if (!response.ok) {
         if (data.existingEngagementId) {
@@ -618,7 +629,16 @@ export default function AFSPage() {
         }
 
         throw new Error(
-          data.error || "Next Flight rollover failed.",
+          data.error ||
+            responseText.trim() ||
+            `Next Flight rollover failed (${response.status}).`,
+        );
+      }
+
+      if (!data?.engagement?.id) {
+        throw new Error(
+          data?.error ||
+            "Next Flight did not return the new engagement. Please try again.",
         );
       }
 
