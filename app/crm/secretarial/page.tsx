@@ -52,47 +52,35 @@ export default function SecretarialPage() {
     setLoadError("");
 
     try {
-      const [
-        clientsResult,
-        mattersResult,
-        certificatesResult,
-        shareholdersResult,
-      ] = await Promise.all([
-        supabase
-          .from("crm_clients")
-          .select(
-            "id, client_name, registration_number, id_passport_number, entity_type, status"
-          )
-          .order("client_name"),
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
 
-        supabase
-          .from("secretarial_share_matters")
-          .select("client_id, matter_status")
-          .neq("matter_status", "cancelled"),
+      if (sessionError || !session?.access_token) {
+        throw new Error("Your login session could not be confirmed.");
+      }
 
-        supabase
-          .from("secretarial_share_certificates")
-          .select("client_id, certificate_status"),
+      const response = await fetch("/api/crm/secretarial/client-summary", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        cache: "no-store",
+      });
 
-        supabase
-          .from("secretarial_shareholders")
-          .select("client_id, is_active")
-          .eq("is_active", true),
-      ]);
+      const result = await response.json();
 
-      if (clientsResult.error) throw clientsResult.error;
-      if (mattersResult.error) throw mattersResult.error;
-      if (certificatesResult.error) throw certificatesResult.error;
-      if (shareholdersResult.error) throw shareholdersResult.error;
+      if (!response.ok) {
+        throw new Error(
+          result?.error || "Could not load the Secretarial client list."
+        );
+      }
 
-      setClients(
-        ((clientsResult.data || []) as ClientRow[]).filter((client) =>
-          client.client_name?.trim()
-        )
-      );
-      setMatters((mattersResult.data || []) as MatterRow[]);
-      setCertificates((certificatesResult.data || []) as CertificateRow[]);
-      setShareholders((shareholdersResult.data || []) as ShareholderRow[]);
+      setClients((result.clients || []) as ClientRow[]);
+      setMatters((result.matters || []) as MatterRow[]);
+      setCertificates((result.certificates || []) as CertificateRow[]);
+      setShareholders((result.shareholders || []) as ShareholderRow[]);
     } catch (error) {
       console.error("Could not load Secretarial client list:", error);
       setLoadError(
@@ -503,8 +491,8 @@ const contentPanel: React.CSSProperties = {
 };
 
 const sectionHeader: React.CSSProperties = {
-  minHeight: "48px",
-  padding: "6px 10px",
+  minHeight: "58px",
+  padding: "8px 10px",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
@@ -534,7 +522,7 @@ const refreshButton: React.CSSProperties = {
 };
 
 const tableHeader: React.CSSProperties = {
-  minHeight: "30px",
+  minHeight: "34px",
   padding: "0 10px",
   display: "grid",
   gridTemplateColumns:
@@ -550,7 +538,7 @@ const tableHeader: React.CSSProperties = {
 };
 
 const tableRow: React.CSSProperties = {
-  minHeight: "34px",
+  minHeight: "40px",
   padding: "0 10px",
   display: "grid",
   gridTemplateColumns:
@@ -568,7 +556,7 @@ const clickableTableRow: React.CSSProperties = {
 
 const rowArrow: React.CSSProperties = {
   color: "#1758d5",
-  fontSize: "22px",
+  fontSize: "25px",
   fontWeight: 900,
   lineHeight: 1,
   textAlign: "right",
