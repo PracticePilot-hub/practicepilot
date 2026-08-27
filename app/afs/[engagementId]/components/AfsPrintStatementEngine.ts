@@ -1,7 +1,5 @@
 "use client";
-
 import { AfsStatementRow } from "./AfsStatementTable";
-
 export type AfsEngineTrialBalanceLine = {
   id?: string;
   account_code?: string | null;
@@ -23,31 +21,25 @@ export type AfsEngineTrialBalanceLine = {
   lead_schedule_number?: string | null;
   lead_schedule_key?: string | null;
 };
-
 export type AfsStatementOverrides = {
   cashFlowMethod?: "indirect" | "direct";
-
   roundingTolerance?: number | null;
   roundingAccountMappingCode?: string | null;
   roundingAccountLabel?: string | null;
-
   cashReceiptsCustomersCurrent?: number | null;
   cashReceiptsCustomersPrior?: number | null;
   cashPaymentsSuppliersEmployeesCurrent?: number | null;
   cashPaymentsSuppliersEmployeesPrior?: number | null;
   cashOtherDirectOperatingCurrent?: number | null;
   cashOtherDirectOperatingPrior?: number | null;
-
   sceOpeningShareCapital?: number | null;
   sceOpeningRetainedIncome?: number | null;
   sceOpeningReserves?: number | null;
   scePriorOtherMovements?: number | null;
   sceCurrentOtherMovements?: number | null;
   sceOtherMovements?: number | null;
-
   cashOpeningBalance?: number | null;
   cashPriorOpeningBalance?: number | null;
-
   cashAdjustmentsToProfitCurrent?: number | null;
   cashAdjustmentsToProfitPrior?: number | null;
   cashWorkingCapitalCurrent?: number | null;
@@ -86,11 +78,9 @@ export type AfsStatementOverrides = {
   cashOtherFinancing2Prior?: number | null;
   cashOtherFinancing3Current?: number | null;
   cashOtherFinancing3Prior?: number | null;
-
   /** Legacy field kept so old saved settings do not break. */
   cashPriorMovement?: number | null;
 };
-
 export type AfsNoteKey =
   | "propertyPlantEquipment"
   | "rightOfUseAssets"
@@ -149,16 +139,13 @@ export type AfsNoteKey =
   | "otherComprehensiveIncome"
   | "discontinuedOperations"
   | "cashUsedInOperations";
-
 export type AfsNoteLine = {
   id: string;
   label: string;
   current: number;
   prior: number;
 };
-
 export type AfsNoteData = Record<AfsNoteKey, AfsNoteLine[]>;
-
 export type AfsEngineChecks = {
   sfpAssetsTotal: number;
   sfpEquityAndLiabilitiesTotal: number;
@@ -181,7 +168,6 @@ export type AfsEngineChecks = {
   cashClosingPriorFromSfp: number;
   cashFlowPriorClosingDifference: number;
 };
-
 export type AfsPrintStatementEngineResult = {
   sfpRows: AfsStatementRow[];
   sociRows: AfsStatementRow[];
@@ -191,7 +177,6 @@ export type AfsPrintStatementEngineResult = {
   noteData: AfsNoteData;
   checks: AfsEngineChecks;
 };
-
 type CanonicalBucket = {
   statement:
     | "nonCurrentAsset"
@@ -215,7 +200,6 @@ type CanonicalBucket = {
     | "discontinuedOperations"
     | "otherComprehensiveIncome";
 };
-
 type StatementBucket = {
   key: string;
   label: string;
@@ -1345,12 +1329,70 @@ export function buildAfsPrintStatementEngine(
   const hasMappedPriorRetainedIncome =
     Math.abs(retainedIncomeTotal.prior) >= 0.005;
 
-  const mappedPriorClosingRetainedIncome = retainedIncomeTotal.prior;
+  /*
+    A first-year PracticePilot import and a rolled-over PracticePilot file can
+    legitimately store the comparative retained-income mapping differently:
+
+    - first-year import: mapped prior retained income is the OPENING comparative
+      retained balance, before the comparative-year profit/loss is closed;
+    - Next Flight rollover: mapped prior retained income is already the CLOSING
+      comparative retained balance.
+
+    Determine which interpretation is correct from the comparative SFP itself.
+    Whichever retained-income candidate produces the smaller SFP imbalance is
+    the correct accounting interpretation. This is not an arbitrary plug: it
+    only decides whether the mapped 810 balance is opening or closing.
+  */
+  const priorAssetsForRetainedTest =
+    sumBuckets(nonCurrentAssets).prior +
+    sumBuckets(currentAssets).prior;
+
+  const priorLiabilitiesForRetainedTest =
+    sumBuckets(nonCurrentLiabilities).prior +
+    sumBuckets(currentLiabilities).prior;
+
+  const priorEquityExRetained =
+    shareCapitalTotal.prior + otherEquityTotal.prior;
+
+  const mappedPriorRetained = retainedIncomeTotal.prior;
+
+  const priorClosingIfMappedIsClosing =
+    mappedPriorRetained;
+
+  const priorClosingIfMappedIsOpening =
+    mappedPriorRetained +
+    profitForYear.prior +
+    priorOtherMovements;
+
+  const priorDifferenceIfMappedIsClosing = Math.abs(
+    priorAssetsForRetainedTest -
+      (
+        priorLiabilitiesForRetainedTest +
+        priorEquityExRetained +
+        priorClosingIfMappedIsClosing
+      ),
+  );
+
+  const priorDifferenceIfMappedIsOpening = Math.abs(
+    priorAssetsForRetainedTest -
+      (
+        priorLiabilitiesForRetainedTest +
+        priorEquityExRetained +
+        priorClosingIfMappedIsOpening
+      ),
+  );
+
+  const mappedPriorIsOpeningBalance =
+    hasMappedPriorRetainedIncome &&
+    priorDifferenceIfMappedIsOpening + 0.5 <
+      priorDifferenceIfMappedIsClosing;
 
   const rawOpeningRetainedInput = hasMappedPriorRetainedIncome
-    ? mappedPriorClosingRetainedIncome -
-      profitForYear.prior -
-      priorOtherMovements
+    ? mappedPriorIsOpeningBalance
+      ? mappedPriorRetained
+      : mappedPriorRetained -
+        profitForYear.prior -
+        priorOtherMovements
     : overrides.sceOpeningRetainedIncome !== null &&
       overrides.sceOpeningRetainedIncome !== undefined
     ? Number(overrides.sceOpeningRetainedIncome)
@@ -1365,8 +1407,14 @@ export function buildAfsPrintStatementEngine(
       : rawOpeningRetainedInput;
 
   const priorClosingRetainedIncome = hasMappedPriorRetainedIncome
-    ? mappedPriorClosingRetainedIncome
-    : openingRetainedIncome + profitForYear.prior + priorOtherMovements;
+    ? mappedPriorIsOpeningBalance
+      ? openingRetainedIncome +
+        profitForYear.prior +
+        priorOtherMovements
+      : mappedPriorRetained
+    : openingRetainedIncome +
+      profitForYear.prior +
+      priorOtherMovements;
 
   const roundingTolerance = Math.max(
     0,
@@ -1414,11 +1462,28 @@ export function buildAfsPrintStatementEngine(
     can contain historical/pre-rollover values and must never be used to plug
     a retained-income reconciliation difference.
   */
-  const savedCurrentOtherMovements =
+  const rawSavedCurrentOtherMovements =
     overrides.sceCurrentOtherMovements !== null &&
     overrides.sceCurrentOtherMovements !== undefined
       ? Number(overrides.sceCurrentOtherMovements)
       : 0;
+
+  /*
+    Legacy first-year files may contain an auto-generated current "Other
+    movements" value equal to the prior-year profit/loss. That value was
+    created by the old SCE balancing logic and is not a genuine equity
+    movement.
+
+    Treat that exact legacy pattern as zero. Genuine manually recorded
+    current-year movements remain untouched.
+  */
+  const savedCurrentOtherMovements =
+    Math.abs(
+      rawSavedCurrentOtherMovements - profitForYear.prior,
+    ) <= Math.max(1, roundingTolerance) &&
+    Math.abs(rawSavedCurrentOtherMovements) >= 0.005
+      ? 0
+      : rawSavedCurrentOtherMovements;
 
   /*
     A R1-R2 difference between mapped closing retained income and the sum of
@@ -1440,22 +1505,20 @@ export function buildAfsPrintStatementEngine(
       : 0;
 
   /*
-    Where a mapped current-year retained-income balance exists, it is the
-    SFP source of truth.
+    Closing retained income must follow the SCE roll-forward.
 
-    Rebuilding retained income from prior closing plus current profit can
-    omit dividends, distributions, prior-period adjustments and other equity
-    movements already included in the mapped trial balance.
+    The mapped current-year retained-income TB line represents the brought-
+    forward / ledger retained-income balance before the current-year result is
+    transferred to equity. It must therefore NOT be treated as the closing AFS
+    retained-income balance.
+
+    Genuine distributions, prior-period adjustments or other equity movements
+    are recorded explicitly through sceCurrentOtherMovements.
   */
-  const hasMappedCurrentRetainedIncome =
-    Math.abs(retainedIncomeTotal.current) >= 0.005;
-
   let currentClosingRetainedIncome =
-    hasMappedCurrentRetainedIncome
-      ? retainedIncomeTotal.current
-      : priorClosingRetainedIncome +
-        profitForYear.current +
-        currentOtherMovements;
+    priorClosingRetainedIncome +
+    profitForYear.current +
+    currentOtherMovements;
 
   const shareCapital: StatementBucket[] =
   shareCapitalRaw.length > 0
@@ -2376,3 +2439,5 @@ export function buildAfsPrintStatementEngine(
     checks,
   };
 }
+  // preservation-first: no additional logic
+  // preservation-first: no additional logic
