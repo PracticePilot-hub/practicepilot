@@ -918,14 +918,6 @@ export async function POST(request: Request) {
     <div class="powered"><strong>Prepared by ${esc(firmName)}</strong><span>Powered by PracticePilot</span></div>
   </section>
 
-  <section class="register-page">
-    <div class="client">${esc(client.client_name)}</div>
-    <div class="reg">${esc(client.registration_number || "")}</div>
-    <div class="line"></div>
-    <div class="register-title">Current Shareholder Register</div>
-    ${registerTable}
-    <div class="powered"><strong>Prepared by ${esc(firmName)}</strong><span>Powered by PracticePilot</span></div>
-  </section>
 </body>
 </html>`;
 
