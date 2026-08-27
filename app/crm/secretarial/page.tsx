@@ -52,47 +52,43 @@ export default function SecretarialPage() {
     setLoadError("");
 
     try {
-      const [
-        clientsResult,
-        mattersResult,
-        certificatesResult,
-        shareholdersResult,
-      ] = await Promise.all([
-        supabase
-          .from("crm_clients")
-          .select(
-            "id, client_name, registration_number, id_passport_number, entity_type, status"
-          )
-          .order("client_name"),
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
 
-        supabase
-          .from("secretarial_share_matters")
-          .select("client_id, matter_status")
-          .neq("matter_status", "cancelled"),
+      if (sessionError || !session?.access_token) {
+        throw new Error("Your login session could not be confirmed.");
+      }
 
-        supabase
-          .from("secretarial_share_certificates")
-          .select("client_id, certificate_status"),
+      const response = await fetch("/api/crm/secretarial/share-certificates", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        cache: "no-store",
+      });
 
-        supabase
-          .from("secretarial_shareholders")
-          .select("client_id, is_active")
-          .eq("is_active", true),
-      ]);
+      const contentType = response.headers.get("content-type") || "";
 
-      if (clientsResult.error) throw clientsResult.error;
-      if (mattersResult.error) throw mattersResult.error;
-      if (certificatesResult.error) throw certificatesResult.error;
-      if (shareholdersResult.error) throw shareholdersResult.error;
+      if (!contentType.includes("application/json")) {
+        throw new Error(
+          `Secretarial summary endpoint returned ${response.status}.`
+        );
+      }
 
-      setClients(
-        ((clientsResult.data || []) as ClientRow[]).filter((client) =>
-          client.client_name?.trim()
-        )
-      );
-      setMatters((mattersResult.data || []) as MatterRow[]);
-      setCertificates((certificatesResult.data || []) as CertificateRow[]);
-      setShareholders((shareholdersResult.data || []) as ShareholderRow[]);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error || "Could not load the Secretarial client list."
+        );
+      }
+
+      setClients((result.clients || []) as ClientRow[]);
+      setMatters((result.matters || []) as MatterRow[]);
+      setCertificates((result.certificates || []) as CertificateRow[]);
+      setShareholders((result.shareholders || []) as ShareholderRow[]);
     } catch (error) {
       console.error("Could not load Secretarial client list:", error);
       setLoadError(

@@ -229,6 +229,115 @@ async function resolveShareClass(
   return created;
 }
 
+
+export async function GET(request: Request): Promise<NextResponse> {
+  const supabase = getSupabaseAdmin();
+
+  try {
+    const authResult = await getCurrentProfile(request, supabase);
+
+    if (authResult.response) {
+      return authResult.response;
+    }
+
+    const profile = authResult.profile;
+
+    if (!profile) {
+      return NextResponse.json(
+        { error: "Could not determine the current user." },
+        { status: 403 }
+      );
+    }
+
+    let clientsQuery = supabase
+      .from("crm_clients")
+      .select(
+        "id, client_name, registration_number, id_passport_number, entity_type, status, organisation_id"
+      )
+      .order("client_name", { ascending: true });
+
+    if (!isGlobalAdmin(profile.role)) {
+      if (!profile.organisation_id) {
+        return NextResponse.json(
+          { error: "Your user is not linked to a practice." },
+          { status: 400 }
+        );
+      }
+
+      clientsQuery = clientsQuery.eq(
+        "organisation_id",
+        profile.organisation_id
+      );
+    }
+
+    const { data: clients, error: clientsError } = await clientsQuery;
+
+    if (clientsError) throw clientsError;
+
+    const visibleClients = (clients || []).filter((client: any) =>
+      String(client.client_name || "").trim()
+    );
+
+    const clientIds = visibleClients.map((client: any) => String(client.id));
+
+    if (!clientIds.length) {
+      return NextResponse.json({
+        success: true,
+        clients: [],
+        matters: [],
+        certificates: [],
+        shareholders: [],
+      });
+    }
+
+    const [mattersResult, certificatesResult, shareholdersResult] =
+      await Promise.all([
+        supabase
+          .from("secretarial_share_matters")
+          .select("client_id, matter_status")
+          .in("client_id", clientIds)
+          .neq("matter_status", "cancelled"),
+
+        supabase
+          .from("secretarial_share_certificates")
+          .select("client_id, certificate_status")
+          .in("client_id", clientIds),
+
+        supabase
+          .from("secretarial_shareholders")
+          .select("client_id, is_active")
+          .in("client_id", clientIds),
+      ]);
+
+    if (mattersResult.error) throw mattersResult.error;
+    if (certificatesResult.error) throw certificatesResult.error;
+    if (shareholdersResult.error) throw shareholdersResult.error;
+
+    return NextResponse.json({
+      success: true,
+      clients: visibleClients.map(
+        ({ organisation_id, ...client }: any) => client
+      ),
+      matters: mattersResult.data || [],
+      certificates: certificatesResult.data || [],
+      shareholders: (shareholdersResult.data || []).filter(
+        (row: any) => row.is_active !== false
+      ),
+    });
+  } catch (error: any) {
+    console.error("SECRETARIAL SUMMARY GET ERROR:", error);
+
+    return NextResponse.json(
+      {
+        error:
+          error?.message ||
+          "Could not load the Secretarial client summary.",
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
   const supabase = getSupabaseAdmin();
 
