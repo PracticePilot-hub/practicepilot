@@ -234,17 +234,36 @@ export async function GET(request: Request): Promise<NextResponse> {
   const supabase = getSupabaseAdmin();
 
   try {
-    const authResult = await getCurrentProfile(request, supabase);
+    const token = getBearerToken(request);
 
-    if (authResult.response) {
-      return authResult.response;
+    if (!token) {
+      return NextResponse.json(
+        { error: "Not authenticated." },
+        { status: 401 }
+      );
     }
 
-    const profile = authResult.profile;
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser(token);
 
-    if (!profile) {
+    if (userError || !user) {
       return NextResponse.json(
-        { error: "Could not determine the current user." },
+        { error: "Not authenticated." },
+        { status: 401 }
+      );
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from("user_profiles")
+      .select("role, organisation_id, access_enabled")
+      .eq("user_id", user.id)
+      .single();
+
+    if (profileError || !profile || !profile.access_enabled) {
+      return NextResponse.json(
+        { error: "Could not load your active user profile." },
         { status: 403 }
       );
     }
@@ -256,7 +275,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       )
       .order("client_name", { ascending: true });
 
-    if (!isGlobalAdmin(profile.role)) {
+    if (!isGlobalAdmin(String(profile.role || ""))) {
       if (!profile.organisation_id) {
         return NextResponse.json(
           { error: "Your user is not linked to a practice." },
@@ -266,12 +285,11 @@ export async function GET(request: Request): Promise<NextResponse> {
 
       clientsQuery = clientsQuery.eq(
         "organisation_id",
-        profile.organisation_id
+        String(profile.organisation_id)
       );
     }
 
     const { data: clients, error: clientsError } = await clientsQuery;
-
     if (clientsError) throw clientsError;
 
     const visibleClients = (clients || []).filter((client: any) =>
