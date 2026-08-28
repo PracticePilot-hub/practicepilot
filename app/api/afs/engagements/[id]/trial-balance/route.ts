@@ -472,7 +472,7 @@ export async function POST(req: NextRequest, context: any) {
   }
 }
 
-export async function PATCH(req: NextRequest, context: any) {
+export async function PATCH(req: NextRequest, context: any): Promise<NextResponse> {
   try {
     const engagementId = await getIdFromContext(context);
     const body = await req.json();
@@ -545,8 +545,15 @@ export async function PATCH(req: NextRequest, context: any) {
     if (manualAdjustmentWasProvided) {
       const auth = await currentAfsProfile(req, supabase);
 
-      if (auth.response || !auth.profile) {
+      if (auth.response) {
         return auth.response;
+      }
+
+      if (!auth.profile) {
+        return NextResponse.json(
+          { error: "AFS access denied." },
+          { status: 403 },
+        );
       }
 
       manualAdjustmentProfile = auth.profile;
