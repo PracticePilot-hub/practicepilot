@@ -1553,11 +1553,20 @@ type PostedJournal = {
   description: string;
   journal_date: string;
   posted_at: string;
+  journal_period: "current_year" | "prior_year" | "opening_balance";
+  journal_purpose: "client" | "afs_only";
   is_balanced: boolean;
   debit_total: number;
   credit_total: number;
   lines: PostedJournalLine[];
 };
+
+type JournalPurposeFilter = "all" | "client" | "afs_only";
+type JournalPeriodFilter =
+  | "all"
+  | "current_year"
+  | "prior_year"
+  | "opening_balance";
 
 function cleanExportText(value: unknown) {
   return String(value ?? "").trim();
@@ -1576,6 +1585,49 @@ function postedJournalReference(rawJournal: Record<string, any>) {
   if (/^AJ/i.test(numberValue)) return numberValue.toUpperCase();
 
   return `AJ${String(Number(numberValue) || numberValue).padStart(3, "0")}`;
+}
+
+function normaliseExportJournalPeriod(
+  value: unknown,
+): PostedJournal["journal_period"] {
+  const clean = cleanExportText(value).toLowerCase();
+
+  if (
+    clean === "prior_year" ||
+    clean === "prior-year" ||
+    clean === "prior year" ||
+    clean === "comparative"
+  ) {
+    return "prior_year";
+  }
+
+  if (
+    clean === "opening_balance" ||
+    clean === "opening-balance" ||
+    clean === "opening balance"
+  ) {
+    return "opening_balance";
+  }
+
+  return "current_year";
+}
+
+function normaliseExportJournalPurpose(
+  value: unknown,
+): PostedJournal["journal_purpose"] {
+  return cleanExportText(value).toLowerCase() === "client"
+    ? "client"
+    : "afs_only";
+}
+
+function journalPeriodLabel(value: PostedJournal["journal_period"]) {
+  if (value === "prior_year") return "Prior year";
+  if (value === "opening_balance") return "Opening balance";
+  return "Current year";
+}
+
+function journalPurposeLabel(value: PostedJournal["journal_purpose"]) {
+  return value === "client" ? "Client journal" : "AFS-only journal";
 }
 
 function mapPostedJournalForExport(rawJournal: Record<string, any>): PostedJournal {
@@ -1606,6 +1658,12 @@ function mapPostedJournalForExport(rawJournal: Record<string, any>): PostedJourn
     description: cleanExportText(rawJournal.description) || "Adjusting journal",
     journal_date: cleanExportText(rawJournal.journal_date ?? rawJournal.journalDate),
     posted_at: cleanExportText(rawJournal.posted_at ?? rawJournal.postedAt),
+    journal_period: normaliseExportJournalPeriod(
+      rawJournal.journal_period ?? rawJournal.journalPeriod,
+    ),
+    journal_purpose: normaliseExportJournalPurpose(
+      rawJournal.journal_purpose ?? rawJournal.journalPurpose,
+    ),
     is_balanced:
       rawJournal.is_balanced === false
         ? false
@@ -1907,6 +1965,10 @@ function ExportPrintPanel({
     useState<ExportDocumentKey>("final-tb-pilot-view");
   const [postedJournals, setPostedJournals] = useState<PostedJournal[]>([]);
   const [loadingPostedJournals, setLoadingPostedJournals] = useState(false);
+  const [journalPurposeFilter, setJournalPurposeFilter] =
+    useState<JournalPurposeFilter>("all");
+  const [journalPeriodFilter, setJournalPeriodFilter] =
+    useState<JournalPeriodFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -1962,6 +2024,18 @@ function ExportPrintPanel({
     trialBalanceLines,
     postedJournals,
   );
+
+  const filteredPostedJournals = postedJournals.filter((journal) => {
+    const purposeMatches =
+      journalPurposeFilter === "all" ||
+      journal.journal_purpose === journalPurposeFilter;
+
+    const periodMatches =
+      journalPeriodFilter === "all" ||
+      journal.journal_period === journalPeriodFilter;
+
+    return purposeMatches && periodMatches;
+  });
 
   const usedLeadScheduleMap = finalTrialBalanceRows
     .filter((row) => {
@@ -2047,7 +2121,16 @@ function ExportPrintPanel({
   ];
 
   function selectedExportPdfUrl() {
-    return `/api/afs/engagements/${engagement.id}/working-file-export?document=${selectedDocument}`;
+    const params = new URLSearchParams({
+      document: selectedDocument,
+    });
+
+    if (selectedDocument === "journals-passed") {
+      params.set("journalPurpose", journalPurposeFilter);
+      params.set("journalPeriod", journalPeriodFilter);
+    }
+
+    return `/api/afs/engagements/${engagement.id}/working-file-export?${params.toString()}`;
   }
 
   function selectedDocumentTitle() {
@@ -2113,7 +2196,7 @@ function ExportPrintPanel({
     }
 
     if (selectedDocument === "journals-passed") {
-      const sortedJournals = [...postedJournals].sort((a, b) => {
+      const sortedJournals = [...filteredPostedJournals].sort((a, b) => {
         const dateCompare = String(a.journal_date || a.posted_at).localeCompare(
           String(b.journal_date || b.posted_at),
         );
@@ -2319,80 +2402,7 @@ function ExportPrintPanel({
   }
 
   function printSelectedDocument() {
-    const printArea = window.document.getElementById("afs-export-print-area");
-    if (!printArea) return;
-
-    const orientation =
-      selectedDocument === "final-tb-pilot-view" ||
-      selectedDocument === "final-trial-balance" ||
-      selectedDocument === "full-working-file-pack"
-        ? "landscape"
-        : "portrait";
-
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      alert("The print window was blocked by the browser. Please allow pop-ups for PracticePilot and try again.");
-      return;
-    }
-
-    printWindow.document.open();
-    printWindow.document.write(`
-      <!doctype html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>${selectedDocumentTitle()}</title>
-          <style>
-            @page {
-              size: A4 ${orientation};
-              margin: 10mm;
-            }
-
-            * {
-              box-sizing: border-box;
-            }
-
-            html,
-            body {
-              margin: 0;
-              padding: 0;
-              background: #ffffff;
-              color: #0f172a;
-              font-family: Arial, Helvetica, sans-serif;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-
-            #afs-export-print-area {
-              width: 100% !important;
-              max-width: none !important;
-              min-height: auto !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              border: 0 !important;
-              box-shadow: none !important;
-              overflow: visible !important;
-              background: #ffffff !important;
-            }
-
-            #afs-export-print-area > div > section:first-child {
-              break-before: auto !important;
-              page-break-before: auto !important;
-            }
-          </style>
-        </head>
-        <body>
-          ${printArea.outerHTML}
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-
-    printWindow.onload = () => {
-      printWindow.focus();
-      printWindow.print();
-      printWindow.close();
-    };
+    window.print();
   }
 
   return (
@@ -2497,6 +2507,52 @@ function ExportPrintPanel({
         })}
       </div>
 
+      {selectedDocument === "journals-passed" ? (
+        <div id="afs-export-print-controls" style={styles.journalFilterBar}>
+          <label style={styles.journalFilterField}>
+            <span style={styles.journalFilterLabel}>Purpose</span>
+            <select
+              value={journalPurposeFilter}
+              onChange={(event) =>
+                setJournalPurposeFilter(
+                  event.target.value as JournalPurposeFilter,
+                )
+              }
+              style={styles.journalFilterSelect}
+            >
+              <option value="all">All journals</option>
+              <option value="client">Client journals</option>
+              <option value="afs_only">AFS-only journals</option>
+            </select>
+          </label>
+
+          <label style={styles.journalFilterField}>
+            <span style={styles.journalFilterLabel}>Period</span>
+            <select
+              value={journalPeriodFilter}
+              onChange={(event) =>
+                setJournalPeriodFilter(
+                  event.target.value as JournalPeriodFilter,
+                )
+              }
+              style={styles.journalFilterSelect}
+            >
+              <option value="all">All periods</option>
+              <option value="current_year">Current year</option>
+              <option value="prior_year">Prior year</option>
+              <option value="opening_balance">Opening balance</option>
+            </select>
+          </label>
+
+          <div style={styles.journalFilterCount}>
+            <strong>{filteredPostedJournals.length}</strong>
+            <span>
+              journal{filteredPostedJournals.length === 1 ? "" : "s"} selected
+            </span>
+          </div>
+        </div>
+      ) : null}
+
       <section id="afs-export-print-area" style={styles.exportPreviewPage}>
         <div style={styles.exportPrintHeader}>
           <strong>{displayClientName}</strong>
@@ -2513,7 +2569,10 @@ function ExportPrintPanel({
         )}
 
         {selectedDocument === "journals-passed" && (
-          <PrintableJournalsPassed journals={postedJournals} loading={loadingPostedJournals} />
+          <PrintableJournalsPassed
+            journals={filteredPostedJournals}
+            loading={loadingPostedJournals}
+          />
         )}
 
         {selectedDocument === "lead-sheets-used" && (
@@ -2697,6 +2756,17 @@ function PrintableJournalsPassed({
   loading: boolean;
 }) {
   const sortedJournals = [...journals].sort((a, b) => {
+    const periodOrder = {
+      current_year: 1,
+      prior_year: 2,
+      opening_balance: 3,
+    } as const;
+
+    const periodCompare =
+      periodOrder[a.journal_period] - periodOrder[b.journal_period];
+
+    if (periodCompare !== 0) return periodCompare;
+
     const dateCompare = String(a.journal_date || a.posted_at).localeCompare(
       String(b.journal_date || b.posted_at),
     );
@@ -2705,6 +2775,30 @@ function PrintableJournalsPassed({
     return a.reference.localeCompare(b.reference);
   });
 
+  const grouped = [
+    {
+      period: "current_year" as const,
+      title: "Current-year journals",
+      journals: sortedJournals.filter(
+        (journal) => journal.journal_period === "current_year",
+      ),
+    },
+    {
+      period: "prior_year" as const,
+      title: "Prior-year journals",
+      journals: sortedJournals.filter(
+        (journal) => journal.journal_period === "prior_year",
+      ),
+    },
+    {
+      period: "opening_balance" as const,
+      title: "Opening balance journals",
+      journals: sortedJournals.filter(
+        (journal) => journal.journal_period === "opening_balance",
+      ),
+    },
+  ].filter((group) => group.journals.length > 0);
+
   return (
     <>
       <h3 style={styles.exportPrintTitle}>Journals Passed</h3>
@@ -2712,51 +2806,77 @@ function PrintableJournalsPassed({
       {loading ? (
         <p style={styles.exportEmpty}>Loading posted journals...</p>
       ) : sortedJournals.length === 0 ? (
-        <p style={styles.exportEmpty}>No posted journals were found in the journal register.</p>
+        <p style={styles.exportEmpty}>
+          No posted journals match the selected purpose and period.
+        </p>
       ) : (
         <div style={styles.exportJournalList}>
-          {sortedJournals.map((journal) => (
-            <section key={journal.id} style={styles.exportJournalBlock}>
-              <div style={styles.exportJournalHeader}>
-                <div>
-                  <strong>{journal.reference}</strong>
-                  <span>{journal.description}</span>
-                </div>
-                <div style={styles.exportJournalMeta}>
-                  <span>{journal.journal_date || journal.posted_at?.slice(0, 10) || ""}</span>
-                  <strong>{journal.is_balanced ? "Balanced" : "Unbalanced"}</strong>
-                </div>
-              </div>
+          {grouped.map((group) => (
+            <section key={group.period} style={styles.exportJournalPeriodGroup}>
+              <div style={styles.exportJournalPeriodHeading}>{group.title}</div>
 
-              <table style={styles.exportTableCompact}>
-                <thead>
-                  <tr>
-                    <th style={styles.exportTh}>Account</th>
-                    <th style={styles.exportTh}>Description</th>
-                    <th style={styles.exportTh}>Note</th>
-                    <th style={styles.exportThRight}>Debit</th>
-                    <th style={styles.exportThRight}>Credit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {journal.lines.map((line) => (
-                    <tr key={line.id}>
-                      <td style={styles.exportTd}>{line.account_code}</td>
-                      <td style={styles.exportTd}>{line.account_name}</td>
-                      <td style={styles.exportTd}>{line.note}</td>
-                      <td style={styles.exportTdRight}>{formatMoney(line.debit)}</td>
-                      <td style={styles.exportTdRight}>{formatMoney(line.credit)}</td>
-                    </tr>
-                  ))}
-                  <tr>
-                    <td style={styles.exportTotalTd} colSpan={3}>
-                      Total
-                    </td>
-                    <td style={styles.exportTotalTdRight}>{formatMoney(journal.debit_total)}</td>
-                    <td style={styles.exportTotalTdRight}>{formatMoney(journal.credit_total)}</td>
-                  </tr>
-                </tbody>
-              </table>
+              {group.journals.map((journal) => (
+                <section key={journal.id} style={styles.exportJournalBlock}>
+                  <div style={styles.exportJournalHeader}>
+                    <div>
+                      <strong>{journal.reference}</strong>
+                      <span>{journal.description}</span>
+                      <small style={styles.exportJournalClassification}>
+                        {journalPurposeLabel(journal.journal_purpose)} ·{" "}
+                        {journalPeriodLabel(journal.journal_period)}
+                      </small>
+                    </div>
+                    <div style={styles.exportJournalMeta}>
+                      <span>
+                        {journal.journal_date ||
+                          journal.posted_at?.slice(0, 10) ||
+                          ""}
+                      </span>
+                      <strong>
+                        {journal.is_balanced ? "Balanced" : "Unbalanced"}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <table style={styles.exportTableCompact}>
+                    <thead>
+                      <tr>
+                        <th style={styles.exportTh}>Account</th>
+                        <th style={styles.exportTh}>Description</th>
+                        <th style={styles.exportTh}>Note</th>
+                        <th style={styles.exportThRight}>Debit</th>
+                        <th style={styles.exportThRight}>Credit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {journal.lines.map((line) => (
+                        <tr key={line.id}>
+                          <td style={styles.exportTd}>{line.account_code}</td>
+                          <td style={styles.exportTd}>{line.account_name}</td>
+                          <td style={styles.exportTd}>{line.note}</td>
+                          <td style={styles.exportTdRight}>
+                            {formatMoney(line.debit)}
+                          </td>
+                          <td style={styles.exportTdRight}>
+                            {formatMoney(line.credit)}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td style={styles.exportTotalTd} colSpan={3}>
+                          Total
+                        </td>
+                        <td style={styles.exportTotalTdRight}>
+                          {formatMoney(journal.debit_total)}
+                        </td>
+                        <td style={styles.exportTotalTdRight}>
+                          {formatMoney(journal.credit_total)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </section>
+              ))}
             </section>
           ))}
         </div>
@@ -3420,6 +3540,65 @@ const styles: Record<string, CSSProperties> = {
     borderColor: "#0f172a",
     background: "#f8fafc",
     boxShadow: "inset 3px 0 0 #0f172a",
+  },
+  journalFilterBar: {
+    display: "flex",
+    alignItems: "end",
+    gap: "10px",
+    padding: "8px 10px",
+    borderLeft: "1px solid #cbd5e1",
+    borderRight: "1px solid #cbd5e1",
+    borderBottom: "1px solid #cbd5e1",
+    background: "#f8fafc",
+  },
+  journalFilterField: {
+    display: "grid",
+    gap: "3px",
+    minWidth: "180px",
+  },
+  journalFilterLabel: {
+    fontSize: "9px",
+    fontWeight: 900,
+    color: "#475569",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+  },
+  journalFilterSelect: {
+    height: "31px",
+    border: "1px solid #94a3b8",
+    borderRadius: 0,
+    background: "#ffffff",
+    color: "#0f172a",
+    padding: "0 8px",
+    fontSize: "11px",
+    fontWeight: 700,
+  },
+  journalFilterCount: {
+    marginLeft: "auto",
+    minWidth: "90px",
+    display: "grid",
+    justifyItems: "end",
+    color: "#475569",
+    fontSize: "10px",
+  },
+  exportJournalPeriodGroup: {
+    marginBottom: "16px",
+  },
+  exportJournalPeriodHeading: {
+    borderBottom: "2px solid #0f172a",
+    padding: "4px 0",
+    marginBottom: "8px",
+    fontSize: "11px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.03em",
+  },
+  exportJournalClassification: {
+    display: "block",
+    marginTop: "2px",
+    color: "#64748b",
+    fontSize: "9px",
+    fontWeight: 700,
   },
   exportPreviewPage: {
     width: "100%",

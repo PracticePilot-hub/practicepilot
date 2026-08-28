@@ -142,6 +142,77 @@ function postedJournalsOnly(journals: Record<string, any>[]) {
   return journals.filter((journal) => cleanText(journal.status || "posted").toLowerCase() !== "draft");
 }
 
+type JournalPurposeFilter = "all" | "client" | "afs_only";
+type JournalPeriodFilter =
+  | "all"
+  | "current_year"
+  | "prior_year"
+  | "opening_balance";
+
+function normaliseJournalPurpose(value: unknown): "client" | "afs_only" {
+  return cleanText(value).toLowerCase() === "client" ? "client" : "afs_only";
+}
+
+function normaliseJournalPeriod(
+  value: unknown,
+): "current_year" | "prior_year" | "opening_balance" {
+  const clean = cleanText(value).toLowerCase();
+
+  if (
+    clean === "prior_year" ||
+    clean === "prior-year" ||
+    clean === "prior year" ||
+    clean === "comparative"
+  ) {
+    return "prior_year";
+  }
+
+  if (
+    clean === "opening_balance" ||
+    clean === "opening-balance" ||
+    clean === "opening balance"
+  ) {
+    return "opening_balance";
+  }
+
+  return "current_year";
+}
+
+function journalPurposeLabel(value: unknown) {
+  return normaliseJournalPurpose(value) === "client"
+    ? "Client journal"
+    : "AFS-only journal";
+}
+
+function journalPeriodLabel(value: unknown) {
+  const period = normaliseJournalPeriod(value);
+  if (period === "prior_year") return "Prior year";
+  if (period === "opening_balance") return "Opening balance";
+  return "Current year";
+}
+
+function filterJournalsForPrint(
+  journals: Record<string, any>[],
+  purpose: JournalPurposeFilter,
+  period: JournalPeriodFilter,
+) {
+  return postedJournalsOnly(journals).filter((journal) => {
+    const purposeMatches =
+      purpose === "all" ||
+      normaliseJournalPurpose(
+        journal.journal_purpose ?? journal.journalPurpose,
+      ) === purpose;
+
+    const periodMatches =
+      period === "all" ||
+      normaliseJournalPeriod(
+        journal.journal_period ?? journal.journalPeriod,
+      ) === period;
+
+    return purposeMatches && periodMatches;
+  });
+}
+
 function buildJournalAdjustmentMap(journals: Record<string, any>[]) {
   const byCode = new Map<string, number>();
   const byName = new Map<string, number>();
@@ -374,73 +445,156 @@ function renderJournalsPassed(journals: Record<string, any>[]) {
   const postedJournals = postedJournalsOnly(journals);
 
   if (!postedJournals.length) {
-    return `<p class="empty">No posted journals were found in the journal register.</p>`;
+    return `<p class="empty">No posted journals match the selected purpose and period.</p>`;
   }
+
+  const sortedJournals = [...postedJournals].sort((a, b) => {
+    const order: Record<string, number> = {
+      current_year: 1,
+      prior_year: 2,
+      opening_balance: 3,
+    };
+
+    const periodCompare =
+      (order[normaliseJournalPeriod(a.journal_period ?? a.journalPeriod)] || 99) -
+      (order[normaliseJournalPeriod(b.journal_period ?? b.journalPeriod)] || 99);
+
+    if (periodCompare !== 0) return periodCompare;
+
+    const dateCompare = cleanText(a.journal_date || a.posted_at).localeCompare(
+      cleanText(b.journal_date || b.posted_at),
+    );
+
+    if (dateCompare !== 0) return dateCompare;
+    return journalReference(a).localeCompare(journalReference(b));
+  });
+
+  const groups = [
+    {
+      period: "current_year",
+      title: "Current-year journals",
+      journals: sortedJournals.filter(
+        (journal) =>
+          normaliseJournalPeriod(
+            journal.journal_period ?? journal.journalPeriod,
+          ) === "current_year",
+      ),
+    },
+    {
+      period: "prior_year",
+      title: "Prior-year journals",
+      journals: sortedJournals.filter(
+        (journal) =>
+          normaliseJournalPeriod(
+            journal.journal_period ?? journal.journalPeriod,
+          ) === "prior_year",
+      ),
+    },
+    {
+      period: "opening_balance",
+      title: "Opening balance journals",
+      journals: sortedJournals.filter(
+        (journal) =>
+          normaliseJournalPeriod(
+            journal.journal_period ?? journal.journalPeriod,
+          ) === "opening_balance",
+      ),
+    },
+  ].filter((group) => group.journals.length > 0);
 
   return `
     <div class="journal-list">
-      ${postedJournals
-        .map((journal) => {
-          const lines = journalLines(journal);
-          const debitTotal = lines.reduce(
-            (sum: number, line: Record<string, any>) => sum + safeNumber(line.debit),
-            0,
-          );
-          const creditTotal = lines.reduce(
-            (sum: number, line: Record<string, any>) => sum + safeNumber(line.credit),
-            0,
-          );
-          const balanced = journal.is_balanced === false ? false : Math.abs(debitTotal - creditTotal) < 0.01;
-          const dateText = cleanText(journal.journal_date || String(journal.posted_at || "").slice(0, 10));
-          const reference = journalReference(journal);
-          const description = cleanText(journal.description || "Adjusting journal");
+      ${groups
+        .map(
+          (group) => `
+            <section class="journal-period-group">
+              <div class="journal-period-title">${escapeHtml(group.title)}</div>
 
-          return `
-            <section class="journal-block">
-              <div class="journal-heading">
-                <div>
-                  <strong>${escapeHtml(reference)}</strong>
-                  <span>${escapeHtml(description)}</span>
-                </div>
-                <div class="journal-meta">
-                  <span>${escapeHtml(dateText || "No date")}</span>
-                  <strong class="${balanced ? "balanced" : "unbalanced"}">${balanced ? "Balanced" : "Unbalanced"}</strong>
-                </div>
-              </div>
-              <table class="journal-table">
-                <thead>
-                  <tr>
-                    <th class="code">Account</th>
-                    <th>Description</th>
-                    <th>Note</th>
-                    <th class="amount">Debit</th>
-                    <th class="amount">Credit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${lines
-                    .map(
-                      (line: Record<string, any>) => `
-                        <tr>
-                          <td>${escapeHtml(line.account_code)}</td>
-                          <td>${escapeHtml(line.account_name)}</td>
-                          <td>${escapeHtml(line.note)}</td>
-                          <td class="amount">${formatWhole(line.debit)}</td>
-                          <td class="amount">${formatWhole(line.credit)}</td>
-                        </tr>
-                      `,
-                    )
-                    .join("")}
-                  <tr class="total">
-                    <td colspan="3">Total</td>
-                    <td class="amount">${formatWhole(debitTotal)}</td>
-                    <td class="amount">${formatWhole(creditTotal)}</td>
-                  </tr>
-                </tbody>
-              </table>
+              ${group.journals
+                .map((journal) => {
+                  const lines = journalLines(journal);
+                  const debitTotal = lines.reduce(
+                    (sum: number, line: Record<string, any>) =>
+                      sum + safeNumber(line.debit),
+                    0,
+                  );
+                  const creditTotal = lines.reduce(
+                    (sum: number, line: Record<string, any>) =>
+                      sum + safeNumber(line.credit),
+                    0,
+                  );
+                  const balanced =
+                    journal.is_balanced === false
+                      ? false
+                      : Math.abs(debitTotal - creditTotal) < 0.01;
+                  const dateText = cleanText(
+                    journal.journal_date ||
+                      String(journal.posted_at || "").slice(0, 10),
+                  );
+                  const reference = journalReference(journal);
+                  const description = cleanText(
+                    journal.description || "Adjusting journal",
+                  );
+                  const purposeText = journalPurposeLabel(
+                    journal.journal_purpose ?? journal.journalPurpose,
+                  );
+                  const periodText = journalPeriodLabel(
+                    journal.journal_period ?? journal.journalPeriod,
+                  );
+
+                  return `
+                    <section class="journal-block">
+                      <div class="journal-heading">
+                        <div>
+                          <strong>${escapeHtml(reference)}</strong>
+                          <span>${escapeHtml(description)}</span>
+                          <small class="journal-classification">
+                            ${escapeHtml(purposeText)} · ${escapeHtml(periodText)}
+                          </small>
+                        </div>
+                        <div class="journal-meta">
+                          <span>${escapeHtml(dateText || "No date")}</span>
+                          <strong class="${balanced ? "balanced" : "unbalanced"}">${balanced ? "Balanced" : "Unbalanced"}</strong>
+                        </div>
+                      </div>
+                      <table class="journal-table">
+                        <thead>
+                          <tr>
+                            <th class="code">Account</th>
+                            <th>Description</th>
+                            <th>Note</th>
+                            <th class="amount">Debit</th>
+                            <th class="amount">Credit</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${lines
+                            .map(
+                              (line: Record<string, any>) => `
+                                <tr>
+                                  <td>${escapeHtml(line.account_code)}</td>
+                                  <td>${escapeHtml(line.account_name)}</td>
+                                  <td>${escapeHtml(line.note)}</td>
+                                  <td class="amount">${formatWhole(line.debit)}</td>
+                                  <td class="amount">${formatWhole(line.credit)}</td>
+                                </tr>
+                              `,
+                            )
+                            .join("")}
+                          <tr class="total">
+                            <td colspan="3">Total</td>
+                            <td class="amount">${formatWhole(debitTotal)}</td>
+                            <td class="amount">${formatWhole(creditTotal)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </section>
+                  `;
+                })
+                .join("")}
             </section>
-          `;
-        })
+          `,
+        )
         .join("")}
     </div>
   `;
@@ -639,6 +793,23 @@ function renderHtml(args: {
     }
     .journal-heading strong { display: block; font-size: 12px; font-weight: 700; }
     .journal-heading span { display: block; font-size: 9.5px; color: #334155; margin-top: 1px; }
+    .journal-classification {
+      display: block;
+      margin-top: 2px;
+      font-size: 8.5px;
+      font-weight: 700;
+      color: #64748b;
+    }
+    .journal-period-group { margin-bottom: 16px; }
+    .journal-period-title {
+      margin: 0 0 8px;
+      padding: 4px 0;
+      border-bottom: 2px solid #0f172a;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
     .journal-meta { text-align: right; min-width: 90px; }
     .journal-meta .balanced { color: #166534; }
     .journal-meta .unbalanced { color: #991b1b; }
@@ -695,6 +866,31 @@ export async function GET(request: NextRequest, context: any) {
       ? requestedDocument
       : "final-tb-pilot-view";
 
+    const requestedPurpose = cleanText(
+      request.nextUrl.searchParams.get("journalPurpose") || "all",
+    ) as JournalPurposeFilter;
+
+    const journalPurpose: JournalPurposeFilter = [
+      "all",
+      "client",
+      "afs_only",
+    ].includes(requestedPurpose)
+      ? requestedPurpose
+      : "all";
+
+    const requestedPeriod = cleanText(
+      request.nextUrl.searchParams.get("journalPeriod") || "all",
+    ) as JournalPeriodFilter;
+
+    const journalPeriod: JournalPeriodFilter = [
+      "all",
+      "current_year",
+      "prior_year",
+      "opening_balance",
+    ].includes(requestedPeriod)
+      ? requestedPeriod
+      : "all";
+
     const supabase = getSupabaseServer();
 
     const { data: engagement, error: engagementError } = await supabase
@@ -727,12 +923,21 @@ export async function GET(request: NextRequest, context: any) {
 
     if (journalsError) throw journalsError;
 
+    const journalsForExport =
+      document === "journals-passed"
+        ? filterJournalsForPrint(
+            journals || [],
+            journalPurpose,
+            journalPeriod,
+          )
+        : journals || [];
+
     const html = renderHtml({
       document,
       engagement: engagement || null,
       clientSetup: clientSetup || null,
       trialBalanceLines: trialBalanceLines || [],
-      journals: journals || [],
+      journals: journalsForExport,
     });
 
     const isVercel = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);

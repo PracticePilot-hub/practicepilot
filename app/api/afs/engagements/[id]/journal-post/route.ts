@@ -49,6 +49,12 @@ function normaliseJournalPeriod(value: unknown): JournalPeriod {
   return "current_year";
 }
 
+type JournalPurpose = "client" | "afs_only";
+
+function normaliseJournalPurpose(value: unknown): JournalPurpose {
+  return clean(value) === "client" ? "client" : "afs_only";
+}
+
 
 async function invalidateAdjustingJournalsSignoff(
   supabase: ReturnType<typeof getSupabaseServer>,
@@ -529,6 +535,7 @@ async function saveJournalHistory({
   journalReference,
   description,
   journalPeriod,
+  journalPurpose,
   rawLines,
   debitTotal,
   creditTotal,
@@ -540,6 +547,7 @@ async function saveJournalHistory({
   journalReference: string;
   description: string;
   journalPeriod: JournalPeriod;
+  journalPurpose: JournalPurpose;
   rawLines: any[];
   debitTotal: number;
   creditTotal: number;
@@ -560,6 +568,7 @@ async function saveJournalHistory({
     journal_reference: finalJournalReference,
     description,
     journal_period: journalPeriod,
+    journal_purpose: journalPurpose,
     status: balanced ? "Balanced" : "Unbalanced",
     debit_total: debitTotal,
     credit_total: creditTotal,
@@ -773,6 +782,9 @@ export async function PUT(req: NextRequest, context: any) {
     const journalPeriod = normaliseJournalPeriod(
       body?.journal_period ?? body?.journalPeriod,
     );
+    const journalPurpose = normaliseJournalPurpose(
+      body?.journal_purpose ?? body?.journalPurpose,
+    );
     const rawLines = Array.isArray(body?.lines) ? body.lines : [];
 
     if (!journalId) {
@@ -857,6 +869,7 @@ export async function PUT(req: NextRequest, context: any) {
         journal_reference: finalJournalReference,
         description,
         journal_period: journalPeriod,
+        journal_purpose: journalPurpose,
         status: balanced ? "Balanced" : "Unbalanced",
         debit_total: debitTotal,
         credit_total: creditTotal,
@@ -1017,6 +1030,9 @@ export async function POST(req: NextRequest, context: any) {
     const journalPeriod = normaliseJournalPeriod(
       body?.journal_period ?? body?.journalPeriod,
     );
+    const journalPurpose = normaliseJournalPurpose(
+      body?.journal_purpose ?? body?.journalPurpose,
+    );
 
     if (!description) {
       return NextResponse.json(
@@ -1072,6 +1088,7 @@ export async function POST(req: NextRequest, context: any) {
       journalReference,
       description,
       journalPeriod,
+      journalPurpose,
       rawLines,
       debitTotal,
       creditTotal,

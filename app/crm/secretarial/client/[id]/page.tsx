@@ -123,34 +123,6 @@ type TransactionRecord = {
   share_class_id: string | null;
 };
 
-type ReplacementQueueRecord = {
-  id: string;
-  transaction_group_id: string;
-  shareholder_id: string;
-  share_class_id: string | null;
-  previous_certificate_id: string | null;
-  replacement_shares: number;
-  replacement_reason: string;
-  queue_status: string;
-  replacement_matter_id: string | null;
-  created_at: string;
-};
-
-type ResolutionRecord = {
-  id: string;
-  resolution_number: string;
-  resolution_type: string;
-  resolution_category: string;
-  title: string;
-  resolution_date: string;
-  related_area: string | null;
-  related_record_id: string | null;
-  transaction_group_id: string | null;
-  body_text: string;
-  status: string;
-  created_at: string;
-};
-
 type BeneficialOwnerRecord = {
   id: string;
   owner_type: string;
@@ -163,15 +135,6 @@ type BeneficialOwnerRecord = {
   cipc_reference: string | null;
   filed_at: string | null;
   is_active: boolean;
-  linked_shareholder_id?: string | null;
-  nature_of_interest?: string | null;
-  control_description?: string | null;
-  nationality_or_country?: string | null;
-  country_of_residence?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  physical_address?: string | null;
-  source_structure_notes?: string | null;
 };
 
 type AnnualReturnRecord = {
@@ -350,8 +313,6 @@ export default function SecretarialClientPage() {
   const [matters, setMatters] = useState<MatterRecord[]>([]);
   const [certificates, setCertificates] = useState<CertificateRecord[]>([]);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
-  const [replacementQueue, setReplacementQueue] = useState<ReplacementQueueRecord[]>([]);
-  const [resolutions, setResolutions] = useState<ResolutionRecord[]>([]);
   const [beneficialOwners, setBeneficialOwners] = useState<BeneficialOwnerRecord[]>([]);
   const [annualReturns, setAnnualReturns] = useState<AnnualReturnRecord[]>([]);
   const [companyChanges, setCompanyChanges] = useState<CompanyChangeRecord[]>([]);
@@ -440,19 +401,6 @@ export default function SecretarialClientPage() {
 
   const [boCipcReference, setBoCipcReference] = useState("");
   const [boFiledDate, setBoFiledDate] = useState("");
-  const [showIndirectBoForm, setShowIndirectBoForm] = useState(false);
-  const [boOwnerName, setBoOwnerName] = useState("");
-  const [boOwnerIdNumber, setBoOwnerIdNumber] = useState("");
-  const [boOwnershipPercentage, setBoOwnershipPercentage] = useState("");
-  const [boNatureOfInterest, setBoNatureOfInterest] = useState("indirect_shareholding");
-  const [boControlDescription, setBoControlDescription] = useState("");
-  const [boEffectiveFrom, setBoEffectiveFrom] = useState(todayIso());
-  const [boNationality, setBoNationality] = useState("");
-  const [boCountryOfResidence, setBoCountryOfResidence] = useState("South Africa");
-  const [boEmail, setBoEmail] = useState("");
-  const [boPhone, setBoPhone] = useState("");
-  const [boPhysicalAddress, setBoPhysicalAddress] = useState("");
-  const [boStructureNotes, setBoStructureNotes] = useState("");
 
   const [saving, setSaving] = useState(false);
 
@@ -475,8 +423,6 @@ export default function SecretarialClientPage() {
         mattersResult,
         certificatesResult,
         transactionsResult,
-        replacementQueueResult,
-        resolutionsResult,
         boResult,
         annualReturnsResult,
         changesResult,
@@ -492,97 +438,64 @@ export default function SecretarialClientPage() {
 
         supabaseAny
           .from("crm_client_directors")
-          .select("id, director_name, id_passport_number, email, phone, date_of_birth, nationality, country_of_residence, id_issue_date, director_capacity, physical_address_line_1, physical_address_line_2, physical_address_city, physical_address_province, physical_address_postal_code, physical_address_country, postal_address_line_1, postal_address_line_2, postal_address_city, postal_address_province, postal_address_postal_code, postal_address_country, appointment_date, cessation_date, cessation_reason, cessation_notes, is_active")
+          .select("*")
           .eq("client_id", clientId)
           .order("director_name"),
 
         supabaseAny
           .from("secretarial_shareholders")
-          .select("id, full_legal_name, id_registration_number, holder_type, email, phone, date_of_birth, nationality_or_country, country_of_residence_or_registration, physical_address_line_1, physical_address_line_2, physical_address_city, physical_address_province, physical_address_postal_code, physical_address_country, postal_address_line_1, postal_address_line_2, postal_address_city, postal_address_province, postal_address_postal_code, postal_address_country, is_active")
+          .select("*")
           .eq("client_id", clientId)
           .eq("is_active", true)
           .order("full_legal_name"),
 
         supabaseAny
           .from("secretarial_share_classes")
-          .select(
-            "id, class_name, class_code, series_designation, authorised_shares, issued_shares, rights_and_restrictions, is_active"
-          )
+          .select("*")
           .eq("client_id", clientId)
           .eq("is_active", true)
           .order("class_name"),
 
         supabaseAny
           .from("secretarial_share_matters")
-          .select(
-            "id, matter_status, current_step, certificate_number, number_of_shares, shareholder_id, share_class_id, board_resolution_reference, board_resolution_date"
-          )
+          .select("*")
           .eq("client_id", clientId)
           .order("created_at", { ascending: false }),
 
         supabaseAny
           .from("secretarial_share_certificates")
-          .select(
-            "id, matter_id, certificate_number, certificate_status, issue_date, number_of_shares, shareholder_id, share_class_id, pdf_file_name, pdf_storage_provider, pdf_external_path, pdf_external_url"
-          )
+          .select("*")
           .eq("client_id", clientId)
           .order("issue_date", { ascending: false }),
 
         supabaseAny
           .from("secretarial_share_transactions")
-          .select(
-            "id, matter_id, transaction_type, transaction_date, number_of_shares, notes, shareholder_id, share_class_id"
-          )
+          .select("*")
           .eq("client_id", clientId)
           .order("transaction_date", { ascending: false }),
 
         supabaseAny
-          .from("secretarial_certificate_replacement_queue")
-          .select(
-            "id, transaction_group_id, shareholder_id, share_class_id, previous_certificate_id, replacement_shares, replacement_reason, queue_status, replacement_matter_id, created_at"
-          )
-          .eq("client_id", clientId)
-          .order("created_at", { ascending: false }),
-
-        supabaseAny
-          .from("secretarial_resolutions")
-          .select(
-            "id, resolution_number, resolution_type, resolution_category, title, resolution_date, related_area, related_record_id, transaction_group_id, body_text, status, created_at"
-          )
-          .eq("client_id", clientId)
-          .order("resolution_date", { ascending: false })
-          .order("created_at", { ascending: false }),
-
-        supabaseAny
           .from("secretarial_beneficial_owners")
-          .select(
-            "id, owner_type, ownership_type, full_legal_name, id_registration_number, ownership_percentage, effective_from, declaration_status, cipc_reference, filed_at, is_active, linked_shareholder_id, nature_of_interest, control_description, nationality_or_country, country_of_residence, email, phone, physical_address, source_structure_notes"
-          )
+          .select("*")
           .eq("client_id", clientId)
           .eq("is_active", true)
           .order("full_legal_name"),
 
         supabaseAny
           .from("secretarial_annual_returns")
-          .select(
-            "id, return_year, anniversary_date, due_date, annual_turnover, annual_return_fee, penalty_amount, beneficial_ownership_status, financial_submission_type, financial_submission_status, return_status, submitted_at, paid_at, cipc_reference, authority_generated_at"
-          )
+          .select("*")
           .eq("client_id", clientId)
           .order("return_year", { ascending: false }),
 
         supabaseAny
           .from("secretarial_company_changes")
-          .select(
-            "id, change_type, title, description, effective_date, submission_date, matter_status, cipc_reference"
-          )
+          .select("*")
           .eq("client_id", clientId)
           .order("created_at", { ascending: false }),
 
         supabaseAny
           .from("secretarial_documents")
-          .select(
-            "id, source_area, source_record_id, document_type, display_name, document_date, document_status, storage_provider, external_path, external_url, created_at"
-          )
+          .select("*")
           .eq("client_id", clientId)
           .eq("is_deleted", false)
           .order("created_at", { ascending: false }),
@@ -598,8 +511,6 @@ export default function SecretarialClientPage() {
       setMatters(mattersResult.error ? [] : ((mattersResult.data || []) as MatterRecord[]));
       setCertificates(certificatesResult.error ? [] : ((certificatesResult.data || []) as CertificateRecord[]));
       setTransactions(transactionsResult.error ? [] : ((transactionsResult.data || []) as TransactionRecord[]));
-      setReplacementQueue(replacementQueueResult.error ? [] : ((replacementQueueResult.data || []) as ReplacementQueueRecord[]));
-      setResolutions(resolutionsResult.error ? [] : ((resolutionsResult.data || []) as ResolutionRecord[]));
       setBeneficialOwners(boResult.error ? [] : ((boResult.data || []) as BeneficialOwnerRecord[]));
       setAnnualReturns(annualReturnsResult.error ? [] : ((annualReturnsResult.data || []) as AnnualReturnRecord[]));
       setCompanyChanges(changesResult.error ? [] : ((changesResult.data || []) as CompanyChangeRecord[]));
@@ -612,8 +523,6 @@ export default function SecretarialClientPage() {
         mattersResult.error,
         certificatesResult.error,
         transactionsResult.error,
-        replacementQueueResult.error,
-        resolutionsResult.error,
         boResult.error,
         annualReturnsResult.error,
         changesResult.error,
@@ -621,9 +530,17 @@ export default function SecretarialClientPage() {
       ].filter(Boolean);
 
       if (relatedErrors.length) {
-        console.warn("One or more Secretarial sections could not load:", relatedErrors);
+        console.warn(
+          "One or more Secretarial sections could not load:",
+          relatedErrors.map((error: any) => ({
+            message: error?.message,
+            code: error?.code,
+            details: error?.details,
+            hint: error?.hint,
+          }))
+        );
         setLoadError(
-          "One or more Secretarial sections could not be retrieved. If you have not run the Full Secretarial schema migration yet, run it first."
+          "One or more Secretarial sections could not be retrieved. Existing records have not been deleted — check the browser console for the exact Supabase query error."
         );
       }
     } catch (error) {
@@ -698,10 +615,8 @@ export default function SecretarialClientPage() {
 
   const issuedCertificates = useMemo(
     () =>
-      certificates.filter((row) =>
-        ["issued", "current"].includes(
-          String(row.certificate_status || "").toLowerCase()
-        )
+      certificates.filter(
+        (row) => String(row.certificate_status || "").toLowerCase() === "issued"
       ),
     [certificates]
   );
@@ -718,16 +633,6 @@ export default function SecretarialClientPage() {
         ].includes(String(row.matter_status || "").toLowerCase())
       ),
     [matters]
-  );
-
-  const pendingReplacementCertificates = useMemo(
-    () =>
-      replacementQueue.filter((row) =>
-        ["pending", "in_progress"].includes(
-          String(row.queue_status || "").toLowerCase()
-        )
-      ),
-    [replacementQueue]
   );
 
   const totalIssuedShares = useMemo(
@@ -773,68 +678,49 @@ export default function SecretarialClientPage() {
       .filter((row) => row.shares !== 0);
   }, [transactions, shareholderById, classById]);
 
-  const directNaturalPersonHoldings = useMemo(
-    () =>
-      currentHoldings.filter(
-        (holding) =>
-          String(holding.shareholder?.holder_type || "individual").toLowerCase() === "individual"
-      ),
-    [currentHoldings]
-  );
-
-  const complexOwnershipHoldings = useMemo(
-    () =>
-      currentHoldings.filter(
-        (holding) =>
-          String(holding.shareholder?.holder_type || "individual").toLowerCase() !== "individual"
-      ),
-    [currentHoldings]
-  );
-
-  const manualIndirectBeneficialOwners = useMemo(
-    () =>
-      beneficialOwners.filter(
-        (row) =>
-          String(row.owner_type || "").toLowerCase() === "individual" &&
-          !row.linked_shareholder_id
-      ),
-    [beneficialOwners]
-  );
-
   const derivedBeneficialOwners = useMemo(() => {
-    const directOwners = directNaturalPersonHoldings.map((holding) => ({
+    if (beneficialOwners.length) {
+      return beneficialOwners.map((row) => ({
+        id: row.id,
+        name: row.full_legal_name,
+        idNumber: row.id_registration_number,
+        percentage: row.ownership_percentage,
+        source: "BO record",
+        status: row.declaration_status,
+      }));
+    }
+
+    return currentHoldings.map((holding) => ({
       id: `derived-${holding.shareholderId}-${holding.shareClassId}`,
       name: holding.shareholder?.full_legal_name || "—",
       idNumber: holding.shareholder?.id_registration_number || null,
-      percentage: totalIssuedShares > 0 ? (holding.shares / totalIssuedShares) * 100 : null,
-      source: "Direct natural-person ownership",
+      percentage:
+        totalIssuedShares > 0
+          ? (holding.shares / totalIssuedShares) * 100
+          : null,
+      source: "Derived from issued shares",
       status: "calculated",
     }));
-
-    const indirectOwners = manualIndirectBeneficialOwners.map((row) => ({
-      id: row.id,
-      name: row.full_legal_name,
-      idNumber: row.id_registration_number,
-      percentage: row.ownership_percentage,
-      source: row.nature_of_interest ? formatStatus(row.nature_of_interest) : "Indirect / control interest",
-      status: row.declaration_status,
-    }));
-
-    return [...directOwners, ...indirectOwners];
-  }, [directNaturalPersonHoldings, manualIndirectBeneficialOwners, totalIssuedShares]);
+  }, [beneficialOwners, currentHoldings, totalIssuedShares]);
 
   const boOverallStatus = useMemo(() => {
     if (!currentHoldings.length) return "not_ready";
-    if (complexOwnershipHoldings.length && !manualIndirectBeneficialOwners.length) return "structure_review_required";
     if (!beneficialOwners.length) return "calculated";
 
     const statuses = beneficialOwners.map((row) =>
       String(row.declaration_status || "draft").toLowerCase()
     );
-    if (statuses.length && statuses.every((status) => status === "filed")) return "filed";
-    if (statuses.every((status) => ["ready", "filed"].includes(status))) return "ready";
+
+    if (statuses.length && statuses.every((status) => status === "filed")) {
+      return "filed";
+    }
+
+    if (statuses.every((status) => ["ready", "filed"].includes(status))) {
+      return "ready";
+    }
+
     return "draft";
-  }, [beneficialOwners, currentHoldings.length, complexOwnershipHoldings.length, manualIndirectBeneficialOwners.length]);
+  }, [beneficialOwners, currentHoldings.length]);
 
   const annualBOLiveStatus = boOverallStatus === "filed" ? "up_to_date" : "outstanding";
 
@@ -871,7 +757,7 @@ export default function SecretarialClientPage() {
             ? "legal_entity"
             : holding.shareholder?.holder_type === "trust"
               ? "trust"
-              : "individual",
+              : "natural_person",
         ownership_type: "direct",
         full_legal_name: holding.shareholder?.full_legal_name || "",
         id_registration_number:
@@ -905,79 +791,9 @@ export default function SecretarialClientPage() {
     }
   }
 
-  async function saveIndirectBeneficialOwner() {
-    if (!client?.organisation_id) return;
-
-    if (!boOwnerName.trim() || !boOwnerIdNumber.trim()) {
-      setMessage("Enter the natural person's full name and ID / passport number.");
-      return;
-    }
-
-    const percentage = Number(String(boOwnershipPercentage || "").replace(",", "."));
-    if (boOwnershipPercentage.trim() && (!Number.isFinite(percentage) || percentage < 0 || percentage > 100)) {
-      setMessage("Enter a valid BO percentage between 0 and 100.");
-      return;
-    }
-
-    setSaving(true);
-    setMessage("");
-
-    try {
-      const { error } = await supabaseAny.from("secretarial_beneficial_owners").insert({
-        organisation_id: client.organisation_id,
-        client_id: client.id,
-        linked_shareholder_id: null,
-        owner_type: "individual",
-        ownership_type: "indirect",
-        full_legal_name: boOwnerName.trim(),
-        id_registration_number: boOwnerIdNumber.trim(),
-        ownership_percentage: boOwnershipPercentage.trim() ? percentage : null,
-        effective_from: boEffectiveFrom || todayIso(),
-        declaration_status: "ready",
-        is_active: true,
-        nature_of_interest: boNatureOfInterest,
-        control_description: boControlDescription.trim() || null,
-        nationality_or_country: boNationality.trim() || null,
-        country_of_residence: boCountryOfResidence.trim() || null,
-        email: boEmail.trim() || null,
-        phone: boPhone.trim() || null,
-        physical_address: boPhysicalAddress.trim() || null,
-        source_structure_notes: boStructureNotes.trim() || null,
-      });
-
-      if (error) throw error;
-
-      setShowIndirectBoForm(false);
-      setBoOwnerName("");
-      setBoOwnerIdNumber("");
-      setBoOwnershipPercentage("");
-      setBoNatureOfInterest("indirect_shareholding");
-      setBoControlDescription("");
-      setBoEffectiveFrom(todayIso());
-      setBoNationality("");
-      setBoCountryOfResidence("South Africa");
-      setBoEmail("");
-      setBoPhone("");
-      setBoPhysicalAddress("");
-      setBoStructureNotes("");
-      await loadAll();
-      setMessage("Indirect / control beneficial owner added.");
-    } catch (error) {
-      console.error("Could not add indirect beneficial owner:", error);
-      setMessage(error instanceof Error ? error.message : "Could not add the beneficial owner.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function markBeneficialOwnershipFiled() {
     if (!currentHoldings.length || !client?.organisation_id) {
       setMessage("Capture shareholders and issued shares before recording the BO filing.");
-      return;
-    }
-
-    if (complexOwnershipHoldings.length && !manualIndirectBeneficialOwners.length) {
-      setMessage("This structure includes a company, trust or other non-natural holder. Capture the ultimate natural-person beneficial owner(s) before recording the CIPC filing.");
       return;
     }
 
@@ -990,54 +806,57 @@ export default function SecretarialClientPage() {
     setMessage("");
 
     try {
-      const existingLinkedIds = new Set(
-        beneficialOwners.map((row) => row.linked_shareholder_id).filter(Boolean)
-      );
-
-      const directRows = directNaturalPersonHoldings
-        .filter((holding) => !existingLinkedIds.has(holding.shareholderId))
-        .map((holding) => ({
+      if (!beneficialOwners.length) {
+        const rows = currentHoldings.map((holding) => ({
           organisation_id: client.organisation_id,
           client_id: client.id,
           linked_shareholder_id: holding.shareholderId,
-          owner_type: "individual",
+          owner_type:
+            holding.shareholder?.holder_type === "entity"
+              ? "legal_entity"
+              : holding.shareholder?.holder_type === "trust"
+                ? "trust"
+                : "natural_person",
           ownership_type: "direct",
           full_legal_name: holding.shareholder?.full_legal_name || "",
           id_registration_number: holding.shareholder?.id_registration_number || null,
-          ownership_percentage: totalIssuedShares > 0
-            ? Number(((holding.shares / totalIssuedShares) * 100).toFixed(4))
-            : null,
+          ownership_percentage:
+            totalIssuedShares > 0
+              ? Number(((holding.shares / totalIssuedShares) * 100).toFixed(4))
+              : null,
           effective_from: todayIso(),
           declaration_status: "filed",
           cipc_reference: boCipcReference.trim(),
           filed_at: `${boFiledDate}T12:00:00+02:00`,
           is_active: true,
-          nature_of_interest: "direct_shareholding",
         }));
 
-      if (directRows.length) {
-        const { error: insertError } = await supabaseAny.from("secretarial_beneficial_owners").insert(directRows);
-        if (insertError) throw insertError;
+        const { error } = await supabaseAny
+          .from("secretarial_beneficial_owners")
+          .insert(rows);
+        if (error) throw error;
+      } else {
+        const { error } = await supabaseAny
+          .from("secretarial_beneficial_owners")
+          .update({
+            declaration_status: "filed",
+            cipc_reference: boCipcReference.trim(),
+            filed_at: `${boFiledDate}T12:00:00+02:00`,
+          })
+          .eq("client_id", client.id)
+          .eq("is_active", true);
+        if (error) throw error;
       }
 
-      const { error: updateError } = await supabaseAny
-        .from("secretarial_beneficial_owners")
-        .update({
-          declaration_status: "filed",
-          cipc_reference: boCipcReference.trim(),
-          filed_at: `${boFiledDate}T12:00:00+02:00`,
-        })
-        .eq("client_id", client.id)
-        .eq("is_active", true)
-        .eq("owner_type", "individual");
-
-      if (updateError) throw updateError;
-
       await loadAll();
-      setMessage("Beneficial Ownership filing recorded.");
+      setMessage("Beneficial ownership filing recorded.");
     } catch (error) {
-      console.error("Could not record BO filing:", error);
-      setMessage(error instanceof Error ? error.message : "Could not record the BO filing.");
+      console.error("Could not record beneficial ownership filing:", error);
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not record the beneficial ownership filing."
+      );
     } finally {
       setSaving(false);
     }
@@ -1437,45 +1256,6 @@ export default function SecretarialClientPage() {
     );
   }, [currentAnnualReturn?.id]);
 
-  async function resetAnnualTurnover() {
-    setAnnualTurnover("0");
-
-    if (!currentAnnualReturn?.id) {
-      return;
-    }
-
-    try {
-      setSaving(true);
-      setMessage("");
-
-      const fee = annualReturnFee(0, client?.entity_type ?? null, false);
-
-      const { error } = await supabaseAny
-        .from("secretarial_annual_returns")
-        .update({
-          annual_turnover: 0,
-          annual_return_fee: fee.baseFee,
-          penalty_amount: fee.penalty,
-        })
-        .eq("id", currentAnnualReturn.id)
-        .eq("client_id", clientId);
-
-      if (error) throw error;
-
-      setMessage("Annual turnover reset to R 0.");
-      await loadAll();
-    } catch (error) {
-      console.error("Could not reset Annual Return turnover:", error);
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not reset the Annual Return turnover."
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function saveAnnualReturnControl() {
     if (!client || !nextAnnualReturn) {
       setMessage("The annual-return cycle cannot be calculated.");
@@ -1579,43 +1359,6 @@ export default function SecretarialClientPage() {
           ? error.message
           : "Could not generate the document."
       );
-    }
-  }
-
-  async function downloadSecretarialDocument(
-    documentType: string,
-    sourceId?: string | null,
-    preferredFileName?: string
-  ) {
-    if (!client) return;
-    try {
-      setMessage("");
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session?.access_token) throw new Error("Your login session could not be confirmed.");
-
-      const response = await fetch("/api/crm/secretarial/documents/render", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ clientId: client.id, documentType, sourceId: sourceId || null }),
-      });
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || "Could not generate the PDF.");
-      }
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = preferredFileName || `${client.client_name}-${documentType}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    } catch (error) {
-      console.error("Document download failed:", error);
-      setMessage(error instanceof Error ? error.message : "Could not download the document.");
     }
   }
 
@@ -2073,17 +1816,21 @@ export default function SecretarialClientPage() {
                   ) : null}
                 </div>
                 <div style={rowActions}>
-                  {editingDirectorId === director.id && showDirectorForm ? (
-                    <span style={editingRowPill}>Editing</span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => editDirector(director)}
-                      style={editActionButton}
-                    >
-                      Edit Director
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (editingDirectorId === director.id && showDirectorForm) {
+                        setEditingDirectorId(null);
+                        setShowDirectorForm(false);
+                        setEndingDirectorId(null);
+                      } else {
+                        editDirector(director);
+                      }
+                    }}
+                    style={editActionButton}
+                  >
+                    {editingDirectorId === director.id && showDirectorForm ? "Close Edit" : "Edit Director"}
+                  </button>
 
                 </div>
               </TableRow>
@@ -2105,13 +1852,7 @@ export default function SecretarialClientPage() {
                   href={`/crm/secretarial/client/${client.id}/share-transactions`}
                   style={secondaryButton}
                 >
-                  Change Shareholding
-                </Link>
-                <Link
-                  href={`/crm/secretarial/share-certificates/new?clientId=${client.id}`}
-                  style={secondaryButton}
-                >
-                  New Share Issue
+                  New Share Transaction
                 </Link>
                 <SectionButton
                   label={showShareholderForm ? "Cancel" : "Add Shareholder"}
@@ -2271,17 +2012,20 @@ export default function SecretarialClientPage() {
                       </>
                     )}
                   </div>
-                  {editingShareholderId === row.id && showShareholderForm ? (
-                    <span style={editingRowPill}>Editing</span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => editShareholder(row)}
-                      style={editActionButton}
-                    >
-                      Edit Shareholder
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (editingShareholderId === row.id && showShareholderForm) {
+                        setEditingShareholderId(null);
+                        setShowShareholderForm(false);
+                      } else {
+                        editShareholder(row);
+                      }
+                    }}
+                    style={editActionButton}
+                  >
+                    {editingShareholderId === row.id && showShareholderForm ? "Close Edit" : "Edit Shareholder"}
+                  </button>
                 </TableRow>
               );
             })
@@ -2302,7 +2046,7 @@ export default function SecretarialClientPage() {
                   href={`/crm/secretarial/client/${client.id}/share-transactions`}
                   style={secondaryButton}
                 >
-                  Change Shareholding
+                  New Share Transaction
                 </Link>
                 <SectionButton
                   label={showShareClassForm ? "Cancel" : "Add Share Class"}
@@ -2412,49 +2156,16 @@ export default function SecretarialClientPage() {
         <section style={panel}>
           <PanelHeading
             title="Share Certificates"
-            subtitle="Share issues create certificate matters from shareholders already captured in this client file."
+            subtitle="Certificate register generated from completed share transactions. Certificates are outputs, not the transaction workflow itself."
             action={
               <Link
-                href={`/crm/secretarial/share-certificates/new?clientId=${client.id}`}
+                href={`/crm/secretarial/client/${client.id}/share-transactions`}
                 style={secondaryButton}
               >
-                New Share Issue
+                New Share Transaction
               </Link>
             }
           />
-
-          <div style={miniSectionTitle}>REPLACEMENT CERTIFICATES REQUIRED</div>
-
-          {pendingReplacementCertificates.length ? (
-            pendingReplacementCertificates.map((replacement) => {
-              const holder = shareholderById.get(replacement.shareholder_id);
-              const shareClass = replacement.share_class_id
-                ? classById.get(replacement.share_class_id)
-                : null;
-
-              return (
-                <div key={replacement.id} style={replacementCertificateRow}>
-                  <div>
-                    <strong>{holder?.full_legal_name || "Shareholder"}</strong>
-                    <div style={mutedSmall}>
-                      {Number(replacement.replacement_shares || 0).toLocaleString("en-ZA")}{" "}
-                      {shareClass?.class_name || "shares"}
-                    </div>
-                  </div>
-                  <div>{replacement.replacement_reason}</div>
-                  <StatusPill text={formatStatus(replacement.queue_status)} />
-                  <Link
-                    href={`/crm/secretarial/share-certificates/new?clientId=${client.id}&shareholderId=${replacement.shareholder_id}&replacementQueueId=${replacement.id}`}
-                    style={rowActionButton}
-                  >
-                    Create Replacement
-                  </Link>
-                </div>
-              );
-            })
-          ) : (
-            <Empty text="No replacement certificates are currently required." compact />
-          )}
 
           <div style={miniSectionTitle}>OPEN / DRAFT CERTIFICATE MATTERS</div>
 
@@ -2489,7 +2200,7 @@ export default function SecretarialClientPage() {
             <Empty text="No open certificate matters." compact />
           )}
 
-          <div style={miniSectionTitle}>CERTIFICATE HISTORY</div>
+          <div style={miniSectionTitle}>ISSUED CERTIFICATES</div>
 
           {certificates.length ? (
             certificates.map((certificate) => {
@@ -2519,14 +2230,7 @@ export default function SecretarialClientPage() {
 
                   <div>{formatDate(certificate.issue_date)}</div>
 
-                  <div>
-                    <StatusPill text={formatStatus(certificate.certificate_status)} />
-                    {["superseded", "replaced", "cancelled", "void"].includes(
-                      String(certificate.certificate_status || "").toLowerCase()
-                    ) ? (
-                      <div style={mutedSmall}>Preserved in certificate history</div>
-                    ) : null}
-                  </div>
+                  <StatusPill text={formatStatus(certificate.certificate_status)} />
 
                   <div style={certificateActions}>
                     {certificate.matter_id ? (
@@ -2560,96 +2264,116 @@ export default function SecretarialClientPage() {
         <section style={panel}>
           <PanelHeading
             title="Beneficial Ownership"
-            subtitle="Direct natural-person ownership is calculated from the live share register. Only complex / indirect ownership is captured separately."
-            action={
-              <button type="button" onClick={() => setShowIndirectBoForm((current) => !current)} style={secondaryButton}>
-                {showIndirectBoForm ? "Cancel" : "Add Indirect / Control BO"}
-              </button>
-            }
+            subtitle="PracticePilot calculates the current direct BO position from the live share register. You only record the CIPC filing result here."
           />
 
           <div style={boSummaryStrip}>
             <div>
-              <span style={miniLabel}>CURRENT NATURAL-PERSON BO</span>
+              <span style={miniLabel}>CURRENT BO POSITION</span>
               <strong style={boControlTitle}>
-                {derivedBeneficialOwners.length ? `${derivedBeneficialOwners.length} beneficial owner${derivedBeneficialOwners.length === 1 ? "" : "s"}` : "No natural-person BO identified yet"}
+                {currentHoldings.length
+                  ? `${currentHoldings.length} beneficial owner${currentHoldings.length === 1 ? "" : "s"}`
+                  : "No issued-share position yet"}
               </strong>
             </div>
             <div>
               <span style={miniLabel}>CIPC STATUS</span>
-              <StatusPill text={formatStatus(boOverallStatus === "filed" ? "up_to_date" : boOverallStatus === "structure_review_required" ? "review_required" : "not_filed")} />
+              <StatusPill text={formatStatus(boOverallStatus === "filed" ? "up_to_date" : "not_filed")} />
             </div>
           </div>
 
           <div style={boStructureReview}>
-            <div style={boStructureCell}><span style={miniLabel}>STRUCTURE</span><strong style={boStructureValue}>{complexOwnershipHoldings.length ? "Complex / indirect ownership" : "Simple direct ownership"}</strong></div>
-            <div style={boStructureCell}><span style={miniLabel}>DIRECT NATURAL-PERSON HOLDERS</span><strong style={boStructureValue}>{directNaturalPersonHoldings.length}</strong></div>
-            <div style={boStructureCell}><span style={miniLabel}>NON-NATURAL HOLDERS</span><strong style={boStructureValue}>{complexOwnershipHoldings.length}</strong>{complexOwnershipHoldings.length ? <span style={boStructureNote}>Ultimate natural-person BO must be identified before filing.</span> : null}</div>
+            <div style={boStructureCell}>
+              <span style={miniLabel}>BO STRUCTURE BASIS</span>
+              <strong style={boStructureValue}>
+                {currentHoldings.length ? "Direct ownership derived from issued shares" : "No ownership basis yet"}
+              </strong>
+            </div>
+            <div style={boStructureCell}>
+              <span style={miniLabel}>STRUCTURE COMPLEXITY</span>
+              <strong style={boStructureValue}>Simple direct structure</strong>
+            </div>
+            <div style={boStructureCell}>
+              <span style={miniLabel}>EXCEPTION ROUTE</span>
+              <span style={boStructureNote}>
+                Trusts, nominees, juristic ownership chains and other-control cases will use the complex-BO workflow.
+              </span>
+            </div>
           </div>
 
-          {complexOwnershipHoldings.length ? (
-            <div style={warningBar}>
-              The share register contains {complexOwnershipHoldings.length} company / trust / other holder{complexOwnershipHoldings.length === 1 ? "" : "s"}. PracticePilot will not treat those entities as beneficial owners. Capture the ultimate natural person(s) below.
-            </div>
-          ) : null}
+          <TableHeader
+            columns="1.4fr 1fr 160px 220px"
+            labels={["BENEFICIAL OWNER", "ID / REGISTRATION", "%", "SOURCE"]}
+          />
 
-          {showIndirectBoForm ? (
-            <FormPanel>
-              <div style={formSectionTitle}>INDIRECT / CONTROL BENEFICIAL OWNER — NATURAL PERSON</div>
-              <FormGrid columns="repeat(3, minmax(0, 1fr))">
-                <Field label="FULL LEGAL NAME"><input value={boOwnerName} onChange={(e) => setBoOwnerName(e.target.value)} style={input} /></Field>
-                <Field label="ID / PASSPORT NUMBER"><input value={boOwnerIdNumber} onChange={(e) => setBoOwnerIdNumber(e.target.value)} style={input} /></Field>
-                <Field label="OWNERSHIP / CONTROL %"><input value={boOwnershipPercentage} onChange={(e) => setBoOwnershipPercentage(e.target.value)} placeholder="0.00" style={input} /></Field>
-                <Field label="NATURE OF INTEREST">
-                  <select value={boNatureOfInterest} onChange={(e) => setBoNatureOfInterest(e.target.value)} style={input}>
-                    <option value="indirect_shareholding">Indirect shareholding</option>
-                    <option value="voting_rights">Voting rights</option>
-                    <option value="right_to_appoint_directors">Right to appoint / remove directors</option>
-                    <option value="effective_control">Effective control</option>
-                    <option value="trust_beneficiary">Trust beneficiary / control</option>
-                    <option value="other">Other</option>
-                  </select>
-                </Field>
-                <Field label="EFFECTIVE FROM"><input type="date" value={boEffectiveFrom} onChange={(e) => setBoEffectiveFrom(e.target.value)} style={input} /></Field>
-                <Field label="NATIONALITY"><input value={boNationality} onChange={(e) => setBoNationality(e.target.value)} style={input} /></Field>
-                <Field label="COUNTRY OF RESIDENCE"><input value={boCountryOfResidence} onChange={(e) => setBoCountryOfResidence(e.target.value)} style={input} /></Field>
-                <Field label="EMAIL"><input value={boEmail} onChange={(e) => setBoEmail(e.target.value)} style={input} /></Field>
-                <Field label="PHONE"><input value={boPhone} onChange={(e) => setBoPhone(e.target.value)} style={input} /></Field>
-                <Field label="CONTROL / INTEREST DESCRIPTION"><input value={boControlDescription} onChange={(e) => setBoControlDescription(e.target.value)} style={input} /></Field>
-                <Field label="PHYSICAL ADDRESS"><input value={boPhysicalAddress} onChange={(e) => setBoPhysicalAddress(e.target.value)} style={input} /></Field>
-                <Field label="STRUCTURE / SOURCE NOTES"><input value={boStructureNotes} onChange={(e) => setBoStructureNotes(e.target.value)} style={input} /></Field>
-              </FormGrid>
-              <FormFooter>
-                <span style={formHelp}>Use this only where the ultimate natural person cannot be derived directly from the company's issued-share register.</span>
-                <SaveButton onClick={saveIndirectBeneficialOwner} saving={saving} label="Add Beneficial Owner" />
-              </FormFooter>
-            </FormPanel>
-          ) : null}
-
-          <TableHeader columns="1.25fr 1fr 150px 1fr 170px" labels={["BENEFICIAL OWNER", "ID / PASSPORT", "%", "BASIS", "STATUS"]} />
-          {derivedBeneficialOwners.length ? derivedBeneficialOwners.map((owner) => (
-            <TableRow key={owner.id} columns="1.25fr 1fr 150px 1fr 170px">
-              <strong>{owner.name}</strong><div>{clean(owner.idNumber)}</div><strong>{owner.percentage == null ? "—" : `${Number(owner.percentage).toFixed(2)}%`}</strong><div>{owner.source}</div><StatusPill text={owner.status === "ready" ? "Confirmed" : formatStatus(owner.status)} />
-            </TableRow>
-          )) : <Empty text="No natural-person beneficial owner has been identified yet." />}
+          {currentHoldings.length ? (
+            currentHoldings.map((holding) => (
+              <TableRow
+                key={`${holding.shareholderId}-${holding.shareClassId}`}
+                columns="1.4fr 1fr 160px 220px"
+              >
+                <strong>{holding.shareholder?.full_legal_name || "—"}</strong>
+                <div>{clean(holding.shareholder?.id_registration_number)}</div>
+                <strong>
+                  {totalIssuedShares > 0
+                    ? `${((holding.shares / totalIssuedShares) * 100).toFixed(2)}%`
+                    : "—"}
+                </strong>
+                <div>Derived from issued shares</div>
+              </TableRow>
+            ))
+          ) : (
+            <Empty text="Capture shareholders and issue shares first. PracticePilot will then calculate the direct BO position automatically." />
+          )}
 
           {currentHoldings.length ? (
             <div style={boFilingPanelSimple}>
               <div>
                 <strong>CIPC BO filing</strong>
-                <div style={mutedSmall}>Generate the mandate and supporting register, obtain signature and then record the filing result.</div>
-                <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
-                  <button type="button" onClick={() => previewSecretarialDocument("bo-mandate")} style={rowActionButton}>Preview Mandate</button>
-                  <button type="button" onClick={() => downloadSecretarialDocument("bo-mandate", null, `${client.client_name}-BO-Mandate.pdf`)} style={rowActionButton}>Download PDF</button>
+                <div style={mutedSmall}>
+                  Generate the mandate from the live ownership position, send it for signature, then record the CIPC filing result here.
                 </div>
+                <button
+                  type="button"
+                  onClick={() => previewSecretarialDocument("bo-mandate")}
+                  style={{ ...rowActionButton, marginTop: "8px" }}
+                >
+                  Preview BO Mandate
+                </button>
               </div>
-              <Field label="CIPC REFERENCE"><input value={boCipcReference} onChange={(e) => setBoCipcReference(e.target.value)} placeholder="CIPC filing reference" style={input} /></Field>
-              <Field label="FILED DATE"><input type="date" value={boFiledDate} onChange={(e) => setBoFiledDate(e.target.value)} style={input} /></Field>
-              <button type="button" onClick={markBeneficialOwnershipFiled} disabled={saving} style={primaryCompactButton}>{boOverallStatus === "filed" ? "Update Filing" : "Record BO Filing"}</button>
+              <Field label="CIPC REFERENCE">
+                <input
+                  value={boCipcReference}
+                  onChange={(event) => setBoCipcReference(event.target.value)}
+                  placeholder="CIPC filing reference"
+                  style={input}
+                />
+              </Field>
+              <Field label="FILED DATE">
+                <input
+                  type="date"
+                  value={boFiledDate}
+                  onChange={(event) => setBoFiledDate(event.target.value)}
+                  style={input}
+                />
+              </Field>
+              <button
+                type="button"
+                onClick={markBeneficialOwnershipFiled}
+                disabled={saving}
+                style={primaryCompactButton}
+              >
+                {boOverallStatus === "filed" ? "Update Filing" : "Record BO Filing"}
+              </button>
             </div>
           ) : null}
 
-          <div style={documentFace}><strong>BO filing pack</strong><span>Mandate, natural-person beneficial ownership schedule and the applicable securities / beneficial-interest information are generated from the client file.</span></div>
+          <div style={documentFace}>
+            <strong>BO document pack</strong>
+            <span>
+              Mandate, declaration/supporting schedule and beneficial-interest register are generated from the shareholder and company records — nothing is re-captured here.
+            </span>
+          </div>
         </section>
       ) : null}
 
@@ -2701,13 +2425,8 @@ export default function SecretarialClientPage() {
                     <div style={arInputHelpRow}>
                       <span>Latest approved financial statements · whole rand amount</span>
                       {annualTurnover ? (
-                        <button
-                          type="button"
-                          onClick={resetAnnualTurnover}
-                          disabled={saving}
-                          style={arClearTurnover}
-                        >
-                          Reset to 0
+                        <button type="button" onClick={() => setAnnualTurnover("")} style={arClearTurnover}>
+                          Clear
                         </button>
                       ) : null}
                     </div>
@@ -3076,7 +2795,7 @@ export default function SecretarialClientPage() {
 
           <section style={panel}>
             <PanelHeading
-              title="Current Shareholder Register"
+              title="Current Shareholding Schedule"
               subtitle="Calculated from the permanent share transaction history."
             />
 
@@ -3162,44 +2881,11 @@ export default function SecretarialClientPage() {
             </TableRow>
           ))}
 
-          {resolutions.map((resolution) => (
-            <TableRow
-              key={`resolution-${resolution.id}`}
-              columns="220px 1.4fr 160px 170px 220px"
-            >
-              <div>{formatStatus(resolution.resolution_type)} Resolution</div>
-              <strong>
-                {resolution.resolution_number} · {resolution.title}
-              </strong>
-              <div>{formatDate(resolution.resolution_date)}</div>
-              <StatusPill text={formatStatus(resolution.status)} />
-              <button
-                type="button"
-                onClick={() =>
-                  previewSecretarialDocument(
-                    "resolution",
-                    resolution.id
-                  )
-                }
-                style={downloadButton}
-              >
-                Preview PDF
-              </button>
-            </TableRow>
-          ))}
-
           {matters
-            .filter(
-              (matter) =>
-                matter.board_resolution_reference &&
-                !resolutions.some(
-                  (resolution) =>
-                    resolution.related_record_id === matter.id
-                )
-            )
+            .filter((matter) => matter.board_resolution_reference)
             .map((matter) => (
               <TableRow
-                key={`legacy-resolution-${matter.id}`}
+                key={`resolution-${matter.id}`}
                 columns="220px 1.4fr 160px 170px 220px"
               >
                 <div>Share Issue Resolution</div>
@@ -3207,7 +2893,7 @@ export default function SecretarialClientPage() {
                   Board Resolution {matter.board_resolution_reference}
                 </strong>
                 <div>{formatDate(matter.board_resolution_date)}</div>
-                <StatusPill text="Generated" />
+                <StatusPill text="Available to Preview" />
                 <button
                   type="button"
                   onClick={() =>
@@ -3246,47 +2932,13 @@ export default function SecretarialClientPage() {
                 columns="220px 1.4fr 160px 170px 220px"
               >
                 <div>Shareholder Register</div>
-                <strong>Current Shareholder Register</strong>
+                <strong>Current Shareholding Schedule</strong>
                 <div>Current</div>
                 <StatusPill text="Current" />
                 <button
                   type="button"
                   onClick={() =>
                     previewSecretarialDocument("shareholder-register")
-                  }
-                  style={downloadButton}
-                >
-                  Preview PDF
-                </button>
-              </TableRow>
-              <TableRow
-                columns="220px 1.4fr 160px 170px 220px"
-              >
-                <div>Shareholding Confirmation</div>
-                <strong>Shareholding Confirmation Letter + Register</strong>
-                <div>Current</div>
-                <StatusPill text="Available to Preview" />
-                <button
-                  type="button"
-                  onClick={() =>
-                    previewSecretarialDocument("shareholding-confirmation")
-                  }
-                  style={downloadButton}
-                >
-                  Preview PDF
-                </button>
-              </TableRow>
-              <TableRow
-                columns="220px 1.4fr 160px 170px 220px"
-              >
-                <div>Shareholding Confirmation</div>
-                <strong>Detailed Shareholding Confirmation</strong>
-                <div>Current</div>
-                <StatusPill text="Available to Preview" />
-                <button
-                  type="button"
-                  onClick={() =>
-                    previewSecretarialDocument("shareholding-confirmation-detailed")
                   }
                   style={downloadButton}
                 >
@@ -3975,18 +3627,6 @@ const miniSectionTitle: React.CSSProperties = {
   letterSpacing: "0.04em",
 };
 
-const replacementCertificateRow: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1.1fr 1.5fr 160px 190px",
-  gap: "12px",
-  alignItems: "center",
-  minHeight: "48px",
-  padding: "8px 12px",
-  borderBottom: "1px solid #e1e6ed",
-  background: "#fffdf5",
-  fontSize: "9px",
-};
-
 const certificateRow: React.CSSProperties = {
   minHeight: "54px",
   padding: "0 12px",
@@ -4338,20 +3978,6 @@ const primaryCompactButton: React.CSSProperties = {
   cursor: "pointer",
 };
 
-
-const editingRowPill: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  minWidth: "84px",
-  height: "30px",
-  padding: "0 10px",
-  border: "1px solid #bbf7d0",
-  background: "#ecfdf3",
-  color: "#166534",
-  fontSize: "9px",
-  fontWeight: 900,
-};
 
 const editActionButton: React.CSSProperties = {
   minWidth: "132px",

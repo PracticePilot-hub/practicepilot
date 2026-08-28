@@ -8,6 +8,21 @@ type TrialBalanceLine = {
   account_name?: string | null;
   description?: string | null;
   mapping_label?: string | null;
+  opening_balance?: number | string | null;
+  current_year_balance?: number | string | null;
+  current_balance?: number | string | null;
+  final_balance?: number | string | null;
+  final_afs_balance?: number | string | null;
+  prior_year_balance?: number | string | null;
+  source_balance?: number | string | null;
+  imported_balance?: number | string | null;
+  manual_adjustment?: number | string | null;
+  journal_adjustment?: number | string | null;
+  adjustments?: number | string | null;
+  reclassification?: number | string | null;
+  reclassifications?: number | string | null;
+  debit?: number | string | null;
+  credit?: number | string | null;
 };
 
 type JournalLine = {
@@ -23,12 +38,15 @@ type JournalPeriod =
   | "prior_year"
   | "opening_balance";
 
+type JournalPurpose = "client" | "afs_only";
+
 type PostedJournal = {
   id: string;
   number: number;
   reference: string;
   description: string;
   journalPeriod: JournalPeriod;
+  journalPurpose: JournalPurpose;
   status: "Balanced" | "Unbalanced";
   lines: JournalLine[];
   debitTotal: number;
@@ -81,6 +99,33 @@ function accountLabel(line: TrialBalanceLine) {
   return code ? `${code} · ${name}` : name;
 }
 
+function numberValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  return parseAmount(value);
+}
+
+function accountBalanceForPeriod(
+  line: TrialBalanceLine,
+  period: JournalPeriod,
+) {
+  if (period === "prior_year") return numberValue(line.prior_year_balance);
+  if (period === "opening_balance") return numberValue(line.opening_balance);
+
+  const explicitFinal = line.final_afs_balance ?? line.final_balance ?? line.current_balance;
+  if (explicitFinal !== null && explicitFinal !== undefined && explicitFinal !== "") {
+    return numberValue(explicitFinal);
+  }
+
+  const source = line.source_balance ?? line.imported_balance ?? line.current_year_balance;
+  return (
+    numberValue(source) +
+    numberValue(line.manual_adjustment) +
+    numberValue(line.journal_adjustment ?? line.adjustments) +
+    numberValue(line.reclassification ?? line.reclassifications)
+  );
+}
+
 const emptyLine = (): JournalLine => ({
   id: uid(),
   accountKey: "",
@@ -112,6 +157,10 @@ function mapDatabaseJournal(rawJournal: any): PostedJournal {
             "opening_balance"
           ? "opening_balance"
           : "current_year",
+    journalPurpose:
+      clean(rawJournal?.journal_purpose ?? rawJournal?.journalPurpose) === "client"
+        ? "client"
+        : "afs_only",
     status:
       clean(rawJournal?.status).toLowerCase() === "unbalanced"
         ? "Unbalanced"
@@ -155,6 +204,8 @@ export default function AdjustingJournalsPanel({
   const [editingJournalId, setEditingJournalId] = useState<string | null>(null);
   const [journalPeriod, setJournalPeriod] =
     useState<JournalPeriod>("current_year");
+  const [journalPurpose, setJournalPurpose] =
+    useState<JournalPurpose>("afs_only");
   const [description, setDescription] = useState("");
   const [lines, setLines] = useState<JournalLine[]>([emptyLine(), emptyLine()]);
   const [posted, setPosted] = useState<PostedJournal[]>([]);
@@ -278,6 +329,7 @@ export default function AdjustingJournalsPanel({
         code: accountCode(line),
         name: accountName(line),
         label: accountLabel(line),
+        balance: accountBalanceForPeriod(line, journalPeriod),
         line,
       }))
       .filter((option) => {
@@ -287,7 +339,7 @@ export default function AdjustingJournalsPanel({
         return true;
       })
       .sort((a, b) => a.code.localeCompare(b.code));
-  }, [trialBalanceLines, customAccounts]);
+  }, [trialBalanceLines, customAccounts, journalPeriod]);
 
   const filteredAccountOptions = useMemo(() => {
     const query = clean(accountSearch).toLowerCase();
@@ -341,6 +393,11 @@ export default function AdjustingJournalsPanel({
   function selectedAccountLabel(key: string) {
     if (!key) return "Select account...";
     return accountOptions.find((option) => option.key === key)?.label || key;
+  }
+
+  function selectedAccountBalance(key: string) {
+    if (!key) return null;
+    return accountOptions.find((option) => option.key === key)?.balance ?? null;
   }
 
   function selectAccountForLine(lineId: string, accountKeyValue: string) {
@@ -432,6 +489,7 @@ export default function AdjustingJournalsPanel({
     setEditingJournalId(null);
     setJournalReference("");
     setJournalPeriod("current_year");
+    setJournalPurpose("afs_only");
     setDescription("");
     setLines([emptyLine(), emptyLine()]);
   }
@@ -440,6 +498,7 @@ export default function AdjustingJournalsPanel({
     setEditingJournalId(journal.id);
     setJournalReference(journal.reference || "");
     setJournalPeriod(journal.journalPeriod || "current_year");
+    setJournalPurpose(journal.journalPurpose || "afs_only");
     setDescription(journal.description);
 
     setLines(
@@ -561,6 +620,7 @@ export default function AdjustingJournalsPanel({
             journalId: editingJournalId,
             journal_reference: clean(journalReference),
             journal_period: journalPeriod,
+            journal_purpose: journalPurpose,
             description: clean(description),
             lines: resolvedLines.map((line) => ({
               account_code: line.accountCode,
@@ -589,6 +649,7 @@ export default function AdjustingJournalsPanel({
             reference: clean(journalReference) || `AJ${String(posted.length + 1).padStart(3, "0")}`,
             description: clean(description),
             journalPeriod,
+            journalPurpose,
             status: balancedNext ? "Balanced" : "Unbalanced",
             lines: resolvedLines.map((line) => ({
               id: line.id,
@@ -666,6 +727,23 @@ export default function AdjustingJournalsPanel({
             brought-forward opening position.
           </p>
 
+          <label style={styles.label}>Journal purpose</label>
+          <select
+            value={journalPurpose}
+            onChange={(event) =>
+              setJournalPurpose(event.target.value as JournalPurpose)
+            }
+            style={styles.input}
+          >
+            <option value="client">Client journal</option>
+            <option value="afs_only">AFS-only journal</option>
+          </select>
+
+          <p style={styles.periodHelp}>
+            Client journals must also be posted to the client accounting records.
+            AFS-only journals affect this AFS file only.
+          </p>
+
           <label style={styles.label}>Description</label>
           <input
             value={description}
@@ -699,6 +777,12 @@ export default function AdjustingJournalsPanel({
                       >
                         {selectedAccountLabel(line.accountKey)}
                       </button>
+                      {line.accountKey ? (
+                        <div style={styles.accountBalanceHint}>
+                          Balance: {" "}
+                          <strong>R {formatMoney(selectedAccountBalance(line.accountKey) || 0)}</strong>
+                        </div>
+                      ) : null}
                     </td>
                     <td style={styles.td}>
                       <input
@@ -760,12 +844,25 @@ export default function AdjustingJournalsPanel({
                           `AJ${String(journal.number).padStart(3, "0")}`}{" "}
                         · {journal.description}
                       </strong>
-                      <div style={styles.periodBadge}>
-                        {journal.journalPeriod === "prior_year"
-                          ? "Prior-year comparative"
-                          : journal.journalPeriod === "opening_balance"
-                            ? "Opening balance adjustment"
-                            : "Current year"}
+                      <div style={styles.badgeRow}>
+                        <div style={styles.periodBadge}>
+                          {journal.journalPeriod === "prior_year"
+                            ? "Prior-year comparative"
+                            : journal.journalPeriod === "opening_balance"
+                              ? "Opening balance adjustment"
+                              : "Current year"}
+                        </div>
+                        <div
+                          style={
+                            journal.journalPurpose === "client"
+                              ? styles.clientPurposeBadge
+                              : styles.afsPurposeBadge
+                          }
+                        >
+                          {journal.journalPurpose === "client"
+                            ? "CLIENT JOURNAL"
+                            : "AFS ONLY"}
+                        </div>
                       </div>
                     </div>
                     <span
@@ -848,6 +945,7 @@ export default function AdjustingJournalsPanel({
                   <tr>
                     <th style={styles.accountCodeTh}>Account no.</th>
                     <th style={styles.accountNameTh}>Account name</th>
+                    <th style={styles.accountBalanceTh}>Balance</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -859,12 +957,13 @@ export default function AdjustingJournalsPanel({
                     >
                       <td style={styles.accountCodeTd}>{option.code}</td>
                       <td style={styles.accountNameTd}>{option.name}</td>
+                      <td style={styles.accountBalanceTd}>R {formatMoney(option.balance)}</td>
                     </tr>
                   ))}
 
                   {filteredAccountOptions.length === 0 ? (
                     <tr>
-                      <td style={styles.accountNameTd} colSpan={2}>
+                      <td style={styles.accountNameTd} colSpan={3}>
                         No matching accounts. Use “Add new account” to create it.
                       </td>
                     </tr>
@@ -906,7 +1005,10 @@ const styles: Record<string, CSSProperties> = {
   title: { margin: "2px 0", fontSize: "20px", fontWeight: 900 },
   muted: { margin: 0, color: "#475569", fontSize: "14px", lineHeight: 1.35 },
   periodHelp: { margin: "5px 0 10px", color: "#64748b", fontSize: "12px", lineHeight: 1.35 },
-  periodBadge: { marginTop: "4px", display: "inline-block", border: "1px solid #cbd5e1", background: "#ffffff", color: "#334155", padding: "2px 6px", fontSize: "11px", fontWeight: 800 },
+  badgeRow: { marginTop: "4px", display: "flex", gap: "5px", alignItems: "center", flexWrap: "wrap" },
+  periodBadge: { display: "inline-block", border: "1px solid #cbd5e1", background: "#ffffff", color: "#334155", padding: "2px 6px", fontSize: "11px", fontWeight: 800 },
+  clientPurposeBadge: { display: "inline-block", border: "1px solid #86efac", background: "#f0fdf4", color: "#166534", padding: "2px 6px", fontSize: "10px", fontWeight: 900 },
+  afsPurposeBadge: { display: "inline-block", border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1d4ed8", padding: "2px 6px", fontSize: "10px", fontWeight: 900 },
   errorText: { margin: "0 0 10px", color: "#b91c1c", fontSize: "13px", fontWeight: 800 },
   grid: { display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(360px, 0.9fr)", gap: "10px" },
   panel: { border: "1px solid #cbd5e1", background: "#fff", padding: "12px" },
@@ -916,6 +1018,7 @@ const styles: Record<string, CSSProperties> = {
   input: { width: "100%", border: "1px solid #cbd5e1", padding: "7px 8px", fontSize: "14px", fontFamily: "inherit", boxSizing: "border-box" },
   amountInput: { width: "100%", border: "1px solid #cbd5e1", padding: "7px 8px", fontSize: "14px", fontFamily: "inherit", textAlign: "right", boxSizing: "border-box" },
   accountPickButton: { width: "100%", border: "1px solid #cbd5e1", background: "#ffffff", padding: "7px 8px", fontSize: "13px", fontFamily: "inherit", textAlign: "left", cursor: "pointer" },
+  accountBalanceHint: { marginTop: "3px", color: "#475569", fontSize: "11px", lineHeight: 1.2 },
   journalTableWrap: { marginTop: "12px", overflowX: "auto" },
   table: { width: "100%", borderCollapse: "collapse", tableLayout: "fixed" },
   thAccount: { textAlign: "left", borderBottom: "1px solid #cbd5e1", padding: "7px", width: "34%", fontSize: "13px" },
@@ -952,8 +1055,10 @@ const styles: Record<string, CSSProperties> = {
   accountPickerTable: { width: "100%", borderCollapse: "collapse", fontSize: "13px" },
   accountCodeTh: { textAlign: "left", width: "150px", padding: "8px", borderBottom: "1px solid #cbd5e1", background: "#f8fafc" },
   accountNameTh: { textAlign: "left", padding: "8px", borderBottom: "1px solid #cbd5e1", background: "#f8fafc" },
+  accountBalanceTh: { textAlign: "right", width: "170px", padding: "8px", borderBottom: "1px solid #cbd5e1", background: "#f8fafc" },
   accountActionTh: { width: "80px", padding: "8px", borderBottom: "1px solid #cbd5e1", background: "#f8fafc" },
   accountCodeTd: { padding: "7px 8px", borderBottom: "1px solid #eef2f7", whiteSpace: "nowrap", fontWeight: 800 },
   accountNameTd: { padding: "7px 8px", borderBottom: "1px solid #eef2f7" },
+  accountBalanceTd: { padding: "7px 8px", borderBottom: "1px solid #eef2f7", textAlign: "right", whiteSpace: "nowrap", fontWeight: 800 },
   accountActionTd: { padding: "7px 8px", borderBottom: "1px solid #eef2f7", textAlign: "right" },
 };

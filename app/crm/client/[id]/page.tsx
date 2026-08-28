@@ -19,7 +19,11 @@ const supabase = createClient(supabaseUrl, supabaseSecretKey, {
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string; secretarialView?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    secretarialView?: string;
+    uifEmployee?: string;
+  }>;
 };
 
 type ServiceRow = {
@@ -66,13 +70,14 @@ export default async function ClientWorkingFilePage({
   searchParams,
 }: PageProps) {
   const { id } = await params;
-  const { tab, secretarialView } = await searchParams;
+  const { tab, secretarialView, uifEmployee } = await searchParams;
 
   const allowedTabs = [
     "overview",
     "services",
     "tasks",
     "people",
+    "registrations",
     "secretarial",
     "documents",
     "activity",
@@ -115,6 +120,9 @@ export default async function ClientWorkingFilePage({
     certificatesResult,
     shareClassesResult,
     transactionsResult,
+    statutoryProfileResult,
+    uifRegistrationResult,
+    uifEmployeesResult,
   ] = await Promise.all([
     supabase.from("crm_clients").select("*").eq("id", id).maybeSingle(),
 
@@ -162,12 +170,12 @@ export default async function ClientWorkingFilePage({
       .limit(12),
 
     supabase
-      .from("crm_directors")
+      .from("crm_client_directors")
       .select(
-        "id, full_name, id_passport_number, email, phone, appointment_date, resignation_date, is_active"
+        "id, director_name, id_passport_number, email, phone, appointment_date, cessation_date, is_active, physical_address_line_1, physical_address_line_2, physical_address_city, physical_address_province, physical_address_postal_code, physical_address_country, postal_address_line_1, postal_address_line_2, postal_address_city, postal_address_province, postal_address_postal_code, postal_address_country"
       )
       .eq("client_id", id)
-      .order("full_name"),
+      .order("director_name"),
 
     supabase
       .from("secretarial_shareholders")
@@ -258,6 +266,28 @@ export default async function ClientWorkingFilePage({
       )
       .eq("client_id", id)
       .order("transaction_date", { ascending: false }),
+
+    supabase
+      .from("crm_client_statutory_profiles")
+      .select("id, nature_of_business, magisterial_district, municipality")
+      .eq("client_id", id)
+      .maybeSingle(),
+
+    supabase
+      .from("crm_uif_registrations")
+      .select(
+        "id, registration_status, first_contributor_date, number_of_contributors, language_preference, employee_information_method, ui19_declaration_month, submission_date, registration_effective_date, notes, ui8_completed, ui19_or_employee_info_prepared, supporting_documents_attached, signature_obtained, submitted_to_uif, confirmation_received"
+      )
+      .eq("client_id", id)
+      .maybeSingle(),
+
+    supabase
+      .from("crm_uif_employees")
+      .select(
+        "id, surname, initials, id_passport_number, gross_monthly_remuneration, total_hours_worked, commencement_date, termination_date, termination_reason_code, is_contributor, non_contributor_reason_code, is_active, notes"
+      )
+      .eq("client_id", id)
+      .order("surname"),
   ]);
 
   const client = clientResult.data;
@@ -274,10 +304,68 @@ export default async function ClientWorkingFilePage({
   const certificates = certificatesResult.data || [];
   const shareClasses = shareClassesResult.data || [];
   const transactions = transactionsResult.data || [];
+  const statutoryProfile = statutoryProfileResult.data;
+  const uifRegistration = uifRegistrationResult.data;
+  const uifEmployees = uifEmployeesResult.data || [];
+  const editingUifEmployee =
+    uifEmployees.find((employee: any) => employee.id === uifEmployee) || null;
+
+  const uifInfoComplete = Boolean(
+    statutoryProfile?.nature_of_business &&
+      statutoryProfile?.magisterial_district &&
+      statutoryProfile?.municipality &&
+      uifRegistration?.first_contributor_date &&
+      uifRegistration?.number_of_contributors != null &&
+      uifRegistration?.language_preference
+  );
+
+  const uifEmployeesComplete = uifEmployees.length > 0;
+
+  const uifDocumentsComplete = Boolean(
+    uifRegistration?.ui8_completed &&
+      uifRegistration?.ui19_or_employee_info_prepared
+  );
+
+  const uifSubmissionComplete = Boolean(
+    uifRegistration?.signature_obtained &&
+      uifRegistration?.submitted_to_uif
+  );
+
+  const uifRegistered = Boolean(
+    client.uif_registration_number || uifRegistration?.confirmation_received
+  );
+
+  const uifNextAction = uifRegistered
+    ? "Registration complete"
+    : !uifInfoComplete
+      ? "Complete registration information"
+      : !uifEmployeesComplete
+        ? "Capture employees for UI-19"
+        : !uifDocumentsComplete
+          ? "Prepare UI-8 and UI-19"
+          : !uifSubmissionComplete
+            ? "Obtain signature and submit to UIF"
+            : "Capture UIF registration confirmation";
 
   const activeServices = services.filter((service) => service.is_active !== false);
   const primaryContact =
     contacts.find((contact) => contact.is_primary) || contacts[0] || null;
+
+  const physicalAddress =
+    addresses.find((address) =>
+      ["physical", "street", "business", "registered"].includes(
+        String(address.address_type || "").toLowerCase()
+      )
+    ) || addresses[0] || null;
+
+  const postalAddress =
+    addresses.find((address) =>
+      ["postal", "post"].includes(String(address.address_type || "").toLowerCase())
+    ) || null;
+
+  const activeDirectors = directors.filter(
+    (director) => director.is_active !== false
+  );
 
   const registrationOrId =
     client.registration_number || client.id_passport_number || "—";
@@ -352,6 +440,9 @@ export default async function ClientWorkingFilePage({
     certificatesResult.error,
     shareClassesResult.error,
     transactionsResult.error,
+    statutoryProfileResult.error,
+    uifRegistrationResult.error,
+    uifEmployeesResult.error,
   ].filter(Boolean);
 
   return (
@@ -427,6 +518,7 @@ export default async function ClientWorkingFilePage({
           ["services", "Services"],
           ["tasks", "Tasks"],
           ["people", "People"],
+          ["registrations", "Registrations"],
           ["secretarial", "Secretarial"],
           ["documents", "Documents"],
           ["activity", "Activity"],
@@ -668,7 +760,7 @@ export default async function ClientWorkingFilePage({
               directors.map((director) => (
                 <div key={director.id} style={personRow}>
                   <div>
-                    <strong style={rowTitle}>{director.full_name}</strong>
+                    <strong style={rowTitle}>{director.director_name}</strong>
                     <div style={rowMeta}>
                       {director.is_active === false ? "Inactive" : "Active"}
                     </div>
@@ -690,10 +782,866 @@ export default async function ClientWorkingFilePage({
       </section>
       ) : null}
 
+            {activeTab === "registrations" ? (
+              <section id="registrations" style={registrationWorkspace}>
+                <div style={registrationHero}>
+                  <div>
+                    <div style={eyebrow}>STATUTORY REGISTRATION</div>
+                    <h2 style={registrationHeroTitle}>UIF Employer Registration</h2>
+                    <div style={registrationHeroSubtitle}>
+                      One guided workflow from client information to registration confirmation.
+                    </div>
+                  </div>
+
+                  <div style={registrationHeroAction}>
+                    <span style={nextActionLabel}>NEXT ACTION</span>
+                    <strong style={nextActionValue}>{uifNextAction}</strong>
+                  </div>
+                </div>
+
+                <div style={workflowBar}>
+                  {[
+                    ["Information", uifInfoComplete],
+                    ["Employees", uifEmployeesComplete],
+                    ["Documents", uifDocumentsComplete],
+                    ["Submission", uifSubmissionComplete],
+                    ["Registered", uifRegistered],
+                  ].map(([label, complete], index) => (
+                    <div
+                      key={String(label)}
+                      style={{
+                        ...workflowStep,
+                        ...(complete ? workflowStepComplete : {}),
+                      }}
+                    >
+                      <span style={workflowNumber}>
+                        {complete ? "✓" : String(index + 1).padStart(2, "0")}
+                      </span>
+                      <span>{label}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={registrationSummary}>
+                  <div style={registrationSummaryItem}>
+                    <span style={summarySmallLabel}>UIF STATUS</span>
+                    <strong style={registrationSummaryValue}>
+                      {client.uif_registration_number
+                        ? "Registered"
+                        : formatStatus(
+                            uifRegistration?.registration_status || "not_started"
+                          )}
+                    </strong>
+                  </div>
+
+                  <div style={registrationSummaryItem}>
+                    <span style={summarySmallLabel}>CONTRIBUTORS</span>
+                    <strong style={registrationSummaryValue}>
+                      {uifRegistration?.number_of_contributors ?? "—"}
+                    </strong>
+                  </div>
+
+                  <div style={registrationSummaryItem}>
+                    <span style={summarySmallLabel}>UI-19 EMPLOYEES</span>
+                    <strong style={registrationSummaryValue}>
+                      {uifEmployees.length}
+                    </strong>
+                  </div>
+
+                  <div style={registrationSummaryItemLast}>
+                    <span style={summarySmallLabel}>UIF NUMBER</span>
+                    <strong style={registrationSummaryValue}>
+                      {valueOrDash(client.uif_registration_number)}
+                    </strong>
+                  </div>
+                </div>
+
+                <form
+                  method="post"
+                  action={`/api/crm/clients/${client.id}/uif-registration`}
+                >
+                  <details style={workflowSection}>
+                    <summary style={workflowSectionSummary}>
+                      <div style={workflowSectionTitleWrap}>
+                        <span
+                          style={{
+                            ...sectionStatusMark,
+                            ...(uifInfoComplete ? sectionStatusMarkComplete : {}),
+                          }}
+                        >
+                          {uifInfoComplete ? "✓" : "01"}
+                        </span>
+                        <div>
+                          <strong style={workflowSectionTitle}>
+                            Employer Information
+                          </strong>
+                          <div style={workflowSectionSubtitle}>
+                            Core CRM information and statutory profile used by UIF.
+                          </div>
+                        </div>
+                      </div>
+                      <span style={sectionChevron}>⌄</span>
+                    </summary>
+
+                    <div style={workflowSectionBody}>
+                      <div style={twoColumn}>
+                        <div style={detailSectionWarm}>
+                          <h3 style={miniHeading}>Employer details from CRM</h3>
+                          <DetailRow label="Registered name" value={client.client_name} />
+                          <DetailRow label="Trading name" value={client.trading_name} />
+                          <DetailRow
+                            label="Ownership / entity type"
+                            value={client.entity_type}
+                          />
+                          <DetailRow
+                            label="Registration / ID"
+                            value={registrationOrId}
+                          />
+                          <DetailRow label="PAYE number" value={client.paye_number} />
+                          <DetailRow
+                            label="Business telephone"
+                            value={primaryContact?.mobile || primaryContact?.phone}
+                          />
+                          <DetailRow
+                            label="Business email"
+                            value={primaryContact?.email}
+                          />
+                        </div>
+
+                        <div style={detailSectionWarm}>
+                          <h3 style={miniHeading}>Addresses from CRM</h3>
+                          <DetailRow
+                            label="Physical address"
+                            value={
+                              physicalAddress
+                                ? [
+                                    physicalAddress.line_1,
+                                    physicalAddress.line_2,
+                                    physicalAddress.city,
+                                    physicalAddress.province,
+                                    physicalAddress.postal_code,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(", ")
+                                : null
+                            }
+                          />
+                          <DetailRow
+                            label="Postal address"
+                            value={
+                              postalAddress
+                                ? [
+                                    postalAddress.line_1,
+                                    postalAddress.line_2,
+                                    postalAddress.city,
+                                    postalAddress.province,
+                                    postalAddress.postal_code,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(", ")
+                                : null
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div style={warmFormGrid}>
+                        <FormField label="Nature of business">
+                          <input
+                            name="nature_of_business"
+                            defaultValue={statutoryProfile?.nature_of_business || ""}
+                            style={warmInput}
+                          />
+                        </FormField>
+
+                        <FormField label="Magisterial district">
+                          <input
+                            name="magisterial_district"
+                            defaultValue={statutoryProfile?.magisterial_district || ""}
+                            style={warmInput}
+                          />
+                        </FormField>
+
+                        <FormField label="Municipality">
+                          <input
+                            name="municipality"
+                            defaultValue={statutoryProfile?.municipality || ""}
+                            style={warmInput}
+                          />
+                        </FormField>
+                      </div>
+
+                      <div style={sectionActions}>
+                        <button type="submit" style={primaryButton}>
+                          Save Changes
+                        </button>
+                      </div>
+                    </div>
+                  </details>
+
+                  <details style={workflowSection}>
+                    <summary style={workflowSectionSummary}>
+                      <div style={workflowSectionTitleWrap}>
+                        <span
+                          style={{
+                            ...sectionStatusMark,
+                            ...(uifRegistration?.first_contributor_date
+                              ? sectionStatusMarkComplete
+                              : {}),
+                          }}
+                        >
+                          {uifRegistration?.first_contributor_date ? "✓" : "02"}
+                        </span>
+                        <div>
+                          <strong style={workflowSectionTitle}>
+                            Registration Details
+                          </strong>
+                          <div style={workflowSectionSubtitle}>
+                            UIF-specific registration information only.
+                          </div>
+                        </div>
+                      </div>
+                      <span style={sectionChevron}>⌄</span>
+                    </summary>
+
+                    <div style={workflowSectionBody}>
+                      <div style={warmFormGrid}>
+                        <FormField label="Registration status">
+                          <select
+                            name="registration_status"
+                            defaultValue={
+                              uifRegistration?.registration_status || "not_started"
+                            }
+                            style={warmInput}
+                          >
+                            <option value="not_started">Not started</option>
+                            <option value="information_required">
+                              Information required
+                            </option>
+                            <option value="ready_for_signature">
+                              Ready for signature
+                            </option>
+                            <option value="submitted">Submitted</option>
+                            <option value="registered">Registered</option>
+                          </select>
+                        </FormField>
+
+                        <FormField label="First contributor employed">
+                          <input
+                            type="date"
+                            name="first_contributor_date"
+                            defaultValue={
+                              uifRegistration?.first_contributor_date || ""
+                            }
+                            style={warmInput}
+                          />
+                        </FormField>
+
+                        <FormField label="Number of contributors">
+                          <input
+                            type="number"
+                            min="0"
+                            name="number_of_contributors"
+                            defaultValue={
+                              uifRegistration?.number_of_contributors ?? ""
+                            }
+                            style={warmInput}
+                          />
+                        </FormField>
+
+                        <FormField label="Language preference">
+                          <select
+                            name="language_preference"
+                            defaultValue={
+                              uifRegistration?.language_preference || ""
+                            }
+                            style={warmInput}
+                          >
+                            <option value="">Select</option>
+                            <option value="English">English</option>
+                            <option value="Afrikaans">Afrikaans</option>
+                          </select>
+                        </FormField>
+
+                        <FormField label="Employee information">
+                          <select
+                            name="employee_information_method"
+                            defaultValue={
+                              uifRegistration?.employee_information_method || ""
+                            }
+                            style={warmInput}
+                          >
+                            <option value="">Select</option>
+                            <option value="ui19_attached">UI-19 attached</option>
+                            <option value="electronic">
+                              Will be submitted electronically
+                            </option>
+                          </select>
+                        </FormField>
+
+                        <FormField label="UI-19 declaration month">
+                          <input
+                            type="month"
+                            name="ui19_declaration_month"
+                            defaultValue={
+                              uifRegistration?.ui19_declaration_month
+                                ? String(
+                                    uifRegistration.ui19_declaration_month
+                                  ).slice(0, 7)
+                                : ""
+                            }
+                            style={warmInput}
+                          />
+                        </FormField>
+                      </div>
+
+                      <div style={sectionActions}>
+                        <button type="submit" style={primaryButton}>
+                          Save Changes
+                        </button>
+                      </div>
+                    </div>
+                  </details>
+
+                  <details style={workflowSection}>
+                    <summary style={workflowSectionSummary}>
+                      <div style={workflowSectionTitleWrap}>
+                        <span
+                          style={{
+                            ...sectionStatusMark,
+                            ...(uifEmployeesComplete
+                              ? sectionStatusMarkComplete
+                              : {}),
+                          }}
+                        >
+                          {uifEmployeesComplete ? "✓" : "03"}
+                        </span>
+                        <div>
+                          <strong style={workflowSectionTitle}>
+                            Employees / UI-19
+                          </strong>
+                          <div style={workflowSectionSubtitle}>
+                            {uifEmployees.length
+                              ? `${uifEmployees.length} employee${
+                                  uifEmployees.length === 1 ? "" : "s"
+                                } captured`
+                              : "No employees captured yet"}
+                          </div>
+                        </div>
+                      </div>
+                      <span style={sectionChevron}>⌄</span>
+                    </summary>
+
+                    <div style={workflowSectionBody}>
+                      {uifEmployees.length ? (
+                        <div style={uifEmployeeTable}>
+                          <div style={uifEmployeeHeader}>
+                            <span>Employee</span>
+                            <span>ID / Passport</span>
+                            <span>Gross remuneration</span>
+                            <span>Commenced</span>
+                            <span>Contributor</span>
+                            <span>Action</span>
+                          </div>
+
+                          {uifEmployees.map((employee: any) => (
+                            <div key={employee.id} style={uifEmployeeRow}>
+                              <div>
+                                <strong>
+                                  {[employee.surname, employee.initials]
+                                    .filter(Boolean)
+                                    .join(" ")}
+                                </strong>
+                                {employee.termination_date ? (
+                                  <div style={smallMuted}>
+                                    Terminated:{" "}
+                                    {formatDate(employee.termination_date)}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <span>
+                                {valueOrDash(employee.id_passport_number)}
+                              </span>
+                              <span>
+                                {employee.gross_monthly_remuneration == null
+                                  ? "—"
+                                  : Number(
+                                      employee.gross_monthly_remuneration
+                                    ).toLocaleString("en-ZA", {
+                                      style: "currency",
+                                      currency: "ZAR",
+                                    })}
+                              </span>
+                              <span>
+                                {formatDate(employee.commencement_date)}
+                              </span>
+                              <span>
+                                {employee.is_contributor === false
+                                  ? "No"
+                                  : "Yes"}
+                              </span>
+                              <div style={uifEmployeeActions}>
+                                <Link
+                                  href={`/crm/client/${client.id}?tab=registrations&uifEmployee=${employee.id}`}
+                                  style={textLink}
+                                >
+                                  Edit
+                                </Link>
+
+                                <form
+                                  method="post"
+                                  action={`/api/crm/clients/${client.id}/uif-employees`}
+                                >
+                                  <input
+                                    type="hidden"
+                                    name="action"
+                                    value="delete"
+                                  />
+                                  <input
+                                    type="hidden"
+                                    name="employee_id"
+                                    value={employee.id}
+                                  />
+                                  <button
+                                    type="submit"
+                                    style={dangerTextButton}
+                                  >
+                                    Remove
+                                  </button>
+                                </form>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <EmptyState text="No UI-19 employees captured yet." />
+                      )}
+
+                      <div style={employeeEditor}>
+                        <div style={sectionMiniHeader}>
+                          <div>
+                            <strong style={workflowSectionTitle}>
+                              {editingUifEmployee
+                                ? "Edit employee"
+                                : "Add employee"}
+                            </strong>
+                            <div style={smallMuted}>
+                              Capture only the information required for UI-19.
+                            </div>
+                          </div>
+                          {editingUifEmployee ? (
+                            <Link
+                              href={`/crm/client/${client.id}?tab=registrations`}
+                              style={textLink}
+                            >
+                              Cancel edit
+                            </Link>
+                          ) : null}
+                        </div>
+
+                        <form
+                          method="post"
+                          action={`/api/crm/clients/${client.id}/uif-employees`}
+                        >
+                          <input
+                            type="hidden"
+                            name="action"
+                            value={
+                              editingUifEmployee ? "update" : "create"
+                            }
+                          />
+                          {editingUifEmployee ? (
+                            <input
+                              type="hidden"
+                              name="employee_id"
+                              value={editingUifEmployee.id}
+                            />
+                          ) : null}
+
+                          <div style={warmFormGrid}>
+                            <FormField label="Surname">
+                              <input
+                                name="surname"
+                                required
+                                defaultValue={
+                                  editingUifEmployee?.surname || ""
+                                }
+                                style={warmInput}
+                              />
+                            </FormField>
+
+                            <FormField label="Initials">
+                              <input
+                                name="initials"
+                                defaultValue={
+                                  editingUifEmployee?.initials || ""
+                                }
+                                style={warmInput}
+                              />
+                            </FormField>
+
+                            <FormField label="ID / Passport number">
+                              <input
+                                name="id_passport_number"
+                                defaultValue={
+                                  editingUifEmployee?.id_passport_number || ""
+                                }
+                                style={warmInput}
+                              />
+                            </FormField>
+
+                            <FormField label="Gross monthly remuneration">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                name="gross_monthly_remuneration"
+                                defaultValue={
+                                  editingUifEmployee?.gross_monthly_remuneration ??
+                                  ""
+                                }
+                                style={warmInput}
+                              />
+                            </FormField>
+
+                            <FormField label="Total hours worked">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                name="total_hours_worked"
+                                defaultValue={
+                                  editingUifEmployee?.total_hours_worked ?? ""
+                                }
+                                style={warmInput}
+                              />
+                            </FormField>
+
+                            <FormField label="Commencement date">
+                              <input
+                                type="date"
+                                name="commencement_date"
+                                defaultValue={
+                                  editingUifEmployee?.commencement_date || ""
+                                }
+                                style={warmInput}
+                              />
+                            </FormField>
+
+                            <FormField label="Termination date">
+                              <input
+                                type="date"
+                                name="termination_date"
+                                defaultValue={
+                                  editingUifEmployee?.termination_date || ""
+                                }
+                                style={warmInput}
+                              />
+                            </FormField>
+
+                            <FormField label="Termination reason">
+                              <select
+                                name="termination_reason_code"
+                                defaultValue={
+                                  editingUifEmployee?.termination_reason_code ??
+                                  ""
+                                }
+                                style={warmInput}
+                              >
+                                <option value="">Not applicable</option>
+                                <option value="2">2 - Deceased</option>
+                                <option value="3">3 - Retired</option>
+                                <option value="4">4 - Dismissed</option>
+                                <option value="5">5 - Contract expired</option>
+                                <option value="6">6 - Resigned</option>
+                                <option value="7">
+                                  7 - Constructive dismissal
+                                </option>
+                                <option value="8">
+                                  8 - Insolvency / liquidation
+                                </option>
+                                <option value="9">
+                                  9 - Maternity / adoption
+                                </option>
+                                <option value="10">
+                                  10 - Illness / medically boarded
+                                </option>
+                                <option value="11">
+                                  11 - Retrenched / staff reduction
+                                </option>
+                                <option value="12">
+                                  12 - Transfer to another branch
+                                </option>
+                                <option value="13">13 - Absconded</option>
+                                <option value="14">
+                                  14 - Business closed
+                                </option>
+                                <option value="15">
+                                  15 - Death of domestic employer
+                                </option>
+                                <option value="16">
+                                  16 - Voluntary severance package
+                                </option>
+                              </select>
+                            </FormField>
+
+                            <FormField label="Contributor">
+                              <select
+                                name="is_contributor"
+                                defaultValue={
+                                  editingUifEmployee?.is_contributor === false
+                                    ? "no"
+                                    : "yes"
+                                }
+                                style={warmInput}
+                              >
+                                <option value="yes">Yes</option>
+                                <option value="no">No</option>
+                              </select>
+                            </FormField>
+
+                            <FormField label="Non-contributor reason">
+                              <select
+                                name="non_contributor_reason_code"
+                                defaultValue={
+                                  editingUifEmployee?.non_contributor_reason_code ??
+                                  ""
+                                }
+                                style={warmInput}
+                              >
+                                <option value="">Not applicable</option>
+                                <option value="1">
+                                  1 - Temporary employee under 24 hours
+                                </option>
+                                <option value="2">2 - Learner</option>
+                                <option value="3">
+                                  3 - National / Provincial Government
+                                </option>
+                                <option value="4">
+                                  4 - Repatriated at end of contract
+                                </option>
+                                <option value="5">
+                                  5 - Commission only
+                                </option>
+                                <option value="6">
+                                  6 - No income paid
+                                </option>
+                                <option value="7">
+                                  7 - State old age pension
+                                </option>
+                                <option value="8">
+                                  8 - Pension payment from employer
+                                </option>
+                                <option value="9">
+                                  9 - Above ceiling (old Act)
+                                </option>
+                              </select>
+                            </FormField>
+                          </div>
+
+                          <div style={sectionActions}>
+                            <button type="submit" style={primaryButton}>
+                              {editingUifEmployee
+                                ? "Save Employee"
+                                : "Add Employee"}
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  </details>
+
+                  <details style={workflowSection}>
+                    <summary style={workflowSectionSummary}>
+                      <div style={workflowSectionTitleWrap}>
+                        <span
+                          style={{
+                            ...sectionStatusMark,
+                            ...(uifDocumentsComplete
+                              ? sectionStatusMarkComplete
+                              : {}),
+                          }}
+                        >
+                          {uifDocumentsComplete ? "✓" : "04"}
+                        </span>
+                        <div>
+                          <strong style={workflowSectionTitle}>
+                            Registration Documents
+                          </strong>
+                          <div style={workflowSectionSubtitle}>
+                            Generate and control the documents required for submission.
+                          </div>
+                        </div>
+                      </div>
+                      <span style={sectionChevron}>⌄</span>
+                    </summary>
+
+                    <div style={workflowSectionBody}>
+                      <div style={documentActionRow}>
+                        <div>
+                          <strong style={documentActionTitle}>UI-8</strong>
+                          <div style={smallMuted}>
+                            Employer registration application
+                          </div>
+                        </div>
+                        <Link
+                          href={`/api/crm/clients/${client.id}/uif-registration/ui8`}
+                          style={secondaryButton}
+                          target="_blank"
+                        >
+                          Generate UI-8
+                        </Link>
+                      </div>
+
+                      <div style={documentActionRow}>
+                        <div>
+                          <strong style={documentActionTitle}>UI-19</strong>
+                          <div style={smallMuted}>
+                            Employer declaration of employees
+                          </div>
+                        </div>
+                        <Link
+                          href={`/api/crm/clients/${client.id}/uif-registration/ui19`}
+                          style={secondaryButton}
+                          target="_blank"
+                        >
+                          Generate UI-19
+                        </Link>
+                      </div>
+
+                      <div style={checkGridWarm}>
+                        <CheckField
+                          name="ui8_completed"
+                          label="UI-8 completed"
+                          defaultChecked={
+                            uifRegistration?.ui8_completed || false
+                          }
+                        />
+                        <CheckField
+                          name="ui19_or_employee_info_prepared"
+                          label="UI-19 / employee information prepared"
+                          defaultChecked={
+                            uifRegistration?.ui19_or_employee_info_prepared ||
+                            false
+                          }
+                        />
+                        <CheckField
+                          name="supporting_documents_attached"
+                          label="Supporting documents attached"
+                          defaultChecked={
+                            uifRegistration?.supporting_documents_attached ||
+                            false
+                          }
+                        />
+                      </div>
+
+                      <div style={sectionActions}>
+                        <button type="submit" style={primaryButton}>
+                          Save Changes
+                        </button>
+                      </div>
+                    </div>
+                  </details>
+
+                  <details style={workflowSection}>
+                    <summary style={workflowSectionSummary}>
+                      <div style={workflowSectionTitleWrap}>
+                        <span
+                          style={{
+                            ...sectionStatusMark,
+                            ...(uifSubmissionComplete || uifRegistered
+                              ? sectionStatusMarkComplete
+                              : {}),
+                          }}
+                        >
+                          {uifSubmissionComplete || uifRegistered ? "✓" : "05"}
+                        </span>
+                        <div>
+                          <strong style={workflowSectionTitle}>
+                            Submission & Confirmation
+                          </strong>
+                          <div style={workflowSectionSubtitle}>
+                            Final signature, submission and registration confirmation.
+                          </div>
+                        </div>
+                      </div>
+                      <span style={sectionChevron}>⌄</span>
+                    </summary>
+
+                    <div style={workflowSectionBody}>
+                      <div style={checkGridWarm}>
+                        <CheckField
+                          name="signature_obtained"
+                          label="Signature obtained"
+                          defaultChecked={
+                            uifRegistration?.signature_obtained || false
+                          }
+                        />
+                        <CheckField
+                          name="submitted_to_uif"
+                          label="Submitted to UIF"
+                          defaultChecked={
+                            uifRegistration?.submitted_to_uif || false
+                          }
+                        />
+                        <CheckField
+                          name="confirmation_received"
+                          label="Registration confirmation received"
+                          defaultChecked={
+                            uifRegistration?.confirmation_received || false
+                          }
+                        />
+                      </div>
+
+                      <div style={warmFormGrid}>
+                        <FormField label="Submission date">
+                          <input
+                            type="date"
+                            name="submission_date"
+                            defaultValue={
+                              uifRegistration?.submission_date || ""
+                            }
+                            style={warmInput}
+                          />
+                        </FormField>
+
+                        <FormField label="Registration effective date">
+                          <input
+                            type="date"
+                            name="registration_effective_date"
+                            defaultValue={
+                              uifRegistration?.registration_effective_date ||
+                              ""
+                            }
+                            style={warmInput}
+                          />
+                        </FormField>
+                      </div>
+
+                      <FormField label="Notes">
+                        <textarea
+                          name="notes"
+                          defaultValue={uifRegistration?.notes || ""}
+                          rows={4}
+                          style={warmTextarea}
+                        />
+                      </FormField>
+
+                      <div style={sectionActions}>
+                        <button type="submit" style={primaryButton}>
+                          Save Changes
+                        </button>
+                      </div>
+                    </div>
+                  </details>
+                </form>
+              </section>
+            ) : null}
+
             {activeTab === "secretarial" ? (
               <section id="secretarial" style={panel}>
                 <PanelHeader
-                  number="05"
+                  number="06"
                   title="Secretarial"
                   subtitle="A summary of the client's statutory position. Open the full Secretarial file for detailed work."
                   action={
@@ -906,6 +1854,38 @@ function DetailRow({
       <span style={detailLabel}>{label}</span>
       <strong style={detailValue}>{valueOrDash(value)}</strong>
     </div>
+  );
+}
+
+function FormField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label style={formField}>
+      <span style={formLabel}>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function CheckField({
+  name,
+  label,
+  defaultChecked,
+}: {
+  name: string;
+  label: string;
+  defaultChecked: boolean;
+}) {
+  return (
+    <label style={checkField}>
+      <input type="checkbox" name={name} defaultChecked={defaultChecked} />
+      <span>{label}</span>
+    </label>
   );
 }
 
@@ -1661,6 +2641,512 @@ const secretarialLinkItem: React.CSSProperties = {
   border: "1px solid #d8dee7",
   color: "#475569",
   fontSize: "10px",
+};
+
+const registrationWorkspace: React.CSSProperties = {
+  border: "1px solid #d8d2c8",
+  background: "#f4f1eb",
+};
+
+const registrationHero: React.CSSProperties = {
+  minHeight: "92px",
+  padding: "18px 20px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "24px",
+  background: "#fffdf9",
+  borderBottom: "1px solid #d8d2c8",
+};
+
+const eyebrow: React.CSSProperties = {
+  color: "#8a7457",
+  fontSize: "9px",
+  fontWeight: 900,
+  letterSpacing: "0.12em",
+};
+
+const registrationHeroTitle: React.CSSProperties = {
+  margin: "4px 0 3px",
+  color: "#10233a",
+  fontSize: "22px",
+  lineHeight: 1.1,
+};
+
+const registrationHeroSubtitle: React.CSSProperties = {
+  color: "#6f6a63",
+  fontSize: "11px",
+};
+
+const registrationHeroAction: React.CSSProperties = {
+  minWidth: "270px",
+  padding: "12px 14px",
+  borderLeft: "3px solid #10233a",
+  background: "#f7f3ec",
+  display: "flex",
+  flexDirection: "column",
+  gap: "3px",
+};
+
+const nextActionLabel: React.CSSProperties = {
+  color: "#8a7457",
+  fontSize: "8px",
+  fontWeight: 900,
+  letterSpacing: "0.1em",
+};
+
+const nextActionValue: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "12px",
+};
+
+const workflowBar: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+  background: "#ece6dc",
+  borderBottom: "1px solid #d8d2c8",
+};
+
+const workflowStep: React.CSSProperties = {
+  minHeight: "46px",
+  padding: "0 12px",
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  color: "#6f6a63",
+  fontSize: "10px",
+  fontWeight: 800,
+  borderRight: "1px solid #d8d2c8",
+};
+
+const workflowStepComplete: React.CSSProperties = {
+  background: "#e8efe7",
+  color: "#31583b",
+};
+
+const workflowNumber: React.CSSProperties = {
+  minWidth: "22px",
+  height: "22px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid currentColor",
+  fontSize: "8px",
+  fontWeight: 900,
+};
+
+const registrationSummary: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  background: "#fffdf9",
+  borderBottom: "1px solid #d8d2c8",
+};
+
+const registrationSummaryItem: React.CSSProperties = {
+  minHeight: "54px",
+  padding: "9px 14px",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  gap: "3px",
+  borderRight: "1px solid #e4ded4",
+};
+
+const registrationSummaryItemLast: React.CSSProperties = {
+  ...registrationSummaryItem,
+  borderRight: "none",
+};
+
+const registrationSummaryValue: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const workflowSection: React.CSSProperties = {
+  margin: "12px",
+  border: "1px solid #d8d2c8",
+  background: "#fffdf9",
+};
+
+const workflowSectionSummary: React.CSSProperties = {
+  minHeight: "58px",
+  padding: "0 14px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "16px",
+  cursor: "pointer",
+  listStyle: "none",
+  background: "#fffdf9",
+};
+
+const workflowSectionTitleWrap: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "11px",
+};
+
+const sectionStatusMark: React.CSSProperties = {
+  minWidth: "28px",
+  height: "28px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #b8b0a5",
+  color: "#776f65",
+  background: "#f6f1e9",
+  fontSize: "9px",
+  fontWeight: 900,
+};
+
+const sectionStatusMarkComplete: React.CSSProperties = {
+  borderColor: "#8aa28e",
+  color: "#31583b",
+  background: "#e8efe7",
+};
+
+const workflowSectionTitle: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "11px",
+  fontWeight: 900,
+};
+
+const workflowSectionSubtitle: React.CSSProperties = {
+  marginTop: "2px",
+  color: "#7a746c",
+  fontSize: "9px",
+};
+
+const sectionChevron: React.CSSProperties = {
+  color: "#847b70",
+  fontSize: "18px",
+};
+
+const workflowSectionBody: React.CSSProperties = {
+  padding: "14px",
+  borderTop: "1px solid #e4ded4",
+  background: "#fffdf9",
+};
+
+const detailSectionWarm: React.CSSProperties = {
+  padding: "0 12px 6px",
+  background: "#faf7f2",
+};
+
+const warmFormGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: "10px",
+  marginTop: "12px",
+};
+
+const warmInput: React.CSSProperties = {
+  width: "100%",
+  minHeight: "36px",
+  padding: "7px 9px",
+  border: "1px solid #cfc6ba",
+  background: "#fffdfa",
+  color: "#10233a",
+  fontSize: "11px",
+  boxSizing: "border-box",
+};
+
+const warmTextarea: React.CSSProperties = {
+  ...warmInput,
+  minHeight: "88px",
+  resize: "vertical",
+  fontFamily: "inherit",
+};
+
+const sectionActions: React.CSSProperties = {
+  marginTop: "14px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  gap: "8px",
+};
+
+const employeeEditor: React.CSSProperties = {
+  marginTop: "14px",
+  paddingTop: "14px",
+  borderTop: "1px solid #e4ded4",
+};
+
+const sectionMiniHeader: React.CSSProperties = {
+  marginBottom: "10px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+};
+
+const documentActionRow: React.CSSProperties = {
+  minHeight: "56px",
+  padding: "0 12px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "16px",
+  border: "1px solid #e4ded4",
+  borderBottom: "none",
+  background: "#faf7f2",
+};
+
+const documentActionTitle: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "11px",
+};
+
+const checkGridWarm: React.CSSProperties = {
+  marginTop: "12px",
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  borderTop: "1px solid #ded7cd",
+  borderLeft: "1px solid #ded7cd",
+  background: "#faf7f2",
+};
+
+const uifEmployeeTable: React.CSSProperties = {
+  marginTop: "10px",
+  border: "1px solid #d8dee7",
+};
+
+const uifEmployeeHeader: React.CSSProperties = {
+  minHeight: "32px",
+  padding: "0 9px",
+  display: "grid",
+  gridTemplateColumns:
+    "minmax(150px, 1.2fr) minmax(140px, 1fr) 140px 110px 80px 105px",
+  gap: "8px",
+  alignItems: "center",
+  background: "#f7f9fb",
+  borderBottom: "1px solid #d8dee7",
+  color: "#64748b",
+  fontSize: "8px",
+  fontWeight: 900,
+  textTransform: "uppercase",
+};
+
+const uifEmployeeRow: React.CSSProperties = {
+  minHeight: "46px",
+  padding: "0 9px",
+  display: "grid",
+  gridTemplateColumns:
+    "minmax(150px, 1.2fr) minmax(140px, 1fr) 140px 110px 80px 105px",
+  gap: "8px",
+  alignItems: "center",
+  borderBottom: "1px solid #e5eaf0",
+  fontSize: "10px",
+};
+
+const uifEmployeeActions: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  gap: "8px",
+};
+
+const uifEmployeeForm: React.CSSProperties = {
+  marginTop: "12px",
+  paddingTop: "12px",
+  borderTop: "1px solid #e5eaf0",
+};
+
+const dangerTextButton: React.CSSProperties = {
+  padding: 0,
+  border: "none",
+  background: "transparent",
+  color: "#b91c1c",
+  fontSize: "10px",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const registrationFormHeader: React.CSSProperties = {
+  minHeight: "58px",
+  padding: "10px 12px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "16px",
+  borderBottom: "1px solid #e5eaf0",
+};
+
+const formGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: "10px",
+};
+
+const formField: React.CSSProperties = {
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: "5px",
+};
+
+const formLabel: React.CSSProperties = {
+  color: "#64748b",
+  fontSize: "9px",
+  fontWeight: 900,
+};
+
+const input: React.CSSProperties = {
+  width: "100%",
+  minHeight: "34px",
+  padding: "6px 8px",
+  border: "1px solid #cbd5e1",
+  background: "#f8fbff",
+  color: "#10233a",
+  fontSize: "11px",
+  boxSizing: "border-box",
+};
+
+const textarea: React.CSSProperties = {
+  ...input,
+  minHeight: "82px",
+  resize: "vertical",
+  fontFamily: "inherit",
+};
+
+const checkGrid: React.CSSProperties = {
+  marginBottom: "12px",
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  borderTop: "1px solid #e5eaf0",
+  borderLeft: "1px solid #e5eaf0",
+};
+
+const checkField: React.CSSProperties = {
+  minHeight: "40px",
+  padding: "8px 10px",
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  borderRight: "1px solid #e5eaf0",
+  borderBottom: "1px solid #e5eaf0",
+  fontSize: "10px",
+  fontWeight: 800,
+};
+
+const registrationStrip: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  borderBottom: "1px solid #d2d9e2",
+};
+
+const registrationStripItem: React.CSSProperties = {
+  minHeight: "54px",
+  padding: "9px 12px",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  gap: "4px",
+  borderRight: "1px solid #e5eaf0",
+};
+
+const registrationStripItemLast: React.CSSProperties = {
+  ...registrationStripItem,
+  borderRight: "none",
+};
+
+const registrationStripValue: React.CSSProperties = {
+  color: "#0f1f33",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const registrationBlock: React.CSSProperties = {
+  borderBottom: "1px solid #e5eaf0",
+};
+
+const registrationSubBlock: React.CSSProperties = {
+  padding: "12px",
+  borderTop: "1px solid #e5eaf0",
+};
+
+const uifNotice: React.CSSProperties = {
+  margin: "12px",
+  padding: "9px 10px",
+  display: "flex",
+  flexDirection: "column",
+  gap: "3px",
+  border: "1px solid #bfdbfe",
+  background: "#eff6ff",
+  color: "#1e3a5f",
+  fontSize: "10px",
+  lineHeight: 1.45,
+};
+
+const uifPeopleTable: React.CSSProperties = {
+  marginTop: "8px",
+  border: "1px solid #d8dee7",
+};
+
+const uifPeopleHeader: React.CSSProperties = {
+  minHeight: "32px",
+  padding: "0 9px",
+  display: "grid",
+  gridTemplateColumns: "minmax(200px, 1.4fr) minmax(160px, 1fr) minmax(200px, 1.2fr) 130px",
+  gap: "8px",
+  alignItems: "center",
+  background: "#f7f9fb",
+  borderBottom: "1px solid #d8dee7",
+  color: "#64748b",
+  fontSize: "8px",
+  fontWeight: 900,
+  textTransform: "uppercase",
+};
+
+const uifPeopleRow: React.CSSProperties = {
+  minHeight: "42px",
+  padding: "0 9px",
+  display: "grid",
+  gridTemplateColumns: "minmax(200px, 1.4fr) minmax(160px, 1fr) minmax(200px, 1.2fr) 130px",
+  gap: "8px",
+  alignItems: "center",
+  borderBottom: "1px solid #e5eaf0",
+  fontSize: "10px",
+};
+
+const uifRequirementsGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  borderTop: "1px solid #edf0f4",
+  borderLeft: "1px solid #edf0f4",
+};
+
+const uifRequirement: React.CSSProperties = {
+  minHeight: "48px",
+  padding: "8px 10px",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  gap: "4px",
+  borderRight: "1px solid #edf0f4",
+  borderBottom: "1px solid #edf0f4",
+};
+
+const registrationActions: React.CSSProperties = {
+  marginTop: "10px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+};
+
+const disabledButton: React.CSSProperties = {
+  minHeight: "34px",
+  padding: "0 12px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #cbd5e1",
+  background: "#f8fafc",
+  color: "#94a3b8",
+  fontSize: "10px",
+  fontWeight: 900,
 };
 
 const comingSoon: React.CSSProperties = {

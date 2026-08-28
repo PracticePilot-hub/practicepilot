@@ -308,6 +308,15 @@ export default function TopNav() {
         show: accessEnabled && Boolean(profile?.can_access_afs),
       },
       {
+        label: "Tax",
+        href: "/tax",
+        show:
+          accessEnabled &&
+          (internal ||
+            Boolean(profile?.can_access_crm) ||
+            Boolean(profile?.can_access_accounting)),
+      },
+      {
         label: "PAIA Manuals",
         href: "/compliance/paia",
         show: accessEnabled && Boolean(profile?.can_access_paia),

@@ -58,6 +58,60 @@ async function getIdFromContext(context: any) {
   return id;
 }
 
+function bearerToken(request: Request) {
+  return (request.headers.get("authorization") || "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+}
+
+async function currentAfsProfile(
+  request: Request,
+  supabase: ReturnType<typeof getSupabaseServer>,
+) {
+  const token = bearerToken(request);
+
+  if (!token) {
+    return {
+      profile: null as any,
+      response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
+    };
+  }
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser(token);
+
+  if (authError || !user) {
+    return {
+      profile: null as any,
+      response: NextResponse.json({ error: "Not authenticated." }, { status: 401 }),
+    };
+  }
+
+  const { data: profile, error } = await supabase
+    .from("user_profiles")
+    .select(
+      "id,user_id,organisation_id,full_name,email,role,access_enabled,can_access_afs,afs_authority",
+    )
+    .eq("user_id", user.id)
+    .single();
+
+  if (
+    error ||
+    !profile ||
+    !profile.access_enabled ||
+    profile.can_access_afs === false
+  ) {
+    return {
+      profile: null as any,
+      response: NextResponse.json({ error: "AFS access denied." }, { status: 403 }),
+    };
+  }
+
+  return { profile, response: null as NextResponse | null };
+}
+
 function cleanText(value: any) {
   if (value === null || value === undefined) return null;
 
@@ -486,6 +540,72 @@ export async function PATCH(req: NextRequest, context: any) {
       body.account_name !== undefined ||
       body.accountName !== undefined;
 
+    let manualAdjustmentProfile: any = null;
+
+    if (manualAdjustmentWasProvided) {
+      const auth = await currentAfsProfile(req, supabase);
+
+      if (auth.response || !auth.profile) {
+        return auth.response;
+      }
+
+      manualAdjustmentProfile = auth.profile;
+
+      const reason = cleanText(
+        body.manual_adjustment_reason ?? body.manualAdjustmentReason,
+      );
+
+      if (!reason) {
+        return NextResponse.json(
+          { error: "A reason is required for every manual adjustment." },
+          { status: 400 },
+        );
+      }
+
+      const { data: engagement, error: engagementError } = await supabase
+        .from("afs_engagements")
+        .select("id,organisation_id")
+        .eq("id", engagementId)
+        .single();
+
+      if (engagementError || !engagement) {
+        return NextResponse.json(
+          { error: "AFS engagement was not found." },
+          { status: 404 },
+        );
+      }
+
+      if (
+        !manualAdjustmentProfile.organisation_id ||
+        manualAdjustmentProfile.organisation_id !== engagement.organisation_id
+      ) {
+        return NextResponse.json(
+          { error: "You do not have access to this AFS engagement." },
+          { status: 403 },
+        );
+      }
+
+      const { data: organisation, error: organisationError } = await supabase
+        .from("organisations")
+        .select("afs_manual_adjustments_enabled")
+        .eq("id", engagement.organisation_id)
+        .single();
+
+      if (organisationError || !organisation) {
+        throw organisationError || new Error("Could not load AFS controls.");
+      }
+
+      if (!organisation.afs_manual_adjustments_enabled) {
+        return NextResponse.json(
+          {
+            error:
+              "Manual adjustments are disabled for this practice. A Captain must enable them in AFS Settings.",
+          },
+          { status: 403 },
+        );
+      }
+    }
+
     const manualAdjustment = manualAdjustmentWasProvided
       ? numberOrZero(body.manual_adjustment ?? body.manualAdjustment)
       : lineNumber(existingLine, [
@@ -504,9 +624,16 @@ export async function PATCH(req: NextRequest, context: any) {
 
     if (manualAdjustmentWasProvided) {
       updatePayload.manual_adjustment = manualAdjustment;
+      updatePayload.manual_adjustment_reason = cleanText(
+        body.manual_adjustment_reason ?? body.manualAdjustmentReason,
+      );
+      updatePayload.manual_adjustment_updated_by = manualAdjustmentProfile?.id || null;
+      updatePayload.manual_adjustment_updated_at = new Date().toISOString();
       updatePayload.final_balance = finalBalance;
       updatePayload.current_balance = finalBalance;
-      updatePayload.current_year_balance = finalBalance;
+
+      // Do not overwrite current_year_balance/source_balance here.
+      // The imported TB remains the immutable source record.
     }
 
     if (accountNameWasProvided) {
@@ -538,6 +665,36 @@ export async function PATCH(req: NextRequest, context: any) {
       .single();
 
     if (updateError) throw updateError;
+
+    if (manualAdjustmentWasProvided) {
+      const auditReason = cleanText(
+        body.manual_adjustment_reason ?? body.manualAdjustmentReason,
+      );
+
+      const { error: auditError } = await supabase
+        .from("afs_manual_adjustment_audit")
+        .insert({
+          engagement_id: engagementId,
+          trial_balance_line_id: existingLine.id,
+          organisation_id: manualAdjustmentProfile.organisation_id,
+          account_code: existingLine.account_code,
+          account_name: existingLine.account_name,
+          previous_amount: lineNumber(existingLine, [
+            "manual_adjustment",
+            "manualAdjustment",
+            "working_adjustment",
+            "workingAdjustment",
+          ]),
+          new_amount: manualAdjustment,
+          reason: auditReason,
+          changed_by_profile_id: manualAdjustmentProfile.id,
+          changed_by_name:
+            cleanText(manualAdjustmentProfile.full_name) ||
+            cleanText(manualAdjustmentProfile.email),
+        });
+
+      if (auditError) throw auditError;
+    }
 
     const changeReason = accountNameWasProvided
       ? "Trial Balance changed after sign-off: account description updated."
