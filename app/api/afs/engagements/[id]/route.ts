@@ -298,7 +298,6 @@ async function getFlightControlReadiness(
 
   const readyForFinalisation =
     Boolean(workflow?.is_started) &&
-    requiredSections.length > 0 &&
     completeCount === requiredSections.length &&
     blockingOpenReviewPoints === 0;
 
