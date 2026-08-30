@@ -116,6 +116,29 @@ function calculateNextYearEnd(value: string) {
   ].join("-");
 }
 
+
+function calculatePreviousYearEnd(value: string) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) {
+    throw new Error("The current financial year end is invalid.");
+  }
+
+  const currentYear = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  const previousYear = currentYear - 1;
+  const maximumDay = getDaysInMonth(previousYear, month - 1);
+  const previousDay = Math.min(day, maximumDay);
+
+  return [
+    String(previousYear).padStart(4, "0"),
+    String(month).padStart(2, "0"),
+    String(previousDay).padStart(2, "0"),
+  ].join("-");
+}
+
 function yearHeading(value: string) {
   const match = String(value || "").match(/^(\d{4})-/);
   return match?.[1] || "";
@@ -501,6 +524,63 @@ async function syncRolloverHistory(
     });
   }
 
+  /*
+    The source engagement's PRIOR column is the opening comparative needed
+    to calculate movements in the source year.
+
+    Example for a 2025 Next Flight:
+      source file = 2024
+      source prior column = 2023
+      source final/current column = 2024
+
+    Cash-flow history therefore needs BOTH 2023 and 2024. The active 2025 TB
+    already shows 2024 as its comparative, but that alone cannot calculate
+    the 2024 working-capital movement. The historical engine needs 2023 -> 2024.
+  */
+  const sourcePriorFinancialYearEnd =
+    calculatePreviousYearEnd(sourceFinancialYearEnd);
+
+  for (const line of sourceTrialBalance) {
+    const accountCode = String(line.account_code || "").trim();
+    if (!accountCode) continue;
+
+    const priorBalance = roundMoney(
+      numberOrZero(
+        line.prior_year_balance ??
+          line.prior_balance ??
+          line.comparative_balance ??
+          line.credit,
+      ),
+    );
+
+    historyByKey.set(
+      `${sourcePriorFinancialYearEnd}|${accountCode.toUpperCase()}`,
+      {
+        organisation_id: organisationId,
+        engagement_id: targetEngagementId,
+        source_engagement_id: sourceEngagementId,
+        trial_balance_line_id: null,
+        financial_year_end: sourcePriorFinancialYearEnd,
+        account_code: accountCode,
+        account_name: cleanText(line.account_name),
+        closing_balance: priorBalance,
+        mapping_code: cleanText(line.mapping_code),
+        mapping_label: cleanText(line.mapping_label),
+        mapping_statement: cleanText(line.mapping_statement),
+        mapping_section: cleanText(line.mapping_section),
+        mapping_path: cleanText(line.mapping_path),
+        lead_schedule_number: cleanText(line.lead_schedule_number),
+        lead_schedule_key: cleanText(line.lead_schedule_key),
+        updated_at: new Date().toISOString(),
+      },
+    );
+  }
+
+  /*
+    The source engagement's own FINAL TB is the closing historical snapshot.
+    Together with the prior snapshot above this gives the cash-flow engine the
+    two consecutive years it requires.
+  */
   for (const line of sourceTrialBalance) {
     const accountCode = String(line.account_code || "").trim();
     if (!accountCode) continue;
