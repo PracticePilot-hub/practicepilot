@@ -952,16 +952,14 @@ function historyCategory(line: TrialBalanceHistoryLine) {
   }
 
   if (
-    mappingIdentifierStartsWith(mappingCode, ["405"]) ||
-    mappingIdentifierStartsWith(mappingLeafId, ["405"]) ||
+    mappingIdentifierStartsWith(mappingCode, ["410"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["410"]) ||
     leadScheduleKey === "inventories"
   ) {
     return "inventories";
   }
 
   if (
-    mappingIdentifierStartsWith(mappingCode, ["430"]) ||
-    mappingIdentifierStartsWith(mappingLeafId, ["430"]) ||
     leadScheduleKey === "trade-receivables" ||
     leadScheduleKey === "trade-and-other-receivables"
   ) {
@@ -969,8 +967,6 @@ function historyCategory(line: TrialBalanceHistoryLine) {
   }
 
   if (
-    mappingIdentifierStartsWith(mappingCode, ["630"]) ||
-    mappingIdentifierStartsWith(mappingLeafId, ["630"]) ||
     leadScheduleKey === "trade-payables" ||
     leadScheduleKey === "trade-and-other-payables"
   ) {
@@ -1024,6 +1020,7 @@ function historyPresentedBalance(line: TrialBalanceHistoryLine) {
 
 type HistoricalCashFlowData = {
   overrides: Partial<AfsStatementOverrides>;
+  hasTwoDistinctYears: boolean;
   inventoryPrior: number;
   receivablesPrior: number;
   payablesPrior: number;
@@ -1043,6 +1040,7 @@ function buildHistoricalCashFlowData(
   if (years.length < 2) {
     return {
       overrides: {},
+      hasTwoDistinctYears: false,
       inventoryPrior: 0,
       receivablesPrior: 0,
       payablesPrior: 0,
@@ -1093,6 +1091,7 @@ function buildHistoricalCashFlowData(
   const payablesPrior = closingPayables - openingPayables;
 
   return {
+    hasTwoDistinctYears: true,
     overrides: {
       cashPriorOpeningBalance: openingCash,
       cashWorkingCapitalPrior:
@@ -3805,13 +3804,13 @@ const adjustmentsPrior = adjustmentKeys.reduce(
     const closingCashRow = findById("cfs-closing-cash") || findByLabel(["cash and cash equivalents at end"]);
 
     const inventoryCurrent = storedAmount("inventories", "current", Number(inventoryRow?.current || 0));
-    const inventoryPrior = storedAmount(
-      "inventories",
-      "prior",
-      trialBalanceHistory.length >= 2
-        ? historicalCashFlowData.inventoryPrior
-        : Number(inventoryRow?.prior || 0),
-    );
+    const inventoryPrior = historicalCashFlowData.hasTwoDistinctYears
+      ? historicalCashFlowData.inventoryPrior
+      : storedAmount(
+          "inventories",
+          "prior",
+          Number(inventoryRow?.prior || 0),
+        );
 
     const receivablesCurrent =
       storedAmount(
@@ -3821,15 +3820,13 @@ const adjustmentsPrior = adjustmentKeys.reduce(
       ) +
       storedAmount("prepayments", "current", 0);
 
-    const receivablesPrior =
-      storedAmount(
-        "tradeReceivables",
-        "prior",
-        trialBalanceHistory.length >= 2
-          ? historicalCashFlowData.receivablesPrior
-          : Number(receivablesRow?.prior || 0),
-      ) +
-      storedAmount("prepayments", "prior", 0);
+    const receivablesPrior = historicalCashFlowData.hasTwoDistinctYears
+      ? historicalCashFlowData.receivablesPrior
+      : storedAmount(
+          "tradeReceivables",
+          "prior",
+          Number(receivablesRow?.prior || 0),
+        ) + storedAmount("prepayments", "prior", 0);
 
     const payablesCurrent =
       storedAmount(
@@ -3839,15 +3836,13 @@ const adjustmentsPrior = adjustmentKeys.reduce(
       ) +
       storedAmount("deferredIncome", "current", 0);
 
-    const payablesPrior =
-      storedAmount(
-        "tradePayables",
-        "prior",
-        trialBalanceHistory.length >= 2
-          ? historicalCashFlowData.payablesPrior
-          : Number(payablesRow?.prior || 0),
-      ) +
-      storedAmount("deferredIncome", "prior", 0);
+    const payablesPrior = historicalCashFlowData.hasTwoDistinctYears
+      ? historicalCashFlowData.payablesPrior
+      : storedAmount(
+          "tradePayables",
+          "prior",
+          Number(payablesRow?.prior || 0),
+        ) + storedAmount("deferredIncome", "prior", 0);
 
     const sociProfitBeforeTaxRow = (baseStatementEngine.sociRows || []).find(
       (row: any) =>
