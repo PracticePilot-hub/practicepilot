@@ -5,9 +5,10 @@ import { usePathname } from "next/navigation";
 import { ReactNode } from "react";
 
 const navItems = [
-  { label: "Client Database", href: "/crm" },
+  { label: "My Day", href: "/crm" },
+  { label: "My Work", href: "/crm/tasks" },
+  { label: "Clients", href: "/crm/clients" },
   { label: "New Client", href: "/crm/new-client" },
-  { label: "Tasks", href: "/crm/tasks" },
   { label: "Secretarial", href: "/crm/secretarial" },
 ];
 
@@ -42,6 +43,13 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
+
+        <div style={sidebarFooter}>
+          <div style={sidebarFooterLabel}>PRACTICEPILOT</div>
+          <div style={sidebarFooterText}>
+            Work first. Data second.
+          </div>
+        </div>
       </aside>
 
       <main style={content}>{children}</main>
@@ -53,20 +61,22 @@ const shell: React.CSSProperties = {
   minHeight: "calc(100vh - 60px)",
   display: "grid",
   gridTemplateColumns: "198px minmax(0, 1fr)",
-  background: "#eef2f5",
+  background: "#f7f5f0",
 };
 
 const sidebar: React.CSSProperties = {
   minHeight: "100%",
-  background: "#0f1f33",
+  display: "flex",
+  flexDirection: "column",
+  background: "#10233a",
   color: "#ffffff",
-  borderRight: "1px solid #07111f",
+  borderRight: "1px solid #08172a",
 };
 
 const sidebarTitle: React.CSSProperties = {
-  padding: "15px 10px 10px",
-  color: "#94a3b8",
-  fontSize: "11px",
+  padding: "18px 16px 11px",
+  color: "#9caabd",
+  fontSize: "10px",
   fontWeight: 900,
   letterSpacing: "0.16em",
 };
@@ -75,27 +85,46 @@ const nav: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "2px",
-  padding: "0 8px 12px",
+  padding: "0 9px 14px",
 };
 
 const navLink: React.CSSProperties = {
   display: "block",
-  padding: "10px 8px",
+  padding: "10px 10px",
   borderRadius: 0,
-  color: "#e5edf5",
+  color: "#dfe7ef",
   textDecoration: "none",
-  fontSize: "13px",
+  fontSize: "12px",
   fontWeight: 800,
   border: "1px solid transparent",
 };
 
 const activeNavLink: React.CSSProperties = {
   background: "#ffffff",
-  color: "#0f1f33",
-  border: "1px solid #d8dee7",
+  color: "#10233a",
+  borderColor: "#d8dee7",
+};
+
+const sidebarFooter: React.CSSProperties = {
+  marginTop: "auto",
+  padding: "16px",
+  borderTop: "1px solid #26384d",
+};
+
+const sidebarFooterLabel: React.CSSProperties = {
+  color: "#9caabd",
+  fontSize: "9px",
+  fontWeight: 900,
+  letterSpacing: "0.12em",
+};
+
+const sidebarFooterText: React.CSSProperties = {
+  marginTop: "4px",
+  color: "#d9e2eb",
+  fontSize: "10px",
 };
 
 const content: React.CSSProperties = {
   minWidth: 0,
-  background: "#eef2f5",
+  background: "#f7f5f0",
 };

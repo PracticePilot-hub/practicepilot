@@ -524,7 +524,9 @@ function normaliseAmount(line: AfsEngineTrialBalanceLine, amount: number, canoni
     canonical.plGroup === "operatingExpenses" ||
     canonical.plGroup === "financeCosts"
   ) {
-    return -Math.abs(amount);
+    // Preserve the TB sign so contra / credit balances correctly reduce the expense.
+    // Example: closing stock mapped to cost of sales is a credit and must reduce COS.
+    return -amount;
   }
 
   if (canonical.plGroup === "taxation") {

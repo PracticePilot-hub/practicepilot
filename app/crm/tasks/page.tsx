@@ -1,28 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "../../lib/supabase";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-if (!supabaseAnonKey) throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-type TaskRow = {
-  id: string;
-  task_title: string;
-  service_name: string | null;
-  task_status: string | null;
-  due_date: string | null;
-  period_start: string | null;
-  period_end: string | null;
-  client_id: string | null;
-  crm_clients?: { client_name: string | null } | null;
-};
+const supabaseAny = supabase as any;
 
 type ServiceColourRow = {
   service_name: string;
@@ -30,596 +11,1616 @@ type ServiceColourRow = {
   text_colour_hex: string | null;
 };
 
-const modeFilters = [
-  { label: "All Tasks", value: "all" },
-  { label: "Work Tasks", value: "work" },
-  { label: "Review Tasks", value: "review" },
-  { label: "Completed", value: "completed" },
-];
+type ClientRow = {
+  id: string;
+  client_name: string;
+};
 
-const serviceFilters = [
-  { label: "All", value: "all" },
-  { label: "VAT", value: "VAT201" },
-  { label: "EMP201", value: "EMP201" },
-  { label: "EMP501", value: "EMP501" },
-  { label: "Payroll", value: "Payroll" },
-  { label: "Accounting", value: "Accounting" },
-  { label: "Financials", value: "Financial Statements" },
-  { label: "Income Tax", value: "Income Tax" },
-  { label: "Provisional Tax", value: "Provisional Tax" },
-  { label: "CIPC", value: "CIPC Annual Return" },
-  { label: "BO", value: "Beneficial Ownership Declaration" },
-  { label: "Workmans", value: "Workmans Compensation" },
-];
+type WorkItem = {
+  id: string;
+  client_id: string | null;
+  title: string;
+  description: string | null;
+  work_type: string;
+  status: string;
+  priority: string;
+  assigned_user_id: string | null;
+  due_date: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  is_all_day: boolean;
+  is_personal: boolean;
+  waiting_on: string | null;
+  waiting_since: string | null;
+  workflow_type: string | null;
+  workflow_stage: string | null;
+  service_code: string | null;
+  source_module: string | null;
+  completed_at: string | null;
+  created_at?: string | null;
+  crm_clients: ClientRow | null;
+};
 
-function formatPeriod(start: string | null, end: string | null) {
-  if (!start && !end) return "No period";
-  if (!end) return start;
-  return `${start} to ${end}`;
+type QueueView =
+  | "open"
+  | "today"
+  | "overdue"
+  | "waiting"
+  | "personal"
+  | "completed";
+
+function localDateKey(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
-function statusLabel(status: string | null) {
-  return status || "Open";
+function humanise(value: string | null | undefined) {
+  if (!value) return "";
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function normalStatus(status: string | null) {
-  return statusLabel(status).toLowerCase();
+function formatDate(value: string | null) {
+  if (!value) return "—";
+
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value;
+
+  return new Date(year, month - 1, day).toLocaleDateString("en-ZA", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
-function isWorkTask(task: TaskRow) {
-  const status = normalStatus(task.task_status);
+function formatTime(value: string | null) {
+  if (!value) return "";
+  return new Date(value).toLocaleTimeString("en-ZA", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
 
-  return (
-    status === "open" ||
-    status === "correction required" ||
-    status === "approved for submission"
+function isComplete(item: WorkItem) {
+  return item.status === "completed" || item.status === "cancelled";
+}
+
+function getClientName(item: WorkItem) {
+  if (item.is_personal) return "Personal";
+  return item.crm_clients?.client_name || "Practice";
+}
+
+function normaliseServiceKey(value: string | null | undefined) {
+  return String(value || "").trim().toLowerCase();
+}
+
+export default function CRMMyWorkPage() {
+  const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [clients, setClients] = useState<ClientRow[]>([]);
+  const [serviceColours, setServiceColours] = useState<
+    Record<string, ServiceColourRow>
+  >({});
+  const [userId, setUserId] = useState<string | null>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  const [queueView, setQueueView] = useState<QueueView>("open");
+  const [search, setSearch] = useState("");
+  const [clientFilter, setClientFilter] = useState("all");
+  const [serviceFilter, setServiceFilter] = useState("all");
+  const [assignmentFilter, setAssignmentFilter] = useState("mine_and_unassigned");
+
+  const [selectedWorkItem, setSelectedWorkItem] = useState<WorkItem | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editStartTime, setEditStartTime] = useState("");
+  const [editEndTime, setEditEndTime] = useState("");
+  const [editStatus, setEditStatus] = useState("");
+  const [editWaitingOn, setEditWaitingOn] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  useEffect(() => {
+    loadMyWork();
+  }, []);
+
+  async function loadMyWork() {
+    setLoading(true);
+    setLoadError("");
+
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabaseAny.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error("Your PracticePilot login could not be confirmed.");
+      }
+
+      setUserId(user.id);
+
+      const { data: profile, error: profileError } = await supabaseAny
+        .from("user_profiles")
+        .select("organisation_id, access_enabled")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      if (!profile?.access_enabled) {
+        throw new Error("Your PracticePilot access is disabled.");
+      }
+
+      if (!profile?.organisation_id) {
+        throw new Error("Your user profile is not linked to an organisation.");
+      }
+
+      const [clientsResult, workResult] = await Promise.all([
+        supabaseAny
+          .from("crm_clients")
+          .select("id, client_name")
+          .eq("organisation_id", profile.organisation_id)
+          .order("client_name", { ascending: true }),
+
+        supabaseAny
+          .from("crm_work_items")
+          .select(`
+            id,
+            client_id,
+            title,
+            description,
+            work_type,
+            status,
+            priority,
+            assigned_user_id,
+            due_date,
+            start_at,
+            end_at,
+            is_all_day,
+            is_personal,
+            waiting_on,
+            waiting_since,
+            workflow_type,
+            workflow_stage,
+            service_code,
+            source_module,
+            completed_at,
+            created_at
+          `)
+          .eq("organisation_id", profile.organisation_id)
+          .neq("status", "cancelled")
+          .order("due_date", { ascending: true, nullsFirst: false })
+          .order("start_at", { ascending: true, nullsFirst: false })
+          .order("created_at", { ascending: false }),
+      ]);
+
+      if (clientsResult.error) throw clientsResult.error;
+      if (workResult.error) throw workResult.error;
+
+      const clientRows = (clientsResult.data || []) as ClientRow[];
+      setClients(clientRows);
+
+      const clientMap = Object.fromEntries(
+        clientRows.map((client) => [client.id, client])
+      ) as Record<string, ClientRow>;
+
+      const hydrated = (workResult.data || []).map((item: any) => ({
+        ...item,
+        crm_clients: item.client_id ? clientMap[item.client_id] || null : null,
+      })) as WorkItem[];
+
+      setWorkItems(hydrated);
+
+      try {
+        const colourResponse = await fetch("/api/settings/services", {
+          cache: "no-store",
+        });
+        const colourResult = await colourResponse.json();
+
+        if (colourResult?.success && Array.isArray(colourResult.services)) {
+          const colourMap: Record<string, ServiceColourRow> = {};
+
+          for (const service of colourResult.services as ServiceColourRow[]) {
+            const key = normaliseServiceKey(service.service_name);
+            if (key) colourMap[key] = service;
+          }
+
+          setServiceColours(colourMap);
+        }
+      } catch (colourError) {
+        console.error("Could not load service colours:", colourError);
+      }
+    } catch (error) {
+      console.error("Could not load My Work:", error);
+      setLoadError(
+        error instanceof Error ? error.message : "Could not load My Work."
+      );
+      setWorkItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const todayKey = localDateKey();
+
+  const activeItems = useMemo(
+    () => workItems.filter((item) => !isComplete(item)),
+    [workItems]
   );
-}
 
-function isReviewTask(task: TaskRow) {
-  return normalStatus(task.task_status) === "ready for review";
-}
+  const dueTodayCount = useMemo(
+    () =>
+      activeItems.filter(
+        (item) =>
+          item.due_date === todayKey ||
+          (!!item.start_at &&
+            localDateKey(new Date(item.start_at)) === todayKey)
+      ).length,
+    [activeItems, todayKey]
+  );
 
-function isCompletedTask(task: TaskRow) {
-  return normalStatus(task.task_status) === "submitted / complete";
-}
+  const overdueCount = useMemo(
+    () =>
+      activeItems.filter(
+        (item) => !!item.due_date && item.due_date < todayKey
+      ).length,
+    [activeItems, todayKey]
+  );
 
-function taskMatchesMode(task: TaskRow, mode: string) {
-  if (mode === "all") return true;
-  if (mode === "work") return isWorkTask(task);
-  if (mode === "review") return isReviewTask(task);
-  if (mode === "completed") return isCompletedTask(task);
+  const waitingCount = useMemo(
+    () =>
+      activeItems.filter(
+        (item) =>
+          item.status === "waiting" ||
+          !!item.waiting_on ||
+          !!item.waiting_since
+      ).length,
+    [activeItems]
+  );
 
-  return true;
-}
+  const personalCount = useMemo(
+    () => activeItems.filter((item) => item.is_personal).length,
+    [activeItems]
+  );
 
-function getModeCount(tasks: TaskRow[], modeValue: string) {
-  return tasks.filter((task) => taskMatchesMode(task, modeValue)).length;
-}
+  const completedCount = useMemo(
+    () => workItems.filter((item) => item.status === "completed").length,
+    [workItems]
+  );
 
-function getServiceCount(tasks: TaskRow[], serviceValue: string, modeValue: string) {
-  const modeTasks = tasks.filter((task) => taskMatchesMode(task, modeValue));
+  const serviceOptions = useMemo(() => {
+    const values = Array.from(
+      new Set(
+        workItems
+          .map((item) => item.service_code || item.work_type)
+          .filter(Boolean)
+      )
+    ) as string[];
 
-  if (serviceValue === "all") return modeTasks.length;
+    return values.sort((a, b) => humanise(a).localeCompare(humanise(b)));
+  }, [workItems]);
 
-  return modeTasks.filter((task) => task.service_name === serviceValue).length;
-}
+  const filteredItems = useMemo(() => {
+    const query = search.trim().toLowerCase();
 
-function getServiceColours(
-  serviceName: string | null,
-  serviceColours: Record<string, ServiceColourRow>
-) {
-  if (!serviceName || !serviceColours[serviceName]) {
+    return workItems
+      .filter((item) => {
+        if (queueView === "open" && isComplete(item)) return false;
+
+        if (
+          queueView === "today" &&
+          !(
+            item.due_date === todayKey ||
+            (!!item.start_at &&
+              localDateKey(new Date(item.start_at)) === todayKey)
+          )
+        ) {
+          return false;
+        }
+
+        if (
+          queueView === "overdue" &&
+          !(
+            !isComplete(item) &&
+            !!item.due_date &&
+            item.due_date < todayKey
+          )
+        ) {
+          return false;
+        }
+
+        if (
+          queueView === "waiting" &&
+          !(
+            !isComplete(item) &&
+            (item.status === "waiting" ||
+              !!item.waiting_on ||
+              !!item.waiting_since)
+          )
+        ) {
+          return false;
+        }
+
+        if (
+          queueView === "personal" &&
+          !(!isComplete(item) && item.is_personal)
+        ) {
+          return false;
+        }
+
+        if (queueView === "completed" && item.status !== "completed") {
+          return false;
+        }
+
+        if (
+          assignmentFilter === "mine_and_unassigned" &&
+          item.assigned_user_id &&
+          item.assigned_user_id !== userId
+        ) {
+          return false;
+        }
+
+        if (
+          assignmentFilter === "mine" &&
+          item.assigned_user_id !== userId
+        ) {
+          return false;
+        }
+
+        if (
+          assignmentFilter === "unassigned" &&
+          item.assigned_user_id
+        ) {
+          return false;
+        }
+
+        if (
+          clientFilter !== "all" &&
+          (clientFilter === "personal"
+            ? !item.is_personal
+            : item.client_id !== clientFilter)
+        ) {
+          return false;
+        }
+
+        const serviceValue = normaliseServiceKey(
+          item.service_code || item.work_type
+        );
+
+        if (
+          serviceFilter !== "all" &&
+          serviceValue !== normaliseServiceKey(serviceFilter)
+        ) {
+          return false;
+        }
+
+        if (query) {
+          const haystack = [
+            item.title,
+            item.description,
+            getClientName(item),
+            humanise(item.service_code || item.work_type),
+            item.waiting_on,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+
+          if (!haystack.includes(query)) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        const aCompleted = isComplete(a);
+        const bCompleted = isComplete(b);
+
+        if (aCompleted !== bCompleted) return aCompleted ? 1 : -1;
+
+        const aDate = a.start_at || a.due_date || "9999-12-31";
+        const bDate = b.start_at || b.due_date || "9999-12-31";
+
+        return aDate.localeCompare(bDate);
+      });
+  }, [
+    workItems,
+    queueView,
+    search,
+    clientFilter,
+    serviceFilter,
+    assignmentFilter,
+    userId,
+    todayKey,
+  ]);
+
+  function getServiceColours(item: WorkItem) {
+    const key = normaliseServiceKey(item.service_code || item.work_type);
+    const row = serviceColours[key];
+
     return {
-      background: "#0b5cab",
-      text: "#ffffff",
+      background: row?.colour_hex || "#53657A",
+      text: row?.text_colour_hex || "#FFFFFF",
     };
   }
 
-  return {
-    background: serviceColours[serviceName].colour_hex || "#0b5cab",
-    text: serviceColours[serviceName].text_colour_hex || "#ffffff",
-  };
-}
-
-export default function CRMTasksPage() {
-  const [tasks, setTasks] = useState<TaskRow[]>([]);
-  const [serviceColours, setServiceColours] = useState<Record<string, ServiceColourRow>>({});
-  const [loading, setLoading] = useState(true);
-  const [modeFilter, setModeFilter] = useState("work");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [serviceFilter, setServiceFilter] = useState("all");
-  const [search, setSearch] = useState("");
-  const [generating, setGenerating] = useState(false);
-
-  useEffect(() => {
-    loadTasks();
-  }, []);
-
-  async function loadServiceColours() {
-    const response = await fetch("/api/settings/services");
-    const result = await response.json();
-
-    if (!result.success) {
-      console.error(result.error || "Could not load service colours.");
-      setServiceColours({});
-      return;
-    }
-
-    const colourMap: Record<string, ServiceColourRow> = {};
-
-    for (const service of result.services || []) {
-      colourMap[service.service_name] = {
-        service_name: service.service_name,
-        colour_hex: service.colour_hex,
-        text_colour_hex: service.text_colour_hex,
-      };
-    }
-
-    setServiceColours(colourMap);
+  function openWorkItem(item: WorkItem) {
+    setSelectedWorkItem(item);
+    setEditTitle(item.title || "");
+    setEditDescription(item.description || "");
+    setEditDate(
+      item.start_at
+        ? localDateKey(new Date(item.start_at))
+        : item.due_date || ""
+    );
+    setEditStartTime(item.start_at ? formatTime(item.start_at) : "");
+    setEditEndTime(item.end_at ? formatTime(item.end_at) : "");
+    setEditStatus(item.status || "not_started");
+    setEditWaitingOn(item.waiting_on || "");
   }
 
-  async function loadTasks() {
-    setLoading(true);
+  function closeWorkItem() {
+    setSelectedWorkItem(null);
+    setEditSaving(false);
+  }
 
-    await loadServiceColours();
-
-    const { data, error } = await supabase
-      .from("crm_tasks")
-      .select(
-        `
-        id,
-        task_title,
-        service_name,
-        task_status,
-        due_date,
-        period_start,
-        period_end,
-        client_id,
-        crm_clients ( client_name )
-      `
+  function patchWorkItem(itemId: string, patch: Partial<WorkItem>) {
+    setWorkItems((current) =>
+      current.map((item) =>
+        item.id === itemId ? { ...item, ...patch } : item
       )
-      .order("due_date", { ascending: true });
-
-    if (error) {
-      console.error(error);
-      alert("Could not load CRM tasks.");
-      setTasks([]);
-      setLoading(false);
-      return;
-    }
-
-    setTasks((data || []) as unknown as TaskRow[]);
-    setLoading(false);
+    );
   }
 
-  async function generateTasks() {
-    setGenerating(true);
+  async function saveWorkItem() {
+    if (!selectedWorkItem) return;
 
-    const response = await fetch("/api/crm/tasks/generate", {
-      method: "POST",
-    });
+    setEditSaving(true);
 
-    const result = await response.json();
-    setGenerating(false);
+    try {
+      const startAt =
+        editDate && editStartTime
+          ? new Date(`${editDate}T${editStartTime}:00`).toISOString()
+          : null;
 
-    if (!result.success) {
-      alert(result.error || "Could not generate tasks.");
-      return;
+      const endAt =
+        editDate && editEndTime
+          ? new Date(`${editDate}T${editEndTime}:00`).toISOString()
+          : null;
+
+      const patch = {
+        title: editTitle.trim() || selectedWorkItem.title,
+        description: editDescription.trim() || null,
+        due_date: editDate || null,
+        start_at: startAt,
+        end_at: endAt,
+        status: editStatus,
+        waiting_on:
+          editStatus === "waiting" ? editWaitingOn.trim() || null : null,
+        waiting_since:
+          editStatus === "waiting"
+            ? selectedWorkItem.waiting_since || new Date().toISOString()
+            : null,
+      };
+
+      const { error } = await supabaseAny
+        .from("crm_work_items")
+        .update(patch)
+        .eq("id", selectedWorkItem.id);
+
+      if (error) throw error;
+
+      patchWorkItem(selectedWorkItem.id, patch);
+      closeWorkItem();
+    } catch (error: any) {
+      alert(error?.message || "Could not save this work item.");
+      setEditSaving(false);
     }
-
-    alert(`Generated ${result.created_count} task(s).`);
-    await loadTasks();
   }
 
-  const filteredTasks = useMemo(() => {
-    return tasks.filter((task) => {
-      const rawStatus = normalStatus(task.task_status);
-      const clientName = task.crm_clients?.client_name || "";
-      const haystack = `${task.task_title} ${task.service_name || ""} ${clientName}`.toLowerCase();
+  async function markComplete(item: WorkItem) {
+    try {
+      const completedAt = new Date().toISOString();
 
-      if (!taskMatchesMode(task, modeFilter)) return false;
+      const { error } = await supabaseAny
+        .from("crm_work_items")
+        .update({
+          status: "completed",
+          completed_at: completedAt,
+          waiting_on: null,
+          waiting_since: null,
+        })
+        .eq("id", item.id);
 
-      if (serviceFilter !== "all" && task.service_name !== serviceFilter) return false;
+      if (error) throw error;
 
-      if (statusFilter !== "all" && rawStatus !== statusFilter.toLowerCase()) return false;
+      patchWorkItem(item.id, {
+        status: "completed",
+        completed_at: completedAt,
+        waiting_on: null,
+        waiting_since: null,
+      });
 
-      if (search.trim() && !haystack.includes(search.trim().toLowerCase())) return false;
-
-      return true;
-    });
-  }, [tasks, modeFilter, statusFilter, serviceFilter, search]);
+      closeWorkItem();
+    } catch (error: any) {
+      alert(error?.message || "Could not mark this item complete.");
+    }
+  }
 
   return (
     <main style={styles.page}>
-      <section style={styles.workingFileBar}>
-        <div style={styles.workingFileLabel}>CRM WORKING FILE</div>
-        <div style={styles.divider}>|</div>
-        <div style={styles.workingFileTitle}>Task Engine</div>
-        <div style={styles.divider}>|</div>
-        <div style={styles.workingFileMeta}>Practice work control</div>
-        <div style={styles.countBadge}>{tasks.length} tasks</div>
+      <section style={styles.header}>
+        <div>
+          <div style={styles.eyebrow}>My Work</div>
+          <h1 style={styles.title}>Work Queue</h1>
+          <p style={styles.subtitle}>
+            Everything assigned, due, waiting or still needing attention.
+          </p>
+        </div>
+
+        <a href="/crm" style={styles.backButton}>
+          Back to My Day
+        </a>
       </section>
 
-      <section style={styles.sectionTopBar}>
+      <section style={styles.summaryStrip}>
+        <SummaryCell
+          label="Open"
+          value={activeItems.length}
+          active={queueView === "open"}
+          onClick={() => setQueueView("open")}
+        />
+        <SummaryCell
+          label="Due today"
+          value={dueTodayCount}
+          active={queueView === "today"}
+          onClick={() => setQueueView("today")}
+        />
+        <SummaryCell
+          label="Overdue"
+          value={overdueCount}
+          active={queueView === "overdue"}
+          onClick={() => setQueueView("overdue")}
+        />
+        <SummaryCell
+          label="Waiting"
+          value={waitingCount}
+          active={queueView === "waiting"}
+          onClick={() => setQueueView("waiting")}
+        />
+        <SummaryCell
+          label="Personal"
+          value={personalCount}
+          active={queueView === "personal"}
+          onClick={() => setQueueView("personal")}
+        />
+        <SummaryCell
+          label="Completed"
+          value={completedCount}
+          active={queueView === "completed"}
+          onClick={() => setQueueView("completed")}
+        />
+      </section>
+
+      <section style={styles.filterPanel}>
+        <div style={styles.searchWrap}>
+          <label style={styles.filterLabel}>Search</label>
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search work, client or service..."
+            style={styles.searchInput}
+          />
+        </div>
+
         <div>
-          <div style={styles.sectionTitle}>Task Engine</div>
-          <div style={styles.sectionSubtitle}>
-            Work, review and completed tasks generated from client services.
+          <label style={styles.filterLabel}>Client</label>
+          <select
+            value={clientFilter}
+            onChange={(event) => setClientFilter(event.target.value)}
+            style={styles.select}
+          >
+            <option value="all">All clients</option>
+            <option value="personal">Personal</option>
+            {clients.map((client) => (
+              <option key={client.id} value={client.id}>
+                {client.client_name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label style={styles.filterLabel}>Service</label>
+          <select
+            value={serviceFilter}
+            onChange={(event) => setServiceFilter(event.target.value)}
+            style={styles.select}
+          >
+            <option value="all">All services</option>
+            {serviceOptions.map((service) => (
+              <option key={service} value={service}>
+                {humanise(service)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label style={styles.filterLabel}>Assignment</label>
+          <select
+            value={assignmentFilter}
+            onChange={(event) => setAssignmentFilter(event.target.value)}
+            style={styles.select}
+          >
+            <option value="mine_and_unassigned">Mine + unassigned</option>
+            <option value="mine">Mine only</option>
+            <option value="unassigned">Unassigned</option>
+            <option value="all">Everyone</option>
+          </select>
+        </div>
+
+        <button
+          type="button"
+          style={styles.clearButton}
+          onClick={() => {
+            setSearch("");
+            setClientFilter("all");
+            setServiceFilter("all");
+            setAssignmentFilter("mine_and_unassigned");
+            setQueueView("open");
+          }}
+        >
+          Clear filters
+        </button>
+      </section>
+
+      {loadError ? <div style={styles.errorBox}>{loadError}</div> : null}
+
+      <section style={styles.workPanel}>
+        <div style={styles.workPanelHeader}>
+          <div>
+            <h2 style={styles.workPanelTitle}>
+              {queueView === "open"
+                ? "Open work"
+                : queueView === "today"
+                ? "Due today"
+                : queueView === "overdue"
+                ? "Overdue work"
+                : queueView === "waiting"
+                ? "Waiting / follow-up"
+                : queueView === "personal"
+                ? "Personal work"
+                : "Completed work"}
+            </h2>
+            <p style={styles.workPanelSubtitle}>
+              {loading
+                ? "Loading..."
+                : `${filteredItems.length} item${
+                    filteredItems.length === 1 ? "" : "s"
+                  } shown`}
+            </p>
+          </div>
+
+          <div style={styles.queueHint}>
+            {queueView === "open"
+              ? "Everything still needing action."
+              : queueView === "today"
+              ? "Work that needs attention today."
+              : queueView === "overdue"
+              ? "Past due and still incomplete."
+              : queueView === "waiting"
+              ? "Blocked until someone responds."
+              : queueView === "personal"
+              ? "Your personal reminders and follow-ups."
+              : "Recorded as complete."}
           </div>
         </div>
 
-        <div style={styles.headerActions}>
-          <button style={styles.primaryButton} onClick={generateTasks} disabled={generating}>
-            {generating ? "Generating..." : "Generate Tasks"}
-          </button>
-        </div>
-      </section>
-
-      <section style={styles.modeCard}>
-        {modeFilters.map((filter) => {
-          const isActive = modeFilter === filter.value;
-
-          return (
-            <button
-              key={filter.value}
-              type="button"
-              style={{
-                ...styles.modeButton,
-                ...(isActive ? styles.modeButtonActive : {}),
-              }}
-              onClick={() => {
-                setModeFilter(filter.value);
-                setStatusFilter("all");
-              }}
-            >
-              <span>{filter.label}</span>
-              <span style={isActive ? styles.modeCountActive : styles.modeCount}>
-                {getModeCount(tasks, filter.value)}
-              </span>
-            </button>
-          );
-        })}
-      </section>
-
-      <section style={styles.quickFilterCard}>
-        {serviceFilters.map((filter) => {
-          const isActive = serviceFilter === filter.value;
-
-          return (
-            <button
-              key={filter.value}
-              type="button"
-              style={{
-                ...styles.quickFilterButton,
-                ...(isActive ? styles.quickFilterButtonActive : {}),
-              }}
-              onClick={() => setServiceFilter(filter.value)}
-            >
-              <span>{filter.label}</span>
-              <span style={isActive ? styles.quickFilterCountActive : styles.quickFilterCount}>
-                {getServiceCount(tasks, filter.value, modeFilter)}
-              </span>
-            </button>
-          );
-        })}
-      </section>
-
-      <section style={styles.toolbar}>
-        <input
-          style={styles.searchInput}
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search task, client or service..."
-        />
-
-        <select
-          style={styles.select}
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
-        >
-          <option value="all">All statuses</option>
-          <option value="open">Open</option>
-          <option value="ready for review">Ready for review</option>
-          <option value="correction required">Correction required</option>
-          <option value="approved for submission">Approved for submission</option>
-          <option value="submitted / complete">Submitted / Complete</option>
-        </select>
-      </section>
-
-      <section style={styles.summaryLine}>
-        Showing <strong>{filteredTasks.length}</strong> of <strong>{tasks.length}</strong> tasks
-      </section>
-
-      <section style={styles.card}>
         <div style={styles.tableHeader}>
-          <span>Task</span>
-          <span>Client</span>
+          <span>Work item</span>
+          <span>Client / context</span>
           <span>Service</span>
-          <span>Period</span>
-          <span>Due date</span>
           <span>Status</span>
+          <span>Due / scheduled</span>
+          <span />
         </div>
 
-        {loading && <div style={styles.emptyState}>Loading tasks...</div>}
+        {loading ? (
+          <div style={styles.emptyState}>Loading your work...</div>
+        ) : filteredItems.length === 0 ? (
+          <div style={styles.emptyState}>
+            No work matches the current filters.
+          </div>
+        ) : (
+          filteredItems.map((item) => {
+            const colours = getServiceColours(item);
+            const overdue =
+              !isComplete(item) &&
+              !!item.due_date &&
+              item.due_date < todayKey;
 
-        {!loading && filteredTasks.length === 0 && (
-          <div style={styles.emptyState}>No tasks found.</div>
-        )}
+            const dueToday =
+              !isComplete(item) &&
+              (item.due_date === todayKey ||
+                (!!item.start_at &&
+                  localDateKey(new Date(item.start_at)) === todayKey));
 
-        {!loading &&
-          filteredTasks.map((task) => {
-            const colours = getServiceColours(task.service_name, serviceColours);
+            const waiting =
+              !isComplete(item) &&
+              (item.status === "waiting" || !!item.waiting_on || !!item.waiting_since);
 
             return (
-              <Link key={task.id} href={`/crm/tasks/${task.id}`} style={styles.tableRow}>
-                <strong>{task.task_title}</strong>
-                <span>{task.crm_clients?.client_name || "No client"}</span>
-
-                <span
-                  style={{
-                    ...styles.servicePill,
-                    background: colours.background,
-                    color: colours.text,
-                  }}
-                >
-                  {task.service_name || "Task"}
+              <button
+                type="button"
+                key={item.id}
+                onClick={() => openWorkItem(item)}
+                style={{
+                  ...styles.tableRow,
+                  ...(overdue
+                    ? styles.tableRowOverdue
+                    : dueToday
+                    ? styles.tableRowToday
+                    : waiting
+                    ? styles.tableRowWaiting
+                    : {}),
+                }}
+              >
+                <span style={styles.workCell}>
+                  <span
+                    style={{
+                      ...styles.serviceMarker,
+                      background: colours.background,
+                    }}
+                  />
+                  <span>
+                    <strong style={styles.workTitle}>{item.title}</strong>
+                    <span style={styles.workContextLine}>
+                      {item.description
+                        ? item.description
+                        : item.workflow_stage
+                        ? `Stage: ${humanise(item.workflow_stage)}`
+                        : item.source_module
+                        ? `From ${humanise(item.source_module)}`
+                        : "No additional note"}
+                    </span>
+                  </span>
                 </span>
 
-                <span>{formatPeriod(task.period_start, task.period_end)}</span>
-                <span>{task.due_date || "No date"}</span>
-                <span style={styles.statusPill}>{statusLabel(task.task_status)}</span>
-              </Link>
+                <span style={styles.clientCell}>
+                  <strong style={styles.clientName}>{getClientName(item)}</strong>
+                  <span style={styles.clientMeta}>
+                    {item.is_personal
+                      ? "Personal"
+                      : item.assigned_user_id === userId
+                      ? "Assigned to you"
+                      : item.assigned_user_id
+                      ? "Assigned"
+                      : "Unassigned"}
+                  </span>
+                </span>
+
+                <span>
+                  <span
+                    style={{
+                      ...styles.serviceTag,
+                      background: colours.background,
+                      color: colours.text,
+                    }}
+                  >
+                    {humanise(item.service_code || item.work_type)}
+                  </span>
+                </span>
+
+                <span>
+                  <span
+                    style={{
+                      ...styles.statusTag,
+                      ...(item.status === "completed"
+                        ? styles.statusComplete
+                        : waiting
+                        ? styles.statusWaiting
+                        : item.status === "in_progress"
+                        ? styles.statusProgress
+                        : styles.statusOpen),
+                    }}
+                  >
+                    {waiting && item.waiting_on
+                      ? `Waiting on ${item.waiting_on}`
+                      : humanise(item.status || "not_started")}
+                  </span>
+                </span>
+
+                <span style={styles.whenCell}>
+                  {item.start_at ? (
+                    <>
+                      <strong style={styles.whenPrimary}>
+                        {formatDate(localDateKey(new Date(item.start_at)))}
+                      </strong>
+                      <span style={styles.whenSecondary}>
+                        {formatTime(item.start_at)}
+                        {item.end_at ? ` – ${formatTime(item.end_at)}` : ""}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <strong
+                        style={{
+                          ...styles.whenPrimary,
+                          color: overdue
+                            ? "#A43D2F"
+                            : dueToday
+                            ? "#B26316"
+                            : "#10233A",
+                        }}
+                      >
+                        {item.due_date ? formatDate(item.due_date) : "No date"}
+                      </strong>
+                      {overdue ? (
+                        <span style={styles.overdueText}>Overdue</span>
+                      ) : dueToday ? (
+                        <span style={styles.todayText}>Today</span>
+                      ) : (
+                        <span style={styles.whenSecondary}>Due date</span>
+                      )}
+                    </>
+                  )}
+                </span>
+
+                <span style={styles.openText}>Open →</span>
+              </button>
             );
-          })}
+          })
+        )}
       </section>
+
+      {selectedWorkItem ? (
+        <div style={styles.overlay} onClick={closeWorkItem}>
+          <div
+            style={styles.dialog}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={styles.dialogHeader}>
+              <div>
+                <div style={styles.dialogEyebrow}>
+                  {humanise(
+                    selectedWorkItem.service_code ||
+                      selectedWorkItem.work_type
+                  )}
+                </div>
+                <h2 style={styles.dialogTitle}>Work item</h2>
+              </div>
+
+              <button
+                type="button"
+                style={styles.closeButton}
+                onClick={closeWorkItem}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.dialogBody}>
+              <label style={styles.field}>
+                <span style={styles.label}>Title</span>
+                <input
+                  value={editTitle}
+                  onChange={(event) => setEditTitle(event.target.value)}
+                  style={styles.input}
+                />
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.label}>Notes</span>
+                <textarea
+                  value={editDescription}
+                  onChange={(event) =>
+                    setEditDescription(event.target.value)
+                  }
+                  style={styles.textarea}
+                />
+              </label>
+
+              <div style={styles.fieldGrid}>
+                <label style={styles.field}>
+                  <span style={styles.label}>Date</span>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(event) => setEditDate(event.target.value)}
+                    style={styles.input}
+                  />
+                </label>
+
+                <label style={styles.field}>
+                  <span style={styles.label}>Start</span>
+                  <input
+                    type="time"
+                    value={editStartTime}
+                    onChange={(event) =>
+                      setEditStartTime(event.target.value)
+                    }
+                    style={styles.input}
+                  />
+                </label>
+
+                <label style={styles.field}>
+                  <span style={styles.label}>End</span>
+                  <input
+                    type="time"
+                    value={editEndTime}
+                    onChange={(event) =>
+                      setEditEndTime(event.target.value)
+                    }
+                    style={styles.input}
+                  />
+                </label>
+              </div>
+
+              <div style={styles.fieldGridTwo}>
+                <label style={styles.field}>
+                  <span style={styles.label}>Status</span>
+                  <select
+                    value={editStatus}
+                    onChange={(event) =>
+                      setEditStatus(event.target.value)
+                    }
+                    style={styles.input}
+                  >
+                    <option value="not_started">Not started</option>
+                    <option value="in_progress">In progress</option>
+                    <option value="waiting">Waiting</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </label>
+
+                <label style={styles.field}>
+                  <span style={styles.label}>Waiting on</span>
+                  <input
+                    value={editWaitingOn}
+                    onChange={(event) =>
+                      setEditWaitingOn(event.target.value)
+                    }
+                    disabled={editStatus !== "waiting"}
+                    placeholder={
+                      editStatus === "waiting"
+                        ? "Client, SARS, colleague..."
+                        : "Set status to Waiting first"
+                    }
+                    style={{
+                      ...styles.input,
+                      opacity: editStatus === "waiting" ? 1 : 0.55,
+                    }}
+                  />
+                </label>
+              </div>
+
+              <div style={styles.dialogMeta}>
+                <span>{getClientName(selectedWorkItem)}</span>
+                <span>•</span>
+                <span>
+                  {humanise(
+                    selectedWorkItem.service_code ||
+                      selectedWorkItem.work_type
+                  )}
+                </span>
+              </div>
+            </div>
+
+            <div style={styles.dialogFooter}>
+              <button
+                type="button"
+                style={styles.completeButton}
+                onClick={() => markComplete(selectedWorkItem)}
+              >
+                Mark complete
+              </button>
+
+              <div style={styles.dialogFooterRight}>
+                <button
+                  type="button"
+                  style={styles.secondaryButton}
+                  onClick={closeWorkItem}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  style={styles.primaryButton}
+                  onClick={saveWorkItem}
+                  disabled={editSaving}
+                >
+                  {editSaving ? "Saving..." : "Save changes"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
+  );
+}
+
+function SummaryCell({
+  label,
+  value,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        ...styles.summaryCell,
+        ...(active ? styles.summaryCellActive : {}),
+      }}
+    >
+      <span style={styles.summaryLabel}>{label}</span>
+      <strong style={styles.summaryValue}>{value}</strong>
+    </button>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "100vh",
-    background: "#eef2f5",
-    padding: "8px 10px 28px",
+    background: "#f4f6f5",
+    padding: "24px 24px 40px",
     color: "#10233a",
   },
-  workingFileBar: {
-    minHeight: "42px",
+
+  header: {
     display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    padding: "0 10px",
-    border: "1px solid #d2d9e2",
-    background: "#ffffff",
-  },
-  workingFileLabel: {
-    fontSize: "11px",
-    fontWeight: 900,
-    letterSpacing: "0.08em",
-    color: "#1d4ed8",
-  },
-  divider: {
-    color: "#94a3b8",
-  },
-  workingFileTitle: {
-    fontWeight: 800,
-    color: "#111827",
-  },
-  workingFileMeta: {
-    color: "#64748b",
-    fontSize: "12px",
-  },
-  countBadge: {
-    marginLeft: "auto",
-    padding: "4px 8px",
-    borderRadius: 999,
-    background: "#e8eefc",
-    color: "#1d4ed8",
-    fontSize: "11px",
-    fontWeight: 800,
-  },
-  sectionTopBar: {
-    minHeight: "58px",
-    display: "flex",
-    alignItems: "center",
     justifyContent: "space-between",
-    gap: "16px",
-    marginTop: "8px",
-    padding: "10px 12px",
-    border: "1px solid #d2d9e2",
-    background: "#ffffff",
+    alignItems: "flex-start",
+    gap: "20px",
+    marginBottom: "18px",
   },
-  sectionTitle: {
-    fontSize: "15px",
-    fontWeight: 800,
-    color: "#111827",
-  },
-  sectionSubtitle: {
-    marginTop: "3px",
-    fontSize: "12px",
-    color: "#64748b",
-  },
-  headerActions: {
-    display: "flex",
-    gap: "8px",
-  },
-  primaryButton: {
-    background: "#0f172a",
-    color: "#ffffff",
-    border: "1px solid #0f172a",
-    borderRadius: 0,
-    padding: "10px 16px",
+
+  eyebrow: {
+    color: "#54766f",
     fontSize: "13px",
-    fontWeight: 800,
-    cursor: "pointer",
+    fontWeight: 850,
   },
-  modeCard: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4, 1fr)",
-    gap: "0",
-    marginTop: "8px",
-    border: "1px solid #d2d9e2",
-    background: "#ffffff",
+
+  title: {
+    margin: "4px 0 0",
+    fontSize: "32px",
+    lineHeight: 1.05,
+    letterSpacing: "-0.035em",
   },
-  modeButton: {
-    display: "flex",
+
+  subtitle: {
+    margin: "7px 0 0",
+    color: "#65717d",
+    fontSize: "14px",
+  },
+
+  backButton: {
+    minHeight: "38px",
+    display: "inline-flex",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
+    padding: "0 14px",
+    border: "1px solid #cfd8d7",
     background: "#ffffff",
-    color: "#10233a",
-    border: "none",
-    borderRight: "1px solid #d2d9e2",
-    borderRadius: 0,
-    padding: "12px",
-    fontSize: "13px",
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  modeButtonActive: {
-    background: "#0f172a",
-    color: "#ffffff",
-  },
-  modeCount: {
-    background: "#f1f5f9",
-    color: "#334155",
-    borderRadius: 999,
-    padding: "3px 7px",
-    fontSize: "11px",
-    fontWeight: 800,
-  },
-  modeCountActive: {
-    background: "#ffffff",
-    color: "#0f172a",
-    borderRadius: 999,
-    padding: "3px 7px",
-    fontSize: "11px",
-    fontWeight: 800,
-  },
-  quickFilterCard: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "4px",
-    background: "#ffffff",
-    border: "1px solid #d2d9e2",
-    borderTop: "none",
-    borderRadius: 0,
-    padding: "8px 10px",
-    marginBottom: "8px",
-  },
-  quickFilterButton: {
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-    background: "#f8fafc",
-    color: "#334155",
-    border: "1px solid #cfd7e1",
-    borderRadius: 0,
-    padding: "6px 8px",
-    fontSize: "11px",
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  quickFilterButtonActive: {
-    background: "#0f172a",
-    color: "#ffffff",
-    border: "1px solid #0f172a",
-  },
-  quickFilterCount: {
-    background: "#e2e8f0",
-    color: "#334155",
-    borderRadius: 999,
-    padding: "1px 5px",
-    fontSize: "10px",
-    fontWeight: 800,
-  },
-  quickFilterCountActive: {
-    background: "#ffffff",
-    color: "#0f172a",
-    borderRadius: 999,
-    padding: "1px 5px",
-    fontSize: "10px",
-    fontWeight: 800,
-  },
-  toolbar: {
-    display: "grid",
-    gridTemplateColumns: "1fr 220px",
-    gap: "8px",
-    marginBottom: "6px",
-  },
-  searchInput: {
-    height: "38px",
-    border: "1px solid #cfd7e1",
-    borderRadius: 0,
-    padding: "0 10px",
-    fontSize: "13px",
-    background: "#ffffff",
-  },
-  select: {
-    height: "38px",
-    border: "1px solid #cfd7e1",
-    borderRadius: 0,
-    padding: "0 10px",
-    fontSize: "13px",
-    background: "#ffffff",
-  },
-  summaryLine: {
-    marginBottom: "6px",
-    color: "#64748b",
-    fontSize: "12px",
-  },
-  card: {
-    background: "#ffffff",
-    border: "1px solid #d2d9e2",
-    borderRadius: 0,
-    overflow: "hidden",
-  },
-  tableHeader: {
-    display: "grid",
-    gridTemplateColumns: "2.2fr 1.2fr 1fr 1.2fr 0.8fr 1fr",
-    gap: "10px",
-    padding: "10px 12px",
-    background: "#f7f8fa",
-    color: "#475569",
-    fontSize: "11px",
-    fontWeight: 800,
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
-  },
-  tableRow: {
-    display: "grid",
-    gridTemplateColumns: "2.2fr 1.2fr 1fr 1.2fr 0.8fr 1fr",
-    gap: "10px",
-    padding: "10px 12px",
-    borderTop: "1px solid #e5eaf0",
     color: "#10233a",
     textDecoration: "none",
+    fontSize: "12px",
+    fontWeight: 850,
+  },
+
+  summaryStrip: {
+    display: "grid",
+    gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+    border: "1px solid #d7dfde",
+    background: "#ffffff",
+    marginBottom: "14px",
+  },
+
+  summaryCell: {
+    minHeight: "68px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    justifyContent: "center",
+    padding: "10px 16px",
+    border: "none",
+    borderRight: "1px solid #e6ebea",
+    background: "#ffffff",
+    color: "#10233a",
+    cursor: "pointer",
+    textAlign: "left",
+  },
+
+  summaryCellActive: {
+    background: "#eef5f3",
+    boxShadow: "inset 0 -3px 0 #54766f",
+  },
+
+  summaryLabel: {
+    color: "#53616d",
+    fontSize: "12px",
+    fontWeight: 800,
+  },
+
+  summaryValue: {
+    marginTop: "2px",
+    fontSize: "23px",
+    lineHeight: 1,
+  },
+
+  filterPanel: {
+    display: "grid",
+    gridTemplateColumns:
+      "minmax(260px, 1.6fr) minmax(180px, 0.9fr) minmax(180px, 0.9fr) minmax(190px, 0.9fr) auto",
+    gap: "10px",
+    alignItems: "end",
+    padding: "13px",
+    border: "1px solid #d7dfde",
+    background: "#ffffff",
+    marginBottom: "14px",
+  },
+
+  searchWrap: {
+    minWidth: 0,
+  },
+
+  filterLabel: {
+    display: "block",
+    marginBottom: "5px",
+    color: "#53616d",
+    fontSize: "11px",
+    fontWeight: 800,
+  },
+
+  searchInput: {
+    width: "100%",
+    height: "38px",
+    boxSizing: "border-box",
+    border: "1px solid #ccd6d5",
+    background: "#ffffff",
+    color: "#10233a",
+    padding: "0 10px",
+    fontSize: "13px",
+    outline: "none",
+  },
+
+  select: {
+    width: "100%",
+    height: "38px",
+    border: "1px solid #ccd6d5",
+    background: "#ffffff",
+    color: "#10233a",
+    padding: "0 9px",
+    fontSize: "12px",
+    fontWeight: 700,
+    outline: "none",
+  },
+
+  clearButton: {
+    height: "38px",
+    padding: "0 12px",
+    border: "1px solid #ccd6d5",
+    background: "#f8faf9",
+    color: "#41515c",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  workPanel: {
+    border: "1px solid #d7dfde",
+    background: "#ffffff",
+  },
+
+  workPanelHeader: {
+    minHeight: "68px",
+    display: "flex",
     alignItems: "center",
+    justifyContent: "space-between",
+    gap: "20px",
+    padding: "12px 16px",
+    borderBottom: "1px solid #e3e8e7",
+  },
+
+  queueHint: {
+    maxWidth: "360px",
+    color: "#65717d",
+    fontSize: "11px",
+    textAlign: "right",
+  },
+
+  workPanelTitle: {
+    margin: 0,
+    fontSize: "18px",
+    lineHeight: 1.2,
+  },
+
+  workPanelSubtitle: {
+    margin: "3px 0 0",
+    color: "#6a7580",
+    fontSize: "11px",
+  },
+
+  tableHeader: {
+    display: "grid",
+    gridTemplateColumns:
+      "minmax(300px, 2.2fr) minmax(180px, 1.1fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) 56px",
+    gap: "10px",
+    alignItems: "center",
+    padding: "9px 14px",
+    background: "#f5f7f7",
+    borderBottom: "1px solid #dfe5e4",
+    color: "#53616d",
+    fontSize: "11px",
+    fontWeight: 850,
+  },
+
+  tableRow: {
+    width: "100%",
+    display: "grid",
+    gridTemplateColumns:
+      "minmax(300px, 2.2fr) minmax(180px, 1.1fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) 68px",
+    gap: "10px",
+    alignItems: "center",
+    minHeight: "70px",
+    padding: "10px 14px",
+    border: "none",
+    borderBottom: "1px solid #e7eceb",
+    background: "#ffffff",
+    color: "#10233a",
+    textAlign: "left",
+    cursor: "pointer",
+    font: "inherit",
+  },
+
+  tableRowToday: {
+    background: "#fffdf8",
+  },
+
+  tableRowOverdue: {
+    background: "#fff8f6",
+  },
+
+  tableRowWaiting: {
+    background: "#fffaf1",
+  },
+
+  workCell: {
+    minWidth: 0,
+    display: "grid",
+    gridTemplateColumns: "5px minmax(0, 1fr)",
+    gap: "10px",
+    alignItems: "stretch",
+  },
+
+  serviceMarker: {
+    width: "5px",
+    minHeight: "42px",
+  },
+
+  workTitle: {
+    display: "block",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: "13px",
+    fontWeight: 900,
+  },
+
+  workDescription: {
+    display: "block",
+    marginTop: "3px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: "#6b7680",
+    fontSize: "11px",
+  },
+
+  workContextLine: {
+    display: "block",
+    marginTop: "4px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: "#6b7680",
+    fontSize: "10px",
+  },
+
+  clientCell: {
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+  },
+
+  clientName: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: "#344854",
+    fontSize: "12px",
+    fontWeight: 800,
+  },
+
+  clientMeta: {
+    color: "#7a858d",
+    fontSize: "10px",
+  },
+
+  cellText: {
+    color: "#344854",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+
+  serviceTag: {
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: "25px",
+    padding: "0 8px",
+    fontSize: "10px",
+    fontWeight: 850,
+    whiteSpace: "nowrap",
+  },
+
+  statusTag: {
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: "25px",
+    padding: "0 8px",
+    border: "1px solid #d7dfde",
+    fontSize: "10px",
+    fontWeight: 850,
+  },
+
+  statusOpen: {
+    background: "#f4f6f5",
+    color: "#475662",
+  },
+
+  statusWaiting: {
+    background: "#fff7e8",
+    color: "#8f5a12",
+    borderColor: "#efd4a5",
+  },
+
+  statusComplete: {
+    background: "#edf7f0",
+    color: "#2e7148",
+    borderColor: "#cce4d3",
+  },
+
+  statusProgress: {
+    background: "#eef3f9",
+    color: "#2d5577",
+    borderColor: "#ccd9e6",
+  },
+
+  whenCell: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+    color: "#53616d",
+    fontSize: "10px",
+  },
+
+  whenPrimary: {
+    color: "#10233a",
+    fontSize: "11px",
+    fontWeight: 850,
+  },
+
+  whenSecondary: {
+    color: "#76818a",
+    fontSize: "10px",
+  },
+
+  overdueText: {
+    color: "#a43d2f",
+    fontWeight: 850,
+  },
+
+  todayText: {
+    color: "#b26316",
+    fontWeight: 850,
+  },
+
+  openText: {
+    justifySelf: "end",
+    color: "#2457d6",
+    fontSize: "11px",
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  },
+
+  emptyState: {
+    padding: "42px 20px",
+    color: "#72808a",
+    textAlign: "center",
     fontSize: "13px",
   },
-  servicePill: {
-    justifySelf: "start",
-    borderRadius: 0,
-    padding: "4px 7px",
-    fontSize: "10px",
-    fontWeight: 800,
-    whiteSpace: "nowrap",
+
+  errorBox: {
+    marginBottom: "14px",
+    padding: "12px 14px",
+    border: "1px solid #e1b6ad",
+    background: "#fff4f2",
+    color: "#8a3428",
+    fontSize: "12px",
+    fontWeight: 700,
   },
-  statusPill: {
-    justifySelf: "start",
-    background: "#f1f5f9",
-    color: "#334155",
-    border: "1px solid #cfd7e1",
-    borderRadius: 0,
-    padding: "4px 7px",
-    fontSize: "10px",
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-  emptyState: {
+
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 1000,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     padding: "24px",
-    textAlign: "center",
-    color: "#64748b",
+    background: "rgba(16,35,58,0.38)",
+  },
+
+  dialog: {
+    width: "min(680px, 100%)",
+    background: "#ffffff",
+    border: "1px solid #cfd8d7",
+    boxShadow: "0 24px 70px rgba(16,35,58,0.18)",
+  },
+
+  dialogHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "16px",
+    padding: "18px 20px",
+    borderBottom: "1px solid #e2e8e7",
+  },
+
+  dialogEyebrow: {
+    color: "#59726d",
+    fontSize: "11px",
+    fontWeight: 850,
+  },
+
+  dialogTitle: {
+    margin: "2px 0 0",
+    fontSize: "21px",
+  },
+
+  closeButton: {
+    width: "32px",
+    height: "32px",
+    border: "1px solid #cfd8d7",
+    background: "#ffffff",
+    color: "#10233a",
+    fontSize: "20px",
+    lineHeight: 1,
+    cursor: "pointer",
+  },
+
+  dialogBody: {
+    display: "grid",
+    gap: "14px",
+    padding: "18px 20px",
+  },
+
+  field: {
+    display: "grid",
+    gap: "6px",
+  },
+
+  label: {
+    color: "#4d5e69",
+    fontSize: "11px",
+    fontWeight: 850,
+  },
+
+  input: {
+    width: "100%",
+    minHeight: "38px",
+    boxSizing: "border-box",
+    border: "1px solid #cfd8d7",
+    background: "#ffffff",
+    color: "#10233a",
+    padding: "0 10px",
+    fontSize: "13px",
+    fontWeight: 700,
+    outline: "none",
+  },
+
+  textarea: {
+    width: "100%",
+    minHeight: "82px",
+    boxSizing: "border-box",
+    resize: "vertical",
+    border: "1px solid #cfd8d7",
+    background: "#ffffff",
+    color: "#10233a",
+    padding: "9px 10px",
+    fontSize: "13px",
+    lineHeight: 1.4,
+    outline: "none",
+  },
+
+  fieldGrid: {
+    display: "grid",
+    gridTemplateColumns: "1.2fr 0.9fr 0.9fr",
+    gap: "10px",
+  },
+
+  fieldGridTwo: {
+    display: "grid",
+    gridTemplateColumns: "0.8fr 1.2fr",
+    gap: "10px",
+  },
+
+  dialogMeta: {
+    display: "flex",
+    gap: "7px",
+    color: "#6b7780",
+    fontSize: "11px",
+  },
+
+  dialogFooter: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "12px",
+    padding: "14px 20px",
+    borderTop: "1px solid #e2e8e7",
+    background: "#f8faf9",
+  },
+
+  dialogFooterRight: {
+    display: "flex",
+    gap: "8px",
+  },
+
+  completeButton: {
+    minHeight: "36px",
+    padding: "0 12px",
+    border: "1px solid #b9d7c3",
+    background: "#edf7f0",
+    color: "#2e7148",
+    fontSize: "12px",
+    fontWeight: 850,
+    cursor: "pointer",
+  },
+
+  secondaryButton: {
+    minHeight: "36px",
+    padding: "0 12px",
+    border: "1px solid #c8d2d1",
+    background: "#ffffff",
+    color: "#314651",
+    fontSize: "12px",
+    fontWeight: 850,
+    cursor: "pointer",
+  },
+
+  primaryButton: {
+    minHeight: "36px",
+    padding: "0 14px",
+    border: "1px solid #10233a",
+    background: "#10233a",
+    color: "#ffffff",
+    fontSize: "12px",
+    fontWeight: 850,
+    cursor: "pointer",
   },
 };
- 

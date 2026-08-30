@@ -566,7 +566,7 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         console.error("Task generation failed:", taskError);
       });
 
-      router.push("/crm");
+      router.push(`/crm/client/${data.clientId}?tab=profile`);
       router.refresh();
     } catch (error) {
       setErrorMessage(
@@ -586,10 +586,16 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
       <div style={workingFileBar}>
         <button
           type="button"
-          onClick={() => router.push("/crm")}
+          onClick={() =>
+            router.push(
+              mode === "edit" && clientId
+                ? `/crm/client/${clientId}`
+                : "/crm/clients"
+            )
+          }
           style={backButton}
         >
-          ← Back to CRM
+          {mode === "edit" ? "← Back to Client" : "← Back to Clients"}
         </button>
 
         <div style={workingFileLabel}>CRM WORKING FILE</div>
@@ -611,7 +617,7 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         <div>
           <div style={pageHeadingKicker}>Client Setup</div>
           <div style={pageHeadingSubtext}>
-            Capture client details, services, first periods and internal responsibility.
+            Maintain the client master data used across CRM, compliance, tax and recurring work.
           </div>
         </div>
 
@@ -857,9 +863,37 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
             );
           })}
 
-          <div style={subHeading}>Registration Numbers</div>
+        </SectionBody>
+      )}
+
+      <SectionHeader
+        title="Tax & Statutory Registrations"
+        open={activeSection === "statutory"}
+        onClick={() =>
+          setActiveSection(activeSection === "statutory" ? "" : "statutory")
+        }
+      />
+
+      {activeSection === "statutory" && (
+        <SectionBody>
+          <div style={statutoryNotice}>
+            <strong>Existing registration details</strong>
+            <span>
+              Capture numbers already issued to the client here. PracticePilot uses these as master data and will only start a registration workflow where a registration is still missing.
+            </span>
+          </div>
+
+          <div style={subHeading}>Tax and labour registrations</div>
 
           <div style={grid4}>
+            <Field label="Income Tax Number">
+              <input
+                style={inputStyle}
+                value={incomeTaxNumber}
+                onChange={(event) => setIncomeTaxNumber(event.target.value)}
+              />
+            </Field>
+
             <Field label="VAT Number">
               <input
                 style={inputStyle}
@@ -884,13 +918,11 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
               />
             </Field>
 
-            <Field label="Income Tax Number">
+            <Field label="WCC / COIDA Reference">
               <input
                 style={inputStyle}
-                value={incomeTaxNumber}
-                onChange={(event) =>
-                  setIncomeTaxNumber(event.target.value)
-                }
+                value={wccRefNr}
+                onChange={(event) => setWccRefNr(event.target.value)}
               />
             </Field>
 
@@ -902,21 +934,11 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
               />
             </Field>
 
-            <Field label="WCC / COIDA Reference">
-              <input
-                style={inputStyle}
-                value={wccRefNr}
-                onChange={(event) => setWccRefNr(event.target.value)}
-              />
-            </Field>
-
             <label style={checkboxField}>
               <input
                 type="checkbox"
                 checked={sdlRegistered}
-                onChange={(event) =>
-                  setSdlRegistered(event.target.checked)
-                }
+                onChange={(event) => setSdlRegistered(event.target.checked)}
               />
               SDL Registered
             </label>
@@ -1108,7 +1130,13 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
       <div style={footerBar}>
         <button
           type="button"
-          onClick={() => router.push("/crm")}
+          onClick={() =>
+            router.push(
+              mode === "edit" && clientId
+                ? `/crm/client/${clientId}`
+                : "/crm/clients"
+            )
+          }
           style={secondaryButton}
         >
           Cancel
@@ -1285,6 +1313,19 @@ const months = [
   "November",
   "December",
 ];
+
+const statutoryNotice: React.CSSProperties = {
+  marginBottom: "18px",
+  padding: "12px 14px",
+  display: "flex",
+  flexDirection: "column",
+  gap: "4px",
+  borderLeft: "4px solid #5f8f7b",
+  background: "#f2f7f4",
+  color: "#40515d",
+  fontSize: "12px",
+  lineHeight: 1.45,
+};
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",

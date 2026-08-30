@@ -23,6 +23,7 @@ type PageProps = {
     tab?: string;
     secretarialView?: string;
     uifEmployee?: string;
+    registration?: string;
   }>;
 };
 
@@ -65,15 +66,50 @@ function formatStatus(value: string | null | undefined) {
   return value.replaceAll("_", " ");
 }
 
+function localDateKey(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function formatTime(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-ZA", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function formatAddress(address: any) {
+  if (!address) return "—";
+  return [
+    address.line_1,
+    address.line_2,
+    address.city,
+    address.province,
+    address.postal_code,
+    address.country,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(", ") || "—";
+}
+
 export default async function ClientWorkingFilePage({
   params,
   searchParams,
 }: PageProps) {
   const { id } = await params;
-  const { tab, secretarialView, uifEmployee } = await searchParams;
+  const { tab, secretarialView, uifEmployee, registration } = await searchParams;
 
   const allowedTabs = [
     "overview",
+    "profile",
     "services",
     "tasks",
     "people",
@@ -107,6 +143,8 @@ export default async function ClientWorkingFilePage({
   )
     ? (secretarialView || "overview")
     : "overview";
+
+  const activeRegistration = registration === "uif" ? "uif" : "hub";
 
   const [
     clientResult,
@@ -160,14 +198,15 @@ export default async function ClientWorkingFilePage({
       .order("created_at"),
 
     supabase
-      .from("crm_tasks")
+      .from("crm_work_items")
       .select(
-        "id, task_title, service_name, task_status, due_date, period_start, period_end, ready_for_review_at"
+        "id, title, description, work_type, status, priority, assigned_user_id, due_date, start_at, end_at, is_all_day, is_personal, waiting_on, waiting_since, workflow_type, workflow_stage, service_code, source_module, completed_at, created_at"
       )
       .eq("client_id", id)
-      .neq("task_status", "Completed")
+      .neq("status", "cancelled")
       .order("due_date", { ascending: true, nullsFirst: false })
-      .limit(12),
+      .order("start_at", { ascending: true, nullsFirst: false })
+      .limit(30),
 
     supabase
       .from("crm_client_directors")
@@ -294,6 +333,26 @@ export default async function ClientWorkingFilePage({
 
   if (!client) notFound();
 
+  const responsibilityIds = [
+    client.client_lead_user_id,
+    client.manager_user_id,
+    client.partner_user_id,
+  ].filter(Boolean) as string[];
+
+  const responsibilityUsersResult = responsibilityIds.length
+    ? await supabase
+        .from("user_profiles")
+        .select("id, full_name, email")
+        .in("id", responsibilityIds)
+    : { data: [], error: null };
+
+  const responsibilityUsers = responsibilityUsersResult.data || [];
+  const responsibilityName = (userId: string | null | undefined) => {
+    if (!userId) return "—";
+    const user = responsibilityUsers.find((row: any) => row.id === userId);
+    return user?.full_name || user?.email || "Assigned";
+  };
+
   const contacts = contactsResult.data || [];
   const addresses = addressesResult.data || [];
   const services = (servicesResult.data || []) as ServiceRow[];
@@ -348,8 +407,168 @@ export default async function ClientWorkingFilePage({
             : "Capture UIF registration confirmation";
 
   const activeServices = services.filter((service) => service.is_active !== false);
+
+  const activeDirectors = directors.filter(
+    (director) => director.is_active !== false
+  );
+
   const primaryContact =
     contacts.find((contact) => contact.is_primary) || contacts[0] || null;
+
+  const todayKey = localDateKey();
+  const workItems = tasks as any[];
+
+  const openWorkItems = workItems.filter(
+    (item) => !["completed", "cancelled"].includes(String(item.status || "").toLowerCase())
+  );
+
+  function complianceWorkStatus(
+    serviceCodes: string[],
+    fallbackLabel: string
+  ) {
+    const matching = openWorkItems
+      .filter((item) =>
+        serviceCodes.includes(String(item.service_code || ""))
+      )
+      .map((item) => {
+        const dateKey = item.due_date
+          ? String(item.due_date).slice(0, 10)
+          : item.start_at
+            ? localDateKey(new Date(item.start_at))
+            : null;
+
+        return { item, dateKey };
+      })
+      .sort((a, b) => {
+        if (a.dateKey && b.dateKey) return a.dateKey.localeCompare(b.dateKey);
+        if (a.dateKey) return -1;
+        if (b.dateKey) return 1;
+        return 0;
+      });
+
+    if (matching.length === 0) {
+      return {
+        note: "Up to date",
+        tone: "green" as const,
+      };
+    }
+
+    const next = matching[0];
+    const title = String(next.item.title || fallbackLabel);
+
+    if (!next.dateKey) {
+      return {
+        note: `${title} outstanding`,
+        tone: "amber" as const,
+      };
+    }
+
+    if (next.dateKey < todayKey) {
+      const today = new Date(`${todayKey}T00:00:00`);
+      const due = new Date(`${next.dateKey}T00:00:00`);
+      const days = Math.max(
+        1,
+        Math.round((today.getTime() - due.getTime()) / 86_400_000)
+      );
+
+      return {
+        note: `${title} overdue by ${days} ${days === 1 ? "day" : "days"}`,
+        tone: "red" as const,
+      };
+    }
+
+    if (next.dateKey === todayKey) {
+      return {
+        note: `${title} due today`,
+        tone: "amber" as const,
+      };
+    }
+
+    return {
+      note: `${title} due ${formatDate(next.dateKey)}`,
+      tone: "amber" as const,
+    };
+  }
+
+  const clientTodayItems = openWorkItems
+    .filter((item) => {
+      const scheduledToday =
+        item.start_at && localDateKey(new Date(item.start_at)) === todayKey;
+      return item.due_date === todayKey || scheduledToday;
+    })
+    .slice(0, 6);
+
+  const waitingOnClientItems = openWorkItems
+    .filter((item) => {
+      const waitingText = String(item.waiting_on || "").toLowerCase();
+      return (
+        String(item.status || "").toLowerCase() === "waiting" ||
+        waitingText.includes("client")
+      );
+    })
+    .slice(0, 5);
+
+
+  const nextWorkItem =
+    [...openWorkItems].sort((a, b) => {
+      const aKey = a.start_at || a.due_date || "9999-12-31";
+      const bKey = b.start_at || b.due_date || "9999-12-31";
+      return String(aKey).localeCompare(String(bKey));
+    })[0] || null;
+
+  const clientNextTitle =
+    !uifRegistered && uifNextAction !== "Registration complete"
+      ? `UIF Registration — ${uifNextAction}`
+      : nextWorkItem?.title || "No urgent client action";
+
+  const clientNextMeta =
+    !uifRegistered && uifNextAction !== "Registration complete"
+      ? "Continue the UIF registration workflow."
+      : nextWorkItem
+        ? [
+            nextWorkItem.service_code || nextWorkItem.work_type,
+            nextWorkItem.due_date ? `Due ${formatDate(nextWorkItem.due_date)}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : "This client has no open work needing immediate attention.";
+
+  const clientAttentionCount =
+    clientTodayItems.length + waitingOnClientItems.length;
+
+  const uifProgressSteps = [
+    uifInfoComplete,
+    uifEmployeesComplete,
+    uifDocumentsComplete,
+    uifSubmissionComplete,
+    uifRegistered,
+  ];
+
+  const uifProgressPercent = Math.round(
+    (uifProgressSteps.filter(Boolean).length / uifProgressSteps.length) * 100
+  );
+
+  const keyPeople = [
+    primaryContact
+      ? {
+          name: primaryContact.contact_name,
+          role: primaryContact.contact_position || "Primary contact",
+          email: primaryContact.email,
+          phone: primaryContact.mobile || primaryContact.phone,
+        }
+      : null,
+    ...activeDirectors.slice(0, 3).map((director: any) => ({
+      name: director.director_name,
+      role: "Director / office bearer",
+      email: director.email,
+      phone: director.phone,
+    })),
+  ].filter(Boolean) as Array<{
+    name: string;
+    role: string;
+    email?: string | null;
+    phone?: string | null;
+  }>;
 
   const physicalAddress =
     addresses.find((address) =>
@@ -362,10 +581,6 @@ export default async function ClientWorkingFilePage({
     addresses.find((address) =>
       ["postal", "post"].includes(String(address.address_type || "").toLowerCase())
     ) || null;
-
-  const activeDirectors = directors.filter(
-    (director) => director.is_active !== false
-  );
 
   const registrationOrId =
     client.registration_number || client.id_passport_number || "—";
@@ -429,29 +644,50 @@ export default async function ClientWorkingFilePage({
     0
   );
 
-  const queryErrors = [
-    contactsResult.error,
-    addressesResult.error,
-    servicesResult.error,
-    tasksResult.error,
-    directorsResult.error,
-    shareholdersResult.error,
-    mattersResult.error,
-    certificatesResult.error,
-    shareClassesResult.error,
-    transactionsResult.error,
-    statutoryProfileResult.error,
-    uifRegistrationResult.error,
-    uifEmployeesResult.error,
-  ].filter(Boolean);
+  const sectionErrors = {
+    overview: [
+      tasksResult.error,
+      contactsResult.error,
+      directorsResult.error,
+    ].filter(Boolean),
+    profile: [
+      contactsResult.error,
+      addressesResult.error,
+      servicesResult.error,
+      directorsResult.error,
+      shareholdersResult.error,
+      responsibilityUsersResult.error,
+    ].filter(Boolean),
+    services: [servicesResult.error].filter(Boolean),
+    tasks: [tasksResult.error].filter(Boolean),
+    people: [contactsResult.error, directorsResult.error].filter(Boolean),
+    registrations: [
+      statutoryProfileResult.error,
+      uifRegistrationResult.error,
+      uifEmployeesResult.error,
+    ].filter(Boolean),
+    secretarial: [
+      directorsResult.error,
+      shareholdersResult.error,
+      mattersResult.error,
+      certificatesResult.error,
+      shareClassesResult.error,
+      transactionsResult.error,
+    ].filter(Boolean),
+    documents: [],
+    activity: [tasksResult.error, mattersResult.error].filter(Boolean),
+  } as const;
+
+  const activeSectionErrors =
+    sectionErrors[activeTab as keyof typeof sectionErrors] || [];
 
   return (
     <div style={page}>
       <div style={workingFileBar}>
         <span style={workingFileLabel}>CLIENT WORKING FILE</span>
         <span style={divider}>|</span>
-        <Link href="/crm" style={crumbLink}>
-          Client Database
+        <Link href="/crm/clients" style={crumbLink}>
+          Clients
         </Link>
         <span style={divider}>|</span>
         <strong>{client.client_name}</strong>
@@ -504,17 +740,10 @@ export default async function ClientWorkingFilePage({
         </div>
       </section>
 
-      {queryErrors.length > 0 ? (
-        <div style={warningBar}>
-          The client loaded, but one or more related sections could not be
-          retrieved. We can fix the affected section without losing the client
-          record.
-        </div>
-      ) : null}
-
       <nav style={sectionNav}>
         {[
           ["overview", "Overview"],
+          ["profile", "Client Profile"],
           ["services", "Services"],
           ["tasks", "Tasks"],
           ["people", "People"],
@@ -540,96 +769,436 @@ export default async function ClientWorkingFilePage({
         })}
       </nav>
 
-            {activeTab === "overview" ? (
-<section id="overview" style={panel}>
-        <PanelHeader
-          number="01"
-          title="Overview"
-          subtitle="The core client information that drives PracticePilot."
-        />
-
-        <div style={twoColumn}>
-          <div style={detailSection}>
-            <h3 style={miniHeading}>Entity details</h3>
-
-            <DetailRow label="Legal name" value={client.client_name} />
-            <DetailRow label="Trading name" value={client.trading_name} />
-            <DetailRow label="Entity type" value={client.entity_type} />
-            <DetailRow label="Registration / ID" value={registrationOrId} />
-            <DetailRow
-              label="Registration date"
-              value={formatDate(client.registration_date)}
-            />
-            <DetailRow label="Financial year-end" value={client.year_end} />
-          </div>
-
-          <div style={detailSection}>
-            <h3 style={miniHeading}>Tax & statutory numbers</h3>
-
-            <DetailRow label="Income tax" value={client.tax_number} />
-            <DetailRow label="VAT" value={client.vat_number} />
-            <DetailRow label="PAYE" value={client.paye_number} />
-            <DetailRow
-              label="UIF"
-              value={client.uif_registration_number}
-            />
-            <DetailRow
-              label="Compensation Fund"
-              value={client.wcc_reference_number}
-            />
-            <DetailRow label="Customs" value={client.customs_number} />
-          </div>
+      {activeSectionErrors.length > 0 ? (
+        <div style={sectionWarningBar}>
+          <strong style={sectionWarningTitle}>
+            This section could not load completely.
+          </strong>
+          <span style={sectionWarningText}>
+            Some related information could not be retrieved. The client master
+            record is safe and the rest of the working file remains available.
+          </span>
         </div>
-
-        <div style={twoColumn}>
-          <div style={detailSection}>
-            <h3 style={miniHeading}>Primary contact</h3>
-
-            {primaryContact ? (
-              <>
-                <DetailRow
-                  label="Name"
-                  value={primaryContact.contact_name}
-                />
-                <DetailRow
-                  label="Position"
-                  value={primaryContact.contact_position}
-                />
-                <DetailRow label="Email" value={primaryContact.email} />
-                <DetailRow
-                  label="Telephone"
-                  value={primaryContact.mobile || primaryContact.phone}
-                />
-              </>
-            ) : (
-              <EmptyState text="No contact captured yet." />
-            )}
-          </div>
-
-          <div style={detailSection}>
-            <h3 style={miniHeading}>Addresses</h3>
-
-            {addresses.length ? (
-              addresses.map((address) => (
-                <div key={address.id} style={addressBlock}>
-                  <strong style={addressType}>{address.address_type}</strong>
-                  <div>{valueOrDash(address.line_1)}</div>
-                  {address.line_2 ? <div>{address.line_2}</div> : null}
-                  <div>
-                    {[address.city, address.province, address.postal_code]
-                      .filter(Boolean)
-                      .join(", ") || "—"}
-                  </div>
-                  {address.country ? <div>{address.country}</div> : null}
-                </div>
-              ))
-            ) : (
-              <EmptyState text="No addresses captured yet." />
-            )}
-          </div>
-        </div>
-      </section>
       ) : null}
+
+            {activeTab === "overview" ? (
+<section id="overview" style={clientHomeWrap}>
+  <section style={clientStatusStrip}>
+    {[
+      (() => {
+        const health = client.tax_number
+          ? complianceWorkStatus(["Income Tax", "Provisional Tax"], "Tax item")
+          : { note: "Registration not started", tone: "neutral" as const };
+
+        return {
+          label: "Tax",
+          value: client.tax_number ? "Registered" : "Not registered",
+          note: health.note,
+          tone: health.tone,
+        };
+      })(),
+      (() => {
+        const health = client.paye_number
+          ? complianceWorkStatus(["EMP201", "EMP501", "Payroll"], "PAYE item")
+          : { note: "Registration not started", tone: "neutral" as const };
+
+        return {
+          label: "PAYE",
+          value: client.paye_number ? "Registered" : "Not registered",
+          note: health.note,
+          tone: health.tone,
+        };
+      })(),
+      (() => {
+        const health = client.vat_number
+          ? complianceWorkStatus(["VAT201"], "VAT201")
+          : { note: "Registration not started", tone: "neutral" as const };
+
+        return {
+          label: "VAT",
+          value: client.vat_number ? "Registered" : "Not registered",
+          note: health.note,
+          tone: health.tone,
+        };
+      })(),
+      (() => {
+        const health = uifRegistered
+          ? complianceWorkStatus(["UIF"], "UIF item")
+          : uifRegistration
+            ? { note: uifNextAction, tone: "blue" as const }
+            : { note: "Registration not started", tone: "neutral" as const };
+
+        return {
+          label: "UIF",
+          value: uifRegistered
+            ? "Registered"
+            : uifRegistration
+              ? "In progress"
+              : "Not registered",
+          note: health.note,
+          tone: health.tone,
+        };
+      })(),
+      (() => {
+        const health = client.wcc_reference_number
+          ? complianceWorkStatus(["Workmans Compensation"], "COIDA item")
+          : { note: "Registration not started", tone: "neutral" as const };
+
+        return {
+          label: "COIDA",
+          value: client.wcc_reference_number ? "Registered" : "Not registered",
+          note: health.note,
+          tone: health.tone,
+        };
+      })(),
+    ].map((item) => (
+      <div key={item.label} style={clientStatusCell}>
+        <div
+          style={{
+            ...clientStatusIcon,
+            ...(item.tone === "green"
+              ? clientStatusGreen
+              : item.tone === "red"
+                ? clientStatusRed
+                : item.tone === "amber"
+                  ? clientStatusAmber
+                  : item.tone === "blue"
+                    ? clientStatusBlue
+                    : item.tone === "neutral"
+                      ? clientStatusNeutral
+                      : clientStatusNavy),
+          }}
+        >
+          {item.tone === "green"
+            ? "✓"
+            : item.tone === "red"
+              ? "!"
+              : item.tone === "amber"
+                ? "!"
+                : item.tone === "neutral"
+                  ? "—"
+                  : "•"}
+        </div>
+        <div>
+          <div style={clientStatusLabel}>{item.label}</div>
+          <div style={clientStatusValue}>{item.value}</div>
+          <div style={clientStatusNote}>{item.note}</div>
+        </div>
+      </div>
+    ))}
+  </section>
+
+  <div style={clientHomeGrid}>
+    <section style={clientHomePanel}>
+      <div style={clientHomePanelHeader}>
+        <div>
+          <h3 style={clientHomePanelTitle}>Today for this client</h3>
+          <p style={clientHomePanelSubtitle}>
+            Work due or scheduled for this client today.
+          </p>
+        </div>
+        <Link href="/crm/tasks" style={clientHomeTextLink}>
+          View all →
+        </Link>
+      </div>
+
+      <div style={clientTodayNextAction}>
+        <div>
+          <div style={clientTodayNextLabel}>Next action</div>
+          <strong style={clientTodayNextTitle}>{clientNextTitle}</strong>
+          <div style={clientTodayNextMeta}>{clientNextMeta}</div>
+        </div>
+
+        {!uifRegistered && uifNextAction !== "Registration complete" ? (
+          <Link
+            href={`/crm/client/${client.id}?tab=registrations&registration=uif`}
+            style={clientTodayNextButton}
+          >
+            Continue →
+          </Link>
+        ) : nextWorkItem ? (
+          <Link href="/crm/tasks" style={clientTodayNextButton}>
+            Open →
+          </Link>
+        ) : null}
+      </div>
+
+      {clientTodayItems.length ? (
+        <div>
+          {clientTodayItems.map((item: any) => (
+            <div key={item.id} style={clientWorkRow}>
+              <div>
+                <strong style={clientWorkTitle}>{item.title}</strong>
+                <div style={clientWorkMeta}>
+                  {formatStatus(item.service_code || item.work_type)}
+                </div>
+              </div>
+
+              <span style={clientWorkStatus}>
+                {formatStatus(item.status || "not_started")}
+              </span>
+
+              <div style={clientWorkDue}>
+                {item.start_at
+                  ? `${formatTime(item.start_at)}${
+                      item.end_at ? ` – ${formatTime(item.end_at)}` : ""
+                    }`
+                  : item.due_date === todayKey
+                    ? "Today"
+                    : formatDate(item.due_date)}
+              </div>
+
+              <Link href="/crm/tasks" style={clientHomeTextLink}>
+                Open →
+              </Link>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={clientHomeEmpty}>
+          Nothing is due or scheduled for this client today.
+        </div>
+      )}
+    </section>
+
+    <div style={clientHomeRightStack}>
+      <section style={clientHomePanel}>
+        <div style={clientHomePanelHeader}>
+          <div>
+            <h3 style={clientHomePanelTitle}>Waiting on client</h3>
+            <p style={clientHomePanelSubtitle}>
+              Work blocked until the client responds.
+            </p>
+          </div>
+          <Link href="/crm/tasks" style={clientHomeTextLink}>
+            View all →
+          </Link>
+        </div>
+
+        {waitingOnClientItems.length ? (
+          waitingOnClientItems.map((item: any) => (
+            <div key={item.id} style={clientWaitingRow}>
+              <div>
+                <strong style={clientWorkTitle}>{item.title}</strong>
+                <div style={clientWorkMeta}>
+                  {item.waiting_on
+                    ? `Waiting on ${item.waiting_on}`
+                    : formatStatus(item.service_code || item.work_type)}
+                </div>
+              </div>
+              <span style={clientWaitingBadge}>Waiting</span>
+            </div>
+          ))
+        ) : (
+          <div style={clientHomeEmpty}>Nothing is waiting on the client.</div>
+        )}
+      </section>
+
+
+    </div>
+
+    <section style={clientHomePanel}>
+      <div style={clientHomePanelHeader}>
+        <div>
+          <h3 style={clientHomePanelTitle}>Key people</h3>
+          <p style={clientHomePanelSubtitle}>
+            Client contacts and office bearers you are most likely to need.
+          </p>
+        </div>
+        <Link
+          href={`/crm/client/${client.id}?tab=people`}
+          style={clientHomeTextLink}
+        >
+          Manage →
+        </Link>
+      </div>
+
+      {keyPeople.length ? (
+        keyPeople.map((person) => (
+          <div key={`${person.name}-${person.role}`} style={clientPersonRow}>
+            <div style={clientPersonAvatar}>
+              {String(person.name || "?")
+                .split(/\s+/)
+                .slice(0, 2)
+                .map((part) => part[0])
+                .join("")
+                .toUpperCase()}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <strong style={clientWorkTitle}>{person.name}</strong>
+              <div style={clientWorkMeta}>{person.role}</div>
+              {person.email ? (
+                <div style={clientPersonContact}>{person.email}</div>
+              ) : null}
+              {person.phone ? (
+                <div style={clientPersonContact}>{person.phone}</div>
+              ) : null}
+            </div>
+          </div>
+        ))
+      ) : (
+        <div style={clientHomeEmpty}>No key people captured yet.</div>
+      )}
+    </section>
+  </div>
+
+</section>
+) : null}
+
+            {activeTab === "profile" ? (
+              <section id="profile" style={profilePage}>
+                <div style={profileHeader}>
+                  <div>
+                    <div style={clientHomeEyebrow}>Client Profile</div>
+                    <h2 style={profileTitle}>Client master information</h2>
+                    <p style={profileSubtitle}>
+                      The permanent facts PracticePilot uses across CRM, tax,
+                      compliance, secretarial and recurring work.
+                    </p>
+                  </div>
+
+                  <Link
+                    href={`/crm/edit-client?id=${client.id}`}
+                    style={secondaryButton}
+                  >
+                    Edit Client Details
+                  </Link>
+                </div>
+
+                <div style={profileGrid}>
+                  <section style={profileSection}>
+                    <div style={profileSectionHeader}>Entity details</div>
+                    <div style={profileFieldsGrid}>
+                      <ProfileField label="Legal / registered name" value={client.client_name} />
+                      <ProfileField label="Trading name" value={client.trading_name} />
+                      <ProfileField label="Entity type" value={client.entity_type} />
+                      <ProfileField label="Registration / ID number" value={registrationOrId} />
+                      <ProfileField label="Registration date" value={formatDate(client.registration_date)} />
+                      <ProfileField label="Financial year-end" value={client.year_end} />
+                      <ProfileField label="Internal client code" value={client.client_code} />
+                      <ProfileField label="Client status" value={client.status} />
+                    </div>
+                  </section>
+
+                  <section style={profileSection}>
+                    <div style={profileSectionHeader}>Primary contact</div>
+                    <div style={profileFieldsGrid}>
+                      <ProfileField label="Contact person" value={primaryContact?.contact_name} />
+                      <ProfileField label="Position" value={primaryContact?.contact_position} />
+                      <ProfileField label="Email" value={primaryContact?.email} />
+                      <ProfileField
+                        label="Telephone / cellphone"
+                        value={primaryContact?.mobile || primaryContact?.phone}
+                      />
+                    </div>
+                  </section>
+
+                  <section style={profileSection}>
+                    <div style={profileSectionHeader}>Addresses</div>
+                    <div style={profileAddressGrid}>
+                      <div style={profileAddressBlock}>
+                        <div style={profileLabel}>Physical address</div>
+                        <div style={profileAddressValue}>{formatAddress(physicalAddress)}</div>
+                      </div>
+                      <div style={profileAddressBlock}>
+                        <div style={profileLabel}>Postal address</div>
+                        <div style={profileAddressValue}>{formatAddress(postalAddress)}</div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section style={profileSection}>
+                    <div style={profileSectionHeader}>Tax & statutory registrations</div>
+                    <div style={profileFieldsGrid}>
+                      <ProfileField label="Income Tax number" value={client.tax_number} />
+                      <ProfileField label="VAT number" value={client.vat_number} />
+                      <ProfileField label="PAYE number" value={client.paye_number} />
+                      <ProfileField label="UIF number" value={client.uif_registration_number} />
+                      <ProfileField label="WCC / COIDA reference" value={client.wcc_reference_number} />
+                      <ProfileField label="Customs number" value={client.customs_number} />
+                      <ProfileField
+                        label="SDL"
+                        value={client.sdl_registered ? "Registered" : "Not recorded as registered"}
+                      />
+                    </div>
+                  </section>
+
+                  <section style={profileSection}>
+                    <div style={profileSectionHeader}>Practice responsibility</div>
+                    <div style={profileFieldsGrid}>
+                      <ProfileField label="Client lead" value={responsibilityName(client.client_lead_user_id)} />
+                      <ProfileField label="Manager" value={responsibilityName(client.manager_user_id)} />
+                      <ProfileField label="Partner" value={responsibilityName(client.partner_user_id)} />
+                    </div>
+                  </section>
+
+                  <section style={profileSection}>
+                    <div style={profileSectionHeader}>Active services</div>
+                    {activeServices.length ? (
+                      <div style={profileServicesGrid}>
+                        {activeServices.map((service) => {
+                          const master = relationOne(service.crm_services);
+                          return (
+                            <div key={service.id} style={profileServiceRow}>
+                              <div>
+                                <strong style={profileServiceName}>
+                                  {master?.service_name || "Service"}
+                                </strong>
+                                <div style={profileServiceMeta}>
+                                  {master?.service_group || "General"}
+                                </div>
+                              </div>
+                              <div style={profileServiceRight}>
+                                <span>{service.frequency || "—"}</span>
+                                <span>
+                                  {service.start_date
+                                    ? `From ${formatDate(service.start_date)}`
+                                    : "No first period"}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={profileEmpty}>No active services assigned.</div>
+                    )}
+                  </section>
+
+                  <section style={profileSection}>
+                    <div style={profileSectionHeader}>People & office bearers</div>
+                    <div style={profilePeopleSummary}>
+                      <div style={profilePeopleSummaryCell}>
+                        <strong style={profilePeopleSummaryNumber}>{contacts.length}</strong>
+                        <span style={profilePeopleSummaryLabel}>
+                          Contact{contacts.length === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <div style={profilePeopleSummaryCell}>
+                        <strong style={profilePeopleSummaryNumber}>{activeDirectors.length}</strong>
+                        <span style={profilePeopleSummaryLabel}>
+                          Director / office bearer records
+                        </span>
+                      </div>
+                      <div style={profilePeopleSummaryCell}>
+                        <strong style={profilePeopleSummaryNumber}>{shareholders.length}</strong>
+                        <span style={profilePeopleSummaryLabel}>
+                          Shareholder{shareholders.length === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={profileSectionFooter}>
+                      <Link
+                        href={`/crm/client/${client.id}?tab=people`}
+                        style={clientHomeTextLink}
+                      >
+                        Open people →
+                      </Link>
+                    </div>
+                  </section>
+                </div>
+              </section>
+            ) : null}
 
             {activeTab === "services" ? (
 <section id="services" style={panel}>
@@ -686,25 +1255,27 @@ export default async function ClientWorkingFilePage({
 
         {tasks.length ? (
           <div style={list}>
-            {tasks.map((task) => (
+            {tasks.map((task: any) => (
               <div key={task.id} style={taskRow}>
                 <div style={taskMain}>
-                  <strong style={rowTitle}>{task.task_title}</strong>
+                  <strong style={rowTitle}>{task.title}</strong>
                   <span style={rowMeta}>
-                    {task.service_name || "General task"}
+                    {formatStatus(task.service_code || task.work_type || "General")}
                   </span>
                 </div>
 
                 <div style={taskDue}>
                   <span style={statusPill}>
-                    {formatStatus(task.task_status)}
+                    {formatStatus(task.status)}
                   </span>
                   <span style={smallMuted}>
-                    Due: {formatDate(task.due_date)}
+                    {task.start_at
+                      ? `Scheduled: ${formatDate(localDateKey(new Date(task.start_at)))} ${formatTime(task.start_at)}`
+                      : `Due: ${formatDate(task.due_date)}`}
                   </span>
                 </div>
 
-                <Link href={`/crm/tasks/${task.id}`} style={textLink}>
+                <Link href="/crm/tasks" style={textLink}>
                   Open
                 </Link>
               </div>
@@ -783,7 +1354,16 @@ export default async function ClientWorkingFilePage({
       ) : null}
 
             {activeTab === "registrations" ? (
-              <section id="registrations" style={registrationWorkspace}>
+              activeRegistration === "uif" ? (
+<section id="registrations" style={registrationWorkspace}>
+                <div style={registrationBackRow}>
+                  <Link
+                    href={`/crm/client/${client.id}?tab=registrations`}
+                    style={clientHomeTextLink}
+                  >
+                    ← Back to registrations
+                  </Link>
+                </div>
                 <div style={registrationHero}>
                   <div>
                     <div style={eyebrow}>STATUTORY REGISTRATION</div>
@@ -1636,6 +2216,172 @@ export default async function ClientWorkingFilePage({
                   </details>
                 </form>
               </section>
+              ) : (
+                <section id="registrations" style={registrationHub}>
+                  <div style={registrationHubHeader}>
+                    <div>
+                      <div style={clientHomeEyebrow}>Registrations</div>
+                      <h2 style={registrationHubTitle}>Statutory Registration Hub</h2>
+                      <p style={registrationHubSubtitle}>
+                        Existing registration numbers are client master data. Start a guided workflow only where a registration still needs to be completed.
+                      </p>
+                    </div>
+                    <Link
+                      href={`/crm/edit-client?id=${client.id}`}
+                      style={secondaryButton}
+                    >
+                      Edit statutory details
+                    </Link>
+                  </div>
+
+                  <div style={registrationHubList}>
+                    {[
+                      {
+                        key: "income-tax",
+                        label: "Income Tax",
+                        authority: "SARS",
+                        number: client.tax_number,
+                        
+                      },
+                      {
+                        key: "vat",
+                        label: "VAT",
+                        authority: "SARS",
+                        number: client.vat_number,
+                        
+                      },
+                      {
+                        key: "paye",
+                        label: "PAYE",
+                        authority: "SARS",
+                        number: client.paye_number,
+                        
+                      },
+                      {
+                        key: "uif",
+                        label: "UIF",
+                        authority: "Department of Employment and Labour",
+                        number: client.uif_registration_number,
+                        
+                      },
+                      {
+                        key: "coida",
+                        label: "COIDA / Compensation Fund",
+                        authority: "Compensation Fund",
+                        number: client.wcc_reference_number,
+                        
+                      },
+                      {
+                        key: "customs",
+                        label: "Customs",
+                        authority: "SARS",
+                        number: client.customs_number,
+                        
+                      },
+                    ].map((item) => {
+                      const registered = Boolean(String(item.number || "").trim());
+                      const uifInProgress =
+                        item.key === "uif" &&
+                        !registered &&
+                        Boolean(uifRegistration);
+                      const needsRegistration =
+                        item.key === "uif" && !registered && !uifInProgress;
+
+                      return (
+                        <div key={item.key} style={registrationHubRow}>
+                          <div style={registrationHubIdentity}>
+                            <div
+                              style={{
+                                ...registrationHubIcon,
+                                ...(registered
+                                  ? registrationHubIconRegistered
+                                  : uifInProgress
+                                    ? registrationHubIconProgress
+                                    : needsRegistration
+                                      ? registrationHubIconMissing
+                                      : registrationHubIconNeutral),
+                              }}
+                            >
+                              {registered
+                                ? "✓"
+                                : uifInProgress
+                                  ? "→"
+                                  : needsRegistration
+                                    ? "!"
+                                    : "—"}
+                            </div>
+                            <div>
+                              <strong style={registrationHubItemTitle}>
+                                {item.label}
+                              </strong>
+                              <div style={registrationHubItemMeta}>{item.authority}</div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div style={registrationHubSmallLabel}>Status</div>
+                            <strong
+                              style={{
+                                ...registrationHubStatus,
+                                color: registered
+                                  ? "#2f7b4d"
+                                  : uifInProgress
+                                    ? "#2457d6"
+                                    : needsRegistration
+                                      ? "#996017"
+                                      : "#66737d",
+                              }}
+                            >
+                              {registered
+                                ? "Registered"
+                                : uifInProgress
+                                  ? "Registration in progress"
+                                  : needsRegistration
+                                    ? "Not registered"
+                                    : "Not registered"}
+                            </strong>
+                          </div>
+
+                          <div>
+                            <div style={registrationHubSmallLabel}>Registration number</div>
+                            <strong style={registrationHubNumber}>
+                              {registered ? item.number : "—"}
+                            </strong>
+                          </div>
+
+                          <div style={registrationHubAction}>
+                            {registered ? (
+                              <Link
+                                href={`/crm/edit-client?id=${client.id}`}
+                                style={registrationHubSecondaryAction}
+                              >
+                                Edit details
+                              </Link>
+                            ) : item.key === "uif" ? (
+                              <Link
+                                href={`/crm/client/${client.id}?tab=registrations&registration=uif`}
+                                style={registrationHubPrimaryAction}
+                              >
+                                {uifInProgress
+                                  ? "Continue registration →"
+                                  : "Start registration →"}
+                              </Link>
+                            ) : needsRegistration ? (
+                              <span style={registrationHubPlanned}>
+                                Workflow to be added
+                              </span>
+                            ) : (
+                              <span style={registrationHubNeutralText}>
+                                No workflow started
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )
             ) : null}
 
             {activeTab === "secretarial" ? (
@@ -1696,44 +2442,174 @@ export default async function ClientWorkingFilePage({
                   </div>
 
                   {issuedHoldings.length ? (
-                    <div style={ownershipGrid}>
-                      {issuedHoldings.map((holding) => {
-                        const percentage =
-                          totalIssuedShares > 0
-                            ? (holding.shares / totalIssuedShares) * 100
-                            : 0;
+                    <>
+                      <div style={ownershipMapHeader}>
+                        <div>
+                          <div style={ownershipMapEyebrow}>OWNERSHIP MAP</div>
+                          <div style={ownershipMapTitle}>
+                            Who owns this company?
+                          </div>
+                          <div style={ownershipMapSub}>
+                            {totalIssuedShares.toLocaleString("en-ZA")} issued shares ·{" "}
+                            {issuedHoldings.length} current holder
+                            {issuedHoldings.length === 1 ? "" : "s"}
+                          </div>
+                        </div>
 
-                        return (
-                          <div
-                            key={`${holding.shareholderId}-${holding.className}`}
-                            style={ownershipCard}
-                          >
-                            <div style={ownershipTop}>
-                              <strong style={ownershipName}>
+                        <div style={ownershipMapTotal}>
+                          <strong>100%</strong>
+                          <span>issued ownership</span>
+                        </div>
+                      </div>
+
+                      <div style={ownershipMosaic}>
+                        {issuedHoldings.map((holding, index) => {
+                          const percentage =
+                            totalIssuedShares > 0
+                              ? (holding.shares / totalIssuedShares) * 100
+                              : 0;
+
+                          const shareholderCertificates = (certificates as any[]).filter(
+                            (certificate) =>
+                              String(certificate.shareholder_id || "") ===
+                                holding.shareholderId &&
+                              ["issued", "draft"].includes(
+                                String(certificate.certificate_status || "").toLowerCase()
+                              )
+                          );
+
+                          const certificateNumbers = shareholderCertificates
+                            .map((certificate) =>
+                              String(certificate.certificate_number || "").trim()
+                            )
+                            .filter(Boolean);
+
+                          const initials = holding.shareholderName
+                            .split(/\s+/)
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .map((part) => part.charAt(0).toUpperCase())
+                            .join("");
+
+                          const tileStyles = [
+                            ownershipTileNavy,
+                            ownershipTileBlue,
+                            ownershipTileTeal,
+                            ownershipTileSlate,
+                            ownershipTileGreen,
+                          ];
+
+                          const tile = tileStyles[index % tileStyles.length];
+
+                          return (
+                            <div
+                              key={`map-${holding.shareholderId}-${holding.className}`}
+                              style={{
+                                ...ownershipMosaicTile,
+                                ...tile,
+                                flexGrow: Math.max(percentage, 12),
+                                flexBasis: `${Math.max(percentage, 18)}%`,
+                              }}
+                            >
+                              <div style={ownershipTileTop}>
+                                <div style={ownershipTileInitials}>
+                                  {initials || "SH"}
+                                </div>
+                                <div style={ownershipTileRank}>0{index + 1}</div>
+                              </div>
+
+                              <div style={ownershipTilePercent}>
+                                {percentage.toFixed(2)}%
+                              </div>
+
+                              <div style={ownershipTileName}>
                                 {holding.shareholderName}
+                              </div>
+
+                              <div style={ownershipTileClass}>
+                                {holding.className}
+                              </div>
+
+                              <div style={ownershipTileFooter}>
+                                <div>
+                                  <span>SHARES</span>
+                                  <strong>
+                                    {holding.shares.toLocaleString("en-ZA")}
+                                  </strong>
+                                </div>
+
+                                <div>
+                                  <span>
+                                    CERT{certificateNumbers.length === 1 ? "" : "S"}
+                                  </span>
+                                  <strong>
+                                    {certificateNumbers.length
+                                      ? certificateNumbers.join(", ")
+                                      : "—"}
+                                  </strong>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div style={ownershipLedger}>
+                        <div style={ownershipLedgerHeader}>
+                          <span>Shareholder</span>
+                          <span>Class</span>
+                          <span>Certificate</span>
+                          <span>Shares</span>
+                          <span>Ownership</span>
+                        </div>
+
+                        {issuedHoldings.map((holding, index) => {
+                          const percentage =
+                            totalIssuedShares > 0
+                              ? (holding.shares / totalIssuedShares) * 100
+                              : 0;
+
+                          const shareholderCertificates = (certificates as any[]).filter(
+                            (certificate) =>
+                              String(certificate.shareholder_id || "") ===
+                                holding.shareholderId &&
+                              ["issued", "draft"].includes(
+                                String(certificate.certificate_status || "").toLowerCase()
+                              )
+                          );
+
+                          const certificateNumbers = shareholderCertificates
+                            .map((certificate) =>
+                              String(certificate.certificate_number || "").trim()
+                            )
+                            .filter(Boolean);
+
+                          return (
+                            <div
+                              key={`ledger-${holding.shareholderId}-${holding.className}`}
+                              style={ownershipLedgerRow}
+                            >
+                              <span style={ownershipLedgerName}>
+                                <span style={ownershipLedgerRank}>0{index + 1}</span>
+                                {holding.shareholderName}
+                              </span>
+                              <span>{holding.className}</span>
+                              <span>
+                                {certificateNumbers.length
+                                  ? certificateNumbers.join(", ")
+                                  : "—"}
+                              </span>
+                              <strong>
+                                {holding.shares.toLocaleString("en-ZA")}
                               </strong>
-                              <strong style={ownershipPercent}>
+                              <strong style={ownershipLedgerPercent}>
                                 {percentage.toFixed(2)}%
                               </strong>
                             </div>
-
-                            <div style={ownershipMeta}>{holding.className}</div>
-                            <div style={ownershipShares}>
-                              {holding.shares.toLocaleString("en-ZA")} shares
-                            </div>
-
-                            <div style={ownershipBar}>
-                              <div
-                                style={{
-                                  ...ownershipBarFill,
-                                  width: `${Math.min(100, Math.max(0, percentage))}%`,
-                                }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    </>
                   ) : (
                     <EmptyState text="No issued shareholding recorded yet." />
                   )}
@@ -1812,6 +2688,21 @@ export default async function ClientWorkingFilePage({
         </div>
       </section>
       ) : null}
+    </div>
+  );
+}
+
+function ProfileField({
+  label,
+  value,
+}: {
+  label: string;
+  value: unknown;
+}) {
+  return (
+    <div style={profileField}>
+      <div style={profileLabel}>{label}</div>
+      <div style={profileValue}>{valueOrDash(value)}</div>
     </div>
   );
 }
@@ -2130,6 +3021,29 @@ const secondaryButton: React.CSSProperties = {
   borderColor: "#cbd5e1",
 };
 
+const sectionWarningBar: React.CSSProperties = {
+  marginTop: "8px",
+  padding: "9px 12px",
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  border: "1px solid #e8cf9e",
+  background: "#fffaf0",
+};
+
+const sectionWarningTitle: React.CSSProperties = {
+  color: "#8d5414",
+  fontSize: "11px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const sectionWarningText: React.CSSProperties = {
+  color: "#6d604f",
+  fontSize: "10px",
+  lineHeight: 1.45,
+};
+
 const warningBar: React.CSSProperties = {
   marginTop: "8px",
   padding: "10px",
@@ -2165,6 +3079,802 @@ const activeSectionNavLink: React.CSSProperties = {
   background: "#0f1f33",
   color: "#ffffff",
   borderRightColor: "#0f1f33",
+};
+
+const profilePage: React.CSSProperties = {
+  marginTop: "8px",
+  background: "#f7f7f4",
+  border: "1px solid #d7dfde",
+};
+
+const profileHeader: React.CSSProperties = {
+  minHeight: "90px",
+  padding: "18px 20px",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "18px",
+  background: "#ffffff",
+  borderBottom: "1px solid #dfe5e4",
+};
+
+const profileTitle: React.CSSProperties = {
+  margin: "5px 0 0",
+  color: "#10233a",
+  fontSize: "22px",
+  lineHeight: 1.2,
+  fontWeight: 900,
+};
+
+const profileSubtitle: React.CSSProperties = {
+  margin: "6px 0 0",
+  maxWidth: "760px",
+  color: "#65717d",
+  fontSize: "12px",
+  lineHeight: 1.5,
+};
+
+const profileGrid: React.CSSProperties = {
+  padding: "10px 12px",
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: "12px",
+};
+
+const profileSection: React.CSSProperties = {
+  minWidth: 0,
+  background: "#ffffff",
+  border: "1px solid #dfe5e4",
+};
+
+const profileSectionHeader: React.CSSProperties = {
+  padding: "11px 14px",
+  borderBottom: "1px solid #e5eae9",
+  color: "#10233a",
+  fontSize: "13px",
+  fontWeight: 900,
+};
+
+const profileFieldsGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+};
+
+const profileField: React.CSSProperties = {
+  minHeight: "64px",
+  padding: "10px 14px",
+  borderRight: "1px solid #edf0ef",
+  borderBottom: "1px solid #edf0ef",
+};
+
+const profileLabel: React.CSSProperties = {
+  color: "#697680",
+  fontSize: "10px",
+  fontWeight: 800,
+};
+
+const profileValue: React.CSSProperties = {
+  marginTop: "4px",
+  color: "#10233a",
+  fontSize: "12px",
+  fontWeight: 800,
+  lineHeight: 1.4,
+  overflowWrap: "anywhere",
+};
+
+const profileAddressGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+};
+
+const profileAddressBlock: React.CSSProperties = {
+  minHeight: "88px",
+  padding: "12px 14px",
+  borderRight: "1px solid #edf0ef",
+};
+
+const profileAddressValue: React.CSSProperties = {
+  marginTop: "5px",
+  color: "#10233a",
+  fontSize: "12px",
+  fontWeight: 700,
+  lineHeight: 1.5,
+};
+
+const profileServicesGrid: React.CSSProperties = {
+  display: "grid",
+};
+
+const profileServiceRow: React.CSSProperties = {
+  minHeight: "58px",
+  padding: "9px 14px",
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "12px",
+  alignItems: "center",
+  borderBottom: "1px solid #edf0ef",
+};
+
+const profileServiceName: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "11px",
+  fontWeight: 900,
+};
+
+const profileServiceMeta: React.CSSProperties = {
+  marginTop: "2px",
+  color: "#78838b",
+  fontSize: "9px",
+};
+
+const profileServiceRight: React.CSSProperties = {
+  display: "grid",
+  gap: "2px",
+  textAlign: "right",
+  color: "#586670",
+  fontSize: "9px",
+  fontWeight: 750,
+};
+
+const profilePeopleSummary: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+};
+
+const profilePeopleSummaryCell: React.CSSProperties = {
+  minHeight: "86px",
+  padding: "14px",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  gap: "3px",
+  borderRight: "1px solid #edf0ef",
+};
+
+const profilePeopleSummaryNumber: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "20px",
+  fontWeight: 900,
+};
+
+const profilePeopleSummaryLabel: React.CSSProperties = {
+  color: "#6f7b84",
+  fontSize: "10px",
+  lineHeight: 1.35,
+};
+
+const profileSectionFooter: React.CSSProperties = {
+  padding: "10px 14px",
+  borderTop: "1px solid #edf0ef",
+  display: "flex",
+  justifyContent: "flex-end",
+};
+
+const profileEmpty: React.CSSProperties = {
+  padding: "18px 14px",
+  color: "#7a858d",
+  fontSize: "11px",
+};
+
+const registrationHubIconNeutral: React.CSSProperties = {
+  background: "#f0f2f3",
+  color: "#6a7680",
+};
+
+const registrationHubNeutralText: React.CSSProperties = {
+  color: "#7a858d",
+  fontSize: "10px",
+  fontWeight: 750,
+};
+
+const clientHomeWrap: React.CSSProperties = {
+  marginTop: "8px",
+  display: "grid",
+  gap: "12px",
+};
+
+const clientTodayNextAction: React.CSSProperties = {
+  minHeight: "64px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "16px",
+  padding: "10px 14px",
+  background: "#fffaf1",
+  borderBottom: "1px solid #eadab8",
+};
+
+const clientTodayNextLabel: React.CSSProperties = {
+  color: "#7b6847",
+  fontSize: "10px",
+  fontWeight: 850,
+};
+
+const clientTodayNextTitle: React.CSSProperties = {
+  display: "block",
+  marginTop: "3px",
+  color: "#10233a",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const clientTodayNextMeta: React.CSSProperties = {
+  marginTop: "3px",
+  color: "#6d746f",
+  fontSize: "10px",
+};
+
+const clientTodayNextButton: React.CSSProperties = {
+  minHeight: "34px",
+  padding: "0 12px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "#10233a",
+  border: "1px solid #10233a",
+  color: "#ffffff",
+  textDecoration: "none",
+  fontSize: "10px",
+  fontWeight: 850,
+  whiteSpace: "nowrap",
+};
+
+const registrationHub: React.CSSProperties = {
+  marginTop: "8px",
+  background: "#ffffff",
+  border: "1px solid #d7dfde",
+};
+
+const registrationHubHeader: React.CSSProperties = {
+  minHeight: "102px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "20px",
+  padding: "18px 20px",
+  borderBottom: "1px solid #e3e8e7",
+};
+
+const registrationHubTitle: React.CSSProperties = {
+  margin: "5px 0 0",
+  color: "#10233a",
+  fontSize: "22px",
+  fontWeight: 900,
+};
+
+const registrationHubSubtitle: React.CSSProperties = {
+  maxWidth: "820px",
+  margin: "6px 0 0",
+  color: "#65717d",
+  fontSize: "12px",
+  lineHeight: 1.45,
+};
+
+const registrationHubList: React.CSSProperties = {
+  display: "grid",
+};
+
+const registrationHubRow: React.CSSProperties = {
+  minHeight: "78px",
+  display: "grid",
+  gridTemplateColumns: "minmax(240px, 1.35fr) minmax(170px, .8fr) minmax(220px, 1fr) minmax(190px, .85fr)",
+  gap: "16px",
+  alignItems: "center",
+  padding: "12px 18px",
+  borderBottom: "1px solid #e7eceb",
+};
+
+const registrationHubIdentity: React.CSSProperties = {
+  minWidth: 0,
+  display: "flex",
+  alignItems: "center",
+  gap: "11px",
+};
+
+const registrationHubIcon: React.CSSProperties = {
+  width: "34px",
+  height: "34px",
+  flex: "0 0 34px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "50%",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const registrationHubIconRegistered: React.CSSProperties = {
+  background: "#e9f6ee",
+  color: "#2f7b4d",
+};
+
+const registrationHubIconProgress: React.CSSProperties = {
+  background: "#eaf2ff",
+  color: "#2457d6",
+};
+
+const registrationHubIconMissing: React.CSSProperties = {
+  background: "#fff4df",
+  color: "#996017",
+};
+
+const registrationHubItemTitle: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const registrationHubItemMeta: React.CSSProperties = {
+  marginTop: "3px",
+  color: "#74808a",
+  fontSize: "10px",
+};
+
+const registrationHubSmallLabel: React.CSSProperties = {
+  color: "#74808a",
+  fontSize: "9px",
+  fontWeight: 750,
+};
+
+const registrationHubStatus: React.CSSProperties = {
+  display: "block",
+  marginTop: "3px",
+  fontSize: "11px",
+  fontWeight: 900,
+};
+
+const registrationHubNumber: React.CSSProperties = {
+  display: "block",
+  marginTop: "3px",
+  color: "#10233a",
+  fontSize: "11px",
+  fontWeight: 850,
+};
+
+const registrationHubAction: React.CSSProperties = {
+  justifySelf: "end",
+};
+
+const registrationHubPrimaryAction: React.CSSProperties = {
+  minHeight: "34px",
+  padding: "0 12px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "#10233a",
+  border: "1px solid #10233a",
+  color: "#ffffff",
+  textDecoration: "none",
+  fontSize: "10px",
+  fontWeight: 850,
+  whiteSpace: "nowrap",
+};
+
+const registrationHubSecondaryAction: React.CSSProperties = {
+  minHeight: "34px",
+  padding: "0 12px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "#ffffff",
+  border: "1px solid #cfd8d7",
+  color: "#10233a",
+  textDecoration: "none",
+  fontSize: "10px",
+  fontWeight: 850,
+  whiteSpace: "nowrap",
+};
+
+const registrationHubPlanned: React.CSSProperties = {
+  color: "#7a858d",
+  fontSize: "10px",
+  fontWeight: 750,
+};
+
+const registrationBackRow: React.CSSProperties = {
+  padding: "10px 18px",
+  background: "#ffffff",
+  borderBottom: "1px solid #e3e8e7",
+};
+
+const clientNextPanel: React.CSSProperties = {
+  minHeight: "176px",
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1.35fr) minmax(360px, .85fr)",
+  background: "#ffffff",
+  border: "1px solid #d7dfde",
+};
+
+const clientNextMain: React.CSSProperties = {
+  padding: "22px 24px",
+  borderRight: "1px solid #e3e8e7",
+};
+
+const clientHomeEyebrow: React.CSSProperties = {
+  color: "#5c6f67",
+  fontSize: "11px",
+  fontWeight: 850,
+};
+
+const clientNextTitleStyle: React.CSSProperties = {
+  margin: "8px 0 0",
+  color: "#10233a",
+  fontSize: "24px",
+  lineHeight: 1.2,
+  fontWeight: 900,
+};
+
+const clientNextMetaStyle: React.CSSProperties = {
+  maxWidth: "720px",
+  margin: "8px 0 0",
+  color: "#65717d",
+  fontSize: "13px",
+  lineHeight: 1.5,
+};
+
+const clientNextActions: React.CSSProperties = {
+  marginTop: "20px",
+  display: "flex",
+  alignItems: "center",
+  gap: "18px",
+  flexWrap: "wrap",
+};
+
+const clientHomePrimaryButton: React.CSSProperties = {
+  minHeight: "38px",
+  padding: "0 15px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #09172a",
+  background: "#10233a",
+  color: "#ffffff",
+  textDecoration: "none",
+  fontSize: "12px",
+  fontWeight: 850,
+};
+
+const clientHomeTextLink: React.CSSProperties = {
+  color: "#2457d6",
+  textDecoration: "none",
+  fontSize: "11px",
+  fontWeight: 850,
+  whiteSpace: "nowrap",
+};
+
+const clientProgressArea: React.CSSProperties = {
+  padding: "22px 24px",
+  background: "#fbfcfb",
+};
+
+const clientProgressTop: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "12px",
+  color: "#465763",
+  fontSize: "11px",
+  fontWeight: 800,
+};
+
+const clientProgressTrack: React.CSSProperties = {
+  height: "6px",
+  marginTop: "10px",
+  background: "#e8edec",
+  overflow: "hidden",
+};
+
+const clientProgressFill: React.CSSProperties = {
+  height: "100%",
+  background: "#2457d6",
+};
+
+const clientProgressSteps: React.CSSProperties = {
+  marginTop: "15px",
+  display: "grid",
+  gap: "8px",
+};
+
+const clientProgressStep: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  color: "#52616b",
+  fontSize: "11px",
+  fontWeight: 750,
+};
+
+const clientProgressDot: React.CSSProperties = {
+  width: "22px",
+  height: "22px",
+  flex: "0 0 22px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #cfd8d7",
+  borderRadius: "50%",
+  background: "#ffffff",
+  color: "#6c7881",
+  fontSize: "10px",
+  fontWeight: 900,
+};
+
+const clientProgressDotDone: React.CSSProperties = {
+  borderColor: "#9ecfb0",
+  background: "#edf7f0",
+  color: "#2e7148",
+};
+
+const clientStatusStrip: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+  background: "#ffffff",
+  border: "1px solid #d7dfde",
+};
+
+const clientStatusCell: React.CSSProperties = {
+  minWidth: 0,
+  minHeight: "82px",
+  display: "grid",
+  gridTemplateColumns: "34px minmax(0, 1fr)",
+  gap: "10px",
+  alignItems: "center",
+  padding: "12px",
+  borderRight: "1px solid #e6ebea",
+};
+
+const clientStatusIcon: React.CSSProperties = {
+  width: "32px",
+  height: "32px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "50%",
+  fontSize: "13px",
+  fontWeight: 900,
+};
+
+const clientStatusGreen: React.CSSProperties = {
+  background: "#e9f6ee",
+  color: "#2f7b4d",
+};
+
+const clientStatusRed: React.CSSProperties = {
+  background: "#fde9e7",
+  color: "#b42318",
+};
+
+const clientStatusAmber: React.CSSProperties = {
+  background: "#fff4df",
+  color: "#ae6913",
+};
+
+const clientStatusBlue: React.CSSProperties = {
+  background: "#eaf2ff",
+  color: "#2457d6",
+};
+
+const clientStatusNavy: React.CSSProperties = {
+  background: "#eef1f4",
+  color: "#10233a",
+};
+
+
+const clientStatusNeutral: React.CSSProperties = {
+  background: "#f0f2f3",
+  color: "#6a7680",
+};
+
+
+const clientStatusLabel: React.CSSProperties = {
+  color: "#53616d",
+  fontSize: "10px",
+  fontWeight: 800,
+};
+
+const clientStatusValue: React.CSSProperties = {
+  marginTop: "2px",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  color: "#10233a",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const clientStatusNote: React.CSSProperties = {
+  marginTop: "3px",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  color: "#7a858d",
+  fontSize: "9px",
+};
+
+const clientHomeGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1.55fr) minmax(320px, .9fr) minmax(280px, .75fr)",
+  gap: "12px",
+  alignItems: "start",
+};
+
+const clientHomeRightStack: React.CSSProperties = {
+  display: "grid",
+  gap: "12px",
+};
+
+const clientHomePanel: React.CSSProperties = {
+  minWidth: 0,
+  background: "#ffffff",
+  border: "1px solid #d7dfde",
+};
+
+const clientHomePanelHeader: React.CSSProperties = {
+  minHeight: "58px",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "14px",
+  padding: "10px 14px",
+  borderBottom: "1px solid #e5eae9",
+};
+
+const clientHomePanelTitle: React.CSSProperties = {
+  margin: 0,
+  color: "#10233a",
+  fontSize: "15px",
+  fontWeight: 900,
+};
+
+const clientHomePanelSubtitle: React.CSSProperties = {
+  margin: "3px 0 0",
+  color: "#74808a",
+  fontSize: "10px",
+};
+
+const clientWorkRow: React.CSSProperties = {
+  minHeight: "62px",
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1.7fr) 110px 100px 58px",
+  gap: "10px",
+  alignItems: "center",
+  padding: "9px 14px",
+  borderBottom: "1px solid #e7eceb",
+};
+
+const clientWorkTitle: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "11px",
+  fontWeight: 900,
+};
+
+const clientWorkMeta: React.CSSProperties = {
+  marginTop: "3px",
+  color: "#74808a",
+  fontSize: "9px",
+};
+
+const clientWorkStatus: React.CSSProperties = {
+  justifySelf: "start",
+  padding: "4px 7px",
+  background: "#eef3f9",
+  border: "1px solid #d5e0eb",
+  color: "#2d5577",
+  fontSize: "9px",
+  fontWeight: 850,
+};
+
+const clientWorkDue: React.CSSProperties = {
+  color: "#52616b",
+  fontSize: "10px",
+  fontWeight: 800,
+};
+
+const clientWaitingRow: React.CSSProperties = {
+  minHeight: "58px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  padding: "9px 14px",
+  borderBottom: "1px solid #e7eceb",
+};
+
+const clientWaitingBadge: React.CSSProperties = {
+  padding: "4px 7px",
+  background: "#fff4df",
+  border: "1px solid #edd5aa",
+  color: "#996017",
+  fontSize: "9px",
+  fontWeight: 850,
+};
+
+const clientActivityRow: React.CSSProperties = {
+  minHeight: "54px",
+  display: "grid",
+  gridTemplateColumns: "26px minmax(0, 1fr)",
+  gap: "8px",
+  alignItems: "center",
+  padding: "8px 14px",
+  borderBottom: "1px solid #e7eceb",
+};
+
+const clientActivityDot: React.CSSProperties = {
+  width: "22px",
+  height: "22px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "50%",
+  background: "#eef2f5",
+  color: "#50616c",
+  fontSize: "10px",
+  fontWeight: 900,
+};
+
+const clientActivityDotDone: React.CSSProperties = {
+  background: "#e9f6ee",
+  color: "#2f7b4d",
+};
+
+const clientPersonRow: React.CSSProperties = {
+  minHeight: "68px",
+  display: "grid",
+  gridTemplateColumns: "38px minmax(0, 1fr)",
+  gap: "10px",
+  alignItems: "center",
+  padding: "10px 14px",
+  borderBottom: "1px solid #e7eceb",
+};
+
+const clientPersonAvatar: React.CSSProperties = {
+  width: "36px",
+  height: "36px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "50%",
+  background: "#edf2f6",
+  color: "#10233a",
+  fontSize: "10px",
+  fontWeight: 900,
+};
+
+const clientPersonContact: React.CSSProperties = {
+  marginTop: "2px",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  color: "#53616d",
+  fontSize: "9px",
+};
+
+const clientHomeEmpty: React.CSSProperties = {
+  padding: "26px 14px",
+  color: "#7a858d",
+  fontSize: "11px",
+};
+
+const clientHomeSnapshot: React.CSSProperties = {
+  minHeight: "58px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "14px",
+  padding: "10px 14px",
+  background: "#fffaf1",
+  border: "1px solid #eadab8",
+};
+
+const clientSnapshotTitle: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "11px",
+  fontWeight: 900,
+};
+
+const clientSnapshotText: React.CSSProperties = {
+  marginTop: "3px",
+  color: "#6d746f",
+  fontSize: "10px",
 };
 
 const panel: React.CSSProperties = {
@@ -2502,6 +4212,492 @@ const secretarialHeading: React.CSSProperties = {
   fontSize: "13px",
   color: "#0f2942",
   fontWeight: 900,
+};
+
+const ownershipMapHeader: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-end",
+  justifyContent: "space-between",
+  gap: "18px",
+  margin: "12px 0 10px",
+};
+
+const ownershipMapEyebrow: React.CSSProperties = {
+  color: "#51708a",
+  fontSize: "8px",
+  fontWeight: 900,
+  letterSpacing: "0.16em",
+};
+
+const ownershipMapTitle: React.CSSProperties = {
+  marginTop: "3px",
+  color: "#10233a",
+  fontSize: "18px",
+  fontWeight: 900,
+  letterSpacing: "-0.02em",
+};
+
+const ownershipMapSub: React.CSSProperties = {
+  marginTop: "3px",
+  color: "#6f7c88",
+  fontSize: "10px",
+};
+
+const ownershipMapTotal: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-end",
+  color: "#10233a",
+};
+
+const ownershipMosaic: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "8px",
+  minHeight: "210px",
+};
+
+const ownershipMosaicTile: React.CSSProperties = {
+  minWidth: "210px",
+  minHeight: "205px",
+  padding: "16px",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "space-between",
+  color: "#ffffff",
+  border: "1px solid rgba(0,0,0,0.05)",
+};
+
+const ownershipTileNavy: React.CSSProperties = {
+  background: "linear-gradient(145deg, #10233a 0%, #183a5a 100%)",
+};
+
+const ownershipTileBlue: React.CSSProperties = {
+  background: "linear-gradient(145deg, #1d4ed8 0%, #356ae6 100%)",
+};
+
+const ownershipTileTeal: React.CSSProperties = {
+  background: "linear-gradient(145deg, #0f8fa3 0%, #18a6b9 100%)",
+};
+
+const ownershipTileSlate: React.CSSProperties = {
+  background: "linear-gradient(145deg, #526273 0%, #71808d 100%)",
+};
+
+const ownershipTileGreen: React.CSSProperties = {
+  background: "linear-gradient(145deg, #2f855a 0%, #3d9b6b 100%)",
+};
+
+const ownershipTileTop: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+};
+
+const ownershipTileInitials: React.CSSProperties = {
+  width: "34px",
+  height: "34px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "rgba(255,255,255,0.14)",
+  border: "1px solid rgba(255,255,255,0.22)",
+  fontSize: "10px",
+  fontWeight: 900,
+};
+
+const ownershipTileRank: React.CSSProperties = {
+  fontSize: "9px",
+  fontWeight: 900,
+  letterSpacing: "0.12em",
+  opacity: 0.65,
+};
+
+const ownershipTilePercent: React.CSSProperties = {
+  marginTop: "20px",
+  fontSize: "34px",
+  lineHeight: 1,
+  fontWeight: 900,
+  letterSpacing: "-0.04em",
+};
+
+const ownershipTileName: React.CSSProperties = {
+  marginTop: "9px",
+  fontSize: "13px",
+  fontWeight: 900,
+  lineHeight: 1.25,
+};
+
+const ownershipTileClass: React.CSSProperties = {
+  marginTop: "3px",
+  fontSize: "9px",
+  opacity: 0.72,
+};
+
+const ownershipTileFooter: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "12px",
+  marginTop: "18px",
+  paddingTop: "11px",
+  borderTop: "1px solid rgba(255,255,255,0.22)",
+};
+
+const ownershipLedger: React.CSSProperties = {
+  marginTop: "10px",
+  border: "1px solid #d8e0e6",
+  background: "#ffffff",
+};
+
+const ownershipLedgerHeader: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "2fr 1.4fr 0.8fr 0.7fr 0.7fr",
+  gap: "12px",
+  padding: "9px 12px",
+  background: "#f3f6f8",
+  borderBottom: "1px solid #d8e0e6",
+  color: "#6f7c88",
+  fontSize: "8px",
+  fontWeight: 900,
+};
+
+const ownershipLedgerRow: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "2fr 1.4fr 0.8fr 0.7fr 0.7fr",
+  gap: "12px",
+  alignItems: "center",
+  padding: "9px 12px",
+  borderBottom: "1px solid #edf1f4",
+  color: "#40515d",
+  fontSize: "9px",
+};
+
+const ownershipLedgerName: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  color: "#10233a",
+  fontWeight: 900,
+};
+
+const ownershipLedgerRank: React.CSSProperties = {
+  color: "#98a4ae",
+  fontSize: "8px",
+  letterSpacing: "0.08em",
+};
+
+const ownershipLedgerPercent: React.CSSProperties = {
+  color: "#1d4ed8",
+  textAlign: "right",
+};
+
+const ownershipHero: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "18px",
+  padding: "16px 18px",
+  margin: "12px 0 0",
+  background: "#10233a",
+  color: "#ffffff",
+  border: "1px solid #10233a",
+};
+
+const ownershipHeroCopy: React.CSSProperties = {
+  minWidth: 0,
+};
+
+const ownershipEyebrow: React.CSSProperties = {
+  fontSize: "8px",
+  fontWeight: 900,
+  letterSpacing: "0.14em",
+  color: "#9fb6c9",
+};
+
+const ownershipHeroTitle: React.CSSProperties = {
+  marginTop: "4px",
+  fontSize: "20px",
+  fontWeight: 900,
+  letterSpacing: "-0.02em",
+};
+
+const ownershipHeroSub: React.CSSProperties = {
+  marginTop: "3px",
+  fontSize: "10px",
+  color: "#c7d3dd",
+};
+
+const ownershipHeroStat: React.CSSProperties = {
+  minWidth: "120px",
+  paddingLeft: "18px",
+  borderLeft: "1px solid rgba(255,255,255,0.18)",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-end",
+};
+
+const ownershipCompositionBar: React.CSSProperties = {
+  display: "flex",
+  height: "30px",
+  overflow: "hidden",
+  borderLeft: "1px solid #d8e0e6",
+  borderRight: "1px solid #d8e0e6",
+};
+
+const ownershipSegment: React.CSSProperties = {
+  minWidth: "18px",
+  height: "100%",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#ffffff",
+  fontSize: "9px",
+  fontWeight: 900,
+  borderRight: "2px solid #ffffff",
+};
+
+const ownershipSegmentNavy: React.CSSProperties = { background: "#10233a" };
+const ownershipSegmentBlue: React.CSSProperties = { background: "#1d4ed8" };
+const ownershipSegmentTeal: React.CSSProperties = { background: "#0f8fa3" };
+const ownershipSegmentSlate: React.CSSProperties = { background: "#64748b" };
+const ownershipSegmentGreen: React.CSSProperties = { background: "#2f855a" };
+
+const ownershipLegendGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "0",
+  border: "1px solid #d8e0e6",
+  borderTop: "none",
+  background: "#f8fafb",
+  marginBottom: "12px",
+};
+
+const ownershipLegendItem: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "10px minmax(0, 1fr) auto",
+  alignItems: "center",
+  gap: "7px",
+  padding: "8px 10px",
+  borderRight: "1px solid #e5eaee",
+  fontSize: "9px",
+  color: "#526273",
+};
+
+const ownershipLegendSwatch: React.CSSProperties = {
+  width: "8px",
+  height: "8px",
+  display: "inline-block",
+};
+
+const ownershipDotNavy: React.CSSProperties = { background: "#10233a" };
+const ownershipDotBlue: React.CSSProperties = { background: "#1d4ed8" };
+const ownershipDotTeal: React.CSSProperties = { background: "#0f8fa3" };
+const ownershipDotSlate: React.CSSProperties = { background: "#64748b" };
+const ownershipDotGreen: React.CSSProperties = { background: "#2f855a" };
+
+const ownershipGridFunky: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))",
+  gap: "10px",
+};
+
+const ownershipCardFunky: React.CSSProperties = {
+  position: "relative",
+  overflow: "hidden",
+  border: "1px solid #d8e0e6",
+  background: "#ffffff",
+};
+
+const ownershipAccent: React.CSSProperties = {
+  height: "5px",
+  width: "100%",
+};
+
+const ownershipAccentNavy: React.CSSProperties = { background: "#10233a" };
+const ownershipAccentBlue: React.CSSProperties = { background: "#1d4ed8" };
+const ownershipAccentTeal: React.CSSProperties = { background: "#0f8fa3" };
+const ownershipAccentSlate: React.CSSProperties = { background: "#64748b" };
+const ownershipAccentGreen: React.CSSProperties = { background: "#2f855a" };
+
+const ownershipCardMain: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "32px 42px minmax(0, 1fr) auto",
+  gap: "10px",
+  alignItems: "center",
+  padding: "14px 14px 12px",
+};
+
+const ownershipRank: React.CSSProperties = {
+  fontSize: "9px",
+  fontWeight: 900,
+  color: "#9aa6b2",
+  letterSpacing: "0.08em",
+};
+
+const ownershipAvatarLarge: React.CSSProperties = {
+  width: "42px",
+  height: "42px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "#eef3f6",
+  border: "1px solid #d8e0e6",
+  color: "#10233a",
+  fontSize: "11px",
+  fontWeight: 900,
+};
+
+const ownershipCardIdentity: React.CSSProperties = {
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: "3px",
+};
+
+const ownershipNameLarge: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "12px",
+  fontWeight: 900,
+  lineHeight: 1.2,
+};
+
+const ownershipClassLabel: React.CSSProperties = {
+  color: "#7b8792",
+  fontSize: "9px",
+};
+
+const ownershipPercentBlock: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-end",
+  minWidth: "82px",
+};
+
+const ownershipCardBottom: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "90px 120px minmax(80px, 1fr)",
+  gap: "16px",
+  alignItems: "end",
+  padding: "10px 14px 12px",
+  borderTop: "1px solid #edf1f4",
+  background: "#fbfcfd",
+};
+
+const ownershipMiniBarWrap: React.CSSProperties = {
+  minWidth: 0,
+  paddingBottom: "3px",
+};
+
+const ownershipMiniBarTrack: React.CSSProperties = {
+  height: "6px",
+  background: "#e8edf2",
+  overflow: "hidden",
+};
+
+const ownershipMiniBarFill: React.CSSProperties = {
+  height: "100%",
+};
+
+const ownershipSnapshotHeader: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-end",
+  justifyContent: "space-between",
+  gap: "16px",
+  margin: "12px 0 10px",
+};
+
+const ownershipSnapshotTitle: React.CSSProperties = {
+  display: "block",
+  color: "#10233a",
+  fontSize: "13px",
+  fontWeight: 900,
+};
+
+const ownershipSnapshotLegend: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "6px",
+  color: "#6f7c88",
+  fontSize: "9px",
+  whiteSpace: "nowrap",
+};
+
+const ownershipLegendDot: React.CSSProperties = {
+  width: "8px",
+  height: "8px",
+  background: "#1d4ed8",
+  display: "inline-block",
+};
+
+const ownershipCardEnhanced: React.CSSProperties = {
+  border: "1px solid #d9e0e6",
+  background: "#ffffff",
+  padding: "12px",
+};
+
+const ownershipIdentityRow: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "34px minmax(0, 1fr) auto",
+  gap: "10px",
+  alignItems: "center",
+};
+
+const ownershipAvatar: React.CSSProperties = {
+  width: "34px",
+  height: "34px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #d9e0e6",
+  background: "#eef3f6",
+  color: "#10233a",
+  fontSize: "10px",
+  fontWeight: 900,
+};
+
+const ownershipIdentityText: React.CSSProperties = {
+  minWidth: 0,
+};
+
+const ownershipPercentEnhanced: React.CSSProperties = {
+  color: "#1d4ed8",
+  fontSize: "18px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const ownershipFactsRow: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "140px minmax(0, 1fr)",
+  gap: "14px",
+  marginTop: "12px",
+  paddingTop: "10px",
+  borderTop: "1px solid #edf1f4",
+};
+
+const ownershipFact: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "2px",
+};
+
+const ownershipFactLabel: React.CSSProperties = {
+  color: "#7a8791",
+  fontSize: "8px",
+  fontWeight: 800,
+};
+
+const ownershipFactValue: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "13px",
+  fontWeight: 900,
+};
+
+const ownershipFactValueSmall: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "10px",
+  fontWeight: 800,
+  lineHeight: 1.35,
 };
 
 const ownershipGrid: React.CSSProperties = {
