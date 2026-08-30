@@ -449,6 +449,106 @@ async function refreshExistingTrialBalance(
   };
 }
 
+
+async function syncRolloverHistory(
+  supabase: any,
+  sourceEngagementId: string,
+  targetEngagementId: string,
+  organisationId: string,
+  sourceFinancialYearEnd: string,
+  sourceTrialBalance: AnyRow[],
+) {
+  /*
+    TB History is part of the accounting engine. Print Studio uses it to
+    reconstruct comparative cash-flow movements.
+
+    A Next Flight therefore carries forward all older history and also stores
+    the source engagement's FINAL TB as the newest historical snapshot.
+  */
+  const { data: sourceHistory, error: sourceHistoryError } = await supabase
+    .from("afs_trial_balance_history")
+    .select("*")
+    .eq("engagement_id", sourceEngagementId)
+    .order("financial_year_end", { ascending: true })
+    .order("account_code", { ascending: true });
+
+  if (sourceHistoryError) throw sourceHistoryError;
+
+  const historyByKey = new Map<string, AnyRow>();
+
+  for (const row of sourceHistory || []) {
+    const financialYearEnd = String(row.financial_year_end || "").trim();
+    const accountCode = String(row.account_code || "").trim();
+    if (!financialYearEnd || !accountCode) continue;
+
+    historyByKey.set(`${financialYearEnd}|${accountCode.toUpperCase()}`, {
+      organisation_id: organisationId,
+      engagement_id: targetEngagementId,
+      source_engagement_id: row.source_engagement_id || sourceEngagementId,
+      trial_balance_line_id: null,
+      financial_year_end: financialYearEnd,
+      account_code: accountCode,
+      account_name: cleanText(row.account_name),
+      closing_balance: roundMoney(row.closing_balance),
+      mapping_code: cleanText(row.mapping_code),
+      mapping_label: cleanText(row.mapping_label),
+      mapping_statement: cleanText(row.mapping_statement),
+      mapping_section: cleanText(row.mapping_section),
+      mapping_path: cleanText(row.mapping_path),
+      lead_schedule_number: cleanText(row.lead_schedule_number),
+      lead_schedule_key: cleanText(row.lead_schedule_key),
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  for (const line of sourceTrialBalance) {
+    const accountCode = String(line.account_code || "").trim();
+    if (!accountCode) continue;
+
+    historyByKey.set(
+      `${sourceFinancialYearEnd}|${accountCode.toUpperCase()}`,
+      {
+        organisation_id: organisationId,
+        engagement_id: targetEngagementId,
+        source_engagement_id: sourceEngagementId,
+        trial_balance_line_id: null,
+        financial_year_end: sourceFinancialYearEnd,
+        account_code: accountCode,
+        account_name: cleanText(line.account_name),
+        closing_balance: roundMoney(getFinalBalance(line)),
+        mapping_code: cleanText(line.mapping_code),
+        mapping_label: cleanText(line.mapping_label),
+        mapping_statement: cleanText(line.mapping_statement),
+        mapping_section: cleanText(line.mapping_section),
+        mapping_path: cleanText(line.mapping_path),
+        lead_schedule_number: cleanText(line.lead_schedule_number),
+        lead_schedule_key: cleanText(line.lead_schedule_key),
+        updated_at: new Date().toISOString(),
+      },
+    );
+  }
+
+  const rows = Array.from(historyByKey.values());
+
+  const { error: deleteError } = await supabase
+    .from("afs_trial_balance_history")
+    .delete()
+    .eq("engagement_id", targetEngagementId)
+    .lte("financial_year_end", sourceFinancialYearEnd);
+
+  if (deleteError) throw deleteError;
+
+  if (rows.length > 0) {
+    const { error: insertError } = await supabase
+      .from("afs_trial_balance_history")
+      .insert(rows);
+
+    if (insertError) throw insertError;
+  }
+
+  return rows.length;
+}
+
 async function createNewRollover(
   supabase: any,
   sourceEngagement: AnyRow,
@@ -642,6 +742,15 @@ async function createNewRollover(
       if (error) throw error;
     }
 
+    const historyRowsCopied = await syncRolloverHistory(
+      supabase,
+      sourceEngagementId,
+      newEngagementId as string,
+      organisationId,
+      String(sourceEngagement.financial_year_end || ""),
+      sourceTrialBalance,
+    );
+
     if (printStudioResult.data) {
       const sourceSettings = printStudioResult.data;
 
@@ -681,6 +790,7 @@ async function createNewRollover(
         clientSetup: Boolean(setupResult.data),
         people: sourcePeople.length,
         trialBalanceLines: sourceTrialBalance.length,
+        trialBalanceHistoryRows: historyRowsCopied,
         printStudioSettings: Boolean(printStudioResult.data),
         closingTransfer,
       },
@@ -788,6 +898,15 @@ export async function POST(
         existingEngagement.id,
       );
 
+      const refreshedHistoryRows = await syncRolloverHistory(
+        supabase,
+        sourceEngagementId,
+        existingEngagement.id,
+        String(sourceEngagement.organisation_id || ""),
+        String(sourceEngagement.financial_year_end || ""),
+        sourceTrialBalance || [],
+      );
+
       const engagementUpdate: AnyRow = {
         rollover_source_engagement_id: sourceEngagementId,
         rollover_source_fingerprint: sourceFingerprint,
@@ -822,7 +941,10 @@ export async function POST(
         sourceEngagementId,
         engagement: refreshedEngagement,
         nextFinancialYearEnd,
-        refresh: refreshResult,
+        refresh: {
+          ...refreshResult,
+          trialBalanceHistoryRows: refreshedHistoryRows,
+        },
       });
     }
 
