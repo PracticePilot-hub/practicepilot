@@ -978,6 +978,27 @@ function historyCategory(line: TrialBalanceHistoryLine) {
   }
 
   if (
+    mappingCode === "495.10" ||
+    mappingLeafId.startsWith("495-10-")
+  ) {
+    return "currentTaxReceivable";
+  }
+
+  if (
+    mappingCode === "695.10" ||
+    mappingLeafId.startsWith("695-10-")
+  ) {
+    return "currentTaxPayable";
+  }
+
+  if (
+    mappingCode === "795.10" ||
+    mappingLeafId.startsWith("795-10-")
+  ) {
+    return "currentTaxExpense";
+  }
+
+  if (
     mappingIdentifierStartsWith(mappingCode, ["500"]) ||
     mappingIdentifierStartsWith(mappingLeafId, ["500"]) ||
     leadScheduleKey === "share-capital"
@@ -1012,6 +1033,7 @@ function historyPresentedBalance(line: TrialBalanceHistoryLine) {
 
   if (
     category === "tradePayables" ||
+    category === "currentTaxPayable" ||
     category === "shareCapital" ||
     category === "shareholderLoans" ||
     category === "otherFinancialLiabilities"
@@ -1028,6 +1050,7 @@ type HistoricalCashFlowData = {
   inventoryPrior: number;
   receivablesPrior: number;
   payablesPrior: number;
+  taxPaidPrior: number;
 };
 
 function buildHistoricalCashFlowData(
@@ -1048,6 +1071,7 @@ function buildHistoricalCashFlowData(
       inventoryPrior: 0,
       receivablesPrior: 0,
       payablesPrior: 0,
+      taxPaidPrior: 0,
     };
   }
 
@@ -1094,6 +1118,40 @@ function buildHistoricalCashFlowData(
   const receivablesPrior = openingReceivables - closingReceivables;
   const payablesPrior = closingPayables - openingPayables;
 
+  const openingCurrentTaxReceivable = totalFor(
+    openingYear,
+    "currentTaxReceivable",
+  );
+  const closingCurrentTaxReceivable = totalFor(
+    closingYear,
+    "currentTaxReceivable",
+  );
+
+  const openingCurrentTaxPayable = totalFor(
+    openingYear,
+    "currentTaxPayable",
+  );
+  const closingCurrentTaxPayable = totalFor(
+    closingYear,
+    "currentTaxPayable",
+  );
+
+  const currentTaxExpensePrior = Math.abs(
+    totalFor(closingYear, "currentTaxExpense"),
+  );
+
+  const calculatedTaxPaidPrior =
+    openingCurrentTaxPayable -
+    openingCurrentTaxReceivable +
+    currentTaxExpensePrior -
+    closingCurrentTaxPayable +
+    closingCurrentTaxReceivable;
+
+  const taxPaidPrior =
+    calculatedTaxPaidPrior === 0
+      ? 0
+      : -Math.abs(calculatedTaxPaidPrior);
+
   return {
     hasTwoDistinctYears: true,
     overrides: {
@@ -1111,6 +1169,7 @@ function buildHistoricalCashFlowData(
     inventoryPrior,
     receivablesPrior,
     payablesPrior,
+    taxPaidPrior,
   };
 }
 
@@ -4014,11 +4073,18 @@ const adjustmentsPrior = adjustmentKeys.reduce(
         : -Math.abs(calculatedCurrentTaxPaid);
 
     /*
-      The opening comparative tax balances are not available from the active
-      two-column TB alone, so prior-year tax paid remains an explicit
-      workbench amount unless historical tax-control data is added later.
+      Comparative tax paid is reconstructed from TB History using only the
+      dedicated current-tax mappings:
+
+        695.10 current tax payable
+        495.10 current tax receivable
+        795.10 current tax expense
+
+      Deferred-tax mappings remain excluded.
     */
-    const mappedTaxPaidPrior = 0;
+    const mappedTaxPaidPrior = historicalCashFlowData.hasTwoDistinctYears
+      ? historicalCashFlowData.taxPaidPrior
+      : 0;
 
     const interestReceivedCurrent =
       effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
