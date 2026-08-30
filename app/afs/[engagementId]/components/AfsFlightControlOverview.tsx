@@ -270,20 +270,7 @@ export default function AfsFlightControlOverview({
                   </td>
 
                   <td style={styles.td}>
-                    {section.isLeadScheduleRollup ? (
-                      <span
-                        style={styles.usedRequired}
-                        title={
-                          section.applicability === "required"
-                            ? "Used lead schedules must be signed off for this file."
-                            : "PracticePilot lead schedules are optional for this file."
-                        }
-                      >
-                        {section.applicability === "required"
-                          ? "Required when used"
-                          : "Used · Optional"}
-                      </span>
-                    ) : (
+                    <div style={styles.applicabilityWrap}>
                       <select
                         value={section.applicability}
                         disabled={savingApplicability === section.key}
@@ -305,7 +292,16 @@ export default function AfsFlightControlOverview({
                         <option value="not_applicable">N/A</option>
                         <option value="optional">Optional</option>
                       </select>
-                    )}
+
+                      {section.isLeadScheduleRollup ? (
+                        <span
+                          style={styles.usedBadge}
+                          title={`${section.usedLeadScheduleCount || 0} lead schedules currently used in this file.`}
+                        >
+                          Used
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
 
                   <td style={styles.td}>
@@ -683,6 +679,11 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 8.5,
     fontWeight: 900,
     minWidth: 18,
+  },
+  applicabilityWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
   },
   applicabilitySelect: {
     border: "1px solid #cbd5e1",
