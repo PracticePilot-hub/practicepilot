@@ -1834,7 +1834,7 @@ function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
               {amount(closingCost(row.current))}
             </td>
             <td style={styles.tdRight}>
-              {amount(closingAccumulatedDepreciation(row.current))}
+              {amount(-Math.abs(closingAccumulatedDepreciation(row.current)))}
             </td>
             <td style={styles.tdRight}>
               {amount(carryingAmount(row.current))}
@@ -1843,7 +1843,7 @@ function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
               {amount(closingCost(row.prior))}
             </td>
             <td style={styles.tdRight}>
-              {amount(closingAccumulatedDepreciation(row.prior))}
+              {amount(-Math.abs(closingAccumulatedDepreciation(row.prior)))}
             </td>
             <td style={styles.tdRight}>
               {amount(carryingAmount(row.prior))}
@@ -1860,10 +1860,12 @@ function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
           </td>
           <td data-total-amount="true" style={styles.totalAmount}>
             {amount(
-              sumPpeRows(
-                rows,
-                "current",
-                closingAccumulatedDepreciation,
+              -Math.abs(
+                sumPpeRows(
+                  rows,
+                  "current",
+                  closingAccumulatedDepreciation,
+                ),
               ),
             )}
           </td>
@@ -1875,10 +1877,12 @@ function PpeSummaryTable({ rows }: { rows: PpeRow[] }) {
           </td>
           <td data-total-amount="true" style={styles.totalAmount}>
             {amount(
-              sumPpeRows(
-                rows,
-                "prior",
-                closingAccumulatedDepreciation,
+              -Math.abs(
+                sumPpeRows(
+                  rows,
+                  "prior",
+                  closingAccumulatedDepreciation,
+                ),
               ),
             )}
           </td>

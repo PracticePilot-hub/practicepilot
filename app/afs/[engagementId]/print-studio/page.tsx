@@ -8670,18 +8670,38 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       )
                     );
 
-                    const inferredDeferredTaxCredit =
-                      deferredTaxAssetCurrent - deferredTaxLiabilityCurrent;
+                    /*
+                      IMPORTANT:
+                      Do not manufacture deferred tax by forcing the calculated
+                      current-tax charge to reconcile to the mapped SOCI tax balance.
 
-                    const taxExpenseCreditPerSoci =
-                      taxExpenseMapped !== 0
-                        ? taxExpenseMapped
-                        : inferredDeferredTaxCredit !== 0
-                          ? -inferredDeferredTaxCredit
-                          : 0;
+                      The statement engine stores expense balances with the statement
+                      sign (normally negative), while this tax computation presents
+                      tax expense as a positive charge.
+
+                      Deferred tax may only be shown here when it has been explicitly
+                      recognised in the Tax Calculator. A mismatch between the
+                      calculated tax and the mapped SOCI tax balance is a review /
+                      journal difference — it is NOT deferred tax.
+                    */
+                    const mappedTaxExpensePresented = -taxExpenseMapped;
+
+                    const explicitDeferredTaxRecognised = hasSavedTax
+                      ? Math.round(Number(savedTax?.deferred_tax || 0))
+                      : 0;
 
                     const deferredTaxCredit =
-                      taxExpenseCreditPerSoci - currentTax;
+                      explicitDeferredTaxRecognised !== 0
+                        ? -explicitDeferredTaxRecognised
+                        : 0;
+
+                    const calculatedTaxExpenseCredit =
+                      currentTax + deferredTaxCredit;
+
+                    const mappedTaxDifference =
+                      mappedTaxExpensePresented !== 0
+                        ? mappedTaxExpensePresented - calculatedTaxExpenseCredit
+                        : 0;
 
                     const currentTaxReceivable = Math.round(
                       (noteData.currentTaxReceivable || []).reduce(
@@ -8866,10 +8886,26 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     }
 
                     expenseRows.push([
-                      "Income tax expense / (credit) per SOCI",
-                      taxExpenseCreditPerSoci,
+                      "Calculated income tax expense / (credit)",
+                      calculatedTaxExpenseCredit,
                       "bold",
                     ]);
+
+                    if (mappedTaxExpensePresented !== 0) {
+                      expenseRows.push([
+                        "Mapped income tax expense / (credit) per SOCI",
+                        mappedTaxExpensePresented,
+                        "normal",
+                      ]);
+                    }
+
+                    if (mappedTaxDifference !== 0) {
+                      expenseRows.push([
+                        "Difference requiring review / journal",
+                        mappedTaxDifference,
+                        "bold",
+                      ]);
+                    }
 
                     const renderRows = (
                       rows: Array<[string, number, "normal" | "bold"]>

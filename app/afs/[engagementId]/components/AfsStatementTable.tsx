@@ -34,13 +34,16 @@ type AfsStatementTableProps = {
 function formatAmount(value?: number | null) {
   if (value === null || value === undefined) return "–";
 
-  const abs = Math.abs(value);
+  const rounded = Math.round(value);
+  if (rounded === 0) return "–";
+
+  const abs = Math.abs(rounded);
   const formatted = abs.toLocaleString("en-ZA", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   });
 
-  return value < 0 ? `(${formatted})` : formatted;
+  return rounded < 0 ? `(${formatted})` : formatted;
 }
 
 export default function AfsStatementTable({

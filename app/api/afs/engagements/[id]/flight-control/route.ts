@@ -378,12 +378,15 @@ export async function GET(request: Request, context: any) {
           { open: points.open, resolved: points.resolved, cleared: points.cleared },
         );
 
+        const leadSchedulesRequired = applicability === "required";
+
         return {
           ...section,
-          applicability: "required" as Applicability,
+          applicability,
           storedApplicability: applicability,
-          applicabilityReason:
-            "Used lead schedules require individual sign-off.",
+          applicabilityReason: leadSchedulesRequired
+            ? "This practice requires used lead schedules to be signed off."
+            : "Used PracticePilot lead schedules are optional for this file.",
           prepared: usedPrepared === usedLeadSchedules.length,
           reviewed: usedReviewed === usedLeadSchedules.length,
           captainCleared: usedCaptain === usedLeadSchedules.length,
@@ -395,6 +398,7 @@ export async function GET(request: Request, context: any) {
           captainBy: null,
           reviewPoints: leadPoints,
           isLeadScheduleRollup: true,
+          leadSchedulesRequired,
           usedLeadSchedules,
           usedLeadScheduleCount: usedLeadSchedules.length,
           usedLeadScheduleCompleteCount: usedComplete,
@@ -440,6 +444,11 @@ export async function GET(request: Request, context: any) {
       0,
     );
 
+    const blockingOpenReviewPoints = requiredSections.reduce(
+      (sum, section) => sum + Number(section.reviewPoints.open || 0),
+      0,
+    );
+
     const resolvedReviewPoints = sections.reduce(
       (sum, section) => sum + section.reviewPoints.resolved,
       0,
@@ -464,7 +473,7 @@ export async function GET(request: Request, context: any) {
       Boolean(workflow?.is_started) &&
       requiredSections.length > 0 &&
       completeCount === requiredSections.length &&
-      openReviewPoints === 0;
+      blockingOpenReviewPoints === 0;
 
     return NextResponse.json({
       workflow,
@@ -479,6 +488,7 @@ export async function GET(request: Request, context: any) {
         completeCount,
         notApplicableCount,
         openReviewPoints,
+        blockingOpenReviewPoints,
         resolvedReviewPoints,
         readyForReview,
         readyForFinalisation,
