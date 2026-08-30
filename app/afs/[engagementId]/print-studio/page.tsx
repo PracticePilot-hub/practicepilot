@@ -3679,26 +3679,45 @@ const adjustmentsPrior = adjustmentKeys.reduce(
       netFinancingRow.prior = Math.round(correctedNetFinancingPrior);
     }
 
-    const mappingMovement = (prefixes: string[]) => {
-      let current = 0;
-      let prior = 0;
+    const liabilityMappingMovement = (prefixes: string[]) => {
+      let currentPresentedLiability = 0;
+      let priorPresentedLiability = 0;
 
       for (const line of trialBalanceLines || []) {
         const code = String(line?.mapping_code || "").trim();
-        if (!prefixes.some((prefix) => code === prefix || code.startsWith(`${prefix}.`))) {
+        if (
+          !prefixes.some(
+            (prefix) => code === prefix || code.startsWith(`${prefix}.`),
+          )
+        ) {
           continue;
         }
 
-        current += Math.abs(Number(rawCurrent(line) || 0));
-        prior += Math.abs(Number(rawPrior(line) || 0));
+        /*
+          Financing mappings are liabilities.
+
+          TB sign convention:
+            credit liability = negative raw balance
+            debit / overdrawn liability = positive raw balance
+
+          Cash-flow movement must follow the actual liability movement, not the
+          movement in absolute values. Using Math.abs() incorrectly turned a
+          debit shareholder-loan balance into a cash inflow.
+
+          Presented liability balance = -raw balance.
+        */
+        currentPresentedLiability += -Number(rawCurrent(line) || 0);
+        priorPresentedLiability += -Number(rawPrior(line) || 0);
       }
 
-      return Math.round(current - prior);
+      return Math.round(
+        currentPresentedLiability - priorPresentedLiability,
+      );
     };
 
-    const shareholderLoanMovementCurrent = mappingMovement(["548"]);
+    const shareholderLoanMovementCurrent = liabilityMappingMovement(["548"]);
 
-    const assetFinanceMovementCurrent = mappingMovement([
+    const assetFinanceMovementCurrent = liabilityMappingMovement([
       "550.40",
       "550.50",
       "610.30",
@@ -3734,8 +3753,8 @@ const adjustmentsPrior = adjustmentKeys.reduce(
 
         if (!isOtherBorrowing || isAssetFinance) continue;
 
-        current += Math.abs(Number(rawCurrent(line) || 0));
-        prior += Math.abs(Number(rawPrior(line) || 0));
+        current += -Number(rawCurrent(line) || 0);
+        prior += -Number(rawPrior(line) || 0);
       }
 
       return Math.round(current - prior);
