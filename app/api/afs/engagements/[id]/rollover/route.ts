@@ -222,25 +222,20 @@ function buildRolloverTrialBalanceLine(
   );
   const cleanSource = stripSystemFields(sourceLine);
   const isSfp = isStatementOfFinancialPositionLine(sourceLine);
-  const isRetainedIncome = isRetainedIncomeLine(sourceLine);
 
   /*
-    The next year's comparative SFP must equal the prior year's FINAL AFS.
+    PRIOR YEAR must be an exact copy of the source engagement's FINAL TB.
+    Never replace the prior-year retained-income amount with the new year's
+    carried opening amount. Doing that applies the closing transfer twice to
+    the comparative column and makes the rolled-over prior-year TB unbalanced.
 
-    For ordinary SFP accounts, the source TB final balance is already the
-    prior-year AFS closing balance.
-
-    Retained income is different: the source TB retained-income line still
-    contains the balance BEFORE the current-year profit/loss is closed to
-    equity. The AFS closing retained-income balance is therefore the carried
-    opening balance after the closing transfer.
-
-    So the next-flight prior-year comparative for mapping 810 must use the
-    carried balance, not the raw source retained-income TB line.
+    CURRENT YEAR is different:
+    - SFP accounts carry forward;
+    - income-statement accounts open at zero;
+    - retained income receives the closing transfer so the new opening TB
+      remains balanced.
   */
-  const priorYearBalance = isRetainedIncome
-    ? carriedOpeningBalance
-    : sourceFinalBalance;
+  const priorYearBalance = sourceFinalBalance;
 
   const newCurrentBalance = isSfp ? carriedOpeningBalance : 0;
 
@@ -332,6 +327,19 @@ async function refreshExistingTrialBalance(
   for (const line of currentTargetLines) {
     const code = String(line.account_code || "").trim().toUpperCase();
     if (code) targetByCode.set(code, line);
+  }
+
+  const sourceFinalTotal = roundMoney(
+    sourceTrialBalance.reduce(
+      (sum: number, line: AnyRow) => sum + getFinalBalance(line),
+      0,
+    ),
+  );
+
+  if (Math.abs(sourceFinalTotal) > 0.01) {
+    throw new Error(
+      `Next Flight refresh stopped: the source final TB is not balanced (${sourceFinalTotal.toFixed(2)}).`,
+    );
   }
 
   const closingTransfer = calculateClosingTransfer(sourceTrialBalance);
@@ -580,6 +588,19 @@ async function createNewRollover(
     );
 
     if (sourceTrialBalance.length > 0) {
+      const sourceFinalTotal = roundMoney(
+        sourceTrialBalance.reduce(
+          (sum: number, line: AnyRow) => sum + getFinalBalance(line),
+          0,
+        ),
+      );
+
+      if (Math.abs(sourceFinalTotal) > 0.01) {
+        throw new Error(
+          `Next Flight stopped: the source final TB is not balanced (${sourceFinalTotal.toFixed(2)}).`,
+        );
+      }
+
       const trialBalanceInsert = sourceTrialBalance.map((line: AnyRow) =>
         buildRolloverTrialBalanceLine(
           line,
@@ -587,6 +608,32 @@ async function createNewRollover(
           closingTransfer,
         ),
       );
+
+      const rolledCurrentTotal = roundMoney(
+        trialBalanceInsert.reduce(
+          (sum: number, line: AnyRow) =>
+            sum + numberOrZero(line.current_year_balance),
+          0,
+        ),
+      );
+
+      const rolledPriorTotal = roundMoney(
+        trialBalanceInsert.reduce(
+          (sum: number, line: AnyRow) =>
+            sum + numberOrZero(line.prior_year_balance),
+          0,
+        ),
+      );
+
+      if (
+        Math.abs(rolledCurrentTotal) > 0.01 ||
+        Math.abs(rolledPriorTotal) > 0.01
+      ) {
+        throw new Error(
+          `Next Flight stopped: rollover TB did not balance. ` +
+            `Current ${rolledCurrentTotal.toFixed(2)}; prior ${rolledPriorTotal.toFixed(2)}.`,
+        );
+      }
 
       const { error } = await supabase
         .from("afs_trial_balance_lines")

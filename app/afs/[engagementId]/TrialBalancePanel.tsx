@@ -342,17 +342,56 @@ export default function TrialBalancePanel({
   }
 
   function applyColumnMapping() {
-    const lines = rawRows
+    const importedLines = rawRows
       .slice(startRowIndex)
       .map((row) => buildLine(row))
       .filter((line) => line.account_name);
 
-    if (lines.length === 0) {
+    if (importedLines.length === 0) {
       alert("No valid trial balance lines were found from the selected columns.");
       return;
     }
 
-    setPreviewLines(lines);
+    /*
+      A rolled-over annual-movement import is an UPDATE to the rolled-over TB,
+      not a replacement of the comparative file.
+
+      Accounts omitted from the movement file therefore remain exactly as they
+      were rolled over. This prevents prior-year comparatives from disappearing
+      merely because an account had no movement in the uploaded workbook.
+    */
+    if (importMode === "Rolled-over figures + annual movement") {
+      const importedByCode = new Map(
+        importedLines.map((line) => [
+          String(line.account_code || "").trim().toUpperCase(),
+          line,
+        ]),
+      );
+
+      const mergedLines = trialBalanceLines.map((existingLine) => {
+        const code = String(existingLine.account_code || "").trim().toUpperCase();
+        return (code && importedByCode.get(code)) || existingLine;
+      });
+
+      const existingCodes = new Set(
+        trialBalanceLines
+          .map((line) => String(line.account_code || "").trim().toUpperCase())
+          .filter(Boolean),
+      );
+
+      for (const importedLine of importedLines) {
+        const code = String(importedLine.account_code || "").trim().toUpperCase();
+
+        if (!code || !existingCodes.has(code)) {
+          mergedLines.push(importedLine);
+        }
+      }
+
+      setPreviewLines(mergedLines);
+    } else {
+      setPreviewLines(importedLines);
+    }
+
     setShowMapping(false);
   }
 
@@ -370,8 +409,29 @@ export default function TrialBalancePanel({
         String(accountCode || "").trim()
     );
 
-    const rolledForwardBalance = existingLine
-      ? getFinalBalance(existingLine)
+    /*
+      For a rolled-over engagement there are TWO different balances that must
+      never be confused:
+
+      - opening balance: the balance carried into the new current year;
+      - prior-year balance: the previous engagement's final comparative.
+
+      Profit-and-loss accounts correctly open at zero in the new year while
+      still retaining their prior-year comparative. Using getFinalBalance()
+      for both values is what previously turned rolled-over P&L comparatives
+      into zero.
+    */
+    const rolledForwardOpeningBalance = existingLine
+      ? Number(
+          existingLine.opening_balance ??
+            existingLine.source_balance ??
+            existingLine.current_year_balance ??
+            getFinalBalance(existingLine),
+        )
+      : 0;
+
+    const rolledForwardPriorYearBalance = existingLine
+      ? Number(existingLine.prior_year_balance ?? 0)
       : 0;
 
     const readFinalBalance = () =>
@@ -398,16 +458,16 @@ export default function TrialBalancePanel({
     }
 
     if (importMode === "Rolled-over figures + current-year final TB") {
-      openingBalance = rolledForwardBalance;
-      priorYearBalance = rolledForwardBalance;
+      openingBalance = rolledForwardOpeningBalance;
+      priorYearBalance = rolledForwardPriorYearBalance;
       currentYearBalance = readFinalBalance();
     }
 
     if (importMode === "Rolled-over figures + annual movement") {
-      openingBalance = rolledForwardBalance;
-      priorYearBalance = rolledForwardBalance;
+      openingBalance = rolledForwardOpeningBalance;
+      priorYearBalance = rolledForwardPriorYearBalance;
       currentYearBalance =
-        rolledForwardBalance +
+        rolledForwardOpeningBalance +
         numberOrZero(getCell(row, annualMovementColumn));
     }
 
@@ -465,6 +525,31 @@ export default function TrialBalancePanel({
     if (previewLines.length === 0) {
       alert("Import and map an Excel trial balance first.");
       return;
+    }
+
+    if (importMode === "Rolled-over figures + annual movement") {
+      const previewCurrentTotal = previewLines.reduce(
+        (sum, line) => sum + getFinalBalance(line),
+        0,
+      );
+      const previewPriorTotal = previewLines.reduce(
+        (sum, line) =>
+          sum + Number(line.prior_year_balance ?? line.credit ?? 0),
+        0,
+      );
+
+      if (
+        Math.abs(previewCurrentTotal) > 0.01 ||
+        Math.abs(previewPriorTotal) > 0.01
+      ) {
+        alert(
+          `Rolled-over movement import is not balanced. ` +
+            `Current-year total: ${formatMoney(previewCurrentTotal)}; ` +
+            `prior-year total: ${formatMoney(previewPriorTotal)}. ` +
+            `The import has not been saved.`,
+        );
+        return;
+      }
     }
 
     const confirmed = confirm(
