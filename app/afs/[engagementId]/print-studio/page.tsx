@@ -952,14 +952,16 @@ function historyCategory(line: TrialBalanceHistoryLine) {
   }
 
   if (
-    mappingIdentifierStartsWith(mappingCode, ["410"]) ||
-    mappingIdentifierStartsWith(mappingLeafId, ["410"]) ||
+    mappingIdentifierStartsWith(mappingCode, ["405"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["405"]) ||
     leadScheduleKey === "inventories"
   ) {
     return "inventories";
   }
 
   if (
+    mappingIdentifierStartsWith(mappingCode, ["430"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["430"]) ||
     leadScheduleKey === "trade-receivables" ||
     leadScheduleKey === "trade-and-other-receivables"
   ) {
@@ -967,6 +969,8 @@ function historyCategory(line: TrialBalanceHistoryLine) {
   }
 
   if (
+    mappingIdentifierStartsWith(mappingCode, ["630"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["630"]) ||
     leadScheduleKey === "trade-payables" ||
     leadScheduleKey === "trade-and-other-payables"
   ) {
