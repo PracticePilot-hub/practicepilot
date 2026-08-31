@@ -4223,8 +4223,20 @@ const adjustmentsPrior = adjustmentKeys.reduce(
       Deferred tax mappings (395.10 / 595.10 / 795.20) therefore remain
       entirely non-cash.
     */
-    const taxPaidCurrent = mappedTaxPaidCurrent;
-    const taxPaidPrior = mappedTaxPaidPrior;
+    /*
+      CASH TAX FAIL-SAFE
+
+      Do not infer cash taxation paid from tax expense, current-tax balances,
+      deferred-tax balances, or rolled-forward Workbench values. Those are
+      accounting balances and can be entirely non-cash.
+
+      Until PP has a separately proven cash-tax-payment source, the printable
+      cash-flow statement must show zero taxation paid rather than manufacture
+      a cash outflow. This also prevents deferred tax from entering cash flow
+      on rollover/comparatives.
+    */
+    const taxPaidCurrent = 0;
+    const taxPaidPrior = 0;
 
     if (interestReceivedRow) {
       interestReceivedRow.current = Math.round(interestReceivedCurrent);
