@@ -3952,25 +3952,38 @@ const adjustmentsPrior = adjustmentKeys.reduce(
     /*
       CASH FLOW PROFIT BEFORE TAX
 
-      Use the exact PBT subtotal already produced by the canonical statement
-      engine. The SOCI is the controlled mapping-driven source for PBT, so the
-      cash flow must not independently reconstruct PBT with a second sign engine.
+      Use the signed TB movement behind all P/L mapping codes and exclude
+      taxation / OCI. This avoids applying a second debit/credit sign transform.
 
-      This keeps BOTH cash-flow methods tied to the same PBT as the SOCI and
-      prevents deferred-tax / sign logic from distorting the cash flow.
+      Trial-balance convention here is debit = positive, credit = negative.
+      Therefore accounting PBT = -(net signed P/L balance before tax).
+
+      This gives the same result as the SOCI:
+        revenue credits + expense debits -> net P/L balance -> invert once.
     */
-    const canonicalProfitBeforeTaxRow =
-      (baseStatementEngine.sociRows || []).find((row: any) =>
-        String(row?.label || "")
-          .toLowerCase()
-          .includes("before taxation"),
-      );
+    const mappedProfitBeforeTax = (side: "current" | "prior") =>
+      (trialBalanceLines || []).reduce((sum, line) => {
+        const code = String(line.mapping_code || "").trim();
+        if (!code) return sum;
+
+        const major = Number(code.split(".")[0]);
+        if (!Number.isFinite(major) || major < 700 || major >= 800) {
+          return sum;
+        }
+
+        // Exclude taxation and OCI from PROFIT BEFORE TAX.
+        if (code === "795" || code.startsWith("795.")) return sum;
+        if (code === "797" || code.startsWith("797.")) return sum;
+
+        const amount = side === "current" ? rawCurrent(line) : rawPrior(line);
+        return sum + Number(amount || 0);
+      }, 0);
 
     const cashFlowProfitBeforeTaxCurrent = Math.round(
-      Number((canonicalProfitBeforeTaxRow as any)?.current || 0),
+      -mappedProfitBeforeTax("current"),
     );
     const cashFlowProfitBeforeTaxPrior = Math.round(
-      Number((canonicalProfitBeforeTaxRow as any)?.prior || 0),
+      -mappedProfitBeforeTax("prior"),
     );
 
     if (profitRow) {
