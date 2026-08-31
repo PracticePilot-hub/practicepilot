@@ -3885,7 +3885,30 @@ const adjustmentsPrior = adjustmentKeys.reduce(
     const openingCashRow = findById("cfs-opening-cash") || findByLabel(["cash and cash equivalents at beginning"]);
     const closingCashRow = findById("cfs-closing-cash") || findByLabel(["cash and cash equivalents at end"]);
 
-    const inventoryCurrent = storedAmount("inventories", "current", Number(inventoryRow?.current || 0));
+    /*
+      CURRENT-YEAR INVENTORY MOVEMENT — mapping-driven, never stored-value-driven.
+
+      A zero closing balance is a real balance, not a missing value. Calculate the
+      movement directly from the mapped inventory note balances so a movement such
+      as R365,284 -> R0 is correctly treated as a R365,284 decrease in inventory.
+    */
+    const mappedInventoryCurrentBalance = (
+      baseStatementEngine.noteData.inventories || []
+    ).reduce(
+      (sum: number, line: any) => sum + Number(line?.current || 0),
+      0,
+    );
+
+    const mappedInventoryPriorBalance = (
+      baseStatementEngine.noteData.inventories || []
+    ).reduce(
+      (sum: number, line: any) => sum + Number(line?.prior || 0),
+      0,
+    );
+
+    const inventoryCurrent =
+      mappedInventoryPriorBalance - mappedInventoryCurrentBalance;
+
     const inventoryPrior = historicalCashFlowData.hasTwoDistinctYears
       ? historicalCashFlowData.inventoryPrior
       : storedAmount(
@@ -4676,77 +4699,17 @@ if (closingCashRow) {
         movement calculation.
       */
       /*
-        Reconcile the direct-method statement to mapped cash + overdraft.
+        NEVER plug an unexplained cash-flow difference into financing.
 
-        Any remaining amount is left visibly on "Other financing cash flows"
-        rather than hidden as a rounding adjustment. The accountant can later
-        reclassify it in Workbench when the underlying bank detail is known.
+        Financing rows may only contain mapped financing movements or explicit
+        Workbench amounts already calculated above. If the statement does not
+        reconcile after those genuine movements, the difference must remain a
+        FlightDeck blocker instead of being fabricated as financing cash flow.
       */
-      const targetMovementCurrent =
-        Math.round(
-          Number(baseStatementEngine.checks.cashMovementFromSfp || 0),
-        );
-
-      const preReconcileMovementCurrent =
-        Math.round(directNetOperatingCurrent) +
-        Math.round(Number(netInvestingRow?.current || 0)) +
-        Math.round(Number(netFinancingRow?.current || 0));
-
-      const unallocatedFinancingCurrent =
-        targetMovementCurrent - preReconcileMovementCurrent;
-
-      /*
-        After applying the Workbench values, the remaining financing movement
-        is the asset-finance / borrowings cash movement (for example Wesbank).
-        Keep it visible on the financing line so the cash flow reconciles to
-        cash + overdraft.
-      */
-      if (otherFinancingRow && unallocatedFinancingCurrent !== 0) {
-        otherFinancingRow.current =
-          Math.round(Number(otherFinancingRow.current || 0)) +
-          unallocatedFinancingCurrent;
-        otherFinancingRow.label =
-          "Asset finance, borrowings and other financing cash flows";
-      }
-
-      if (netFinancingRow) {
-        netFinancingRow.current =
-          Math.round(Number(netFinancingRow.current || 0)) +
-          unallocatedFinancingCurrent;
-      }
-
       const calculatedDirectNetMovementCurrent =
   directNetOperatingCurrent +
   Number(netInvestingRow?.current || 0) +
   Number(netFinancingRow?.current || 0);
-
-const targetMovementPrior =
-  Math.round(sfpClosingPrior) - Math.round(openingPrior);
-
-const preReconcileMovementPrior =
-  Math.round(directNetOperatingPrior) +
-  Math.round(Number(netInvestingRow?.prior || 0)) +
-  Math.round(Number(netFinancingRow?.prior || 0));
-
-const unallocatedFinancingPrior =
-  targetMovementPrior - preReconcileMovementPrior;
-
-/*
-  Apply the same financing reconciliation to the comparative year.
-*/
-if (otherFinancingRow && unallocatedFinancingPrior !== 0) {
-  otherFinancingRow.prior =
-    Math.round(Number(otherFinancingRow.prior || 0)) +
-    unallocatedFinancingPrior;
-  otherFinancingRow.label =
-    "Asset finance, borrowings and other financing cash flows";
-}
-
-if (netFinancingRow) {
-  netFinancingRow.prior =
-    Math.round(Number(netFinancingRow.prior || 0)) +
-    unallocatedFinancingPrior;
-}
 
 const calculatedDirectNetMovementPrior =
   directNetOperatingPrior +
