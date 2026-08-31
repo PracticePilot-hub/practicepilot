@@ -3950,42 +3950,28 @@ const adjustmentsPrior = adjustmentKeys.reduce(
         ) + storedAmount("deferredIncome", "prior", 0);
 
     /*
-      CASH FLOW PROFIT BEFORE TAX — calculate from mapping codes only.
+      CASH FLOW PROFIT BEFORE TAX
 
-      Do not read PBT back from a cash-flow row or from a statement subtotal that
-      may already have been polluted by a tax/deferred-tax classification issue.
-      Tax mappings (795.xx), deferred-tax asset/liability mappings (395.xx/595.xx)
-      and OCI are deliberately excluded because this is PROFIT BEFORE TAX.
+      Use the exact PBT subtotal already produced by the canonical statement
+      engine. The SOCI is the controlled mapping-driven source for PBT, so the
+      cash flow must not independently reconstruct PBT with a second sign engine.
+
+      This keeps BOTH cash-flow methods tied to the same PBT as the SOCI and
+      prevents deferred-tax / sign logic from distorting the cash flow.
     */
-    const mappedProfitBeforeTax = (side: "current" | "prior") =>
-      (trialBalanceLines || []).reduce((sum, line) => {
-        const code = String(line.mapping_code || "").trim();
-        const amount =
-          side === "current" ? rawCurrent(line) : rawPrior(line);
+    const canonicalProfitBeforeTaxRow =
+      (baseStatementEngine.sociRows || []).find((row: any) =>
+        String(row?.label || "")
+          .toLowerCase()
+          .includes("before taxation"),
+      );
 
-        const starts = (prefix: string) =>
-          code === prefix || code.startsWith(`${prefix}.`);
-
-        // Revenue and other income: credit balances present as positive income.
-        if (starts("700") || starts("730") || starts("770") || starts("785")) {
-          return sum - amount;
-        }
-
-        // Cost of sales, operating expenses and finance costs.
-        if (starts("720") || starts("750") || starts("775") || starts("781")) {
-          return sum - Math.abs(amount);
-        }
-
-        // Non-operating gains/losses: credit gain positive, debit loss negative.
-        if (starts("780")) {
-          return sum - amount;
-        }
-
-        return sum;
-      }, 0);
-
-    const cashFlowProfitBeforeTaxCurrent = mappedProfitBeforeTax("current");
-    const cashFlowProfitBeforeTaxPrior = mappedProfitBeforeTax("prior");
+    const cashFlowProfitBeforeTaxCurrent = Math.round(
+      Number((canonicalProfitBeforeTaxRow as any)?.current || 0),
+    );
+    const cashFlowProfitBeforeTaxPrior = Math.round(
+      Number((canonicalProfitBeforeTaxRow as any)?.prior || 0),
+    );
 
     if (profitRow) {
       profitRow.current = Math.round(cashFlowProfitBeforeTaxCurrent);
@@ -4235,8 +4221,14 @@ const adjustmentsPrior = adjustmentKeys.reduce(
       a cash outflow. This also prevents deferred tax from entering cash flow
       on rollover/comparatives.
     */
+    /*
+      Current-year cash tax is not inferred from a deferred/current tax balance.
+      Comparative tax paid may be reconstructed from TB History using the exact
+      current-tax mapping categories only. This preserves genuine prior cash tax
+      (for example Alphaman 2024) without allowing deferred tax to leak into cash.
+    */
     const taxPaidCurrent = 0;
-    const taxPaidPrior = 0;
+    const taxPaidPrior = mappedTaxPaidPrior;
 
     if (interestReceivedRow) {
       interestReceivedRow.current = Math.round(interestReceivedCurrent);
@@ -4620,17 +4612,13 @@ if (closingCashRow) {
       const directReceiptsPriorCalculated =
         revenuePrior + receivablesPrior;
 
-      const directReceiptsCurrent =
-        effectiveStatementOverrides.cashReceiptsCustomersCurrent !== null &&
-        effectiveStatementOverrides.cashReceiptsCustomersCurrent !== undefined
-          ? Number(effectiveStatementOverrides.cashReceiptsCustomersCurrent)
-          : directReceiptsCurrentCalculated;
-
-      const directReceiptsPrior =
-        effectiveStatementOverrides.cashReceiptsCustomersPrior !== null &&
-        effectiveStatementOverrides.cashReceiptsCustomersPrior !== undefined
-          ? Number(effectiveStatementOverrides.cashReceiptsCustomersPrior)
-          : directReceiptsPriorCalculated;
+      /*
+        Direct-method customer receipts are always rebuilt from the mapped
+        revenue and receivables movement. Rolled-forward Workbench values must
+        never override the mapped calculation for a new year.
+      */
+      const directReceiptsCurrent = directReceiptsCurrentCalculated;
+      const directReceiptsPrior = directReceiptsPriorCalculated;
 
       /*
         DIRECT METHOD — suppliers and employees
@@ -4660,17 +4648,13 @@ if (closingCashRow) {
         inventoryPrior +
         payablesPrior;
 
-      const directPaymentsCurrent =
-        effectiveStatementOverrides.cashPaymentsSuppliersEmployeesCurrent !== null &&
-        effectiveStatementOverrides.cashPaymentsSuppliersEmployeesCurrent !== undefined
-          ? Number(effectiveStatementOverrides.cashPaymentsSuppliersEmployeesCurrent)
-          : directPaymentsCurrentCalculated;
-
-      const directPaymentsPrior =
-        effectiveStatementOverrides.cashPaymentsSuppliersEmployeesPrior !== null &&
-        effectiveStatementOverrides.cashPaymentsSuppliersEmployeesPrior !== undefined
-          ? Number(effectiveStatementOverrides.cashPaymentsSuppliersEmployeesPrior)
-          : directPaymentsPriorCalculated;
+      /*
+        Direct-method supplier / employee payments are mapping-driven.
+        Never reuse a saved or rolled-forward direct-method amount: those stale
+        values were causing prior-year cash flows to remain wrong after rollover.
+      */
+      const directPaymentsCurrent = directPaymentsCurrentCalculated;
+      const directPaymentsPrior = directPaymentsPriorCalculated;
 
       const noteInterestReceived = (
         side: "current" | "prior",
