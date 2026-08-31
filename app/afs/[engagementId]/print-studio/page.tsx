@@ -3949,23 +3949,43 @@ const adjustmentsPrior = adjustmentKeys.reduce(
           Number(payablesRow?.prior || 0),
         ) + storedAmount("deferredIncome", "prior", 0);
 
-    const sociProfitBeforeTaxRow = (baseStatementEngine.sociRows || []).find(
-      (row: any) =>
-        String(row?.label || "").trim().toLowerCase() ===
-        "profit / (loss) before taxation",
-    );
-
     /*
-      The cash-flow statement starts from profit before taxation. Do not trust
-      a legacy cash-flow row here because it may contain profit after tax when
-      deferred tax is present. The SOCI subtotal is the source of truth.
+      CASH FLOW PROFIT BEFORE TAX — calculate from mapping codes only.
+
+      Do not read PBT back from a cash-flow row or from a statement subtotal that
+      may already have been polluted by a tax/deferred-tax classification issue.
+      Tax mappings (795.xx), deferred-tax asset/liability mappings (395.xx/595.xx)
+      and OCI are deliberately excluded because this is PROFIT BEFORE TAX.
     */
-    const cashFlowProfitBeforeTaxCurrent = Number(
-      sociProfitBeforeTaxRow?.current || 0,
-    );
-    const cashFlowProfitBeforeTaxPrior = Number(
-      sociProfitBeforeTaxRow?.prior || 0,
-    );
+    const mappedProfitBeforeTax = (side: "current" | "prior") =>
+      (trialBalanceLines || []).reduce((sum, line) => {
+        const code = String(line.mapping_code || "").trim();
+        const amount =
+          side === "current" ? rawCurrent(line) : rawPrior(line);
+
+        const starts = (prefix: string) =>
+          code === prefix || code.startsWith(`${prefix}.`);
+
+        // Revenue and other income: credit balances present as positive income.
+        if (starts("700") || starts("730") || starts("770") || starts("785")) {
+          return sum - amount;
+        }
+
+        // Cost of sales, operating expenses and finance costs.
+        if (starts("720") || starts("750") || starts("775") || starts("781")) {
+          return sum - Math.abs(amount);
+        }
+
+        // Non-operating gains/losses: credit gain positive, debit loss negative.
+        if (starts("780")) {
+          return sum - amount;
+        }
+
+        return sum;
+      }, 0);
+
+    const cashFlowProfitBeforeTaxCurrent = mappedProfitBeforeTax("current");
+    const cashFlowProfitBeforeTaxPrior = mappedProfitBeforeTax("prior");
 
     if (profitRow) {
       profitRow.current = Math.round(cashFlowProfitBeforeTaxCurrent);
@@ -4172,10 +4192,27 @@ const adjustmentsPrior = adjustmentKeys.reduce(
       suppress a real tax payment calculated from the exact current-tax
       mappings. A non-zero workbench amount remains an explicit override.
     */
-    const taxPaidCurrent =
-      Math.abs(manualTaxPaidCurrent) > 0
-        ? manualTaxPaidCurrent
-        : mappedTaxPaidCurrent;
+    /*
+      If current-tax mappings exist, they are authoritative. This prevents a
+      stale Workbench value (for example a deferred-tax asset movement) from
+      being presented as cash taxation paid. A manual amount is only a fallback
+      when the TB contains no current-tax mapping data at all.
+    */
+    const hasCurrentTaxMappingData = (trialBalanceLines || []).some((line) => {
+      const code = String(line.mapping_code || "").trim();
+      return (
+        code === "795.10" ||
+        code.startsWith("795.10.") ||
+        code === "495.10" ||
+        code.startsWith("495.10.") ||
+        code === "695.10" ||
+        code.startsWith("695.10.")
+      );
+    });
+
+    const taxPaidCurrent = hasCurrentTaxMappingData
+      ? mappedTaxPaidCurrent
+      : manualTaxPaidCurrent;
 
     const taxPaidPrior =
       Math.abs(manualTaxPaidPrior) > 0
