@@ -3587,8 +3587,20 @@ const effectiveStructuredNotesState = useMemo(() => {
       cumulative P&L balances out of the cash-flow statement without changing
       any balance-sheet statement.
     */
-    const cashFlowCurrentYearMovement = (line: TrialBalanceLine) =>
-      safeNumber(line.debit) - safeNumber(line.credit);
+    const cashFlowCurrentYearMovement = (line: TrialBalanceLine) => {
+      const importedMovement = safeNumber(line.debit) - safeNumber(line.credit);
+
+      /*
+        Rolled-over engagements carry the annual movement in debit / credit.
+        A first-year / final-TB engagement may not have separate movement fields,
+        in which case the current TB balance is the annual P&L movement.
+
+        This fallback is deliberately local to CASH FLOW P&L calculations only;
+        it never changes SFP closing balances.
+      */
+      if (Math.abs(importedMovement) > 0.005) return importedMovement;
+      return rawCurrent(line);
+    };
 
     const cashFlowMappingStartsWith = (line: TrialBalanceLine, prefixes: string[]) => {
       const code = String(line.mapping_code || "").trim();
@@ -3619,9 +3631,26 @@ const effectiveStructuredNotesState = useMemo(() => {
       return terms.every((term) => label.includes(term));
     });
 
-    const adjustmentKeys = [
+    /*
+      CANONICAL NON-CASH ADJUSTMENTS
+
+      Depreciation / amortisation is mapping-driven. It must be added back in
+      BOTH indirect and direct cash-flow methods and must never depend on a
+      Workbench value being captured.
+
+      750.14  depreciation
+      750.141 amortisation
+    */
+    const mappedDepreciationAmortisationCurrent = Math.abs(
+      cashFlowMappedRawTotal(["750.14", "750.141"], "current"),
+    );
+
+    const mappedDepreciationAmortisationPrior = Math.abs(
+      cashFlowMappedRawTotal(["750.14", "750.141"], "prior"),
+    );
+
+    const manualAdjustmentKeys = [
       "adjustments",
-      "depreciationAmortisationImpairment",
       "lossOnSaleAssetsLiabilities",
       "fairValueGainsLosses",
       "movementProvisions",
@@ -3630,15 +3659,19 @@ const effectiveStructuredNotesState = useMemo(() => {
       "financeCosts",
     ];
 
-    const adjustmentsCurrent = adjustmentKeys.reduce(
-  (sum, key) => sum + storedAmount(key, "current", 0),
-  0,
-);
+    const adjustmentsCurrent =
+      mappedDepreciationAmortisationCurrent +
+      manualAdjustmentKeys.reduce(
+        (sum, key) => sum + storedAmount(key, "current", 0),
+        0,
+      );
 
-const adjustmentsPrior = adjustmentKeys.reduce(
-  (sum, key) => sum + storedAmount(key, "prior", 0),
-  0,
-);
+    const adjustmentsPrior =
+      mappedDepreciationAmortisationPrior +
+      manualAdjustmentKeys.reduce(
+        (sum, key) => sum + storedAmount(key, "prior", 0),
+        0,
+      );
 
     const profitRow = findById("cfs-profit-before-tax") || findByLabel(["profit", "before taxation"]);
     const adjustmentsRow = findById("cfs-adjustments") || findByLabel(["adjustments", "non-cash"]);
@@ -3753,6 +3786,27 @@ const adjustmentsPrior = adjustmentKeys.reduce(
 
     const shareholderLoanMovementCurrent = liabilityMappingMovement(["548"]);
 
+    /*
+      Share capital is an equity financing movement.
+      TB credits are negative, so presented equity = -raw balance.
+      Only the movement between prior and current mapped share-capital balances
+      belongs in cash flow.
+    */
+    const shareCapitalMovementCurrent = (() => {
+      let currentPresentedEquity = 0;
+      let priorPresentedEquity = 0;
+
+      for (const line of trialBalanceLines || []) {
+        const code = String(line?.mapping_code || "").trim();
+        if (!(code === "500" || code.startsWith("500."))) continue;
+
+        currentPresentedEquity += -Number(rawCurrent(line) || 0);
+        priorPresentedEquity += -Number(rawPrior(line) || 0);
+      }
+
+      return Math.round(currentPresentedEquity - priorPresentedEquity);
+    })();
+
     const assetFinanceMovementCurrent = liabilityMappingMovement([
       "550.40",
       "550.50",
@@ -3809,7 +3863,9 @@ const adjustmentsPrior = adjustmentKeys.reduce(
         : Number(loansRaisedRow?.prior || 0);
 
     const mappedOtherFinancingCurrent =
-      assetFinanceMovementCurrent + otherBorrowingsMovementCurrent;
+      shareCapitalMovementCurrent +
+      assetFinanceMovementCurrent +
+      otherBorrowingsMovementCurrent;
 
     /*
       Asset finance / borrowings (e.g. Wesbank) must ALWAYS pull automatically
@@ -4616,39 +4672,10 @@ if (closingCashRow) {
         otherIncomePrior +
         financeCostsPrior;
 
-      const mappedNonCashExpense = (
-        side: "current" | "prior",
-      ) =>
-        (trialBalanceLines || [])
-          .filter((line) => {
-            /*
-              Mapping-code-only.
-
-              Only genuine non-cash P/L expenses included in operating
-              expenses are added back here.
-
-              750.14  Depreciation
-              750.141 Amortisation
-
-              Never pick up accumulated depreciation from SFP codes 305.xx.
-            */
-            const code = String(line.mapping_code || "").trim();
-
-            return (
-              code === "750.14" ||
-              code.startsWith("750.14.") ||
-              code === "750.141" ||
-              code.startsWith("750.141.")
-            );
-          })
-          .reduce((sum, line) => {
-            const amount =
-              side === "current"
-                ? cashFlowCurrentYearMovement(line)
-                : rawPrior(line);
-
-            return sum + Math.abs(amount);
-          }, 0);
+      const mappedNonCashExpense = (side: "current" | "prior") =>
+        side === "current"
+          ? mappedDepreciationAmortisationCurrent
+          : mappedDepreciationAmortisationPrior;
 
       /*
         Non-cash expenses are added back to the negative expense total.
