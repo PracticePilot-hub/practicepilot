@@ -3576,6 +3576,42 @@ const effectiveStructuredNotesState = useMemo(() => {
       return Number.isFinite(parsed) ? parsed : fallback;
     };
 
+    /*
+      CASH-FLOW CURRENT-YEAR P&L SOURCE
+
+      IMPORTANT: do NOT change rawCurrent(). rawCurrent() is the closing/final
+      balance used by the SFP and the rest of Print Studio.
+
+      For current-year P&L cash-flow calculations, debit/credit represents the
+      annual movement imported for this engagement. This keeps rolled-over
+      cumulative P&L balances out of the cash-flow statement without changing
+      any balance-sheet statement.
+    */
+    const cashFlowCurrentYearMovement = (line: TrialBalanceLine) =>
+      safeNumber(line.debit) - safeNumber(line.credit);
+
+    const cashFlowMappingStartsWith = (line: TrialBalanceLine, prefixes: string[]) => {
+      const code = String(line.mapping_code || "").trim();
+      return prefixes.some(
+        (prefix) => code === prefix || code.startsWith(`${prefix}.`),
+      );
+    };
+
+    const cashFlowMappedRawTotal = (
+      prefixes: string[],
+      side: "current" | "prior",
+    ) =>
+      (trialBalanceLines || [])
+        .filter((line) => cashFlowMappingStartsWith(line, prefixes))
+        .reduce(
+          (sum, line) =>
+            sum +
+            (side === "current"
+              ? cashFlowCurrentYearMovement(line)
+              : rawPrior(line)),
+          0,
+        );
+
     const rows = (baseStatementEngine.cashFlowRows || []).map((row: any) => ({ ...row }));
     const findById = (id: string) => rows.find((row: any) => String(row?.id || "") === id);
     const findByLabel = (terms: string[]) => rows.find((row: any) => {
@@ -3917,73 +3953,77 @@ const adjustmentsPrior = adjustmentKeys.reduce(
           Number(inventoryRow?.prior || 0),
         );
 
+    /*
+      CURRENT-YEAR WORKING CAPITAL — ALWAYS FROM SFP BALANCE MOVEMENTS.
+
+      Never let saved Workbench values override these movements. A rollover can
+      leave stale zero/manual values behind, which is exactly what caused cash
+      flow to ignore a receivable/payable movement.
+
+      Assets: decrease = cash inflow => opening - closing.
+      Liabilities: increase = cash inflow => closing - opening.
+    */
+    const mappedReceivablesCurrentBalance = (
+      baseStatementEngine.noteData.tradeReceivables || []
+    ).reduce(
+      (sum: number, line: any) => sum + Number(line?.current || 0),
+      0,
+    );
+
+    const mappedReceivablesPriorBalance = (
+      baseStatementEngine.noteData.tradeReceivables || []
+    ).reduce(
+      (sum: number, line: any) => sum + Number(line?.prior || 0),
+      0,
+    );
+
     const receivablesCurrent =
-      storedAmount(
-        "tradeReceivables",
-        "current",
-        Number(receivablesRow?.current || 0),
-      ) +
-      storedAmount("prepayments", "current", 0);
+      mappedReceivablesPriorBalance - mappedReceivablesCurrentBalance;
 
     const receivablesPrior = historicalCashFlowData.hasTwoDistinctYears
       ? historicalCashFlowData.receivablesPrior
-      : storedAmount(
-          "tradeReceivables",
-          "prior",
-          Number(receivablesRow?.prior || 0),
-        ) + storedAmount("prepayments", "prior", 0);
+      : Number(receivablesRow?.prior || 0);
+
+    const mappedPayablesCurrentBalance = (
+      baseStatementEngine.noteData.tradePayables || []
+    ).reduce(
+      (sum: number, line: any) => sum + Number(line?.current || 0),
+      0,
+    );
+
+    const mappedPayablesPriorBalance = (
+      baseStatementEngine.noteData.tradePayables || []
+    ).reduce(
+      (sum: number, line: any) => sum + Number(line?.prior || 0),
+      0,
+    );
 
     const payablesCurrent =
-      storedAmount(
-        "tradePayables",
-        "current",
-        Number(payablesRow?.current || 0),
-      ) +
-      storedAmount("deferredIncome", "current", 0);
+      mappedPayablesCurrentBalance - mappedPayablesPriorBalance;
 
     const payablesPrior = historicalCashFlowData.hasTwoDistinctYears
       ? historicalCashFlowData.payablesPrior
-      : storedAmount(
-          "tradePayables",
-          "prior",
-          Number(payablesRow?.prior || 0),
-        ) + storedAmount("deferredIncome", "prior", 0);
+      : Number(payablesRow?.prior || 0);
 
     /*
       CASH FLOW PROFIT BEFORE TAX
 
-      Use the signed TB movement behind all P/L mapping codes and exclude
-      taxation / OCI. This avoids applying a second debit/credit sign transform.
-
-      Trial-balance convention here is debit = positive, credit = negative.
-      Therefore accounting PBT = -(net signed P/L balance before tax).
-
-      This gives the same result as the SOCI:
-        revenue credits + expense debits -> net P/L balance -> invert once.
+      Use the exact PBT already produced by the AFS statement engine. Cash flow
+      must never rebuild or reinterpret profit from TB movements independently
+      of the SOCI. This keeps SOCI and cash flow on one source of truth.
     */
-    const mappedProfitBeforeTax = (side: "current" | "prior") =>
-      (trialBalanceLines || []).reduce((sum, line) => {
-        const code = String(line.mapping_code || "").trim();
-        if (!code) return sum;
-
-        const major = Number(code.split(".")[0]);
-        if (!Number.isFinite(major) || major < 700 || major >= 800) {
-          return sum;
-        }
-
-        // Exclude taxation and OCI from PROFIT BEFORE TAX.
-        if (code === "795" || code.startsWith("795.")) return sum;
-        if (code === "797" || code.startsWith("797.")) return sum;
-
-        const amount = side === "current" ? rawCurrent(line) : rawPrior(line);
-        return sum + Number(amount || 0);
-      }, 0);
+    const canonicalPbtRow = (baseStatementEngine.sociRows || []).find(
+      (row: any) =>
+        String(row?.id || "") === "profit-before-tax" ||
+        String(row?.label || "").toLowerCase().includes("before taxation"),
+    );
 
     const cashFlowProfitBeforeTaxCurrent = Math.round(
-      -mappedProfitBeforeTax("current"),
+      Number(canonicalPbtRow?.current || 0),
     );
+
     const cashFlowProfitBeforeTaxPrior = Math.round(
-      -mappedProfitBeforeTax("prior"),
+      Number(canonicalPbtRow?.prior || 0),
     );
 
     if (profitRow) {
@@ -4036,11 +4076,9 @@ const adjustmentsPrior = adjustmentKeys.reduce(
         0,
       );
 
-    const mappedInterestReceivedCurrent = Math.abs(
-      mappedNoteTotal(
-        baseStatementEngine.noteData.investmentIncome,
-        "current",
-      ),
+    const mappedInterestReceivedCurrent = Math.max(
+      0,
+      -cashFlowMappedRawTotal(["770"], "current"),
     );
 
     const mappedInterestReceivedPrior = Math.abs(
@@ -4051,10 +4089,7 @@ const adjustmentsPrior = adjustmentKeys.reduce(
     );
 
     const mappedFinanceCostsPaidCurrent = -Math.abs(
-      mappedNoteTotal(
-        baseStatementEngine.noteData.financeCosts,
-        "current",
-      ),
+      cashFlowMappedRawTotal(["775"], "current"),
     );
 
     const mappedFinanceCostsPaidPrior = -Math.abs(
@@ -4104,7 +4139,7 @@ const adjustmentsPrior = adjustmentKeys.reduce(
       The cash-flow line is presented as a negative outflow.
     */
     const currentTaxExpenseCurrent = Math.abs(
-      exactMappedRawTotal("795.10", "current"),
+      cashFlowMappedRawTotal(["795.10"], "current"),
     );
 
     const openingCurrentTaxReceivable = Math.abs(
@@ -4241,7 +4276,68 @@ const adjustmentsPrior = adjustmentKeys.reduce(
       (for example Alphaman 2024) without allowing deferred tax to leak into cash.
     */
     const taxPaidCurrent = 0;
-    const taxPaidPrior = mappedTaxPaidPrior;
+
+    /*
+      Comparative cash tax is only allowed when the comparative TB actually
+      contains a CURRENT-tax expense mapping (795.10). This stops a rolled
+      deferred-tax balance from being reconstructed as comparative tax paid,
+      while preserving genuine historical cash tax such as Alphaman 2024.
+    */
+    const hasPriorCurrentTaxExpense =
+      Math.abs(cashFlowMappedRawTotal(["795.10"], "prior")) > 0.5;
+
+    /*
+      PRIOR-YEAR TAX PAID VALIDATION
+
+      A comparative tax amount is only accepted when it actually reconciles the
+      comparative cash movement to the historical SFP cash movement. This avoids
+      a deferred-tax balance (or stale rolled-forward tax value) being presented
+      as cash tax paid.
+
+      No year is hardcoded. For a genuine cash-tax year, the mapped current-tax
+      amount will be the candidate that reconciles. If zero is the reconciler,
+      tax paid stays zero.
+    */
+    const priorOtherOperatingForTaxTest = Number(
+      effectiveStatementOverrides.cashOtherOperatingPrior || 0,
+    );
+    const priorOtherInvestingForTaxTest = Number(
+      effectiveStatementOverrides.cashOtherInvestingPrior || 0,
+    );
+    const priorMovementBeforeTax =
+      generatedPrior +
+      interestReceivedPrior +
+      financeCostsPaidPrior +
+      priorOtherOperatingForTaxTest +
+      purchasePpePrior +
+      Number(disposalPpeRow?.prior || 0) +
+      priorOtherInvestingForTaxTest +
+      Number(netFinancingRow?.prior || 0);
+
+    const historicalPriorMovement = Number(
+      historicalCashFlowData.overrides.cashPriorMovement,
+    );
+
+    const hasHistoricalPriorMovement =
+      historicalCashFlowData.hasTwoDistinctYears &&
+      Number.isFinite(historicalPriorMovement);
+
+    const priorDifferenceWithMappedTax = hasHistoricalPriorMovement
+      ? Math.abs(
+          priorMovementBeforeTax + mappedTaxPaidPrior - historicalPriorMovement,
+        )
+      : Number.POSITIVE_INFINITY;
+
+    const priorDifferenceWithZeroTax = hasHistoricalPriorMovement
+      ? Math.abs(priorMovementBeforeTax - historicalPriorMovement)
+      : Number.POSITIVE_INFINITY;
+
+    const taxPaidPrior =
+      hasPriorCurrentTaxExpense &&
+      (!hasHistoricalPriorMovement ||
+        priorDifferenceWithMappedTax < priorDifferenceWithZeroTax)
+        ? mappedTaxPaidPrior
+        : 0;
 
     if (interestReceivedRow) {
       interestReceivedRow.current = Math.round(interestReceivedCurrent);
@@ -4460,20 +4556,17 @@ if (closingCashRow) {
             0,
           );
 
-      const revenueCurrent = noteTotal(
-        baseStatementEngine.noteData.revenue,
-        "current",
-      );
+      const revenueCurrent = -cashFlowMappedRawTotal(["700"], "current");
 
       const revenuePrior = noteTotal(
         baseStatementEngine.noteData.revenue,
         "prior",
       );
 
-      const otherIncomeCurrent =
-        noteTotal(baseStatementEngine.noteData.otherOperatingIncome, "current") +
-        noteTotal(baseStatementEngine.noteData.investmentIncome, "current") +
-        noteTotal(baseStatementEngine.noteData.otherGainsLosses, "current");
+      const otherIncomeCurrent = -cashFlowMappedRawTotal(
+        ["730", "770", "780", "781", "785"],
+        "current",
+      );
 
       const otherIncomePrior =
         noteTotal(baseStatementEngine.noteData.otherOperatingIncome, "prior") +
@@ -4481,10 +4574,7 @@ if (closingCashRow) {
         noteTotal(baseStatementEngine.noteData.otherGainsLosses, "prior");
 
       const financeCostsCurrent = Math.abs(
-        noteTotal(
-          baseStatementEngine.noteData.financeCosts,
-          "current",
-        ),
+        cashFlowMappedRawTotal(["775"], "current"),
       );
 
       const financeCostsPrior = Math.abs(
@@ -4554,7 +4644,7 @@ if (closingCashRow) {
           .reduce((sum, line) => {
             const amount =
               side === "current"
-                ? rawCurrent(line)
+                ? cashFlowCurrentYearMovement(line)
                 : rawPrior(line);
 
             return sum + Math.abs(amount);
@@ -4690,7 +4780,7 @@ if (closingCashRow) {
           ? Number(
               effectiveStatementOverrides.cashInterestReceivedCurrent || 0,
             )
-          : noteInterestReceived("current");
+          : mappedInterestReceivedCurrent;
 
       const directInterestReceivedPrior =
         effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
