@@ -3793,27 +3793,44 @@ const effectiveStructuredNotesState = useMemo(() => {
       belongs in cash flow.
     */
     const shareCapitalMovementCurrent = (() => {
-      let currentPresentedEquity = 0;
-      let priorPresentedEquity = 0;
+      /*
+        Use the already-mapped SFP result as the canonical source.
 
-      for (const line of trialBalanceLines || []) {
-        const code = String(line?.mapping_code || "").trim();
-        if (!(code === "500" || code.startsWith("500."))) continue;
+        This avoids a second, separate interpretation of the TB sign and mapping
+        inside cash flow. The SFP is already mapping-driven, and FlightDeck is
+        checking the cash flow against that same statement.
 
-        currentPresentedEquity += -Number(rawCurrent(line) || 0);
+        For a first-year / hidden-comparative file there is no opening share
+        capital for cash-flow purposes, so the opening balance is zero.
+      */
+      const shareCapitalSfpRow = (baseStatementEngine.sfpRows || []).find(
+        (row: any) => {
+          const id = String(row?.id || "").trim().toLowerCase();
+          const label = String(row?.label || "").trim().toLowerCase();
 
-        /*
-          When "First year of trading / hide comparative figures" is selected,
-          there is no opening comparative equity for cash-flow purposes.
-          Treat opening share capital as zero rather than reading a duplicated
-          or carried current balance from the prior-value field.
-        */
-        if (!Boolean(reportOptions.hideComparativeFigures)) {
-          priorPresentedEquity += -Number(rawPrior(line) || 0);
-        }
-      }
+          return (
+            id === "share-capital" ||
+            id === "equity-share-capital" ||
+            label === "share capital"
+          );
+        },
+      );
 
-      return Math.round(currentPresentedEquity - priorPresentedEquity);
+      if (!shareCapitalSfpRow) return 0;
+
+      const currentPresentedEquity = Number(
+        shareCapitalSfpRow.current || 0,
+      );
+
+      const priorPresentedEquity = Boolean(
+        reportOptions.hideComparativeFigures,
+      )
+        ? 0
+        : Number(shareCapitalSfpRow.prior || 0);
+
+      return Math.round(
+        currentPresentedEquity - priorPresentedEquity,
+      );
     })();
 
     const assetFinanceMovementCurrent = liabilityMappingMovement([
