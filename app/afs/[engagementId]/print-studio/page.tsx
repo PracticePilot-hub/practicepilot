@@ -4210,14 +4210,21 @@ const adjustmentsPrior = adjustmentKeys.reduce(
       );
     });
 
-    const taxPaidCurrent = hasCurrentTaxMappingData
-      ? mappedTaxPaidCurrent
-      : manualTaxPaidCurrent;
+    /*
+      Cash taxation paid is mapping-driven only.
 
-    const taxPaidPrior =
-      Math.abs(manualTaxPaidPrior) > 0
-        ? manualTaxPaidPrior
-        : mappedTaxPaidPrior;
+      IMPORTANT: cashTaxPaidCurrent / cashTaxPaidPrior can contain stale values
+      carried forward from older Workbench saves or a rollover. Those values
+      must never become cash tax automatically — especially where the source
+      balance is deferred tax.
+
+      Only the dedicated CURRENT-tax mappings may create a taxation-paid cash
+      flow. If there is no current-tax mapping data, taxation paid is zero.
+      Deferred tax mappings (395.10 / 595.10 / 795.20) therefore remain
+      entirely non-cash.
+    */
+    const taxPaidCurrent = mappedTaxPaidCurrent;
+    const taxPaidPrior = mappedTaxPaidPrior;
 
     if (interestReceivedRow) {
       interestReceivedRow.current = Math.round(interestReceivedCurrent);
