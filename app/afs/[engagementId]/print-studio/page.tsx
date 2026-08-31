@@ -3801,7 +3801,16 @@ const effectiveStructuredNotesState = useMemo(() => {
         if (!(code === "500" || code.startsWith("500."))) continue;
 
         currentPresentedEquity += -Number(rawCurrent(line) || 0);
-        priorPresentedEquity += -Number(rawPrior(line) || 0);
+
+        /*
+          When "First year of trading / hide comparative figures" is selected,
+          there is no opening comparative equity for cash-flow purposes.
+          Treat opening share capital as zero rather than reading a duplicated
+          or carried current balance from the prior-value field.
+        */
+        if (!Boolean(reportOptions.hideComparativeFigures)) {
+          priorPresentedEquity += -Number(rawPrior(line) || 0);
+        }
       }
 
       return Math.round(currentPresentedEquity - priorPresentedEquity);
