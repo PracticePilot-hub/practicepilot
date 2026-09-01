@@ -2,7 +2,7 @@
 
 "use client";
 
-import { Fragment, type CSSProperties, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 type Organisation = {
@@ -24,11 +24,9 @@ type BillingItem = {
   organisation_id: string;
   organisation_name: string;
   engagement_id: string | null;
-  client_id: string | null;
   client_name: string | null;
   financial_year_end: string | null;
   billing_plan: string | null;
-  pricing_tier: string | null;
   charge_type: string | null;
   billing_amount: number;
   billing_status: string | null;
@@ -36,20 +34,6 @@ type BillingItem = {
   invoiced_at: string | null;
   paid_at: string | null;
   triggered_at: string | null;
-  invoice_line_id: string | null;
-};
-
-type BillingSummary = {
-  totalEvents: number;
-  freeEvents: number;
-  coveredEvents: number;
-  totalCharges: number;
-  uninvoicedAmount: number;
-  uninvoicedEvents: number;
-  invoicedAmount: number;
-  invoicedEvents: number;
-  paidAmount: number;
-  paidEvents: number;
 };
 
 type SubscriptionUser = {
@@ -65,33 +49,49 @@ type SubscriptionRow = {
   organisation_name: string;
   billing_enabled: boolean;
   plan: string;
-  pricing_tier: string | null;
-  plan_activated_at: string | null;
   configured_licence_count: number | null;
   active_afs_user_count: number;
   unit_price: number;
   monthly_amount: number;
-  licence_mismatch: boolean;
   users: SubscriptionUser[];
-  latest_charge: {
-    id: string;
-    billing_amount: number;
-    billing_status: string | null;
-    invoice_number: string | null;
-    invoiced_at: string | null;
-    triggered_at: string | null;
-    billing_period_start: string | null;
-    billing_period_end: string | null;
-  } | null;
 };
 
-type BillingStatusFilter =
-  | ""
-  | "free"
-  | "covered"
-  | "uninvoiced"
-  | "invoiced"
-  | "paid";
+type BillingRun = {
+  id: string;
+  billing_month: string;
+  cutoff_date: string;
+  run_date: string;
+  status: string;
+  generated_at: string;
+  notes: string | null;
+};
+
+type BillingBatch = {
+  id: string;
+  billing_run_id: string;
+  organisation_id: string;
+  organisation_name: string;
+  billing_plan: string | null;
+  pricing_tier: string | null;
+  free_items_count: number;
+  covered_items_count: number;
+  chargeable_items_count: number;
+  subtotal: number;
+  invoice_number: string | null;
+  invoice_date: string | null;
+  invoice_id: string | null;
+  status: string;
+  invoiced_at: string | null;
+};
+
+type RunSummary = {
+  total: number;
+  uninvoiced: number;
+  invoiced: number;
+  invoiceBatches: number;
+};
+
+type OrgFilter = "all" | "flex" | "unlimited" | "no_plan" | "attention";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -100,20 +100,15 @@ if (!supabaseUrl) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
 if (!supabaseAnonKey) throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 const today = new Date().toISOString().slice(0, 10);
+const PAGE_SIZE = 20;
 
-function formatDate(value: string | null) {
-  if (!value) return "-";
-
-  return new Date(value).toLocaleDateString("en-ZA", {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  });
+async function getAuthToken() {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token || "";
 }
 
-function formatMoney(value: number | null | undefined) {
+function money(value: number | null | undefined) {
   return new Intl.NumberFormat("en-ZA", {
     style: "currency",
     currency: "ZAR",
@@ -121,60 +116,68 @@ function formatMoney(value: number | null | undefined) {
   }).format(Number(value || 0));
 }
 
-function normaliseStatus(item: BillingItem) {
-  return String(item.billing_status || "uninvoiced")
-    .trim()
-    .toLowerCase();
+function dateText(value: string | null | undefined) {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("en-ZA", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
-function planLabel(plan: string | null) {
-  if (!plan) return "-";
-
-  const value = plan.toLowerCase();
-
-  if (value === "flex") return "AFS Flex";
-  if (value === "unlimited") return "AFS Unlimited";
-
-  return plan;
+function planLabel(plan: string | null | undefined) {
+  const value = String(plan || "").toLowerCase();
+  if (value === "flex") return "Flex";
+  if (value === "unlimited") return "Unlimited";
+  return "No Plan";
 }
 
-async function getAuthToken() {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token || "";
+function normalStatus(value: string | null | undefined) {
+  return String(value || "").trim().toLowerCase();
 }
 
 export default function AfsBillingAdminPage() {
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [subscriptions, setSubscriptions] = useState<SubscriptionRow[]>([]);
   const [items, setItems] = useState<BillingItem[]>([]);
-  const [summary, setSummary] = useState<BillingSummary | null>(null);
-  const [expandedOrganisationIds, setExpandedOrganisationIds] = useState<string[]>([]);
 
-  const [organisationId, setOrganisationId] = useState("");
-  const [statusFilter, setStatusFilter] =
-    useState<BillingStatusFilter>("uninvoiced");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [runs, setRuns] = useState<BillingRun[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState("");
+  const [batches, setBatches] = useState<BillingBatch[]>([]);
+  const [runEvents, setRunEvents] = useState<BillingItem[]>([]);
+  const [runSummary, setRunSummary] = useState<RunSummary>({
+    total: 0,
+    uninvoiced: 0,
+    invoiced: 0,
+    invoiceBatches: 0,
+  });
 
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedOrganisationId, setSelectedOrganisationId] = useState("");
+  const [orgSearch, setOrgSearch] = useState("");
+  const [orgFilter, setOrgFilter] = useState<OrgFilter>("all");
+  const [sortMode, setSortMode] = useState("name_asc");
+  const [orgPage, setOrgPage] = useState(1);
+
+  const [invoiceBatchId, setInvoiceBatchId] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(today);
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  const [savingInvoice, setSavingInvoice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    loadBilling();
-  }, [organisationId, statusFilter, dateFrom, dateTo]);
+    void loadBaseData();
+  }, []);
 
-  async function loadBilling() {
+  useEffect(() => {
+    if (selectedRunId) void loadRunData(selectedRunId);
+  }, [selectedRunId]);
+
+  async function loadBaseData() {
     setLoading(true);
     setError(null);
-    setSuccess(null);
-    setSelectedIds([]);
 
     try {
       const token = await getAuthToken();
@@ -184,209 +187,291 @@ export default function AfsBillingAdminPage() {
         return;
       }
 
-      const params = new URLSearchParams();
+      const [billingResponse, runsResponse] = await Promise.all([
+        fetch("/api/admin/afs-billing", {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch("/api/admin/afs-billing/runs", {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
 
-      if (organisationId) {
-        params.set("organisationId", organisationId);
+      const billingJson = await billingResponse.json();
+      const runsJson = await runsResponse.json();
+
+      if (!billingResponse.ok) {
+        throw new Error(billingJson.error || "Could not load AFS billing.");
       }
 
-      if (statusFilter) {
-        params.set("status", statusFilter);
+      if (!runsResponse.ok) {
+        throw new Error(runsJson.error || "Could not load AFS billing runs.");
       }
 
-      if (dateFrom) {
-        params.set("dateFrom", dateFrom);
-      }
+      setOrganisations(billingJson.organisations ?? []);
+      setSubscriptions(billingJson.subscriptions ?? []);
+      setItems(billingJson.items ?? []);
 
-      if (dateTo) {
-        params.set("dateTo", dateTo);
-      }
+      setRuns(runsJson.runs ?? []);
+      setSelectedRunId(runsJson.selected_run_id ?? "");
+      setBatches(runsJson.batches ?? []);
+      setRunEvents(runsJson.events ?? []);
+      setRunSummary(
+        runsJson.summary ?? {
+          total: 0,
+          uninvoiced: 0,
+          invoiced: 0,
+          invoiceBatches: 0,
+        }
+      );
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not load AFS billing.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadRunData(runId: string) {
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
 
       const response = await fetch(
-        `/api/admin/afs-billing${params.toString() ? `?${params.toString()}` : ""}`,
+        `/api/admin/afs-billing/runs?runId=${encodeURIComponent(runId)}`,
         {
           cache: "no-store",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
         }
       );
 
       const json = await response.json();
 
       if (!response.ok) {
-        throw new Error(json.error || "Could not load AFS billing.");
+        throw new Error(json.error || "Could not load billing run.");
       }
 
-      setOrganisations(json.organisations ?? []);
-      setSubscriptions(json.subscriptions ?? []);
-      setItems(json.items ?? []);
-      setSummary(json.summary ?? null);
-    } catch (err: unknown) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not load AFS billing."
+      setBatches(json.batches ?? []);
+      setRunEvents(json.events ?? []);
+      setRunSummary(
+        json.summary ?? {
+          total: 0,
+          uninvoiced: 0,
+          invoiced: 0,
+          invoiceBatches: 0,
+        }
       );
-    } finally {
-      setLoading(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not load billing run.");
     }
   }
 
-  const selectedItems = useMemo(
-    () => items.filter((item) => selectedIds.includes(item.id)),
-    [items, selectedIds]
-  );
-
-  const selectedOrganisationIds = useMemo(
-    () => new Set(selectedItems.map((item) => item.organisation_id)),
-    [selectedItems]
-  );
-
-  const selectedTotal = useMemo(
+  const subscriptionByOrg = useMemo(
     () =>
-      selectedItems.reduce(
-        (total, item) => total + Number(item.billing_amount || 0),
-        0
+      new Map(
+        subscriptions.map((subscription) => [
+          subscription.organisation_id,
+          subscription,
+        ])
       ),
-    [selectedItems]
+    [subscriptions]
   );
 
-  const selectableItems = useMemo(
-    () =>
-      items.filter(
-        (item) =>
-          normaliseStatus(item) === "uninvoiced" &&
-          !item.invoice_line_id
-      ),
-    [items]
-  );
+  const eventsByOrg = useMemo(() => {
+    const map = new Map<string, BillingItem[]>();
 
-  const allSelectableSelected =
-    selectableItems.length > 0 &&
-    selectableItems.every((item) => selectedIds.includes(item.id));
-
-  function toggleItem(item: BillingItem) {
-    if (
-      normaliseStatus(item) !== "uninvoiced" ||
-      item.invoice_line_id
-    ) {
-      return;
+    for (const item of items) {
+      const current = map.get(item.organisation_id) ?? [];
+      current.push(item);
+      map.set(item.organisation_id, current);
     }
 
-    setSelectedIds((current) => {
-      if (current.includes(item.id)) {
-        return current.filter((id) => id !== item.id);
+    return map;
+  }, [items]);
+
+  const latestBatchByOrg = useMemo(() => {
+    const map = new Map<string, BillingBatch>();
+
+    for (const batch of batches) {
+      map.set(batch.organisation_id, batch);
+    }
+
+    return map;
+  }, [batches]);
+
+  const freeUsageByOrg = useMemo(() => {
+    const map = new Map<string, number>();
+
+    for (const item of items) {
+      const status = normalStatus(item.billing_status);
+      if (status === "free" || item.charge_type === "free_credit") {
+        map.set(
+          item.organisation_id,
+          (map.get(item.organisation_id) ?? 0) + 1
+        );
       }
+    }
 
-      const currentItems = items.filter((row) =>
-        current.includes(row.id)
-      );
+    return map;
+  }, [items]);
 
-      const existingOrganisationId =
-        currentItems[0]?.organisation_id || "";
+  const attentionOrgIds = useMemo(() => {
+    const set = new Set<string>();
+
+    for (const organisation of organisations) {
+      const subscription = subscriptionByOrg.get(organisation.id);
+      const batch = latestBatchByOrg.get(organisation.id);
 
       if (
-        existingOrganisationId &&
-        existingOrganisationId !== item.organisation_id
+        batch &&
+        Number(batch.subtotal || 0) > 0 &&
+        batch.status !== "invoiced" &&
+        batch.status !== "paid"
       ) {
-        setError(
-          "Select AFS charges from one organisation only for each QuickBooks invoice."
-        );
-        return current;
+        set.add(organisation.id);
       }
 
-      setError(null);
-      return [...current, item.id];
+      if (
+        subscription?.plan === "unlimited" &&
+        subscription.active_afs_user_count !==
+          Number(subscription.configured_licence_count || 0)
+      ) {
+        set.add(organisation.id);
+      }
+    }
+
+    return set;
+  }, [organisations, subscriptionByOrg, latestBatchByOrg]);
+
+  const visibleOrganisations = useMemo(() => {
+    const term = orgSearch.trim().toLowerCase();
+
+    let result = organisations.filter((organisation) => {
+      const plan = String(organisation.afs_plan || "").toLowerCase();
+
+      if (term && !organisation.name.toLowerCase().includes(term)) return false;
+      if (orgFilter === "flex" && plan !== "flex") return false;
+      if (orgFilter === "unlimited" && plan !== "unlimited") return false;
+      if (orgFilter === "no_plan" && (plan === "flex" || plan === "unlimited")) {
+        return false;
+      }
+      if (orgFilter === "attention" && !attentionOrgIds.has(organisation.id)) {
+        return false;
+      }
+
+      return true;
     });
-  }
 
-  function toggleAllSelectable() {
-    if (allSelectableSelected) {
-      setSelectedIds([]);
-      return;
-    }
-
-    if (!organisationId) {
-      setError(
-        "Choose one organisation before selecting all AFS charges for a QuickBooks invoice."
-      );
-      return;
-    }
-
-    setError(null);
-    setSelectedIds(selectableItems.map((item) => item.id));
-  }
-
-  async function generateSubscriptionCharges() {
-    setError(null);
-    setSuccess(null);
-    setGenerating(true);
-
-    try {
-      const token = await getAuthToken();
-
-      if (!token) {
-        window.location.href = "/login";
-        return;
+    result = [...result].sort((a, b) => {
+      if (sortMode === "name_desc") return b.name.localeCompare(a.name);
+      if (sortMode === "plan") {
+        return planLabel(a.afs_plan).localeCompare(planLabel(b.afs_plan));
       }
-
-      const response = await fetch("/api/admin/afs-billing", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          action: "generate_subscription_charges",
-        }),
-      });
-
-      const json = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          json.error || "Could not generate AFS subscription charges."
+      if (sortMode === "attention") {
+        return (
+          Number(attentionOrgIds.has(b.id)) -
+          Number(attentionOrgIds.has(a.id))
         );
       }
+      return a.name.localeCompare(b.name);
+    });
 
-      const createdCount = Number(json.created_count || 0);
+    return result;
+  }, [organisations, orgSearch, orgFilter, sortMode, attentionOrgIds]);
 
-      if (createdCount > 0) {
-        setSuccess(
-          `${createdCount} subscription charge(s) generated successfully.`
-        );
-      } else {
-        setSuccess(
-          "No new subscription charges were required for the current billing periods."
-        );
-      }
+  useEffect(() => {
+    setOrgPage(1);
+  }, [orgSearch, orgFilter, sortMode]);
 
-      await loadBilling();
-    } catch (err: unknown) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not generate AFS subscription charges."
-      );
-    } finally {
-      setGenerating(false);
+  const orgPageCount = Math.max(
+    1,
+    Math.ceil(visibleOrganisations.length / PAGE_SIZE)
+  );
+
+  const pagedOrganisations = visibleOrganisations.slice(
+    (orgPage - 1) * PAGE_SIZE,
+    orgPage * PAGE_SIZE
+  );
+
+  const selectedOrganisation =
+    organisations.find((organisation) => organisation.id === selectedOrganisationId) ??
+    null;
+
+  const selectedSubscription = selectedOrganisation
+    ? subscriptionByOrg.get(selectedOrganisation.id) ?? null
+    : null;
+
+  const selectedEvents = selectedOrganisation
+    ? eventsByOrg.get(selectedOrganisation.id) ?? []
+    : [];
+
+  const selectedBatch = selectedOrganisation
+    ? latestBatchByOrg.get(selectedOrganisation.id) ?? null
+    : null;
+
+  const selectedUsers = selectedSubscription?.users ?? [];
+  const selectedFreeUsed = selectedOrganisation
+    ? freeUsageByOrg.get(selectedOrganisation.id) ?? 0
+    : 0;
+
+  const selectedUninvoiced = selectedEvents.reduce((total, event) => {
+    if (normalStatus(event.billing_status) !== "uninvoiced") return total;
+    return total + Number(event.billing_amount || 0);
+  }, 0);
+
+  const activeSubscriptions = organisations.filter((organisation) =>
+    ["flex", "unlimited"].includes(
+      String(organisation.afs_plan || "").toLowerCase()
+    )
+  ).length;
+
+  const freeEvents = items.filter((item) => {
+    const status = normalStatus(item.billing_status);
+    return status === "free" || item.charge_type === "free_credit";
+  }).length;
+
+  const invoicedTotal = items.reduce((total, item) => {
+    if (normalStatus(item.billing_status) !== "invoiced") return total;
+    return total + Number(item.billing_amount || 0);
+  }, 0);
+
+  const paidTotal = items.reduce((total, item) => {
+    if (normalStatus(item.billing_status) !== "paid") return total;
+    return total + Number(item.billing_amount || 0);
+  }, 0);
+
+  const currentRun = runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
+
+  function organisationMeta(organisation: Organisation) {
+    const subscription = subscriptionByOrg.get(organisation.id);
+    const plan = String(organisation.afs_plan || "").toLowerCase();
+    const users = subscription?.active_afs_user_count ?? 0;
+    const freeUsed = freeUsageByOrg.get(organisation.id) ?? 0;
+
+    if (plan === "unlimited") {
+      return `Unlimited • ${users} AFS user${users === 1 ? "" : "s"}`;
     }
+
+    if (plan === "flex") {
+      return `${freeUsed} free set${freeUsed === 1 ? "" : "s"} used • ${users} AFS user${
+        users === 1 ? "" : "s"
+      }`;
+    }
+
+    return `No AFS plan • ${users} user${users === 1 ? "" : "s"}`;
   }
 
-  async function recordQuickBooksInvoice() {
-    setError(null);
-    setSuccess(null);
+  function batchStatusLabel(batch: BillingBatch | null) {
+    if (!batch) return "No billing run";
+    if (batch.status === "paid") return "Paid";
+    if (batch.status === "invoiced") return "Invoiced";
+    if (Number(batch.subtotal || 0) > 0) return "Ready to invoice";
+    return "No invoice required";
+  }
 
-    if (!selectedIds.length) {
-      setError("Select at least one uninvoiced AFS charge.");
-      return;
-    }
-
-    if (selectedOrganisationIds.size !== 1) {
-      setError(
-        "A QuickBooks invoice may only contain AFS charges from one organisation."
-      );
+  async function recordBatchInvoice() {
+    if (!invoiceBatchId) {
+      setError("Choose an organisation billing batch first.");
       return;
     }
 
@@ -400,24 +485,26 @@ export default function AfsBillingAdminPage() {
       return;
     }
 
-    setSaving(true);
+    setSavingInvoice(true);
+    setError(null);
+    setSuccess(null);
 
     try {
       const token = await getAuthToken();
-
       if (!token) {
         window.location.href = "/login";
         return;
       }
 
-      const response = await fetch("/api/admin/afs-billing", {
+      const response = await fetch("/api/admin/afs-billing/runs", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          event_ids: selectedIds,
+          action: "record_batch_invoice",
+          billing_batch_id: invoiceBatchId,
           invoice_number: invoiceNumber.trim(),
           invoice_date: invoiceDate,
         }),
@@ -426,518 +513,672 @@ export default function AfsBillingAdminPage() {
       const json = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          json.error || "Could not record the QuickBooks invoice."
-        );
+        throw new Error(json.error || "Could not record QuickBooks invoice.");
       }
 
       setSuccess(
-        `${selectedIds.length} AFS charge(s) linked to QuickBooks invoice ${invoiceNumber.trim()}. Due date: ${formatDate(json.invoice?.due_date || null)}.`
+        `QuickBooks invoice ${invoiceNumber.trim()} linked to the full organisation billing batch (${money(
+          json.amount
+        )}).`
       );
-
-      setSelectedIds([]);
+      setInvoiceBatchId("");
       setInvoiceNumber("");
-
-      await loadBilling();
+      await loadBaseData();
     } catch (err: unknown) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Could not record the QuickBooks invoice."
+        err instanceof Error ? err.message : "Could not record QuickBooks invoice."
       );
     } finally {
-      setSaving(false);
+      setSavingInvoice(false);
     }
   }
 
-  function toggleSubscriptionUsers(id: string) {
-    setExpandedOrganisationIds((current) =>
-      current.includes(id)
-        ? current.filter((value) => value !== id)
-        : [...current, id]
-    );
+  function openInvoiceForBatch(batch: BillingBatch) {
+    setSelectedOrganisationId(batch.organisation_id);
+    setInvoiceBatchId(batch.id);
+    setInvoiceNumber("");
+    setInvoiceDate(today);
+    window.setTimeout(() => {
+      document.getElementById("batch-invoice-panel")?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 50);
   }
 
-  function clearFilters() {
-    setOrganisationId("");
-    setStatusFilter("uninvoiced");
-    setDateFrom("");
-    setDateTo("");
+  function exportBillingRunCsv() {
+    if (!currentRun || !batches.length) {
+      setError("There is no billing run to export yet.");
+      return;
+    }
+
+    const rows = [
+      [
+        "Billing month",
+        "Organisation",
+        "Plan",
+        "Free items",
+        "Covered items",
+        "Chargeable items",
+        "Amount excl VAT",
+        "QB invoice",
+        "Invoice date",
+        "Status",
+      ],
+      ...batches
+        .filter((batch) => Number(batch.subtotal || 0) > 0)
+        .map((batch) => [
+          currentRun.billing_month,
+          batch.organisation_name,
+          planLabel(batch.billing_plan),
+          String(batch.free_items_count || 0),
+          String(batch.covered_items_count || 0),
+          String(batch.chargeable_items_count || 0),
+          Number(batch.subtotal || 0).toFixed(2),
+          batch.invoice_number || "",
+          batch.invoice_date || "",
+          batch.status,
+        ]),
+    ];
+
+    const csv = rows
+      .map((row) =>
+        row
+          .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `PracticePilot_AFS_Billing_Run_${currentRun.billing_month}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
+
+  const selectedRunEvents = selectedOrganisation
+    ? runEvents.filter(
+        (event) => event.organisation_id === selectedOrganisation.id
+      )
+    : runEvents.slice(0, 10);
 
   return (
     <main style={s.page}>
-      <section style={s.hero}>
+      <header style={s.pageHeader}>
         <div>
-          <p style={s.eyebrow}>PracticePilot</p>
+          <div style={s.eyebrow}>PracticePilot</div>
           <h1 style={s.title}>AFS Billing Admin</h1>
+          <div style={s.subtitle}>
+            Manage AFS subscriptions, free sets, users and monthly QuickBooks billing.
+          </div>
         </div>
 
-        <div style={s.heroActions}>
-          <p style={s.sub}>
-            Review AFS charges and link them to the actual QuickBooks invoice.
-          </p>
+        <div style={s.headerActions}>
+          {runs.length ? (
+            <select
+              value={selectedRunId}
+              onChange={(event) => setSelectedRunId(event.target.value)}
+              style={s.runSelect}
+            >
+              {runs.map((run) => (
+                <option key={run.id} value={run.id}>
+                  {dateText(run.billing_month)} billing run
+                </option>
+              ))}
+            </select>
+          ) : null}
 
-          <button
-            type="button"
-            onClick={generateSubscriptionCharges}
-            disabled={generating}
-            style={{
-              ...s.generateButton,
-              opacity: generating ? 0.6 : 1,
-            }}
-          >
-            {generating
-              ? "Generating..."
-              : "Generate subscription charges"}
+          <button type="button" style={s.secondaryButton} onClick={exportBillingRunCsv}>
+            Export billing run
           </button>
         </div>
-      </section>
+      </header>
 
       {error ? <div style={s.error}>{error}</div> : null}
       {success ? <div style={s.success}>{success}</div> : null}
 
-      <section style={s.summaryGrid}>
-        <SummaryCard
-          label="AFS events"
-          value={String(summary?.totalEvents || 0)}
-          note={`${summary?.freeEvents || 0} free · ${summary?.coveredEvents || 0} covered`}
-        />
+      <div style={s.workspace}>
+        <aside style={s.sidebar}>
+          <div style={s.sidebarTitle}>Organisations</div>
 
-        <SummaryCard
-          label="Uninvoiced"
-          value={formatMoney(summary?.uninvoicedAmount)}
-          note={`${summary?.uninvoicedEvents || 0} charge(s)`}
-        />
+          <input
+            value={orgSearch}
+            onChange={(event) => setOrgSearch(event.target.value)}
+            placeholder="Search organisations..."
+            style={s.searchInput}
+          />
 
-        <SummaryCard
-          label="Invoiced"
-          value={formatMoney(summary?.invoicedAmount)}
-          note={`${summary?.invoicedEvents || 0} charge(s)`}
-        />
-
-        <SummaryCard
-          label="Paid"
-          value={formatMoney(summary?.paidAmount)}
-          note={`${summary?.paidEvents || 0} charge(s)`}
-        />
-      </section>
-
-      <section style={s.card}>
-        <div style={s.sectionHeader}>
-          <div>
-            <h2 style={s.h2}>AFS subscriptions</h2>
-            <div style={s.resultText}>
-              Monthly subscription billing by organisation, with the actual users who currently have AFS access.
-            </div>
+          <div style={s.filterTabs}>
+            {[
+              ["all", "All"],
+              ["flex", "Flex"],
+              ["unlimited", "Unlimited"],
+              ["no_plan", "No Plan"],
+              ["attention", "Attention"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setOrgFilter(value as OrgFilter)}
+                style={{
+                  ...s.filterTab,
+                  ...(orgFilter === value ? s.filterTabActive : {}),
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        </div>
 
-        {loading ? (
-          <div style={s.empty}>Loading AFS subscriptions...</div>
-        ) : subscriptions.length === 0 ? (
-          <div style={s.empty}>No active AFS subscriptions found.</div>
-        ) : (
-          <div style={s.tableWrap}>
-            <table style={s.subscriptionTable}>
-              <thead>
-                <tr>
-                  <th style={s.th}>Organisation</th>
-                  <th style={s.th}>Plan</th>
-                  <th style={s.thRight}>AFS users</th>
-                  <th style={s.thRight}>Billable licences</th>
-                  <th style={s.thRight}>Rate</th>
-                  <th style={s.thRight}>Monthly subscription</th>
-                  <th style={s.th}>Latest charge</th>
-                  <th style={s.th}>QB invoice</th>
-                  <th style={s.th}>Check</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {subscriptions.map((subscription) => {
-                  const expanded = expandedOrganisationIds.includes(
-                    subscription.organisation_id
-                  );
-                  const latestStatus = String(
-                    subscription.latest_charge?.billing_status || "not generated"
-                  ).toLowerCase();
-
-                  return (
-                    <Fragment key={subscription.organisation_id}>
-                      <tr>
-                        <td style={s.tdStrong}>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              toggleSubscriptionUsers(subscription.organisation_id)
-                            }
-                            style={s.expandButton}
-                          >
-                            <span style={s.expandIcon}>{expanded ? "−" : "+"}</span>
-                            {subscription.organisation_name}
-                          </button>
-                        </td>
-                        <td style={s.td}>{planLabel(subscription.plan)}</td>
-                        <td style={s.tdRight}>
-                          {subscription.active_afs_user_count}
-                        </td>
-                        <td style={s.tdRight}>
-                          {subscription.plan === "unlimited"
-                            ? subscription.configured_licence_count ?? 0
-                            : "-"}
-                        </td>
-                        <td style={s.tdRight}>
-                          {formatMoney(subscription.unit_price)}
-                          {subscription.plan === "unlimited" ? " / user" : " / month"}
-                        </td>
-                        <td style={s.tdRightStrong}>
-                          {formatMoney(subscription.monthly_amount)}
-                        </td>
-                        <td style={s.td}>
-                          <span
-                            style={{
-                              ...s.status,
-                              ...(latestStatus === "invoiced"
-                                ? s.statusInvoiced
-                                : latestStatus === "paid"
-                                  ? s.statusPaid
-                                  : latestStatus === "uninvoiced"
-                                    ? s.statusUninvoiced
-                                    : s.statusCovered),
-                            }}
-                          >
-                            {latestStatus}
-                          </span>
-                        </td>
-                        <td style={s.td}>
-                          {subscription.latest_charge?.invoice_number || "-"}
-                        </td>
-                        <td style={s.td}>
-                          {subscription.licence_mismatch ? (
-                            <span style={s.warningText}>
-                              Users ≠ licences
-                            </span>
-                          ) : (
-                            <span style={s.okText}>OK</span>
-                          )}
-                        </td>
-                      </tr>
-
-                      {expanded ? (
-                        <tr>
-                          <td colSpan={9} style={s.userDetailCell}>
-                            <div style={s.userDetailHeader}>
-                              Users currently enabled for Financial Statements
-                            </div>
-                            {subscription.users.length === 0 ? (
-                              <div style={s.userEmpty}>No active AFS users found.</div>
-                            ) : (
-                              <table style={s.userTable}>
-                                <thead>
-                                  <tr>
-                                    <th style={s.userTh}>User</th>
-                                    <th style={s.userTh}>Email</th>
-                                    <th style={s.userTh}>Role</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {subscription.users.map((user) => (
-                                    <tr key={user.id}>
-                                      <td style={s.userTdStrong}>
-                                        {user.full_name || user.email}
-                                      </td>
-                                      <td style={s.userTd}>{user.email}</td>
-                                      <td style={s.userTd}>{user.role}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            )}
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <section style={s.card}>
-        <div style={s.sectionHeader}>
-          <div>
-            <h2 style={s.h2}>Filters</h2>
-            <div style={s.resultText}>
-              Refine the AFS billing register before linking charges to a QuickBooks invoice.
-            </div>
-          </div>
+          <select
+            value={sortMode}
+            onChange={(event) => setSortMode(event.target.value)}
+            style={s.sortSelect}
+          >
+            <option value="name_asc">Organisation (A–Z)</option>
+            <option value="name_desc">Organisation (Z–A)</option>
+            <option value="plan">Plan</option>
+            <option value="attention">Attention first</option>
+          </select>
 
           <button
             type="button"
-            style={s.secondaryButton}
-            onClick={clearFilters}
+            onClick={() => setSelectedOrganisationId("")}
+            style={{
+              ...s.orgRow,
+              ...(selectedOrganisationId === "" ? s.orgRowSelected : {}),
+            }}
           >
-            Clear filters
+            <div>
+              <div style={s.orgName}>All organisations overview</div>
+              <div style={s.orgMeta}>Portfolio billing summary</div>
+            </div>
+            <span style={s.chevron}>›</span>
           </button>
-        </div>
 
-        <div style={s.filters}>
-          <label style={s.fieldWrap}>
-            <span style={s.label}>Organisation</span>
-            <select
-              value={organisationId}
-              onChange={(event) =>
-                setOrganisationId(event.target.value)
-              }
-              style={s.input}
-            >
-              <option value="">All organisations</option>
-
-              {organisations.map((organisation) => (
-                <option key={organisation.id} value={organisation.id}>
-                  {organisation.name}
-                  {organisation.afs_plan
-                    ? ` - ${planLabel(organisation.afs_plan)}`
-                    : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label style={s.fieldWrap}>
-            <span style={s.label}>Billing status</span>
-            <select
-              value={statusFilter}
-              onChange={(event) =>
-                setStatusFilter(
-                  event.target.value as BillingStatusFilter
-                )
-              }
-              style={s.input}
-            >
-              <option value="">All</option>
-              <option value="free">Free</option>
-              <option value="covered">Covered</option>
-              <option value="uninvoiced">Uninvoiced</option>
-              <option value="invoiced">Invoiced</option>
-              <option value="paid">Paid</option>
-            </select>
-          </label>
-
-          <label style={s.fieldWrap}>
-            <span style={s.label}>Created from</span>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
-              style={s.input}
-            />
-          </label>
-
-          <label style={s.fieldWrap}>
-            <span style={s.label}>Created to</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(event) => setDateTo(event.target.value)}
-              style={s.input}
-            />
-          </label>
-        </div>
-      </section>
-
-      <section style={s.invoicePanel}>
-        <div>
-          <div style={s.headerLabel}>Selected organisation</div>
-          <div style={s.headerValue}>
-            {selectedItems[0]?.organisation_name || "None selected"}
+          <div style={s.orgList}>
+            {pagedOrganisations.map((organisation) => (
+              <button
+                key={organisation.id}
+                type="button"
+                onClick={() => setSelectedOrganisationId(organisation.id)}
+                style={{
+                  ...s.orgRow,
+                  ...(selectedOrganisationId === organisation.id
+                    ? s.orgRowSelected
+                    : {}),
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={s.orgTopLine}>
+                    <span style={s.orgName}>{organisation.name}</span>
+                    <span
+                      style={{
+                        ...s.planBadge,
+                        ...(organisation.afs_plan === "unlimited"
+                          ? s.planUnlimited
+                          : organisation.afs_plan === "flex"
+                            ? s.planFlex
+                            : s.planNone),
+                      }}
+                    >
+                      {planLabel(organisation.afs_plan)}
+                    </span>
+                  </div>
+                  <div style={s.orgMeta}>{organisationMeta(organisation)}</div>
+                </div>
+                <span style={s.chevron}>›</span>
+              </button>
+            ))}
           </div>
-        </div>
 
-        <div>
-          <div style={s.headerLabel}>Selected charges</div>
-          <div style={s.headerValue}>{selectedIds.length}</div>
-        </div>
+          <div style={s.sidebarFooter}>
+            <div style={s.sidebarCount}>
+              Showing {visibleOrganisations.length === 0 ? 0 : (orgPage - 1) * PAGE_SIZE + 1}–
+              {Math.min(orgPage * PAGE_SIZE, visibleOrganisations.length)} of{" "}
+              {visibleOrganisations.length}
+            </div>
 
-        <div>
-          <div style={s.headerLabel}>Selected total</div>
-          <div style={s.headerValue}>{formatMoney(selectedTotal)}</div>
-        </div>
-
-        <label style={s.invoiceField}>
-          <span style={s.label}>QuickBooks invoice number</span>
-          <input
-            value={invoiceNumber}
-            onChange={(event) => setInvoiceNumber(event.target.value)}
-            placeholder="Example: INV-000123"
-            style={s.input}
-          />
-        </label>
-
-        <label style={s.invoiceField}>
-          <span style={s.label}>QuickBooks invoice date</span>
-          <input
-            type="date"
-            value={invoiceDate}
-            onChange={(event) => setInvoiceDate(event.target.value)}
-            style={s.input}
-          />
-        </label>
-
-        <button
-          type="button"
-          onClick={recordQuickBooksInvoice}
-          disabled={saving || !selectedIds.length}
-          style={{
-            ...s.primaryButton,
-            opacity: saving || !selectedIds.length ? 0.55 : 1,
-          }}
-        >
-          {saving ? "Saving..." : "Record QuickBooks invoice"}
-        </button>
-      </section>
-
-      <section style={s.card}>
-        <div style={s.sectionHeader}>
-          <div>
-            <h2 style={s.h2}>AFS billing register</h2>
-            <div style={s.resultText}>
-              Showing {items.length} item(s)
+            <div style={s.pagination}>
+              <button
+                type="button"
+                disabled={orgPage <= 1}
+                onClick={() => setOrgPage((page) => Math.max(1, page - 1))}
+                style={s.pageButton}
+              >
+                ‹
+              </button>
+              <span style={s.pageCurrent}>
+                {orgPage} / {orgPageCount}
+              </span>
+              <button
+                type="button"
+                disabled={orgPage >= orgPageCount}
+                onClick={() => setOrgPage((page) => Math.min(orgPageCount, page + 1))}
+                style={s.pageButton}
+              >
+                ›
+              </button>
             </div>
           </div>
-        </div>
+        </aside>
 
-        {loading ? (
-          <div style={s.empty}>Loading AFS billing...</div>
-        ) : items.length === 0 ? (
-          <div style={s.empty}>
-            No AFS billing items match the selected filters.
-          </div>
-        ) : (
-          <div style={s.tableWrap}>
-            <table style={s.table}>
-              <thead>
-                <tr>
-                  <th style={s.checkTh}>
-                    <input
-                      type="checkbox"
-                      checked={allSelectableSelected}
-                      onChange={toggleAllSelectable}
-                      aria-label="Select all uninvoiced AFS charges"
-                    />
-                  </th>
-                  <th style={s.th}>No.</th>
-                  <th style={s.th}>Organisation</th>
-                  <th style={s.th}>Client</th>
-                  <th style={s.th}>Year end</th>
-                  <th style={s.th}>Plan</th>
-                  <th style={s.th}>Charge type</th>
-                  <th style={s.th}>Created</th>
-                  <th style={s.th}>Status</th>
-                  <th style={s.thRight}>Amount</th>
-                  <th style={s.th}>Invoice</th>
-                  <th style={s.th}>Invoice date</th>
-                </tr>
-              </thead>
+        <section style={s.mainPanel}>
+          {loading ? (
+            <div style={s.empty}>Loading AFS billing...</div>
+          ) : selectedOrganisation ? (
+            <>
+              <div style={s.orgHeader}>
+                <div>
+                  <div style={s.orgDetailTitleRow}>
+                    <h2 style={s.orgDetailTitle}>{selectedOrganisation.name}</h2>
+                    <span
+                      style={{
+                        ...s.planBadge,
+                        ...(selectedOrganisation.afs_plan === "unlimited"
+                          ? s.planUnlimited
+                          : selectedOrganisation.afs_plan === "flex"
+                            ? s.planFlex
+                            : s.planNone),
+                      }}
+                    >
+                      {planLabel(selectedOrganisation.afs_plan)}
+                    </span>
+                  </div>
+                  <div style={s.detailMeta}>
+                    Billing status:{" "}
+                    {selectedOrganisation.afs_billing_enabled ? "Enabled" : "Not enabled"}
+                  </div>
+                </div>
 
-              <tbody>
-                {items.map((item, index) => {
-                  const status = normaliseStatus(item);
-                  const selectable =
-                    status === "uninvoiced" &&
-                    !item.invoice_line_id;
+                {selectedBatch &&
+                Number(selectedBatch.subtotal || 0) > 0 &&
+                !selectedBatch.invoice_number ? (
+                  <button
+                    type="button"
+                    style={s.primaryButton}
+                    onClick={() => openInvoiceForBatch(selectedBatch)}
+                  >
+                    Record QuickBooks invoice
+                  </button>
+                ) : null}
+              </div>
 
-                  return (
-                    <tr key={item.id}>
-                      <td style={s.checkTd}>
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.includes(item.id)}
-                          disabled={!selectable}
-                          onChange={() => toggleItem(item)}
-                          aria-label={`Select ${item.client_name || "AFS charge"}`}
-                        />
-                      </td>
+              <div style={s.detailStats}>
+                <Metric
+                  label="Plan & status"
+                  value={planLabel(selectedOrganisation.afs_plan)}
+                  note={
+                    selectedOrganisation.afs_billing_enabled
+                      ? "Billing enabled"
+                      : "Billing not enabled"
+                  }
+                />
+                <Metric
+                  label="Free AFS usage"
+                  value={`${selectedFreeUsed} free set${selectedFreeUsed === 1 ? "" : "s"} used`}
+                  note={
+                    selectedFreeUsed > 0
+                      ? "Free usage remains visible in billing history"
+                      : "No free AFS event recorded"
+                  }
+                />
+                <Metric
+                  label="AFS users"
+                  value={String(selectedUsers.length)}
+                  note="Active users with AFS access"
+                />
+                <Metric
+                  label="Current batch"
+                  value={selectedBatch ? money(selectedBatch.subtotal) : "—"}
+                  note={batchStatusLabel(selectedBatch)}
+                />
+                <Metric
+                  label="Current uninvoiced"
+                  value={money(selectedUninvoiced)}
+                  note="Across all AFS billing events"
+                />
+                <Metric
+                  label="Latest QB invoice"
+                  value={selectedBatch?.invoice_number || "—"}
+                  note={dateText(selectedBatch?.invoice_date)}
+                />
+              </div>
 
-                      <td style={s.td}>{index + 1}</td>
+              <section style={s.section}>
+                <div style={s.sectionHeader}>
+                  <div>
+                    <h3 style={s.sectionTitle}>AFS users ({selectedUsers.length})</h3>
+                    <div style={s.sectionSub}>
+                      Users currently enabled for Financial Statements.
+                    </div>
+                  </div>
+                </div>
 
-                      <td style={s.td}>
-                        {item.organisation_name}
-                      </td>
+                {selectedUsers.length === 0 ? (
+                  <div style={s.empty}>No active AFS users found for this organisation.</div>
+                ) : (
+                  <div style={s.tableWrap}>
+                    <table style={s.table}>
+                      <thead>
+                        <tr>
+                          <th style={s.th}>Name</th>
+                          <th style={s.th}>Email</th>
+                          <th style={s.th}>Role</th>
+                          <th style={s.th}>Access</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedUsers.map((user) => (
+                          <tr key={user.id}>
+                            <td style={s.tdStrong}>{user.full_name || user.email}</td>
+                            <td style={s.td}>{user.email}</td>
+                            <td style={s.td}>{user.role}</td>
+                            <td style={s.td}>
+                              <span style={{ ...s.status, ...s.statusGood }}>Active</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
 
-                      <td style={s.tdStrong}>
-                        {item.client_name || "-"}
-                      </td>
+              {invoiceBatchId === selectedBatch?.id ? (
+                <section id="batch-invoice-panel" style={s.invoicePanel}>
+                  <div>
+                    <div style={s.invoiceTitle}>Link QuickBooks invoice</div>
+                    <div style={s.invoiceSub}>
+                      This invoice will be linked to the entire monthly organisation batch.
+                      No individual AFS items need to be ticked.
+                    </div>
+                  </div>
 
-                      <td style={s.td}>
-                        {formatDate(item.financial_year_end)}
-                      </td>
+                  <div style={s.invoiceGrid}>
+                    <div>
+                      <div style={s.label}>Billing total</div>
+                      <div style={s.invoiceAmount}>{money(selectedBatch.subtotal)}</div>
+                    </div>
 
-                      <td style={s.td}>
-                        {planLabel(item.billing_plan)}
-                      </td>
+                    <label>
+                      <span style={s.label}>QuickBooks invoice number</span>
+                      <input
+                        value={invoiceNumber}
+                        onChange={(event) => setInvoiceNumber(event.target.value)}
+                        placeholder="Example: INV-000123"
+                        style={s.input}
+                      />
+                    </label>
 
-                      <td style={s.td}>
-                        {item.charge_type || "-"}
-                      </td>
+                    <label>
+                      <span style={s.label}>Invoice date</span>
+                      <input
+                        type="date"
+                        value={invoiceDate}
+                        onChange={(event) => setInvoiceDate(event.target.value)}
+                        style={s.input}
+                      />
+                    </label>
 
-                      <td style={s.td}>
-                        {formatDate(item.triggered_at)}
-                      </td>
+                    <button
+                      type="button"
+                      style={{
+                        ...s.primaryButton,
+                        opacity: savingInvoice ? 0.6 : 1,
+                      }}
+                      disabled={savingInvoice}
+                      onClick={recordBatchInvoice}
+                    >
+                      {savingInvoice ? "Saving..." : "Link invoice to batch"}
+                    </button>
+                  </div>
+                </section>
+              ) : null}
 
-                      <td style={s.td}>
-                        <span
-                          style={{
-                            ...s.status,
-                            ...(status === "free"
-                              ? s.statusFree
-                              : status === "covered"
-                                ? s.statusCovered
-                                : status === "invoiced"
-                                  ? s.statusInvoiced
-                                  : status === "paid"
-                                    ? s.statusPaid
-                                    : s.statusUninvoiced),
-                          }}
-                        >
-                          {status}
-                        </span>
-                      </td>
+              <section style={s.section}>
+                <div style={s.sectionHeader}>
+                  <div>
+                    <h3 style={s.sectionTitle}>Billing events</h3>
+                    <div style={s.sectionSub}>
+                      Full audit trail, including free and covered AFS events.
+                    </div>
+                  </div>
+                </div>
 
-                      <td style={s.tdRight}>
-                        {formatMoney(item.billing_amount)}
-                      </td>
+                <BillingEventsTable events={selectedEvents} />
+              </section>
+            </>
+          ) : (
+            <>
+              <div style={s.portfolioStats}>
+                <Metric
+                  label="Organisations"
+                  value={String(organisations.length)}
+                  note="PracticePilot organisations"
+                />
+                <Metric
+                  label="Active subscriptions"
+                  value={String(activeSubscriptions)}
+                  note="Flex + Unlimited"
+                />
+                <Metric
+                  label="Free sets used"
+                  value={String(freeEvents)}
+                  note="Retained in billing history"
+                />
+                <Metric
+                  label="Current run uninvoiced"
+                  value={money(runSummary.uninvoiced)}
+                  note={`${runSummary.invoiceBatches || 0} invoice batch(es)`}
+                />
+                <Metric
+                  label="Invoiced"
+                  value={money(invoicedTotal)}
+                  note="AFS billing events"
+                />
+                <Metric
+                  label="Paid"
+                  value={money(paidTotal)}
+                  note="AFS billing events"
+                />
+                <Metric
+                  label="Needs attention"
+                  value={String(attentionOrgIds.size)}
+                  note="Billing or licence check"
+                />
+              </div>
 
-                      <td style={s.td}>
-                        {item.invoice_number || "-"}
-                      </td>
+              <section style={s.section}>
+                <div style={s.sectionHeader}>
+                  <div>
+                    <h3 style={s.sectionTitle}>Organisation billing overview</h3>
+                    <div style={s.sectionSub}>
+                      {currentRun
+                        ? `${dateText(currentRun.billing_month)} run • Cut-off ${dateText(
+                            currentRun.cutoff_date
+                          )} • ${currentRun.status}`
+                        : "No monthly billing run has been generated yet."}
+                    </div>
+                  </div>
 
-                      <td style={s.td}>
-                        {formatDate(item.invoiced_at)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                  {currentRun ? (
+                    <button
+                      type="button"
+                      style={s.secondaryButton}
+                      onClick={exportBillingRunCsv}
+                    >
+                      Export invoice list
+                    </button>
+                  ) : null}
+                </div>
 
-      <section style={s.note}>
-        <strong>Subscription billing:</strong> use Generate subscription charges to create
-        the applicable Flex or Unlimited subscription charge for each active billing period.
-        The generated charge then appears in this register and can be linked to the actual
-        QuickBooks invoice together with any other AFS charges.
-      </section>
+                <div style={s.tableWrap}>
+                  <table style={s.table}>
+                    <thead>
+                      <tr>
+                        <th style={s.th}>Organisation</th>
+                        <th style={s.th}>Plan</th>
+                        <th style={s.thRight}>Free / covered</th>
+                        <th style={s.thRight}>AFS users</th>
+                        <th style={s.thRight}>Chargeable items</th>
+                        <th style={s.thRight}>Current batch</th>
+                        <th style={s.th}>QB invoice</th>
+                        <th style={s.th}>Status</th>
+                        <th style={s.th}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {organisations.slice(0, 100).map((organisation) => {
+                        const subscription = subscriptionByOrg.get(organisation.id);
+                        const batch = latestBatchByOrg.get(organisation.id);
+                        const attention = attentionOrgIds.has(organisation.id);
+                        const users = subscription?.active_afs_user_count ?? 0;
+
+                        return (
+                          <tr key={organisation.id}>
+                            <td style={s.tdStrong}>{organisation.name}</td>
+                            <td style={s.td}>{planLabel(organisation.afs_plan)}</td>
+                            <td style={s.tdRight}>
+                              {batch
+                                ? `${batch.free_items_count || 0} / ${
+                                    batch.covered_items_count || 0
+                                  }`
+                                : "—"}
+                            </td>
+                            <td style={s.tdRight}>{users}</td>
+                            <td style={s.tdRight}>
+                              {batch?.chargeable_items_count ?? 0}
+                            </td>
+                            <td style={s.tdRightStrong}>
+                              {batch ? money(batch.subtotal) : "—"}
+                            </td>
+                            <td style={s.td}>{batch?.invoice_number || "—"}</td>
+                            <td style={s.td}>
+                              <span
+                                style={{
+                                  ...s.status,
+                                  ...(attention
+                                    ? s.statusWarn
+                                    : batch?.status === "invoiced" ||
+                                        batch?.status === "paid"
+                                      ? s.statusGood
+                                      : s.statusNeutral),
+                                }}
+                              >
+                                {attention
+                                  ? "Attention"
+                                  : batch
+                                    ? batchStatusLabel(batch)
+                                    : "No run"}
+                              </span>
+                            </td>
+                            <td style={s.tdRight}>
+                              {batch &&
+                              Number(batch.subtotal || 0) > 0 &&
+                              !batch.invoice_number ? (
+                                <button
+                                  type="button"
+                                  style={s.rowAction}
+                                  onClick={() => openInvoiceForBatch(batch)}
+                                >
+                                  Invoice
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  style={s.rowAction}
+                                  onClick={() =>
+                                    setSelectedOrganisationId(organisation.id)
+                                  }
+                                >
+                                  View
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section style={s.section}>
+                <div style={s.sectionHeader}>
+                  <div>
+                    <h3 style={s.sectionTitle}>Recent billing events</h3>
+                    <div style={s.sectionSub}>
+                      Current billing-run audit trail. Free items remain visible at R0.
+                    </div>
+                  </div>
+                </div>
+
+                <BillingEventsTable events={selectedRunEvents} showOrganisation />
+              </section>
+
+              {invoiceBatchId ? (
+                <section id="batch-invoice-panel" style={s.invoicePanel}>
+                  <div>
+                    <div style={s.invoiceTitle}>Link QuickBooks invoice</div>
+                    <div style={s.invoiceSub}>
+                      One invoice number links to the full monthly organisation batch.
+                    </div>
+                  </div>
+
+                  <div style={s.invoiceGrid}>
+                    <div>
+                      <div style={s.label}>Organisation</div>
+                      <div style={s.invoiceAmount}>
+                        {batches.find((batch) => batch.id === invoiceBatchId)
+                          ?.organisation_name || "—"}
+                      </div>
+                    </div>
+
+                    <label>
+                      <span style={s.label}>QuickBooks invoice number</span>
+                      <input
+                        value={invoiceNumber}
+                        onChange={(event) => setInvoiceNumber(event.target.value)}
+                        placeholder="Example: INV-000123"
+                        style={s.input}
+                      />
+                    </label>
+
+                    <label>
+                      <span style={s.label}>Invoice date</span>
+                      <input
+                        type="date"
+                        value={invoiceDate}
+                        onChange={(event) => setInvoiceDate(event.target.value)}
+                        style={s.input}
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      style={s.primaryButton}
+                      disabled={savingInvoice}
+                      onClick={recordBatchInvoice}
+                    >
+                      {savingInvoice ? "Saving..." : "Link invoice to batch"}
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+            </>
+          )}
+        </section>
+      </div>
     </main>
   );
 }
 
-function SummaryCard({
+function Metric({
   label,
   value,
   note,
@@ -947,10 +1188,83 @@ function SummaryCard({
   note: string;
 }) {
   return (
-    <div style={s.summaryCard}>
-      <div style={s.summaryLabel}>{label}</div>
-      <div style={s.summaryValue}>{value}</div>
-      <div style={s.summaryNote}>{note}</div>
+    <div style={s.metric}>
+      <div style={s.metricLabel}>{label}</div>
+      <div style={s.metricValue}>{value}</div>
+      <div style={s.metricNote}>{note}</div>
+    </div>
+  );
+}
+
+function BillingEventsTable({
+  events,
+  showOrganisation = false,
+}: {
+  events: BillingItem[];
+  showOrganisation?: boolean;
+}) {
+  if (!events.length) {
+    return <div style={s.empty}>No billing events found.</div>;
+  }
+
+  return (
+    <div style={s.tableWrap}>
+      <table style={s.table}>
+        <thead>
+          <tr>
+            <th style={s.th}>Date</th>
+            {showOrganisation ? <th style={s.th}>Organisation</th> : null}
+            <th style={s.th}>Event</th>
+            <th style={s.th}>Description</th>
+            <th style={s.thRight}>Amount</th>
+            <th style={s.th}>Status</th>
+            <th style={s.th}>Invoice</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.slice(0, 100).map((event) => {
+            const status = normalStatus(event.billing_status);
+            const free =
+              status === "free" ||
+              status === "covered" ||
+              event.charge_type === "free_credit";
+
+            return (
+              <tr key={event.id}>
+                <td style={s.td}>{dateText(event.triggered_at)}</td>
+                {showOrganisation ? (
+                  <td style={s.tdStrong}>{event.organisation_name}</td>
+                ) : null}
+                <td style={s.td}>{event.charge_type || "AFS event"}</td>
+                <td style={s.tdStrong}>
+                  {event.client_name ||
+                    (event.charge_type === "free_credit"
+                      ? "Free AFS set used"
+                      : "AFS billing item")}
+                </td>
+                <td style={s.tdRight}>{money(event.billing_amount)}</td>
+                <td style={s.td}>
+                  <span
+                    style={{
+                      ...s.status,
+                      ...(free
+                        ? s.statusGood
+                        : status === "uninvoiced"
+                          ? s.statusWarn
+                          : status === "invoiced" || status === "paid"
+                            ? s.statusInfo
+                            : s.statusNeutral),
+                    }}
+                  >
+                    {free ? "Covered / Free" : status || "—"}
+                  </span>
+                </td>
+                <td style={s.td}>{event.invoice_number || "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -958,289 +1272,301 @@ function SummaryCard({
 const s: Record<string, CSSProperties> = {
   page: {
     minHeight: "calc(100vh - 54px)",
-    background: "#f3f7fb",
-    padding: "10px 14px",
+    background: "#f5f8fc",
     color: "#0f172a",
+    padding: "12px 16px 20px",
     fontFamily:
       "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   },
-  hero: {
+  pageHeader: {
     display: "flex",
+    alignItems: "flex-end",
     justifyContent: "space-between",
-    alignItems: "end",
-    gap: 18,
-    background: "#ffffff",
-    border: "1px solid #d8e2ee",
-    borderRadius: 2,
-    padding: "11px 14px",
-    marginBottom: 7,
+    gap: 16,
+    marginBottom: 10,
   },
   eyebrow: {
-    margin: 0,
-    color: "#1769e0",
     fontSize: 11,
     fontWeight: 900,
-    letterSpacing: "0.1em",
+    color: "#1769e0",
+    letterSpacing: "0.08em",
     textTransform: "uppercase",
   },
   title: {
-    margin: "5px 0 0",
-    fontSize: 25,
-    fontWeight: 800,
+    margin: "3px 0 0",
+    fontSize: 26,
     lineHeight: 1.05,
-    color: "#0f172a",
-  },
-  heroActions: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-  },
-  sub: {
-    margin: 0,
-    maxWidth: 620,
-    fontSize: 13,
-    color: "#667085",
-    textAlign: "right",
-  },
-  generateButton: {
-    minHeight: 31,
-    border: "1px solid #0f766e",
-    borderRadius: 2,
-    background: "#0f766e",
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: 850,
-    cursor: "pointer",
-    padding: "0 12px",
-    whiteSpace: "nowrap",
-  },
-  summaryGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    gap: 6,
-    marginBottom: 8,
-  },
-  summaryCard: {
-    background: "#ffffff",
-    border: "1px solid #d8e2ee",
-    borderRadius: 2,
-    padding: "9px 11px",
-  },
-  summaryLabel: {
-    fontSize: 11,
-    color: "#64748b",
-    fontWeight: 850,
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
-  },
-  summaryValue: {
-    marginTop: 4,
-    fontSize: 18,
     fontWeight: 900,
     color: "#0f172a",
   },
-  summaryNote: {
-    marginTop: 3,
+  subtitle: {
+    marginTop: 5,
     fontSize: 12,
     color: "#64748b",
   },
-  card: {
-    background: "#ffffff",
-    border: "1px solid #d8e2ee",
-    borderRadius: 2,
-    padding: 8,
-    overflow: "hidden",
-    marginBottom: 8,
-  },
-  sectionHeader: {
+  headerActions: {
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 7,
+    alignItems: "center",
+    gap: 7,
   },
-  h2: {
-    margin: 0,
-    fontSize: 16,
-    fontWeight: 800,
-    color: "#0f172a",
-  },
-  resultText: {
-    marginTop: 3,
-    fontSize: 12,
-    color: "#667085",
-    fontWeight: 650,
-  },
-  filters: {
-    display: "grid",
-    gridTemplateColumns: "1.4fr 210px 160px 160px",
-    gap: 6,
-  },
-  fieldWrap: {
-    display: "block",
-  },
-  invoiceField: {
-    display: "block",
-  },
-  label: {
-    display: "block",
-    marginBottom: 3,
-    fontSize: 11,
-    fontWeight: 850,
-    color: "#34495e",
-  },
-  input: {
-    width: "100%",
-    boxSizing: "border-box",
-    height: 31,
-    border: "1px solid #bfc9d6",
+  runSelect: {
+    height: 32,
+    minWidth: 220,
+    border: "1px solid #cbd5e1",
     borderRadius: 2,
+    background: "#fff",
     padding: "0 8px",
     fontSize: 12,
     color: "#0f172a",
-    background: "#ffffff",
-    outline: "none",
   },
-  secondaryButton: {
-    border: "1px solid #d5dde6",
-    background: "#ffffff",
-    color: "#12304a",
-    borderRadius: 2,
-    padding: "6px 9px",
-    fontSize: 12,
-    fontWeight: 850,
-    cursor: "pointer",
-  },
-  invoicePanel: {
+  workspace: {
     display: "grid",
-    gridTemplateColumns:
-      "1.1fr 120px 140px 1fr 160px 190px",
-    gap: 6,
-    alignItems: "end",
-    background: "#ffffff",
+    gridTemplateColumns: "330px minmax(0, 1fr)",
+    gap: 8,
+    alignItems: "start",
+  },
+  sidebar: {
+    background: "#fff",
     border: "1px solid #d8e2ee",
     borderRadius: 2,
-    padding: 8,
+    minHeight: 720,
+    overflow: "hidden",
+  },
+  sidebarTitle: {
+    padding: "10px 12px 6px",
+    fontSize: 14,
+    fontWeight: 900,
+  },
+  searchInput: {
+    width: "calc(100% - 20px)",
+    margin: "0 10px 8px",
+    boxSizing: "border-box",
+    height: 32,
+    border: "1px solid #cbd5e1",
+    borderRadius: 2,
+    padding: "0 9px",
+    fontSize: 12,
+  },
+  filterTabs: {
+    display: "grid",
+    gridTemplateColumns: "repeat(5, 1fr)",
+    gap: 3,
+    padding: "0 10px 8px",
+  },
+  filterTab: {
+    height: 28,
+    border: "1px solid #dbe4ee",
+    borderRadius: 2,
+    background: "#fff",
+    color: "#475569",
+    fontSize: 10,
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  filterTabActive: {
+    borderColor: "#1769e0",
+    color: "#1769e0",
+    background: "#eff6ff",
+  },
+  sortSelect: {
+    width: "calc(100% - 20px)",
+    margin: "0 10px 8px",
+    height: 30,
+    border: "1px solid #cbd5e1",
+    borderRadius: 2,
+    background: "#fff",
+    padding: "0 8px",
+    fontSize: 11,
+  },
+  orgList: {
+    maxHeight: 520,
+    overflowY: "auto",
+    borderTop: "1px solid #e6edf5",
+  },
+  orgRow: {
+    width: "100%",
+    minHeight: 54,
+    border: "none",
+    borderBottom: "1px solid #edf2f7",
+    background: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    padding: "8px 10px",
+    textAlign: "left",
+    cursor: "pointer",
+  },
+  orgRowSelected: {
+    background: "#eef5ff",
+    boxShadow: "inset 3px 0 0 #1769e0",
+  },
+  orgTopLine: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+  },
+  orgName: {
+    fontSize: 12,
+    fontWeight: 850,
+    color: "#0f172a",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  orgMeta: {
+    marginTop: 3,
+    fontSize: 10.5,
+    color: "#64748b",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  chevron: {
+    color: "#64748b",
+    fontSize: 18,
+    flexShrink: 0,
+  },
+  planBadge: {
+    display: "inline-block",
+    borderRadius: 2,
+    padding: "1px 4px",
+    fontSize: 9.5,
+    fontWeight: 850,
+    whiteSpace: "nowrap",
+  },
+  planFlex: {
+    color: "#1d4ed8",
+    background: "#dbeafe",
+  },
+  planUnlimited: {
+    color: "#047857",
+    background: "#d1fae5",
+  },
+  planNone: {
+    color: "#475569",
+    background: "#e2e8f0",
+  },
+  sidebarFooter: {
+    padding: 10,
+    borderTop: "1px solid #e6edf5",
+  },
+  sidebarCount: {
+    fontSize: 10.5,
+    color: "#64748b",
+  },
+  pagination: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+  },
+  pageButton: {
+    width: 28,
+    height: 26,
+    border: "1px solid #cbd5e1",
+    borderRadius: 2,
+    background: "#fff",
+    cursor: "pointer",
+  },
+  pageCurrent: {
+    fontSize: 11,
+    fontWeight: 800,
+    color: "#334155",
+  },
+  mainPanel: {
+    minWidth: 0,
+  },
+  portfolioStats: {
+    display: "grid",
+    gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+    border: "1px solid #d8e2ee",
+    background: "#fff",
     marginBottom: 8,
   },
-  headerLabel: {
-    fontSize: 11,
+  detailStats: {
+    display: "grid",
+    gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+    border: "1px solid #d8e2ee",
+    background: "#fff",
+    marginBottom: 8,
+  },
+  metric: {
+    minWidth: 0,
+    padding: "10px 11px",
+    borderRight: "1px solid #e2e8f0",
+  },
+  metricLabel: {
+    fontSize: 10,
     fontWeight: 850,
     color: "#64748b",
     textTransform: "uppercase",
-    letterSpacing: "0.05em",
+    letterSpacing: "0.03em",
   },
-  headerValue: {
-    marginTop: 4,
-    fontSize: 14,
-    fontWeight: 850,
+  metricValue: {
+    marginTop: 5,
+    fontSize: 17,
+    fontWeight: 900,
     color: "#0f172a",
-  },
-  primaryButton: {
-    minHeight: 31,
-    border: "1px solid #1769e0",
-    borderRadius: 2,
-    background: "#1769e0",
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: 850,
-    cursor: "pointer",
-    padding: "0 12px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
-  subscriptionTable: {
-    width: "100%",
-    borderCollapse: "collapse",
-    minWidth: 1100,
+  metricNote: {
+    marginTop: 3,
+    fontSize: 10.5,
+    color: "#64748b",
+    minHeight: 14,
   },
-  expandButton: {
-    border: 0,
-    padding: 0,
-    background: "transparent",
-    color: "#0f172a",
-    font: "inherit",
-    fontWeight: 800,
-    cursor: "pointer",
-    display: "inline-flex",
+  orgHeader: {
+    background: "#fff",
+    border: "1px solid #d8e2ee",
+    padding: "10px 12px",
+    marginBottom: 8,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  orgDetailTitleRow: {
+    display: "flex",
     alignItems: "center",
     gap: 7,
-    textAlign: "left",
   },
-  expandIcon: {
-    display: "inline-flex",
-    width: 17,
-    height: 17,
+  orgDetailTitle: {
+    margin: 0,
+    fontSize: 20,
+    fontWeight: 900,
+  },
+  detailMeta: {
+    marginTop: 3,
+    fontSize: 11,
+    color: "#64748b",
+  },
+  section: {
+    background: "#fff",
+    border: "1px solid #d8e2ee",
+    marginBottom: 8,
+  },
+  sectionHeader: {
+    minHeight: 42,
+    padding: "8px 10px",
+    borderBottom: "1px solid #e2e8f0",
+    display: "flex",
     alignItems: "center",
-    justifyContent: "center",
-    border: "1px solid #bfc9d6",
-    background: "#f8fbff",
-    fontSize: 13,
-    lineHeight: 1,
+    justifyContent: "space-between",
+    gap: 10,
   },
-  tdRightStrong: {
-    padding: "5px 7px",
-    borderBottom: "1px solid #edf2f7",
-    fontSize: 12,
-    color: "#0f172a",
-    textAlign: "right",
+  sectionTitle: {
+    margin: 0,
+    fontSize: 14,
     fontWeight: 900,
-    verticalAlign: "middle",
   },
-  warningText: {
-    color: "#b42318",
-    fontWeight: 850,
-    fontSize: 11,
-  },
-  okText: {
-    color: "#166534",
-    fontWeight: 850,
-    fontSize: 11,
-  },
-  userDetailCell: {
-    padding: "7px 28px 9px",
-    background: "#f8fbff",
-    borderBottom: "1px solid #dbe5ef",
-  },
-  userDetailHeader: {
-    marginBottom: 5,
-    fontSize: 11,
-    fontWeight: 900,
-    color: "#34495e",
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
-  },
-  userTable: {
-    width: "100%",
-    borderCollapse: "collapse",
-    background: "#ffffff",
-    border: "1px solid #dbe5ef",
-  },
-  userTh: {
-    textAlign: "left",
-    padding: "4px 7px",
-    background: "#f1f6fb",
-    borderBottom: "1px solid #dbe5ef",
-    fontSize: 10,
-    fontWeight: 900,
-    color: "#475569",
-  },
-  userTd: {
-    padding: "4px 7px",
-    borderBottom: "1px solid #edf2f7",
-    fontSize: 11,
-    color: "#475569",
-  },
-  userTdStrong: {
-    padding: "4px 7px",
-    borderBottom: "1px solid #edf2f7",
-    fontSize: 11,
-    color: "#0f172a",
-    fontWeight: 800,
-  },
-  userEmpty: {
-    fontSize: 11,
-    color: "#667085",
-    padding: "4px 0",
+  sectionSub: {
+    marginTop: 2,
+    fontSize: 10.5,
+    color: "#64748b",
   },
   tableWrap: {
     width: "100%",
@@ -1249,65 +1575,57 @@ const s: Record<string, CSSProperties> = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    minWidth: 1180,
-  },
-  checkTh: {
-    width: 36,
-    textAlign: "center",
-    padding: "5px 5px",
-    background: "#f8fbff",
-    borderTop: "1px solid #dbe5ef",
-    borderBottom: "1px solid #dbe5ef",
-  },
-  checkTd: {
-    width: 36,
-    textAlign: "center",
-    padding: "5px 5px",
-    borderBottom: "1px solid #edf2f7",
-    verticalAlign: "middle",
+    minWidth: 850,
   },
   th: {
     textAlign: "left",
-    padding: "5px 7px",
-    background: "#f8fbff",
-    borderTop: "1px solid #dbe5ef",
-    borderBottom: "1px solid #dbe5ef",
-    fontSize: 11,
+    padding: "6px 7px",
+    background: "#f8fafc",
+    borderBottom: "1px solid #dbe4ee",
+    fontSize: 10.5,
     fontWeight: 900,
-    color: "#34495e",
+    color: "#475569",
     whiteSpace: "nowrap",
   },
   thRight: {
     textAlign: "right",
-    padding: "5px 7px",
-    background: "#f8fbff",
-    borderTop: "1px solid #dbe5ef",
-    borderBottom: "1px solid #dbe5ef",
-    fontSize: 11,
+    padding: "6px 7px",
+    background: "#f8fafc",
+    borderBottom: "1px solid #dbe4ee",
+    fontSize: 10.5,
     fontWeight: 900,
-    color: "#34495e",
+    color: "#475569",
     whiteSpace: "nowrap",
   },
   td: {
-    padding: "5px 7px",
+    padding: "6px 7px",
     borderBottom: "1px solid #edf2f7",
-    fontSize: 12,
-    color: "#34495e",
+    fontSize: 11,
+    color: "#475569",
     verticalAlign: "middle",
   },
   tdStrong: {
-    padding: "5px 7px",
+    padding: "6px 7px",
     borderBottom: "1px solid #edf2f7",
-    fontSize: 12,
+    fontSize: 11,
     color: "#0f172a",
     fontWeight: 800,
     verticalAlign: "middle",
   },
   tdRight: {
-    padding: "5px 7px",
+    padding: "6px 7px",
     borderBottom: "1px solid #edf2f7",
-    fontSize: 12,
-    color: "#34495e",
+    fontSize: 11,
+    color: "#475569",
+    textAlign: "right",
+    verticalAlign: "middle",
+  },
+  tdRightStrong: {
+    padding: "6px 7px",
+    borderBottom: "1px solid #edf2f7",
+    fontSize: 11,
+    color: "#0f172a",
+    fontWeight: 850,
     textAlign: "right",
     verticalAlign: "middle",
   },
@@ -1315,63 +1633,124 @@ const s: Record<string, CSSProperties> = {
     display: "inline-block",
     borderRadius: 2,
     padding: "2px 5px",
-    fontSize: 11,
+    fontSize: 9.5,
     fontWeight: 850,
-    textTransform: "lowercase",
+    whiteSpace: "nowrap",
   },
-  statusFree: {
+  statusGood: {
     background: "#dcfce7",
     color: "#166534",
   },
-  statusCovered: {
-    background: "#e0e7ff",
-    color: "#3730a3",
-  },
-  statusUninvoiced: {
+  statusWarn: {
     background: "#ffedd5",
     color: "#9a3412",
   },
-  statusInvoiced: {
-    background: "#e0f2fe",
-    color: "#075985",
+  statusInfo: {
+    background: "#dbeafe",
+    color: "#1d4ed8",
   },
-  statusPaid: {
-    background: "#ede9fe",
-    color: "#5b21b6",
+  statusNeutral: {
+    background: "#e2e8f0",
+    color: "#475569",
   },
-  error: {
-    marginBottom: 14,
-    background: "#fff1f2",
-    border: "1px solid #fecaca",
-    color: "#991b1b",
-    padding: 10,
+  invoicePanel: {
+    background: "#f8fbff",
+    border: "1px solid #9fc0f0",
+    padding: "10px 12px",
+    marginBottom: 8,
+  },
+  invoiceTitle: {
+    fontSize: 13,
+    fontWeight: 900,
+  },
+  invoiceSub: {
+    marginTop: 2,
+    fontSize: 10.5,
+    color: "#64748b",
+  },
+  invoiceGrid: {
+    marginTop: 8,
+    display: "grid",
+    gridTemplateColumns: "180px 1fr 170px 190px",
+    gap: 7,
+    alignItems: "end",
+  },
+  invoiceAmount: {
+    marginTop: 4,
+    fontSize: 14,
+    fontWeight: 900,
+  },
+  label: {
+    display: "block",
+    marginBottom: 3,
+    fontSize: 10.5,
+    fontWeight: 850,
+    color: "#475569",
+  },
+  input: {
+    width: "100%",
+    boxSizing: "border-box",
+    height: 31,
+    border: "1px solid #bfc9d6",
     borderRadius: 2,
-    fontSize: 12,
+    padding: "0 8px",
+    fontSize: 11,
+    background: "#fff",
   },
-  success: {
-    marginBottom: 14,
-    background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
-    color: "#166534",
-    padding: 10,
+  primaryButton: {
+    minHeight: 31,
+    border: "1px solid #1769e0",
     borderRadius: 2,
-    fontSize: 12,
+    background: "#1769e0",
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: 850,
+    padding: "0 11px",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  secondaryButton: {
+    minHeight: 31,
+    border: "1px solid #cbd5e1",
+    borderRadius: 2,
+    background: "#fff",
+    color: "#0f172a",
+    fontSize: 11,
+    fontWeight: 850,
+    padding: "0 10px",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  rowAction: {
+    border: "1px solid #cbd5e1",
+    borderRadius: 2,
+    background: "#fff",
+    color: "#1769e0",
+    padding: "3px 7px",
+    fontSize: 10,
+    fontWeight: 850,
+    cursor: "pointer",
   },
   empty: {
-    border: "1px dashed #cfd8e3",
-    borderRadius: 2,
-    padding: 10,
-    color: "#667085",
-    fontSize: 13,
-    background: "#ffffff",
-  },
-  note: {
-    background: "#ffffff",
-    border: "1px solid #d8e2ee",
-    borderRadius: 2,
-    padding: "9px 11px",
+    background: "#fff",
+    padding: 14,
+    color: "#64748b",
     fontSize: 12,
-    lineHeight: 1.5,
-    color: "#667085",
+  },
+  error: {
+    marginBottom: 8,
+    padding: "8px 10px",
+    border: "1px solid #fecaca",
+    background: "#fff1f2",
+    color: "#991b1b",
+    fontSize: 11,
+  },
+  success: {
+    marginBottom: 8,
+    padding: "8px 10px",
+    border: "1px solid #bbf7d0",
+    background: "#f0fdf4",
+    color: "#166534",
+    fontSize: 11,
   },
 };
