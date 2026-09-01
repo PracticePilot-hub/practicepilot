@@ -3310,6 +3310,20 @@ useEffect(() => {
         };
       }
 
+      if (
+        section.key === "notesLoansReceivable" &&
+        isPureMemberLoanReceivableMapping()
+      ) {
+        const title = relatedPartyLoanStatementTitle();
+
+        return {
+          ...section,
+          label: title,
+          title,
+          defaultTitle: title,
+        };
+      }
+
       if (section.key === "notesShareholdersLoans" && isCloseCorporation) {
         return {
           ...section,
@@ -5483,34 +5497,19 @@ if (
   };
 }, [statementEngine.sfpRows, statementEngine.sceRows]);
 
-function ccStatementRowLabel(value: unknown) {
-  const original = String(value || "").trim();
-  if (!isCloseCorporation) return original;
+function relatedPartyLoanStatementTitle() {
+  if (isCloseCorporation) return "Member loans";
+  if (isTrust) return "Trustee loans";
+  return "Shareholder / director / member loans";
+}
 
-  const lower = original.toLowerCase();
-
-  if (
-    lower.includes("share capital") ||
-    lower.includes("members / owners contributions") ||
-    lower.includes("member / owner contributions") ||
-    lower.includes("owners contributions")
-  ) {
-    return "Member's contribution";
-  }
-
-  /*
-    CC presentation:
-    340.20 is specifically "Loans to shareholders / directors / members".
-    If that is the only populated 340-series receivable mapping, do not show
-    the generic SFP label "Loans receivable" — show "Member loans".
-    Classification remains an asset because the member owes the CC.
-  */
-  const populated340Codes = Array.from(
+function populatedMappingCodes(prefix: string) {
+  return Array.from(
     new Set(
       (trialBalanceLines || [])
         .filter((line: TrialBalanceLine) => {
           const code = String(line.mapping_code || "").trim();
-          if (!(code === "340" || code.startsWith("340."))) return false;
+          if (!(code === prefix || code.startsWith(`${prefix}.`))) return false;
 
           return (
             Math.round(rawCurrent(line)) !== 0 ||
@@ -5520,28 +5519,58 @@ function ccStatementRowLabel(value: unknown) {
         .map((line: TrialBalanceLine) => String(line.mapping_code || "").trim()),
     ),
   );
+}
 
-  const onlyMemberLoanReceivable =
-    populated340Codes.length === 1 && populated340Codes[0] === "340.20";
+function isPureMemberLoanReceivableMapping() {
+  const codes = populatedMappingCodes("340");
+  return codes.length === 1 && codes[0] === "340.20";
+}
+
+function ccStatementRowLabel(value: unknown) {
+  const original = String(value || "").trim();
+  const lower = original.toLowerCase();
 
   if (
-    onlyMemberLoanReceivable &&
+    isCloseCorporation &&
+    (
+      lower.includes("share capital") ||
+      lower.includes("members / owners contributions") ||
+      lower.includes("member / owner contributions") ||
+      lower.includes("owners contributions")
+    )
+  ) {
+    return "Member's contribution";
+  }
+
+  /*
+    Same related-party loan presentation on both sides of the SFP.
+    Mapping controls classification:
+      340.20 = loan TO shareholder/director/member -> asset
+      548.*  = loan FROM shareholder/director/member -> liability
+
+    The SFP section tells the reader whether the balance is an asset or liability;
+    the line description remains the same related-party-loan family.
+  */
+  if (
+    isPureMemberLoanReceivableMapping() &&
     (
       lower === "loans receivable" ||
       lower === "loan receivable" ||
       lower.includes("loans and non-current receivables")
     )
   ) {
-    return "Member loans";
+    return relatedPartyLoanStatementTitle();
   }
 
   if (
     lower.includes("shareholder / director / member loans") ||
     lower.includes("shareholder/director/member loans") ||
     lower.includes("loans from shareholders") ||
-    lower.includes("shareholder loans")
+    lower.includes("shareholder loans") ||
+    lower.includes("member loans") ||
+    lower.includes("trustee loans")
   ) {
-    return "Member loans";
+    return relatedPartyLoanStatementTitle();
   }
 
   return original;

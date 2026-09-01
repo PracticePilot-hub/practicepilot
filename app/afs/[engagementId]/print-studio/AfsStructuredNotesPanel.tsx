@@ -3217,12 +3217,88 @@ function BankOverdraftNote(props: {
   );
 }
 
-function ShareholderLoansNote({
+
+function isMemberLoanReceivableLine(line: any) {
+  return clean(line?.mapping_code) === "340.20";
+}
+
+function memberLoanReceivableMappingCodes(trialBalanceLines: any[]) {
+  return Array.from(
+    new Set(
+      (trialBalanceLines || [])
+        .filter((line: any) => {
+          const code = clean(line?.mapping_code);
+          if (!(code === "340" || code.startsWith("340."))) return false;
+
+          return (
+            Math.round(Math.abs(lineAmount(line, "current"))) !== 0 ||
+            Math.round(Math.abs(lineAmount(line, "prior"))) !== 0
+          );
+        })
+        .map((line: any) => clean(line?.mapping_code)),
+    ),
+  );
+}
+
+function isPureMemberLoanReceivable(trialBalanceLines: any[]) {
+  const codes = memberLoanReceivableMappingCodes(trialBalanceLines);
+  return codes.length === 1 && codes[0] === "340.20";
+}
+
+function buildMemberLoanReceivableDetailRows(
+  trialBalanceLines: any[],
+  fallbackRows: AmountLine[],
+): AmountLine[] {
+  const grouped = new Map<string, AmountLine>();
+
+  (trialBalanceLines || [])
+    .filter(isMemberLoanReceivableLine)
+    .forEach((line, index) => {
+      const current = normaliseLoanAmount(lineAmount(line, "current"));
+      const prior = normaliseLoanAmount(lineAmount(line, "prior"));
+      if (current === 0 && prior === 0) return;
+
+      const label = shareholderLoanLabel(line);
+      const key = shareholderLoanLineKey(line, index);
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          id: key,
+          label,
+          current: 0,
+          prior: 0,
+          meta: {
+            source: "trialBalanceLine",
+            mappingCode: "340.20",
+            direction: "receivable",
+          },
+        });
+      }
+
+      const row = grouped.get(key);
+      if (!row) return;
+      row.current += current;
+      row.prior += prior;
+    });
+
+  const detailRows = Array.from(grouped.values()).filter(
+    (row) => roundAmount(row.current) !== 0 || roundAmount(row.prior) !== 0,
+  );
+
+  if (detailRows.length > 0) {
+    return detailRows.sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  return fallbackRows;
+}
+
+function RelatedPartyLoansNote({
   rows,
   trialBalanceLines,
   edit,
   state,
   update,
+  direction,
   isCloseCorporationEntity,
   isTrustEntity,
 }: {
@@ -3231,13 +3307,18 @@ function ShareholderLoansNote({
   edit: boolean;
   state: StructuredState;
   update: (path: string[], value: any) => void;
+  direction: "receivable" | "payable";
   isCloseCorporationEntity?: boolean;
   isTrustEntity?: boolean;
 }) {
   const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
+
   const visibleRows = splitRows(
-    buildSharedShareholderLoanRows(trialBalanceLines, rows),
+    direction === "receivable"
+      ? buildMemberLoanReceivableDetailRows(trialBalanceLines, rows)
+      : buildSharedShareholderLoanRows(trialBalanceLines, rows),
   );
+
   const totalCurrent = visibleRows.reduce(
     (sum, row) => sum + toNumber(row.current),
     0,
@@ -3248,6 +3329,28 @@ function ShareholderLoansNote({
   );
 
   if (visibleRows.length === 0 && !edit) return null;
+
+  const stateKey =
+    direction === "receivable"
+      ? "shareholderLoansReceivable"
+      : "shareholderLoans";
+
+  const relationshipLabel =
+    direction === "receivable"
+      ? "Relationship / borrower type"
+      : "Relationship / lender type";
+
+  const defaultRelationship = isCloseCorporationEntity
+    ? direction === "receivable"
+      ? "Member / borrower"
+      : "Member / lender"
+    : isTrustEntity
+      ? direction === "receivable"
+        ? "Trustee / beneficiary / borrower"
+        : "Trustee / beneficiary / lender"
+      : direction === "receivable"
+        ? "Shareholder / director / member / borrower"
+        : "Shareholder / director / member / lender";
 
   return (
     <table style={styles.table}>
@@ -3268,25 +3371,21 @@ function ShareholderLoansNote({
       <tbody>
         {visibleRows.map((row, index) => {
           const key = row.id || row.label || String(index);
-          const savedLabel = state.shareholderLoans?.[key]?.label || "";
+          const savedLabel = state?.[stateKey]?.[key]?.label || "";
           const displayLabel = savedLabel || row.label;
-          const savedTerms = state.shareholderLoans?.[key]?.terms;
+          const savedTerms = state?.[stateKey]?.[key]?.terms;
           const terms =
             savedTerms !== undefined
               ? String(savedTerms)
               : "The loan is unsecured, bears no interest and has no fixed repayment terms.";
-          const interest = state.shareholderLoans?.[key]?.interest || "";
-          const repayment = state.shareholderLoans?.[key]?.repayment || "";
-          const security = state.shareholderLoans?.[key]?.security || "";
-          const savedRelationship = state.shareholderLoans?.[key]?.relationship;
+          const interest = state?.[stateKey]?.[key]?.interest || "";
+          const repayment = state?.[stateKey]?.[key]?.repayment || "";
+          const security = state?.[stateKey]?.[key]?.security || "";
+          const savedRelationship = state?.[stateKey]?.[key]?.relationship;
           const relationship =
             savedRelationship !== undefined
               ? String(savedRelationship)
-              : isCloseCorporationEntity
-                ? "Member"
-                : isTrustEntity
-                  ? "Trustee"
-                  : "Shareholder / director / member";
+              : defaultRelationship;
 
           return (
             <FragmentWithKey key={key}>
@@ -3296,10 +3395,7 @@ function ShareholderLoansNote({
                     <input
                       value={displayLabel}
                       onChange={(event) =>
-                        update(
-                          ["shareholderLoans", key, "label"],
-                          event.target.value,
-                        )
+                        update([stateKey, key, "label"], event.target.value)
                       }
                       style={inputStyle()}
                     />
@@ -3323,62 +3419,57 @@ function ShareholderLoansNote({
                         <input
                           value={terms}
                           onChange={(event) =>
-                            update(
-                              ["shareholderLoans", key, "terms"],
-                              event.target.value,
-                            )
+                            update([stateKey, key, "terms"], event.target.value)
                           }
                           style={inputStyle()}
                         />
                       </label>
+
                       <label>
-                        <span style={styles.smallLabel}>Relationship / lender type</span>
+                        <span style={styles.smallLabel}>{relationshipLabel}</span>
                         <input
                           value={relationship}
                           onChange={(event) =>
                             update(
-                              ["shareholderLoans", key, "relationship"],
+                              [stateKey, key, "relationship"],
                               event.target.value,
                             )
                           }
                           style={inputStyle()}
                         />
                       </label>
+
                       <label>
                         <span style={styles.smallLabel}>Interest</span>
                         <input
                           value={interest}
                           onChange={(event) =>
-                            update(
-                              ["shareholderLoans", key, "interest"],
-                              event.target.value,
-                            )
+                            update([stateKey, key, "interest"], event.target.value)
                           }
                           style={inputStyle()}
                         />
                       </label>
+
                       <label>
                         <span style={styles.smallLabel}>Repayment</span>
                         <input
                           value={repayment}
                           onChange={(event) =>
                             update(
-                              ["shareholderLoans", key, "repayment"],
+                              [stateKey, key, "repayment"],
                               event.target.value,
                             )
                           }
                           style={inputStyle()}
                         />
                       </label>
+
                       <label>
                         <span style={styles.smallLabel}>Security</span>
                         <input
                           value={security}
                           onChange={(event) =>
-                            update(
-                              ["shareholderLoans", key, "security"],
-                              event.target.value,
-                            )
+                            update([stateKey, key, "security"], event.target.value)
                           }
                           style={inputStyle()}
                         />
@@ -3388,7 +3479,7 @@ function ShareholderLoansNote({
                     <div>
                       {relationship ? (
                         <p style={styles.paragraph}>
-                          Relationship / lender type: {relationship}
+                          {relationshipLabel}: {relationship}
                         </p>
                       ) : null}
                       {terms ? <p style={styles.paragraph}>{terms}</p> : null}
@@ -3410,6 +3501,7 @@ function ShareholderLoansNote({
             </FragmentWithKey>
           );
         })}
+
         <tr>
           <td data-total-label="true" style={styles.totalLabel}>
             &nbsp;
@@ -3427,6 +3519,7 @@ function ShareholderLoansNote({
     </table>
   );
 }
+
 
 function ShareCapitalNote({
   rows,
@@ -4934,6 +5027,13 @@ export default function AfsStructuredNotesPanel({
             ? "Member's contribution"
             : isShareCapitalSection(section) && effectiveIsTrust
               ? "Trust capital"
+              : section.key === "notesLoansReceivable" &&
+                  isPureMemberLoanReceivable(trialBalanceLines)
+                ? effectiveIsCloseCorporation
+                  ? "Member loans"
+                  : effectiveIsTrust
+                    ? "Trustee loans"
+                    : "Shareholder / director / member loans"
               : section.key === "notesShareholdersLoans" && effectiveIsCloseCorporation
                 ? "Member loans"
                 : section.key === "notesShareholdersLoans" && effectiveIsTrust
@@ -5028,13 +5128,26 @@ export default function AfsStructuredNotesPanel({
                     state={state}
                     update={update}
                   />
-                ) : section.key === "notesShareholdersLoans" ? (
-                  <ShareholderLoansNote
+                ) : section.key === "notesLoansReceivable" &&
+                  isPureMemberLoanReceivable(trialBalanceLines) ? (
+                  <RelatedPartyLoansNote
                     rows={rows}
                     trialBalanceLines={trialBalanceLines}
                     edit={isEditing}
                     state={state}
                     update={update}
+                    direction="receivable"
+                    isCloseCorporationEntity={effectiveIsCloseCorporation}
+                    isTrustEntity={effectiveIsTrust}
+                  />
+                ) : section.key === "notesShareholdersLoans" ? (
+                  <RelatedPartyLoansNote
+                    rows={rows}
+                    trialBalanceLines={trialBalanceLines}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                    direction="payable"
                     isCloseCorporationEntity={effectiveIsCloseCorporation}
                     isTrustEntity={effectiveIsTrust}
                   />
