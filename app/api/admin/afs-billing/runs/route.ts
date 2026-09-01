@@ -252,7 +252,7 @@ export async function POST(request: Request) {
       const cronSecret = process.env.CRON_SECRET || "";
 
       const cronResponse = await fetch(
-        `${baseUrl}/api/cron/afs-billing-run?force=1&runDate=${encodeURIComponent(runDate)}`,
+        `${baseUrl}/api/cron/afs-billing-run?force=1&rebuild=1&runDate=${encodeURIComponent(runDate)}`,
         {
           method: "GET",
           cache: "no-store",
