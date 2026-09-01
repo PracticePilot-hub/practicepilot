@@ -2,7 +2,7 @@
 
 "use client";
 
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { Fragment, type CSSProperties, useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 type Organisation = {
@@ -50,6 +50,39 @@ type BillingSummary = {
   invoicedEvents: number;
   paidAmount: number;
   paidEvents: number;
+};
+
+type SubscriptionUser = {
+  id: string;
+  user_id: string;
+  full_name: string | null;
+  email: string;
+  role: string;
+};
+
+type SubscriptionRow = {
+  organisation_id: string;
+  organisation_name: string;
+  billing_enabled: boolean;
+  plan: string;
+  pricing_tier: string | null;
+  plan_activated_at: string | null;
+  configured_licence_count: number | null;
+  active_afs_user_count: number;
+  unit_price: number;
+  monthly_amount: number;
+  licence_mismatch: boolean;
+  users: SubscriptionUser[];
+  latest_charge: {
+    id: string;
+    billing_amount: number;
+    billing_status: string | null;
+    invoice_number: string | null;
+    invoiced_at: string | null;
+    triggered_at: string | null;
+    billing_period_start: string | null;
+    billing_period_end: string | null;
+  } | null;
 };
 
 type BillingStatusFilter =
@@ -112,8 +145,10 @@ async function getAuthToken() {
 
 export default function AfsBillingAdminPage() {
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
+  const [subscriptions, setSubscriptions] = useState<SubscriptionRow[]>([]);
   const [items, setItems] = useState<BillingItem[]>([]);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
+  const [expandedOrganisationIds, setExpandedOrganisationIds] = useState<string[]>([]);
 
   const [organisationId, setOrganisationId] = useState("");
   const [statusFilter, setStatusFilter] =
@@ -184,6 +219,7 @@ export default function AfsBillingAdminPage() {
       }
 
       setOrganisations(json.organisations ?? []);
+      setSubscriptions(json.subscriptions ?? []);
       setItems(json.items ?? []);
       setSummary(json.summary ?? null);
     } catch (err: unknown) {
@@ -414,6 +450,14 @@ export default function AfsBillingAdminPage() {
     }
   }
 
+  function toggleSubscriptionUsers(id: string) {
+    setExpandedOrganisationIds((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id]
+    );
+  }
+
   function clearFilters() {
     setOrganisationId("");
     setStatusFilter("uninvoiced");
@@ -477,6 +521,149 @@ export default function AfsBillingAdminPage() {
           value={formatMoney(summary?.paidAmount)}
           note={`${summary?.paidEvents || 0} charge(s)`}
         />
+      </section>
+
+      <section style={s.card}>
+        <div style={s.sectionHeader}>
+          <div>
+            <h2 style={s.h2}>AFS subscriptions</h2>
+            <div style={s.resultText}>
+              Monthly subscription billing by organisation, with the actual users who currently have AFS access.
+            </div>
+          </div>
+        </div>
+
+        {loading ? (
+          <div style={s.empty}>Loading AFS subscriptions...</div>
+        ) : subscriptions.length === 0 ? (
+          <div style={s.empty}>No active AFS subscriptions found.</div>
+        ) : (
+          <div style={s.tableWrap}>
+            <table style={s.subscriptionTable}>
+              <thead>
+                <tr>
+                  <th style={s.th}>Organisation</th>
+                  <th style={s.th}>Plan</th>
+                  <th style={s.thRight}>AFS users</th>
+                  <th style={s.thRight}>Billable licences</th>
+                  <th style={s.thRight}>Rate</th>
+                  <th style={s.thRight}>Monthly subscription</th>
+                  <th style={s.th}>Latest charge</th>
+                  <th style={s.th}>QB invoice</th>
+                  <th style={s.th}>Check</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {subscriptions.map((subscription) => {
+                  const expanded = expandedOrganisationIds.includes(
+                    subscription.organisation_id
+                  );
+                  const latestStatus = String(
+                    subscription.latest_charge?.billing_status || "not generated"
+                  ).toLowerCase();
+
+                  return (
+                    <Fragment key={subscription.organisation_id}>
+                      <tr>
+                        <td style={s.tdStrong}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              toggleSubscriptionUsers(subscription.organisation_id)
+                            }
+                            style={s.expandButton}
+                          >
+                            <span style={s.expandIcon}>{expanded ? "−" : "+"}</span>
+                            {subscription.organisation_name}
+                          </button>
+                        </td>
+                        <td style={s.td}>{planLabel(subscription.plan)}</td>
+                        <td style={s.tdRight}>
+                          {subscription.active_afs_user_count}
+                        </td>
+                        <td style={s.tdRight}>
+                          {subscription.plan === "unlimited"
+                            ? subscription.configured_licence_count ?? 0
+                            : "-"}
+                        </td>
+                        <td style={s.tdRight}>
+                          {formatMoney(subscription.unit_price)}
+                          {subscription.plan === "unlimited" ? " / user" : " / month"}
+                        </td>
+                        <td style={s.tdRightStrong}>
+                          {formatMoney(subscription.monthly_amount)}
+                        </td>
+                        <td style={s.td}>
+                          <span
+                            style={{
+                              ...s.status,
+                              ...(latestStatus === "invoiced"
+                                ? s.statusInvoiced
+                                : latestStatus === "paid"
+                                  ? s.statusPaid
+                                  : latestStatus === "uninvoiced"
+                                    ? s.statusUninvoiced
+                                    : s.statusCovered),
+                            }}
+                          >
+                            {latestStatus}
+                          </span>
+                        </td>
+                        <td style={s.td}>
+                          {subscription.latest_charge?.invoice_number || "-"}
+                        </td>
+                        <td style={s.td}>
+                          {subscription.licence_mismatch ? (
+                            <span style={s.warningText}>
+                              Users ≠ licences
+                            </span>
+                          ) : (
+                            <span style={s.okText}>OK</span>
+                          )}
+                        </td>
+                      </tr>
+
+                      {expanded ? (
+                        <tr>
+                          <td colSpan={9} style={s.userDetailCell}>
+                            <div style={s.userDetailHeader}>
+                              Users currently enabled for Financial Statements
+                            </div>
+                            {subscription.users.length === 0 ? (
+                              <div style={s.userEmpty}>No active AFS users found.</div>
+                            ) : (
+                              <table style={s.userTable}>
+                                <thead>
+                                  <tr>
+                                    <th style={s.userTh}>User</th>
+                                    <th style={s.userTh}>Email</th>
+                                    <th style={s.userTh}>Role</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {subscription.users.map((user) => (
+                                    <tr key={user.id}>
+                                      <td style={s.userTdStrong}>
+                                        {user.full_name || user.email}
+                                      </td>
+                                      <td style={s.userTd}>{user.email}</td>
+                                      <td style={s.userTd}>{user.role}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section style={s.card}>
@@ -960,6 +1147,100 @@ const s: Record<string, CSSProperties> = {
     cursor: "pointer",
     padding: "0 12px",
     whiteSpace: "nowrap",
+  },
+  subscriptionTable: {
+    width: "100%",
+    borderCollapse: "collapse",
+    minWidth: 1100,
+  },
+  expandButton: {
+    border: 0,
+    padding: 0,
+    background: "transparent",
+    color: "#0f172a",
+    font: "inherit",
+    fontWeight: 800,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    textAlign: "left",
+  },
+  expandIcon: {
+    display: "inline-flex",
+    width: 17,
+    height: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    border: "1px solid #bfc9d6",
+    background: "#f8fbff",
+    fontSize: 13,
+    lineHeight: 1,
+  },
+  tdRightStrong: {
+    padding: "5px 7px",
+    borderBottom: "1px solid #edf2f7",
+    fontSize: 12,
+    color: "#0f172a",
+    textAlign: "right",
+    fontWeight: 900,
+    verticalAlign: "middle",
+  },
+  warningText: {
+    color: "#b42318",
+    fontWeight: 850,
+    fontSize: 11,
+  },
+  okText: {
+    color: "#166534",
+    fontWeight: 850,
+    fontSize: 11,
+  },
+  userDetailCell: {
+    padding: "7px 28px 9px",
+    background: "#f8fbff",
+    borderBottom: "1px solid #dbe5ef",
+  },
+  userDetailHeader: {
+    marginBottom: 5,
+    fontSize: 11,
+    fontWeight: 900,
+    color: "#34495e",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+  },
+  userTable: {
+    width: "100%",
+    borderCollapse: "collapse",
+    background: "#ffffff",
+    border: "1px solid #dbe5ef",
+  },
+  userTh: {
+    textAlign: "left",
+    padding: "4px 7px",
+    background: "#f1f6fb",
+    borderBottom: "1px solid #dbe5ef",
+    fontSize: 10,
+    fontWeight: 900,
+    color: "#475569",
+  },
+  userTd: {
+    padding: "4px 7px",
+    borderBottom: "1px solid #edf2f7",
+    fontSize: 11,
+    color: "#475569",
+  },
+  userTdStrong: {
+    padding: "4px 7px",
+    borderBottom: "1px solid #edf2f7",
+    fontSize: 11,
+    color: "#0f172a",
+    fontWeight: 800,
+  },
+  userEmpty: {
+    fontSize: 11,
+    color: "#667085",
+    padding: "4px 0",
   },
   tableWrap: {
     width: "100%",

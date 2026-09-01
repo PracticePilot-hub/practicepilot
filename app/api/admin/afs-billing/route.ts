@@ -14,6 +14,17 @@ type UserProfile = {
   access_enabled: boolean;
 };
 
+type AfsBillingUser = {
+  id: string;
+  user_id: string;
+  full_name: string | null;
+  email: string;
+  role: string;
+  organisation_id: string | null;
+  access_enabled: boolean;
+  can_access_afs: boolean | null;
+};
+
 type AfsBillingEvent = {
   id: string;
   organisation_id: string;
@@ -449,6 +460,120 @@ export async function GET(request: Request) {
       ])
     );
 
+    const { data: afsUsers, error: afsUsersError } = await supabase
+      .from("user_profiles")
+      .select(
+        "id,user_id,full_name,email,role,organisation_id,access_enabled,can_access_afs"
+      )
+      .eq("access_enabled", true)
+      .eq("can_access_afs", true)
+      .order("full_name", { ascending: true });
+
+    if (afsUsersError) {
+      return NextResponse.json(
+        { error: afsUsersError.message },
+        { status: 500 }
+      );
+    }
+
+    const { data: subscriptionEvents, error: subscriptionEventsError } =
+      await supabase
+        .from("afs_billing_events")
+        .select(
+          "id,organisation_id,charge_type,billing_amount,billing_status,invoice_number,invoiced_at,triggered_at,billing_period_start,billing_period_end"
+        )
+        .in("charge_type", ["flex_subscription", "unlimited_subscription"])
+        .order("triggered_at", { ascending: false });
+
+    if (subscriptionEventsError) {
+      return NextResponse.json(
+        { error: subscriptionEventsError.message },
+        { status: 500 }
+      );
+    }
+
+    const usersByOrganisation = new Map<string, AfsBillingUser[]>();
+
+    for (const user of (afsUsers ?? []) as AfsBillingUser[]) {
+      if (!user.organisation_id) continue;
+
+      const current = usersByOrganisation.get(user.organisation_id) ?? [];
+      current.push(user);
+      usersByOrganisation.set(user.organisation_id, current);
+    }
+
+    const latestSubscriptionEventByOrganisation = new Map<string, any>();
+
+    for (const event of subscriptionEvents ?? []) {
+      if (!latestSubscriptionEventByOrganisation.has(event.organisation_id)) {
+        latestSubscriptionEventByOrganisation.set(event.organisation_id, event);
+      }
+    }
+
+    const subscriptions = (organisations ?? [])
+      .filter((organisation) =>
+        ["flex", "unlimited"].includes(
+          String(organisation.afs_plan || "").toLowerCase()
+        )
+      )
+      .map((organisation) => {
+        const plan = String(organisation.afs_plan || "").toLowerCase();
+        const users = usersByOrganisation.get(organisation.id) ?? [];
+        const configuredLicenceCount =
+          plan === "unlimited"
+            ? Math.max(
+                0,
+                Number(organisation.afs_unlimited_licence_count || 0)
+              )
+            : null;
+        const unitPrice =
+          plan === "unlimited"
+            ? Number(organisation.afs_unlimited_user_price ?? 499)
+            : Number(organisation.afs_flex_monthly_fee ?? 199);
+        const monthlyAmount =
+          plan === "unlimited"
+            ? unitPrice * Number(configuredLicenceCount || 0)
+            : unitPrice;
+        const latestEvent = latestSubscriptionEventByOrganisation.get(
+          organisation.id
+        );
+
+        return {
+          organisation_id: organisation.id,
+          organisation_name: organisation.name,
+          billing_enabled: Boolean(organisation.afs_billing_enabled),
+          plan,
+          pricing_tier: organisation.afs_pricing_tier,
+          plan_activated_at: organisation.afs_plan_activated_at,
+          configured_licence_count: configuredLicenceCount,
+          active_afs_user_count: users.length,
+          unit_price: unitPrice,
+          monthly_amount: monthlyAmount,
+          licence_mismatch:
+            plan === "unlimited" &&
+            Number(configuredLicenceCount || 0) !== users.length,
+          users: users.map((user) => ({
+            id: user.id,
+            user_id: user.user_id,
+            full_name: user.full_name,
+            email: user.email,
+            role: user.role,
+          })),
+          latest_charge: latestEvent
+            ? {
+                id: latestEvent.id,
+                billing_amount: Number(latestEvent.billing_amount || 0),
+                billing_status: latestEvent.billing_status,
+                invoice_number: latestEvent.invoice_number,
+                invoiced_at: latestEvent.invoiced_at,
+                triggered_at: latestEvent.triggered_at,
+                billing_period_start: latestEvent.billing_period_start,
+                billing_period_end: latestEvent.billing_period_end,
+              }
+            : null,
+        };
+      });
+
     const items = ((events ?? []) as AfsBillingEvent[]).map((event) => ({
       ...event,
       organisation_name:
@@ -499,6 +624,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       organisations: organisations ?? [],
+      subscriptions,
       items,
       summary,
     });
