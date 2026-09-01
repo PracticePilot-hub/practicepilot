@@ -466,12 +466,10 @@ export async function GET(request: Request, context: any) {
 
     const readyForReview =
       Boolean(workflow?.is_started) &&
-      requiredSections.length > 0 &&
       preparedCount === requiredSections.length;
 
     const readyForFinalisation =
       Boolean(workflow?.is_started) &&
-      requiredSections.length > 0 &&
       completeCount === requiredSections.length &&
       blockingOpenReviewPoints === 0;
 
