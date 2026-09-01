@@ -511,11 +511,15 @@ export async function GET(request: Request) {
     }
 
     const subscriptions = (organisations ?? [])
-      .filter((organisation) =>
-        ["flex", "unlimited"].includes(
+      .filter((organisation) => {
+        if (organisationId && organisation.id !== organisationId) {
+          return false;
+        }
+
+        return ["flex", "unlimited"].includes(
           String(organisation.afs_plan || "").toLowerCase()
-        )
-      )
+        );
+      })
       .map((organisation) => {
         const plan = String(organisation.afs_plan || "").toLowerCase();
         const users = usersByOrganisation.get(organisation.id) ?? [];
