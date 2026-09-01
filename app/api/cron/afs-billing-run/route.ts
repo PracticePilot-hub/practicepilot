@@ -116,13 +116,24 @@ async function generateRun(request: Request) {
    * - One QuickBooks invoice number will later be linked to the whole batch.
    */
 
-  const now = new Date();
-  const runDate = startOfDayUtc(now);
-
-  // The normal automatic run must only happen on the 26th.
-  // Manual browser/API testing is allowed with ?force=1.
   const url = new URL(request.url);
   const force = url.searchParams.get("force") === "1";
+  const manualRunDate = String(url.searchParams.get("runDate") || "").trim();
+
+  const now = new Date();
+  const runDate = manualRunDate
+    ? startOfDayUtc(new Date(`${manualRunDate}T12:00:00.000Z`))
+    : startOfDayUtc(now);
+
+  if (manualRunDate && !/^\d{4}-\d{2}-\d{2}$/.test(manualRunDate)) {
+    return NextResponse.json(
+      { error: "Manual runDate must be YYYY-MM-DD." },
+      { status: 400 }
+    );
+  }
+
+  // The normal automatic run must only happen on the 26th.
+  // Admin catch-up runs may specify ?force=1&runDate=YYYY-MM-26.
 
   if (!force && runDate.getUTCDate() !== 26) {
     return NextResponse.json({

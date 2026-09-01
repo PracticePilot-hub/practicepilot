@@ -103,6 +103,12 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 const today = new Date().toISOString().slice(0, 10);
 const PAGE_SIZE = 20;
 
+function previousBillingMonth() {
+  const now = new Date();
+  const previous = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  return previous.toISOString().slice(0, 7);
+}
+
 async function getAuthToken() {
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token || "";
@@ -161,6 +167,8 @@ export default function AfsBillingAdminPage() {
   const [invoiceBatchId, setInvoiceBatchId] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(today);
+  const [manualBillingMonth, setManualBillingMonth] = useState(previousBillingMonth());
+  const [runningManual, setRunningManual] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [savingInvoice, setSavingInvoice] = useState(false);
@@ -331,17 +339,10 @@ export default function AfsBillingAdminPage() {
         set.add(organisation.id);
       }
 
-      if (
-        subscription?.plan === "unlimited" &&
-        subscription.active_afs_user_count !==
-          Number(subscription.configured_licence_count || 0)
-      ) {
-        set.add(organisation.id);
-      }
     }
 
     return set;
-  }, [organisations, subscriptionByOrg, latestBatchByOrg]);
+  }, [organisations, latestBatchByOrg]);
 
   const visibleOrganisations = useMemo(() => {
     const term = orgSearch.trim().toLowerCase();
@@ -546,6 +547,57 @@ export default function AfsBillingAdminPage() {
     }, 50);
   }
 
+  async function runManualBilling() {
+    if (!manualBillingMonth) {
+      setError("Choose the billing month to catch up.");
+      return;
+    }
+
+    setRunningManual(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const response = await fetch("/api/admin/afs-billing/runs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: "manual_run",
+          billing_month: manualBillingMonth,
+        }),
+      });
+
+      const json = await response.json();
+
+      if (!response.ok) {
+        throw new Error(json.error || "Could not generate manual billing run.");
+      }
+
+      setSuccess(
+        json.already_exists
+          ? "That monthly billing run already exists."
+          : `Manual billing run created: ${json.invoice_batches || 0} invoice batch(es), ${money(json.invoice_total)}.`
+      );
+
+      await loadBaseData();
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Could not generate manual billing run."
+      );
+    } finally {
+      setRunningManual(false);
+    }
+  }
+
   function exportBillingRunCsv() {
     if (!currentRun || !batches.length) {
       setError("There is no billing run to export yet.");
@@ -631,6 +683,23 @@ export default function AfsBillingAdminPage() {
               ))}
             </select>
           ) : null}
+
+          <input
+            type="month"
+            value={manualBillingMonth}
+            onChange={(event) => setManualBillingMonth(event.target.value)}
+            style={s.monthInput}
+            title="Billing month for a manual catch-up run"
+          />
+
+          <button
+            type="button"
+            style={s.primaryButton}
+            onClick={runManualBilling}
+            disabled={runningManual}
+          >
+            {runningManual ? "Running..." : "Run month manually"}
+          </button>
 
           <button type="button" style={s.secondaryButton} onClick={exportBillingRunCsv}>
             Export billing run
@@ -1308,6 +1377,15 @@ const s: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     gap: 7,
+  },
+  monthInput: {
+    height: 32,
+    border: "1px solid #cbd5e1",
+    borderRadius: 2,
+    background: "#fff",
+    padding: "0 8px",
+    fontSize: 12,
+    color: "#0f172a",
   },
   runSelect: {
     height: 32,

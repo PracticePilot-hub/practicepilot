@@ -237,6 +237,43 @@ export async function POST(request: Request) {
     const body = await request.json();
     const action = String(body?.action || "").trim();
 
+    if (action === "manual_run") {
+      const billingMonth = String(body?.billing_month || "").trim();
+
+      if (!/^\d{4}-\d{2}$/.test(billingMonth)) {
+        return NextResponse.json(
+          { error: "Choose a valid billing month." },
+          { status: 400 }
+        );
+      }
+
+      const runDate = `${billingMonth}-26`;
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
+      const cronSecret = process.env.CRON_SECRET || "";
+
+      const cronResponse = await fetch(
+        `${baseUrl}/api/cron/afs-billing-run?force=1&runDate=${encodeURIComponent(runDate)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+          headers: cronSecret
+            ? { Authorization: `Bearer ${cronSecret}` }
+            : undefined,
+        }
+      );
+
+      const cronJson = await cronResponse.json();
+
+      if (!cronResponse.ok) {
+        return NextResponse.json(
+          { error: cronJson?.error || "Could not generate manual AFS billing run." },
+          { status: cronResponse.status }
+        );
+      }
+
+      return NextResponse.json(cronJson);
+    }
+
     if (action !== "record_batch_invoice") {
       return NextResponse.json({ error: "Unknown billing-run action." }, { status: 400 });
     }
