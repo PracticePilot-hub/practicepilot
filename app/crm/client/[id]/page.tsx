@@ -2443,127 +2443,251 @@ export default async function ClientWorkingFilePage({
 
                   {issuedHoldings.length ? (
                     <>
-                      <div style={ownershipMapHeader}>
-                        <div>
-                          <div style={ownershipMapEyebrow}>OWNERSHIP MAP</div>
-                          <div style={ownershipMapTitle}>
-                            Who owns this company?
-                          </div>
-                          <div style={ownershipMapSub}>
-                            {totalIssuedShares.toLocaleString("en-ZA")} issued shares ·{" "}
-                            {issuedHoldings.length} current holder
-                            {issuedHoldings.length === 1 ? "" : "s"}
-                          </div>
+                      <div style={shareSnapshotMetrics}>
+                        <div style={shareMetric}>
+                          <span style={shareMetricLabel}>Issued shares</span>
+                          <strong style={shareMetricValue}>
+                            {totalIssuedShares.toLocaleString("en-ZA")}
+                          </strong>
                         </div>
-
-                        <div style={ownershipMapTotal}>
-                          <strong>100%</strong>
-                          <span>issued ownership</span>
+                        <div style={shareMetric}>
+                          <span style={shareMetricLabel}>Current holders</span>
+                          <strong style={shareMetricValue}>
+                            {issuedHoldings.length}
+                          </strong>
+                        </div>
+                        <div style={shareMetric}>
+                          <span style={shareMetricLabel}>Issued certificates</span>
+                          <strong style={shareMetricValue}>
+                            {(certificates as any[]).filter(
+                              (certificate) =>
+                                String(certificate.certificate_status || "").toLowerCase() ===
+                                "issued"
+                            ).length}
+                          </strong>
+                        </div>
+                        <div style={shareMetric}>
+                          <span style={shareMetricLabel}>Open matters</span>
+                          <strong style={shareMetricValue}>
+                            {pendingMatters.length}
+                          </strong>
                         </div>
                       </div>
 
-                      <div style={ownershipMosaic}>
-                        {issuedHoldings.map((holding, index) => {
-                          const percentage =
-                            totalIssuedShares > 0
-                              ? (holding.shares / totalIssuedShares) * 100
-                              : 0;
+                      <div style={ownershipPrettyShell}>
+                        <div style={ownershipPrettyHeader}>
+                          <div>
+                            <strong style={ownershipPrettyTitle}>Who owns this company?</strong>
+                            <div style={ownershipPrettySubtitle}>
+                              Current issued ownership from the live Secretarial register.
+                            </div>
+                          </div>
 
-                          const shareholderCertificates = (certificates as any[]).filter(
-                            (certificate) =>
-                              String(certificate.shareholder_id || "") ===
-                                holding.shareholderId &&
-                              ["issued", "draft"].includes(
-                                String(certificate.certificate_status || "").toLowerCase()
-                              )
-                          );
+                          <div style={ownershipPrettyStatus}>
+                            <span style={ownershipPrettyStatusDot}>✓</span>
+                            <div>
+                              <strong>100% allocated</strong>
+                              <span>Register in balance</span>
+                            </div>
+                          </div>
+                        </div>
 
-                          const certificateNumbers = shareholderCertificates
-                            .map((certificate) =>
-                              String(certificate.certificate_number || "").trim()
-                            )
-                            .filter(Boolean);
+                        <div style={ownershipPrettyCanvas}>
+                          <div style={ownershipPrettyHolders}>
+                            {issuedHoldings
+                              .map((holding) => ({
+                                ...holding,
+                                percentage:
+                                  totalIssuedShares > 0
+                                    ? (holding.shares / totalIssuedShares) * 100
+                                    : 0,
+                              }))
+                              .sort((a, b) => b.percentage - a.percentage)
+                              .map((holding, index) => {
+                                const initials = holding.shareholderName
+                                  .split(/\s+/)
+                                  .filter(Boolean)
+                                  .slice(0, 2)
+                                  .map((part) => part.charAt(0).toUpperCase())
+                                  .join("");
 
-                          const initials = holding.shareholderName
-                            .split(/\s+/)
-                            .filter(Boolean)
-                            .slice(0, 2)
-                            .map((part) => part.charAt(0).toUpperCase())
-                            .join("");
+                                const shareholderCertificates = (certificates as any[]).filter(
+                                  (certificate) =>
+                                    String(certificate.shareholder_id || "") ===
+                                      holding.shareholderId &&
+                                    ["issued", "draft"].includes(
+                                      String(certificate.certificate_status || "").toLowerCase()
+                                    )
+                                );
 
-                          const tileStyles = [
-                            ownershipTileNavy,
-                            ownershipTileBlue,
-                            ownershipTileTeal,
-                            ownershipTileSlate,
-                            ownershipTileGreen,
-                          ];
+                                const certificateNumbers = shareholderCertificates
+                                  .map((certificate) =>
+                                    String(certificate.certificate_number || "").trim()
+                                  )
+                                  .filter(Boolean);
 
-                          const tile = tileStyles[index % tileStyles.length];
+                                return (
+                                  <div
+                                    key={`pretty-holder-${holding.shareholderId}-${holding.className}`}
+                                    style={ownershipPrettyHolder}
+                                  >
+                                    <div style={ownershipPrettyAvatar}>
+                                      {initials || "SH"}
+                                    </div>
 
-                          return (
-                            <div
-                              key={`map-${holding.shareholderId}-${holding.className}`}
-                              style={{
-                                ...ownershipMosaicTile,
-                                ...tile,
-                                flexGrow: Math.max(percentage, 12),
-                                flexBasis: `${Math.max(percentage, 18)}%`,
-                              }}
+                                    <div style={ownershipPrettyHolderText}>
+                                      <strong>{holding.shareholderName}</strong>
+                                      <span>{holding.className}</span>
+                                      <small>
+                                        {holding.shares.toLocaleString("en-ZA")} shares
+                                        {certificateNumbers.length
+                                          ? ` · Cert ${certificateNumbers.join(", ")}`
+                                          : ""}
+                                      </small>
+                                    </div>
+
+                                    <div style={ownershipPrettyHolderDot} />
+                                  </div>
+                                );
+                              })}
+                          </div>
+
+                          <div style={ownershipCurvedMap}>
+                            <svg
+                              viewBox="0 0 420 210"
+                              preserveAspectRatio="none"
+                              style={ownershipCurvedSvg}
+                              aria-hidden="true"
                             >
-                              <div style={ownershipTileTop}>
-                                <div style={ownershipTileInitials}>
-                                  {initials || "SH"}
-                                </div>
-                                <div style={ownershipTileRank}>0{index + 1}</div>
-                              </div>
+                              <path
+                                d="M 0 35 C 150 35, 210 35, 250 62 C 285 85, 278 104, 330 105"
+                                fill="none"
+                                stroke="#b8c6d2"
+                                strokeWidth="1.6"
+                              />
+                              <path
+                                d="M 0 105 C 150 105, 235 105, 330 105"
+                                fill="none"
+                                stroke="#b8c6d2"
+                                strokeWidth="1.6"
+                              />
+                              <path
+                                d="M 0 175 C 150 175, 210 175, 250 148 C 285 125, 278 106, 330 105"
+                                fill="none"
+                                stroke="#b8c6d2"
+                                strokeWidth="1.6"
+                              />
+                              <circle cx="330" cy="105" r="4.5" fill="#1d4ed8" />
+                            </svg>
 
-                              <div style={ownershipTilePercent}>
-                                {percentage.toFixed(2)}%
-                              </div>
+                            <div style={{ ...ownershipCurveChip, top: "18px" }}>
+                              {issuedHoldings[0]
+                                ? (
+                                    (issuedHoldings[0].shares / Math.max(totalIssuedShares, 1)) *
+                                    100
+                                  ).toFixed(2)
+                                : "0.00"}
+                              %
+                            </div>
+                            <div style={{ ...ownershipCurveChip, top: "88px" }}>
+                              {issuedHoldings[1]
+                                ? (
+                                    (issuedHoldings[1].shares / Math.max(totalIssuedShares, 1)) *
+                                    100
+                                  ).toFixed(2)
+                                : "0.00"}
+                              %
+                            </div>
+                            <div style={{ ...ownershipCurveChip, top: "158px" }}>
+                              {issuedHoldings[2]
+                                ? (
+                                    (issuedHoldings[2].shares / Math.max(totalIssuedShares, 1)) *
+                                    100
+                                  ).toFixed(2)
+                                : "0.00"}
+                              %
+                            </div>
+                          </div>
 
-                              <div style={ownershipTileName}>
-                                {holding.shareholderName}
+                          <div style={ownershipPrettyCompanyWrap}>
+                            <div style={ownershipPrettyCompany}>
+                              <div style={ownershipPrettyCompanyMark} aria-hidden="true">
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  width="18"
+                                  height="18"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="1.8"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M4 21V5.5L12 3l8 2.5V21" />
+                                  <path d="M8 8h1" />
+                                  <path d="M11.5 8h1" />
+                                  <path d="M15 8h1" />
+                                  <path d="M8 11.5h1" />
+                                  <path d="M11.5 11.5h1" />
+                                  <path d="M15 11.5h1" />
+                                  <path d="M8 15h1" />
+                                  <path d="M15 15h1" />
+                                  <path d="M10.5 21v-4h3v4" />
+                                  <path d="M2.5 21h19" />
+                                </svg>
                               </div>
+                              <span style={ownershipPrettyCompanyEyebrow}>Owned company</span>
+                              <strong style={ownershipPrettyCompanyName}>
+                                {client.client_name}
+                              </strong>
+                              <span style={ownershipPrettyCompanyMeta}>
+                                {client.registration_number || "Registration number not captured"}
+                              </span>
 
-                              <div style={ownershipTileClass}>
-                                {holding.className}
-                              </div>
+                              <div style={ownershipPrettyCompanyDivider} />
 
-                              <div style={ownershipTileFooter}>
+                              <div style={ownershipPrettyCompanyFacts}>
                                 <div>
-                                  <span>SHARES</span>
-                                  <strong>
-                                    {holding.shares.toLocaleString("en-ZA")}
-                                  </strong>
+                                  <span>Issued shares</span>
+                                  <strong>{totalIssuedShares.toLocaleString("en-ZA")}</strong>
                                 </div>
-
                                 <div>
-                                  <span>
-                                    CERT{certificateNumbers.length === 1 ? "" : "S"}
-                                  </span>
-                                  <strong>
-                                    {certificateNumbers.length
-                                      ? certificateNumbers.join(", ")
-                                      : "—"}
-                                  </strong>
+                                  <span>Shareholders</span>
+                                  <strong>{issuedHoldings.length}</strong>
                                 </div>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-
-                      <div style={ownershipLedger}>
-                        <div style={ownershipLedgerHeader}>
-                          <span>Shareholder</span>
-                          <span>Class</span>
-                          <span>Certificate</span>
-                          <span>Shares</span>
-                          <span>Ownership</span>
+                          </div>
                         </div>
 
-                        {issuedHoldings.map((holding, index) => {
+                        <div style={ownershipPrettyFooter}>
+                          <span>
+                            Ownership is calculated from currently issued shares only.
+                          </span>
+                          <strong>
+                            {issuedHoldings.length} holder{issuedHoldings.length === 1 ? "" : "s"}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <div style={shareLedgerWrap}>
+                        <div style={shareLedgerHeaderRow}>
+                          <strong style={shareLedgerTitle}>
+                            Shareholders & certificates
+                          </strong>
+                          <span style={shareLedgerHint}>
+                            Current issued ownership
+                          </span>
+                        </div>
+
+                        <div style={shareLedgerTableHeader}>
+                          <span>Shareholder</span>
+                          <span>Class</span>
+                          <span>Shares</span>
+                          <span>Ownership</span>
+                          <span>Certificate</span>
+                        </div>
+
+                        {issuedHoldings.map((holding) => {
                           const percentage =
                             totalIssuedShares > 0
                               ? (holding.shares / totalIssuedShares) * 100
@@ -2586,28 +2710,37 @@ export default async function ClientWorkingFilePage({
 
                           return (
                             <div
-                              key={`ledger-${holding.shareholderId}-${holding.className}`}
-                              style={ownershipLedgerRow}
+                              key={`share-ledger-${holding.shareholderId}-${holding.className}`}
+                              style={shareLedgerRow}
                             >
-                              <span style={ownershipLedgerName}>
-                                <span style={ownershipLedgerRank}>0{index + 1}</span>
-                                {holding.shareholderName}
-                              </span>
+                              <strong>{holding.shareholderName}</strong>
                               <span>{holding.className}</span>
+                              <span>{holding.shares.toLocaleString("en-ZA")}</span>
+                              <strong style={shareLedgerPercent}>
+                                {percentage.toFixed(2)}%
+                              </strong>
                               <span>
                                 {certificateNumbers.length
                                   ? certificateNumbers.join(", ")
                                   : "—"}
                               </span>
-                              <strong>
-                                {holding.shares.toLocaleString("en-ZA")}
-                              </strong>
-                              <strong style={ownershipLedgerPercent}>
-                                {percentage.toFixed(2)}%
-                              </strong>
                             </div>
                           );
                         })}
+
+                        <div style={shareLedgerTotalRow}>
+                          <strong>Total</strong>
+                          <span />
+                          <strong>{totalIssuedShares.toLocaleString("en-ZA")}</strong>
+                          <strong style={shareLedgerPercent}>100.00%</strong>
+                          <strong>
+                            {(certificates as any[]).filter(
+                              (certificate) =>
+                                String(certificate.certificate_status || "").toLowerCase() ===
+                                "issued"
+                            ).length} certificates
+                          </strong>
+                        </div>
                       </div>
                     </>
                   ) : (
@@ -3018,7 +3151,7 @@ const secondaryButton: React.CSSProperties = {
   ...primaryButton,
   background: "#ffffff",
   color: "#0f1f33",
-  borderColor: "#cbd5e1",
+  border: "1px solid #cbd5e1",
 };
 
 const sectionWarningBar: React.CSSProperties = {
@@ -3599,7 +3732,7 @@ const clientProgressDot: React.CSSProperties = {
 };
 
 const clientProgressDotDone: React.CSSProperties = {
-  borderColor: "#9ecfb0",
+  border: "1px solid #9ecfb0",
   background: "#edf7f0",
   color: "#2e7148",
 };
@@ -4212,6 +4345,520 @@ const secretarialHeading: React.CSSProperties = {
   fontSize: "13px",
   color: "#0f2942",
   fontWeight: 900,
+};
+
+const ownershipPrettyShell: React.CSSProperties = {
+  marginTop: "10px",
+  border: "1px solid #d8e0e6",
+  background: "#ffffff",
+};
+
+const ownershipPrettyHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "18px",
+  padding: "14px 16px",
+  borderBottom: "1px solid #e8edf2",
+};
+
+const ownershipPrettyTitle: React.CSSProperties = {
+  display: "block",
+  color: "#10233a",
+  fontSize: "16px",
+  fontWeight: 900,
+};
+
+const ownershipPrettySubtitle: React.CSSProperties = {
+  marginTop: "3px",
+  color: "#7a8791",
+  fontSize: "9px",
+};
+
+const ownershipPrettyStatus: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  color: "#31583b",
+  fontSize: "9px",
+};
+
+const ownershipPrettyStatusDot: React.CSSProperties = {
+  width: "24px",
+  height: "24px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "50%",
+  background: "#eaf6ee",
+  color: "#2e7148",
+  fontWeight: 900,
+};
+
+const ownershipPrettyCanvas: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(320px, 0.9fr) minmax(360px, 1.15fr) minmax(230px, 0.62fr)",
+  gap: "0",
+  alignItems: "center",
+  padding: "18px 18px 16px",
+};
+
+const ownershipPrettyHolders: React.CSSProperties = {
+  display: "grid",
+  gridTemplateRows: "repeat(3, 62px)",
+  rowGap: "8px",
+};
+
+const ownershipPrettyRow: React.CSSProperties = {
+  display: "contents",
+};
+
+const ownershipPrettyHolder: React.CSSProperties = {
+  position: "relative",
+  minHeight: "62px",
+  display: "grid",
+  gridTemplateColumns: "42px minmax(0, 1fr)",
+  gap: "10px",
+  alignItems: "center",
+  padding: "10px 14px",
+  border: "1px solid #d8e0e6",
+  background: "#fbfcfd",
+};
+
+const ownershipPrettyAvatar: React.CSSProperties = {
+  width: "36px",
+  height: "36px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "#eef3f6",
+  border: "1px solid #d8e0e6",
+  color: "#10233a",
+  fontSize: "9px",
+  fontWeight: 900,
+};
+
+const ownershipPrettyHolderText: React.CSSProperties = {
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: "2px",
+  color: "#10233a",
+  fontSize: "10px",
+};
+
+const ownershipPrettyLink: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr auto 28px 10px",
+  alignItems: "center",
+  minWidth: 0,
+};
+
+const ownershipPrettyLine: React.CSSProperties = {
+  height: "1px",
+  background: "#b9c6d1",
+};
+
+const ownershipPrettyLineShort: React.CSSProperties = {
+  height: "1px",
+  background: "#b9c6d1",
+};
+
+const ownershipPrettyPercent: React.CSSProperties = {
+  padding: "5px 9px",
+  border: "1px solid #b9d0ff",
+  background: "#eef4ff",
+  color: "#1d4ed8",
+  fontSize: "9px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const ownershipPrettyArrow: React.CSSProperties = {
+  color: "#7a8791",
+  fontSize: "18px",
+  lineHeight: 1,
+  textAlign: "right",
+};
+
+const ownershipPrettyHolderDot: React.CSSProperties = {
+  position: "absolute",
+  right: "-4px",
+  top: "50%",
+  width: "8px",
+  height: "8px",
+  borderRadius: "50%",
+  background: "#1d4ed8",
+  transform: "translateY(-50%)",
+  zIndex: 2,
+};
+
+const ownershipCurvedMap: React.CSSProperties = {
+  position: "relative",
+  height: "202px",
+  minWidth: 0,
+};
+
+const ownershipCurvedSvg: React.CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  width: "100%",
+  height: "100%",
+  overflow: "visible",
+};
+
+const ownershipCurveChip: React.CSSProperties = {
+  position: "absolute",
+  left: "30%",
+  transform: "translateX(-50%)",
+  padding: "4px 9px",
+  border: "1px solid #b9d0ff",
+  background: "#ffffff",
+  color: "#1d4ed8",
+  fontSize: "9px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+  zIndex: 2,
+};
+
+const ownershipPrettyCompanyWrap: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+};
+
+const ownershipPrettyCompany: React.CSSProperties = {
+  width: "100%",
+  maxWidth: "260px",
+  padding: "18px",
+  border: "1px solid #cfd9e2",
+  background: "#f9fbfc",
+  boxShadow: "0 10px 28px rgba(16,35,58,0.07)",
+};
+
+const ownershipPrettyCompanyMark: React.CSSProperties = {
+  width: "34px",
+  height: "34px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "#10233a",
+  color: "#ffffff",
+  fontSize: "9px",
+  fontWeight: 900,
+  marginBottom: "12px",
+};
+
+const ownershipPrettyCompanyEyebrow: React.CSSProperties = {
+  display: "block",
+  color: "#7a8791",
+  fontSize: "8px",
+  fontWeight: 800,
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+};
+
+const ownershipPrettyCompanyName: React.CSSProperties = {
+  display: "block",
+  marginTop: "4px",
+  color: "#10233a",
+  fontSize: "13px",
+  fontWeight: 900,
+  lineHeight: 1.2,
+};
+
+const ownershipPrettyCompanyMeta: React.CSSProperties = {
+  display: "block",
+  marginTop: "5px",
+  color: "#7a8791",
+  fontSize: "8px",
+};
+
+const ownershipPrettyCompanyDivider: React.CSSProperties = {
+  height: "1px",
+  background: "#dfe5ea",
+  margin: "14px 0 10px",
+};
+
+const ownershipPrettyCompanyFacts: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "12px",
+  color: "#10233a",
+  fontSize: "9px",
+};
+
+const ownershipPrettyFooter: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "12px",
+  padding: "9px 16px",
+  borderTop: "1px solid #e8edf2",
+  background: "#fbfcfd",
+  color: "#7a8791",
+  fontSize: "8px",
+};
+
+const shareSnapshotMetrics: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  border: "1px solid #d8e0e6",
+  background: "#ffffff",
+  margin: "12px 0 10px",
+};
+
+const shareMetric: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRight: "1px solid #e5eaee",
+};
+
+const shareMetricLabel: React.CSSProperties = {
+  display: "block",
+  color: "#6f7c88",
+  fontSize: "8px",
+  fontWeight: 800,
+  marginBottom: "4px",
+};
+
+const shareMetricValue: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "18px",
+  fontWeight: 900,
+};
+
+const ownershipMapShell: React.CSSProperties = {
+  border: "1px solid #d8e0e6",
+  background: "#ffffff",
+};
+
+const ownershipMapHeaderRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "12px",
+  padding: "10px 12px",
+  borderBottom: "1px solid #e8edf2",
+};
+
+const ownershipMapHeading: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const ownershipMapHint: React.CSSProperties = {
+  marginTop: "2px",
+  color: "#7a8791",
+  fontSize: "8px",
+};
+
+const ownershipMapMode: React.CSSProperties = {
+  padding: "5px 8px",
+  border: "1px solid #d8e0e6",
+  color: "#40515d",
+  background: "#f8fafb",
+  fontSize: "8px",
+  fontWeight: 800,
+};
+
+const ownershipMapCanvas: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1.5fr) minmax(220px, 0.7fr)",
+  gap: "26px",
+  alignItems: "center",
+  padding: "18px 20px 20px",
+  minHeight: "220px",
+};
+
+const ownershipMapHolders: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "12px",
+};
+
+const ownershipHolderNode: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(220px, 1fr) minmax(160px, 0.8fr)",
+  alignItems: "center",
+  gap: "12px",
+};
+
+const ownershipHolderIdentity: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "34px minmax(0, 1fr)",
+  gap: "10px",
+  alignItems: "center",
+  padding: "9px 10px",
+  border: "1px solid #d8e0e6",
+  background: "#fbfcfd",
+};
+
+const ownershipHolderAvatar: React.CSSProperties = {
+  width: "34px",
+  height: "34px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "#eef3f6",
+  border: "1px solid #d8e0e6",
+  color: "#10233a",
+  fontSize: "9px",
+  fontWeight: 900,
+};
+
+const ownershipHolderName: React.CSSProperties = {
+  display: "block",
+  color: "#10233a",
+  fontSize: "10px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+const ownershipHolderClass: React.CSSProperties = {
+  marginTop: "2px",
+  color: "#7a8791",
+  fontSize: "8px",
+};
+
+const ownershipConnectorRow: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr auto 36px",
+  alignItems: "center",
+  minWidth: 0,
+};
+
+const ownershipConnectorLine: React.CSSProperties = {
+  height: "1px",
+  background: "#b8c6d2",
+};
+
+const ownershipConnectorLineShort: React.CSSProperties = {
+  height: "1px",
+  background: "#b8c6d2",
+};
+
+const ownershipPercentChip: React.CSSProperties = {
+  padding: "4px 8px",
+  border: "1px solid #b9d0ff",
+  background: "#eef4ff",
+  color: "#1d4ed8",
+  fontSize: "8px",
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const ownershipCompanyAnchorWrap: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const ownershipCompanyAnchor: React.CSSProperties = {
+  width: "100%",
+  maxWidth: "220px",
+  minHeight: "150px",
+  padding: "16px",
+  border: "1px solid #cfd9e2",
+  background: "#ffffff",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  textAlign: "center",
+  boxShadow: "0 8px 24px rgba(16,35,58,0.06)",
+};
+
+const ownershipCompanyIcon: React.CSSProperties = {
+  width: "34px",
+  height: "34px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "50%",
+  background: "#10233a",
+  color: "#ffffff",
+  fontSize: "11px",
+  marginBottom: "10px",
+};
+
+const ownershipCompanyName: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "11px",
+  fontWeight: 900,
+  lineHeight: 1.25,
+};
+
+const ownershipCompanyMeta: React.CSSProperties = {
+  marginTop: "4px",
+  color: "#7a8791",
+  fontSize: "8px",
+};
+
+const shareLedgerWrap: React.CSSProperties = {
+  marginTop: "10px",
+  border: "1px solid #d8e0e6",
+  background: "#ffffff",
+};
+
+const shareLedgerHeaderRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "12px",
+  padding: "10px 12px",
+  borderBottom: "1px solid #e8edf2",
+};
+
+const shareLedgerTitle: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "11px",
+  fontWeight: 900,
+};
+
+const shareLedgerHint: React.CSSProperties = {
+  color: "#7a8791",
+  fontSize: "8px",
+};
+
+const shareLedgerTableHeader: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "2.2fr 1.8fr 0.7fr 0.8fr 0.9fr",
+  gap: "12px",
+  padding: "8px 12px",
+  background: "#f5f7f9",
+  color: "#6f7c88",
+  fontSize: "8px",
+  fontWeight: 900,
+  borderBottom: "1px solid #e8edf2",
+};
+
+const shareLedgerRow: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "2.2fr 1.8fr 0.7fr 0.8fr 0.9fr",
+  gap: "12px",
+  alignItems: "center",
+  padding: "9px 12px",
+  borderBottom: "1px solid #edf1f4",
+  color: "#40515d",
+  fontSize: "9px",
+};
+
+const shareLedgerPercent: React.CSSProperties = {
+  color: "#1d4ed8",
+};
+
+const shareLedgerTotalRow: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "2.2fr 1.8fr 0.7fr 0.8fr 0.9fr",
+  gap: "12px",
+  alignItems: "center",
+  padding: "9px 12px",
+  background: "#fbfcfd",
+  color: "#10233a",
+  fontSize: "9px",
 };
 
 const ownershipMapHeader: React.CSSProperties = {
@@ -4997,7 +5644,7 @@ const sectionStatusMark: React.CSSProperties = {
 };
 
 const sectionStatusMarkComplete: React.CSSProperties = {
-  borderColor: "#8aa28e",
+  border: "1px solid #8aa28e",
   color: "#31583b",
   background: "#e8efe7",
 };
