@@ -316,9 +316,23 @@ function bucketKey(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket) 
     Share capital / contributed equity is the exception:
     the 805 family contains materially different equity classes which must
     remain separately presented while still feeding ONE equity note.
+
+    Loans receivable also keep the related-party mapping 340.20 separate from
+    generic 340 loans. Classification remains mapping_code-only.
   */
   if (canonical.noteKey === "shareCapital") {
     return String(line.mapping_code || "805").trim();
+  }
+
+  if (
+    canonical.noteKey === "loansReceivable" &&
+    String(line.mapping_code || "").trim() === "340.20"
+  ) {
+    return "loansReceivable:relatedParty";
+  }
+
+  if (canonical.noteKey === "loansReceivable") {
+    return "loansReceivable";
   }
 
   return (
@@ -356,8 +370,19 @@ function bucketLabel(line: AfsEngineTrialBalanceLine, canonical: CanonicalBucket
     805 is one disclosure family, but the individual equity classes must retain
     their own presentation labels.
 
+    340.20 is specifically a loan TO a shareholder / director / member.
+    The engine keeps that wording entity-neutral. Entity presentation later
+    converts it to "Member loans" for a CC or "Trustee loans" for a trust.
+
     Classification remains mapping-code driven only.
   */
+  if (
+    canonical.noteKey === "loansReceivable" &&
+    String(line.mapping_code || "").trim() === "340.20"
+  ) {
+    return "Shareholder / director / member loans";
+  }
+
   if (canonical.noteKey === "shareCapital") {
     if (mappingStartsWith(line, ["805.10"])) return "Share capital";
     if (mappingStartsWith(line, ["805.20"])) return "Share premium";

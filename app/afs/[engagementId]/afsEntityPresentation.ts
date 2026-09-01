@@ -1,6 +1,7 @@
 export type AfsEntityPresentation = {
   isNpc: boolean;
   isTrust: boolean;
+  isCloseCorporation?: boolean;
   entityLabel: string;
   incomeStatementTitle: string;
   incomeStatementShortTitle: string;
@@ -38,11 +39,22 @@ export function isTrust(entityType: unknown) {
   return value === "trust" || value.includes("trust");
 }
 
+export function isCloseCorporation(entityType: unknown) {
+  const value = cleanEntityType(entityType);
+
+  return (
+    value === "cc" ||
+    value === "close corporation" ||
+    value.includes("close corporation")
+  );
+}
+
 export function getAfsEntityPresentation(
   entityType: unknown,
 ): AfsEntityPresentation {
   const npc = isNonProfitCompany(entityType);
   const trust = isTrust(entityType);
+  const closeCorporation = isCloseCorporation(entityType);
 
   if (npc) {
     return {
@@ -86,6 +98,29 @@ export function getAfsEntityPresentation(
       responsiblePersonsLabel: "Trustees",
       responsibilitiesTitle: "Trustees’ Responsibilities and Approval",
       reportTitle: "Trustees’ Report",
+    };
+  }
+
+  if (closeCorporation) {
+    return {
+      isNpc: false,
+      isTrust: false,
+      isCloseCorporation: true,
+      entityLabel: "Close Corporation",
+      incomeStatementTitle: "Statement of Comprehensive Income",
+      incomeStatementShortTitle: "Statement of Comprehensive Income",
+      resultCurrentLabel: "Profit / (loss) for the year",
+      resultPriorLabel: "Profit / (loss) for the prior year",
+      resultGenericLabel: "Profit / (loss)",
+      equityHeading: "Members' interest",
+      equityStatementTitle: "Statement of Changes in Members' Interest",
+      accumulatedBalanceLabel: "Accumulated loss",
+      showShareCapital: true,
+      showShareCapitalPolicy: true,
+      enableRestrictedFunds: false,
+      responsiblePersonsLabel: "Members",
+      responsibilitiesTitle: "Members’ Responsibilities and Approval",
+      reportTitle: "Members’ Report",
     };
   }
 
@@ -149,6 +184,24 @@ export function getAfsEntityRowLabel(
     if (label.includes("profit / (loss) for current year")) {
       return "Surplus / (deficit) for current year";
     }
+
+    return original;
+  }
+
+  if (presentation.isCloseCorporation) {
+    const exact: Record<string, string> = {
+      "share capital": "Member's contribution",
+      "share capital / contributions": "Member's contribution",
+      "members / owners contributions": "Member's contribution",
+      "member / owner contributions": "Member's contribution",
+      "owners contributions": "Member's contribution",
+      "shareholder / director / member loans": "Member loans",
+      "shareholder/director/member loans": "Member loans",
+      "loans from shareholders": "Member loans",
+      "shareholder loans": "Member loans",
+    };
+
+    if (exact[label]) return exact[label];
 
     return original;
   }

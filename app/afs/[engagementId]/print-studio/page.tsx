@@ -1565,33 +1565,108 @@ function CcAccountingOfficerReportBlock({
 }) {
   const memberCount = Math.max(1, members.length);
   const memberWord = memberCount === 1 ? "Member" : "Members";
+  const addressLines = practitionerAddressLines
+    ? formatMultiline(practitionerAddressLines)
+    : [];
 
   return (
     <section
       style={{
+        position: "relative",
+        minHeight: "265mm",
+        paddingBottom: 0,
         fontFamily: "Arial, Helvetica, sans-serif",
-        fontSize: 11,
-        lineHeight: 1.45,
+        fontSize: 10.1,
+        lineHeight: 1.34,
         color: "#111827",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      {practitionerLogoUrl ? (
-        <div style={{ marginBottom: 18 }}>
-          <img
-            src={practitionerLogoUrl}
-            alt={practitionerFirm || "Accounting officer"}
-            style={{
-              display: "block",
-              maxWidth: 190,
-              maxHeight: 72,
-              objectFit: "contain",
-              objectPosition: "left center",
-            }}
-          />
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 58mm",
+          alignItems: "center",
+          columnGap: 18,
+          margin: "0 0 14px",
+          paddingBottom: 8,
+          borderBottom: "1.25px solid #111827",
+          breakInside: "avoid",
+          pageBreakInside: "avoid",
+        }}
+      >
+        <div
+          style={{
+            minHeight: 52,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-start",
+          }}
+        >
+          {practitionerLogoUrl ? (
+            <img
+              src={practitionerLogoUrl}
+              alt={`${practitionerFirm || "Firm"} logo`}
+              style={{
+                width: "62mm",
+                maxWidth: "100%",
+                height: "auto",
+                maxHeight: "23mm",
+                objectFit: "contain",
+                objectPosition: "left center",
+                display: "block",
+              }}
+            />
+          ) : null}
         </div>
-      ) : null}
 
-      <h1 style={pageHeadingStyle()}>Accounting Officer&apos;s Report</h1>
+        <div
+          style={{
+            textAlign: "right",
+            fontSize: 8.5,
+            lineHeight: 1.25,
+            color: "#111827",
+          }}
+        >
+          {practitionerFirm ? (
+            <div style={{ fontWeight: 900, marginBottom: 3 }}>
+              {practitionerFirm}
+            </div>
+          ) : null}
+
+          {addressLines.map((line, index) => (
+            <div key={`ao-top-address-${index}`}>{line}</div>
+          ))}
+
+          {practitionerTelephone ? (
+            <div>
+              Tel: {String(practitionerTelephone).replace(/^Tel:\s*/i, "")}
+            </div>
+          ) : null}
+
+          {practitionerEmail ? (
+            <div>
+              Email: {String(practitionerEmail).replace(/^Email:\s*/i, "")}
+            </div>
+          ) : null}
+
+          {practitionerWebsite ? <div>{practitionerWebsite}</div> : null}
+        </div>
+      </div>
+
+      <h1
+        style={{
+          fontSize: 13.5,
+          lineHeight: 1.25,
+          fontWeight: 900,
+          margin: "0 0 13px",
+          paddingBottom: 7,
+          borderBottom: "1.25px solid #111827",
+        }}
+      >
+        Accounting Officer&apos;s Report
+      </h1>
 
       <p style={{ ...paragraphStyle(), fontWeight: 700 }}>
         To the {memberWord} of {clientName}
@@ -1639,111 +1714,151 @@ function CcAccountingOfficerReportBlock({
         </li>
       </ul>
 
-      <div style={{ marginTop: 38, maxWidth: 520 }}>
-        <div style={{ borderTop: "1px solid #111827", paddingTop: 5 }}>
-          <div style={{ fontWeight: 700 }}>{practitionerFirm}</div>
-          <div>{practitionerName}</div>
-          <div>{practitionerDesignation}</div>
-          <div>{compilationDate || "________________"}</div>
-          <div>{place || ""}</div>
+      <div
+        style={{
+          marginTop: 26,
+          breakInside: "avoid",
+          pageBreakInside: "avoid",
+        }}
+      >
+        <div
+          style={{
+            borderTop: "1px solid #111827",
+            height: 1,
+            marginBottom: 6,
+            width: "58mm",
+            maxWidth: "58mm",
+          }}
+        />
+
+        {practitionerFirm ? (
+          <p style={paragraphStyle()}>
+            <strong>{practitionerFirm}</strong>
+          </p>
+        ) : null}
+
+        <p style={paragraphStyle()}>
+          <strong>{practitionerName}</strong>
+        </p>
+
+        {practitionerDesignation ? (
+          <p style={paragraphStyle()}>{practitionerDesignation}</p>
+        ) : null}
+
+        <p style={paragraphStyle()}>
+          {compilationDate || "________________"}
+        </p>
+
+        {place ? <p style={paragraphStyle()}>{place}</p> : null}
+      </div>
+
+      <div
+        style={{
+          position: "relative",
+          display: "grid",
+          gridTemplateColumns: "1fr 45mm",
+          gap: 14,
+          alignItems: "center",
+          marginTop: "auto",
+          paddingTop: 10,
+          borderTop: "1px solid #111827",
+          fontSize: 9.2,
+          lineHeight: 1.3,
+          color: "#111827",
+          breakInside: "avoid",
+          pageBreakInside: "avoid",
+        }}
+      >
+        <div
+          style={{
+            display: "grid",
+            gap: 4,
+            justifyItems: "start",
+            textAlign: "left",
+          }}
+        >
+          <strong>{practitionerName}</strong>
+
+          {practitionerDesignation ? (
+            <div>{practitionerDesignation}</div>
+          ) : null}
+
+          {practitionerFooterText ? (
+            <div style={{ fontWeight: 900, marginTop: 3 }}>
+              {practitionerFooterText}
+            </div>
+          ) : governingBodyName ? (
+            <div style={{ fontWeight: 900, marginTop: 3 }}>
+              {[governingBodyName, governingBodyRegistrationNumber]
+                .filter(Boolean)
+                .join(" ")}
+            </div>
+          ) : null}
+
+          {secondGoverningBodyName ? (
+            <div style={{ fontWeight: 900, marginTop: 3 }}>
+              {[secondGoverningBodyName, secondGoverningBodyRegistrationNumber]
+                .filter(Boolean)
+                .join(" ")}
+            </div>
+          ) : null}
         </div>
 
-        {practitionerAddressLines ||
-        practitionerTelephone ||
-        practitionerEmail ||
-        practitionerWebsite ? (
-          <div
-            style={{
-              marginTop: 12,
-              fontSize: 9.5,
-              lineHeight: 1.4,
-              color: "#374151",
-            }}
-          >
-            {practitionerAddressLines
-              ? formatMultiline(practitionerAddressLines).map((line, index) => (
-                  <div key={`ao-address-${index}`}>{line}</div>
-                ))
-              : null}
-            {practitionerTelephone ? <div>{practitionerTelephone}</div> : null}
-            {practitionerEmail ? <div>{practitionerEmail}</div> : null}
-            {practitionerWebsite ? <div>{practitionerWebsite}</div> : null}
-          </div>
-        ) : null}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 8,
+            minHeight: 24,
+          }}
+        >
+          {governingBodyLogoUrl ? (
+            <img
+              src={governingBodyLogoUrl}
+              alt={governingBodyName || "Professional body"}
+              style={{
+                maxWidth: "32mm",
+                maxHeight: "11mm",
+                width: "auto",
+                height: "auto",
+                objectFit: "contain",
+                display: "block",
+              }}
+            />
+          ) : null}
 
-        {governingBodyName ||
-        governingBodyLogoUrl ||
-        secondGoverningBodyName ||
-        secondGoverningBodyLogoUrl ? (
-          <div
-            style={{
-              marginTop: 14,
-              display: "flex",
-              alignItems: "center",
-              gap: 20,
-              flexWrap: "wrap",
-            }}
-          >
-            {governingBodyLogoUrl ? (
-              <img
-                src={governingBodyLogoUrl}
-                alt={governingBodyName || "Professional body"}
-                style={{ maxWidth: 95, maxHeight: 42, objectFit: "contain" }}
-              />
-            ) : null}
-            {governingBodyName ? (
-              <div style={{ fontSize: 9.5, lineHeight: 1.35 }}>
-                <div style={{ fontWeight: 700 }}>{governingBodyName}</div>
-                {governingBodyRegistrationNumber ? (
-                  <div>{governingBodyRegistrationNumber}</div>
-                ) : null}
-              </div>
-            ) : null}
+          {secondGoverningBodyLogoUrl ? (
+            <img
+              src={secondGoverningBodyLogoUrl}
+              alt={secondGoverningBodyName || "Professional body"}
+              style={{
+                maxWidth: "32mm",
+                maxHeight: "11mm",
+                width: "auto",
+                height: "auto",
+                objectFit: "contain",
+                display: "block",
+              }}
+            />
+          ) : null}
 
-            {secondGoverningBodyLogoUrl ? (
-              <img
-                src={secondGoverningBodyLogoUrl}
-                alt={secondGoverningBodyName || "Professional body"}
-                style={{ maxWidth: 95, maxHeight: 42, objectFit: "contain" }}
-              />
-            ) : null}
-            {secondGoverningBodyName ? (
-              <div style={{ fontSize: 9.5, lineHeight: 1.35 }}>
-                <div style={{ fontWeight: 700 }}>{secondGoverningBodyName}</div>
-                {secondGoverningBodyRegistrationNumber ? (
-                  <div>{secondGoverningBodyRegistrationNumber}</div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        {practitionerFooterLogoUrl || practitionerFooterText ? (
-          <div
-            style={{
-              marginTop: 14,
-              paddingTop: 8,
-              borderTop: "1px solid #d1d5db",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 16,
-            }}
-          >
-            {practitionerFooterText ? (
-              <div style={{ fontSize: 8.5, lineHeight: 1.35, color: "#6b7280" }}>
-                {practitionerFooterText}
-              </div>
-            ) : <span />}
-            {practitionerFooterLogoUrl ? (
-              <img
-                src={practitionerFooterLogoUrl}
-                alt=""
-                style={{ maxWidth: 120, maxHeight: 34, objectFit: "contain" }}
-              />
-            ) : null}
-          </div>
-        ) : null}
+          {practitionerFooterLogoUrl ? (
+            <img
+              src={practitionerFooterLogoUrl}
+              alt=""
+              style={{
+                maxWidth: "36mm",
+                maxHeight: "10mm",
+                width: "auto",
+                height: "auto",
+                objectFit: "contain",
+                objectPosition: "right center",
+                display: "block",
+              }}
+            />
+          ) : null}
+        </div>
       </div>
     </section>
   );
@@ -3310,18 +3425,30 @@ useEffect(() => {
         };
       }
 
-      if (
-        section.key === "notesLoansReceivable" &&
-        isPureMemberLoanReceivableMapping()
-      ) {
-        const title = relatedPartyLoanStatementTitle();
+      if (section.key === "notesLoansReceivable") {
+        const loanRows =
+          unnumberedStatementEngine.noteData?.loansReceivable || [];
+        const relatedPartyOnly =
+          loanRows.length > 0 &&
+          loanRows.every(
+            (row: any) =>
+              String(row?.label || "").trim() ===
+              "Shareholder / director / member loans",
+          );
 
-        return {
-          ...section,
-          label: title,
-          title,
-          defaultTitle: title,
-        };
+        if (relatedPartyOnly) {
+          const title = getAfsEntityRowLabel(
+            "Shareholder / director / member loans",
+            entityPresentation,
+          );
+
+          return {
+            ...section,
+            label: title,
+            title,
+            defaultTitle: title,
+          };
+        }
       }
 
       if (section.key === "notesShareholdersLoans" && isCloseCorporation) {
@@ -3366,7 +3493,13 @@ useEffect(() => {
 
       return section;
     });
-  }, [trialBalanceLines, isCloseCorporation, isTrust]);
+  }, [
+    trialBalanceLines,
+    isCloseCorporation,
+    isTrust,
+    unnumberedStatementEngine,
+    entityPresentation,
+  ]);
 
   const noteNumberMap = useMemo(() => {
     const keyMap: Record<string, AfsNoteKey> = {
@@ -5497,83 +5630,10 @@ if (
   };
 }, [statementEngine.sfpRows, statementEngine.sceRows]);
 
-function relatedPartyLoanStatementTitle() {
-  if (isCloseCorporation) return "Member loans";
-  if (isTrust) return "Trustee loans";
-  return "Shareholder / director / member loans";
-}
-
-function populatedMappingCodes(prefix: string) {
-  return Array.from(
-    new Set(
-      (trialBalanceLines || [])
-        .filter((line: TrialBalanceLine) => {
-          const code = String(line.mapping_code || "").trim();
-          if (!(code === prefix || code.startsWith(`${prefix}.`))) return false;
-
-          return (
-            Math.round(rawCurrent(line)) !== 0 ||
-            Math.round(rawPrior(line)) !== 0
-          );
-        })
-        .map((line: TrialBalanceLine) => String(line.mapping_code || "").trim()),
-    ),
-  );
-}
-
-function isPureMemberLoanReceivableMapping() {
-  const codes = populatedMappingCodes("340");
-  return codes.length === 1 && codes[0] === "340.20";
-}
-
 function ccStatementRowLabel(value: unknown) {
-  const original = String(value || "").trim();
-  const lower = original.toLowerCase();
-
-  if (
-    isCloseCorporation &&
-    (
-      lower.includes("share capital") ||
-      lower.includes("members / owners contributions") ||
-      lower.includes("member / owner contributions") ||
-      lower.includes("owners contributions")
-    )
-  ) {
-    return "Member's contribution";
-  }
-
-  /*
-    Same related-party loan presentation on both sides of the SFP.
-    Mapping controls classification:
-      340.20 = loan TO shareholder/director/member -> asset
-      548.*  = loan FROM shareholder/director/member -> liability
-
-    The SFP section tells the reader whether the balance is an asset or liability;
-    the line description remains the same related-party-loan family.
-  */
-  if (
-    isPureMemberLoanReceivableMapping() &&
-    (
-      lower === "loans receivable" ||
-      lower === "loan receivable" ||
-      lower.includes("loans and non-current receivables")
-    )
-  ) {
-    return relatedPartyLoanStatementTitle();
-  }
-
-  if (
-    lower.includes("shareholder / director / member loans") ||
-    lower.includes("shareholder/director/member loans") ||
-    lower.includes("loans from shareholders") ||
-    lower.includes("shareholder loans") ||
-    lower.includes("member loans") ||
-    lower.includes("trustee loans")
-  ) {
-    return relatedPartyLoanStatementTitle();
-  }
-
-  return original;
+  // Compatibility pass-through only.
+  // Entity-specific SFP wording is handled centrally by afsEntityPresentation.
+  return String(value || "").trim();
 }
 
 const applyEntityPresentationToRows = (rows: AfsStatementRow[]) =>
