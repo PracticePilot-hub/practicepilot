@@ -1527,6 +1527,19 @@ function CcAccountingOfficerReportBlock({
   practitionerDesignation,
   compilationDate,
   place,
+  practitionerLogoUrl,
+  practitionerFooterLogoUrl,
+  practitionerAddressLines,
+  practitionerTelephone,
+  practitionerEmail,
+  practitionerWebsite,
+  governingBodyName,
+  governingBodyRegistrationNumber,
+  governingBodyLogoUrl,
+  secondGoverningBodyName,
+  secondGoverningBodyRegistrationNumber,
+  secondGoverningBodyLogoUrl,
+  practitionerFooterText,
 }: {
   clientName: string;
   yearEnd: string;
@@ -1536,6 +1549,19 @@ function CcAccountingOfficerReportBlock({
   practitionerDesignation: string;
   compilationDate: string;
   place: string;
+  practitionerLogoUrl?: string;
+  practitionerFooterLogoUrl?: string;
+  practitionerAddressLines?: string;
+  practitionerTelephone?: string;
+  practitionerEmail?: string;
+  practitionerWebsite?: string;
+  governingBodyName?: string;
+  governingBodyRegistrationNumber?: string;
+  governingBodyLogoUrl?: string;
+  secondGoverningBodyName?: string;
+  secondGoverningBodyRegistrationNumber?: string;
+  secondGoverningBodyLogoUrl?: string;
+  practitionerFooterText?: string;
 }) {
   const memberCount = Math.max(1, members.length);
   const memberWord = memberCount === 1 ? "Member" : "Members";
@@ -1549,6 +1575,22 @@ function CcAccountingOfficerReportBlock({
         color: "#111827",
       }}
     >
+      {practitionerLogoUrl ? (
+        <div style={{ marginBottom: 18 }}>
+          <img
+            src={practitionerLogoUrl}
+            alt={practitionerFirm || "Accounting officer"}
+            style={{
+              display: "block",
+              maxWidth: 190,
+              maxHeight: 72,
+              objectFit: "contain",
+              objectPosition: "left center",
+            }}
+          />
+        </div>
+      ) : null}
+
       <h1 style={pageHeadingStyle()}>Accounting Officer&apos;s Report</h1>
 
       <p style={{ ...paragraphStyle(), fontWeight: 700 }}>
@@ -1597,7 +1639,7 @@ function CcAccountingOfficerReportBlock({
         </li>
       </ul>
 
-      <div style={{ marginTop: 38, maxWidth: 320 }}>
+      <div style={{ marginTop: 38, maxWidth: 520 }}>
         <div style={{ borderTop: "1px solid #111827", paddingTop: 5 }}>
           <div style={{ fontWeight: 700 }}>{practitionerFirm}</div>
           <div>{practitionerName}</div>
@@ -1605,6 +1647,103 @@ function CcAccountingOfficerReportBlock({
           <div>{compilationDate || "________________"}</div>
           <div>{place || ""}</div>
         </div>
+
+        {practitionerAddressLines ||
+        practitionerTelephone ||
+        practitionerEmail ||
+        practitionerWebsite ? (
+          <div
+            style={{
+              marginTop: 12,
+              fontSize: 9.5,
+              lineHeight: 1.4,
+              color: "#374151",
+            }}
+          >
+            {practitionerAddressLines
+              ? formatMultiline(practitionerAddressLines).map((line, index) => (
+                  <div key={`ao-address-${index}`}>{line}</div>
+                ))
+              : null}
+            {practitionerTelephone ? <div>{practitionerTelephone}</div> : null}
+            {practitionerEmail ? <div>{practitionerEmail}</div> : null}
+            {practitionerWebsite ? <div>{practitionerWebsite}</div> : null}
+          </div>
+        ) : null}
+
+        {governingBodyName ||
+        governingBodyLogoUrl ||
+        secondGoverningBodyName ||
+        secondGoverningBodyLogoUrl ? (
+          <div
+            style={{
+              marginTop: 14,
+              display: "flex",
+              alignItems: "center",
+              gap: 20,
+              flexWrap: "wrap",
+            }}
+          >
+            {governingBodyLogoUrl ? (
+              <img
+                src={governingBodyLogoUrl}
+                alt={governingBodyName || "Professional body"}
+                style={{ maxWidth: 95, maxHeight: 42, objectFit: "contain" }}
+              />
+            ) : null}
+            {governingBodyName ? (
+              <div style={{ fontSize: 9.5, lineHeight: 1.35 }}>
+                <div style={{ fontWeight: 700 }}>{governingBodyName}</div>
+                {governingBodyRegistrationNumber ? (
+                  <div>{governingBodyRegistrationNumber}</div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {secondGoverningBodyLogoUrl ? (
+              <img
+                src={secondGoverningBodyLogoUrl}
+                alt={secondGoverningBodyName || "Professional body"}
+                style={{ maxWidth: 95, maxHeight: 42, objectFit: "contain" }}
+              />
+            ) : null}
+            {secondGoverningBodyName ? (
+              <div style={{ fontSize: 9.5, lineHeight: 1.35 }}>
+                <div style={{ fontWeight: 700 }}>{secondGoverningBodyName}</div>
+                {secondGoverningBodyRegistrationNumber ? (
+                  <div>{secondGoverningBodyRegistrationNumber}</div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {practitionerFooterLogoUrl || practitionerFooterText ? (
+          <div
+            style={{
+              marginTop: 14,
+              paddingTop: 8,
+              borderTop: "1px solid #d1d5db",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16,
+            }}
+          >
+            {practitionerFooterText ? (
+              <div style={{ fontSize: 8.5, lineHeight: 1.35, color: "#6b7280" }}>
+                {practitionerFooterText}
+              </div>
+            ) : <span />}
+            {practitionerFooterLogoUrl ? (
+              <img
+                src={practitionerFooterLogoUrl}
+                alt=""
+                style={{ maxWidth: 120, maxHeight: 34, objectFit: "contain" }}
+              />
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </section>
   );
@@ -5359,6 +5498,43 @@ function ccStatementRowLabel(value: unknown) {
     return "Member's contribution";
   }
 
+  /*
+    CC presentation:
+    340.20 is specifically "Loans to shareholders / directors / members".
+    If that is the only populated 340-series receivable mapping, do not show
+    the generic SFP label "Loans receivable" — show "Member loans".
+    Classification remains an asset because the member owes the CC.
+  */
+  const populated340Codes = Array.from(
+    new Set(
+      (trialBalanceLines || [])
+        .filter((line: TrialBalanceLine) => {
+          const code = String(line.mapping_code || "").trim();
+          if (!(code === "340" || code.startsWith("340."))) return false;
+
+          return (
+            Math.round(rawCurrent(line)) !== 0 ||
+            Math.round(rawPrior(line)) !== 0
+          );
+        })
+        .map((line: TrialBalanceLine) => String(line.mapping_code || "").trim()),
+    ),
+  );
+
+  const onlyMemberLoanReceivable =
+    populated340Codes.length === 1 && populated340Codes[0] === "340.20";
+
+  if (
+    onlyMemberLoanReceivable &&
+    (
+      lower === "loans receivable" ||
+      lower === "loan receivable" ||
+      lower.includes("loans and non-current receivables")
+    )
+  ) {
+    return "Member loans";
+  }
+
   if (
     lower.includes("shareholder / director / member loans") ||
     lower.includes("shareholder/director/member loans") ||
@@ -8529,6 +8705,27 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                         "city",
                       ]) || "",
                     )}
+                    practitionerLogoUrl={practitionerLogoUrl}
+                    practitionerFooterLogoUrl={practitionerFooterLogoUrl}
+                    practitionerAddressLines={firmSetting("address_lines")}
+                    practitionerTelephone={firmSetting("telephone")}
+                    practitionerEmail={firmSetting("email")}
+                    practitionerWebsite={firmSetting("website")}
+                    governingBodyName={firmSetting("governing_body_name")}
+                    governingBodyRegistrationNumber={firmSetting(
+                      "governing_body_registration_number",
+                    )}
+                    governingBodyLogoUrl={firmSetting("governing_body_logo_url")}
+                    secondGoverningBodyName={firmSetting(
+                      "second_governing_body_name",
+                    )}
+                    secondGoverningBodyRegistrationNumber={firmSetting(
+                      "second_governing_body_registration_number",
+                    )}
+                    secondGoverningBodyLogoUrl={firmSetting(
+                      "second_governing_body_logo_url",
+                    )}
+                    practitionerFooterText={firmSetting("footer_text")}
                   />
                 ) : (
                   <section
