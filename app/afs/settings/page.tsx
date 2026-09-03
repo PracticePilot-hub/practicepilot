@@ -97,6 +97,15 @@ export default function AfsFirmSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [uploadingField, setUploadingField] = useState<string | null>(null);
+  const [manualAdjustmentsEnabled, setManualAdjustmentsEnabled] = useState(false);
+  const [manualAdjustmentsLoading, setManualAdjustmentsLoading] = useState(true);
+  const [manualAdjustmentsSaving, setManualAdjustmentsSaving] = useState(false);
+  const [canManageManualAdjustments, setCanManageManualAdjustments] = useState(false);
+  const [manualAdjustmentsError, setManualAdjustmentsError] = useState("");
+  const [showManualAdjustmentWarning, setShowManualAdjustmentWarning] = useState(false);
+  const [manualAdjustmentRiskAccepted, setManualAdjustmentRiskAccepted] = useState(false);
+  const [manualAdjustmentAcknowledgedAt, setManualAdjustmentAcknowledgedAt] =
+    useState<string | null>(null);
 
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const governingLogoInputRef = useRef<HTMLInputElement | null>(null);
@@ -142,6 +151,128 @@ export default function AfsFirmSettingsPage() {
 
     loadSettings();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadManualAdjustmentSetting() {
+      if (!supabase) {
+        setManualAdjustmentsLoading(false);
+        return;
+      }
+
+      try {
+        setManualAdjustmentsError("");
+
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        const token = session?.access_token || "";
+
+        if (!token) {
+          throw new Error("Not authenticated.");
+        }
+
+        const response = await fetch("/api/afs/settings/manual-adjustments", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          cache: "no-store",
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Could not load manual adjustment settings.");
+        }
+
+        if (cancelled) return;
+
+        setManualAdjustmentsEnabled(Boolean(data.enabled));
+        setCanManageManualAdjustments(Boolean(data.canManage));
+        setManualAdjustmentAcknowledgedAt(
+          data.acknowledgedAt ? String(data.acknowledgedAt) : null,
+        );
+      } catch (error: any) {
+        if (!cancelled) {
+          setManualAdjustmentsError(
+            error?.message || "Could not load manual adjustment settings.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setManualAdjustmentsLoading(false);
+        }
+      }
+    }
+
+    loadManualAdjustmentSetting();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function updateManualAdjustments(
+    nextEnabled: boolean,
+    acceptedRisk = false,
+  ) {
+    if (!supabase || manualAdjustmentsSaving || !canManageManualAdjustments) return;
+
+    if (nextEnabled && !acceptedRisk) {
+      setShowManualAdjustmentWarning(true);
+      setManualAdjustmentRiskAccepted(false);
+      return;
+    }
+
+    setManualAdjustmentsSaving(true);
+    setManualAdjustmentsError("");
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const token = session?.access_token || "";
+
+      if (!token) {
+        throw new Error("Not authenticated.");
+      }
+
+      const response = await fetch("/api/afs/settings/manual-adjustments", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          enabled: nextEnabled,
+          acceptedRisk: nextEnabled ? acceptedRisk : false,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not update manual adjustment settings.");
+      }
+
+      setManualAdjustmentsEnabled(Boolean(data.enabled));
+      setManualAdjustmentAcknowledgedAt(
+        data.acknowledgedAt ? String(data.acknowledgedAt) : null,
+      );
+      setShowManualAdjustmentWarning(false);
+      setManualAdjustmentRiskAccepted(false);
+    } catch (error: any) {
+      setManualAdjustmentsError(
+        error?.message || "Could not update manual adjustment settings.",
+      );
+    } finally {
+      setManualAdjustmentsSaving(false);
+    }
+  }
 
   function updateField(key: keyof FirmSettings, value: string) {
     setSettings((current) => ({
@@ -788,10 +919,138 @@ export default function AfsFirmSettingsPage() {
       ) : null}
 
       {activeTab === "defaults" ? (
-        <ComingSoonPanel
-          title="Default AFS Options"
-          description="Practice-wide defaults for new AFS engagements will live here."
-        />
+        <section style={styles.contentStack}>
+          <section style={styles.panel}>
+            <div style={styles.panelHeader}>
+              <div>
+                <div style={styles.placeholderEyebrow}>AFS SETTINGS</div>
+                <h2 style={styles.panelTitle}>Default AFS Options</h2>
+                <p style={styles.panelHint}>
+                  Practice-wide controls applied to AFS files for this practice.
+                </p>
+              </div>
+            </div>
+
+            <div style={styles.settingRow}>
+              <div style={styles.settingCopy}>
+                <strong style={styles.settingTitle}>Manual adjustments</strong>
+                <span style={styles.settingHint}>
+                  When OFF, the Manual Adj. column is hidden from Trial Balance and manual adjustments are blocked server-side.
+                </span>
+                <span style={styles.settingStatus}>
+                  Current status: {manualAdjustmentsLoading ? "Loading..." : manualAdjustmentsEnabled ? "Enabled" : "Disabled"}
+                </span>
+              </div>
+
+              <div style={styles.toggleGroup} aria-label="Manual adjustments setting">
+                <button
+                  type="button"
+                  style={{
+                    ...styles.toggleButton,
+                    ...(!manualAdjustmentsEnabled ? styles.toggleButtonActive : {}),
+                  }}
+                  disabled={
+                    manualAdjustmentsLoading ||
+                    manualAdjustmentsSaving ||
+                    !canManageManualAdjustments
+                  }
+                  onClick={() => updateManualAdjustments(false)}
+                >
+                  OFF
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.toggleButton,
+                    ...(manualAdjustmentsEnabled ? styles.toggleButtonActiveBlue : {}),
+                  }}
+                  disabled={
+                    manualAdjustmentsLoading ||
+                    manualAdjustmentsSaving ||
+                    !canManageManualAdjustments
+                  }
+                  onClick={() => updateManualAdjustments(true)}
+                >
+                  ON
+                </button>
+              </div>
+            </div>
+
+            {!manualAdjustmentsLoading && !canManageManualAdjustments ? (
+              <p style={styles.settingPermissionNote}>
+                Only a Captain can change this practice-wide setting.
+              </p>
+            ) : null}
+
+            {manualAdjustmentsEnabled && manualAdjustmentAcknowledgedAt ? (
+              <p style={styles.settingPermissionNote}>
+                Risk acknowledgement recorded when this feature was enabled.
+              </p>
+            ) : null}
+
+            {showManualAdjustmentWarning ? (
+              <div style={styles.riskWarning}>
+                <strong style={styles.riskWarningTitle}>
+                  Important — manual adjustments carry additional risk
+                </strong>
+                <p style={styles.riskWarningText}>
+                  Manual adjustments bypass the normal adjusting-journal workflow and
+                  directly affect the balances used in the annual financial statements.
+                  The practice is responsible for reviewing and verifying all manual
+                  adjustments. PracticePilot cannot accept responsibility for errors,
+                  imbalances or incorrect financial statements resulting from the use of
+                  manual adjustments.
+                </p>
+
+                <label style={styles.riskAcceptanceRow}>
+                  <input
+                    type="checkbox"
+                    checked={manualAdjustmentRiskAccepted}
+                    onChange={(event) =>
+                      setManualAdjustmentRiskAccepted(event.target.checked)
+                    }
+                    disabled={manualAdjustmentsSaving}
+                  />
+                  <span>
+                    I understand the risks and accept responsibility for enabling Manual
+                    Adjustments for this practice.
+                  </span>
+                </label>
+
+                <div style={styles.riskActions}>
+                  <button
+                    type="button"
+                    style={styles.secondaryActionButton}
+                    onClick={() => {
+                      setShowManualAdjustmentWarning(false);
+                      setManualAdjustmentRiskAccepted(false);
+                    }}
+                    disabled={manualAdjustmentsSaving}
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="button"
+                    style={styles.dangerActionButton}
+                    onClick={() => updateManualAdjustments(true, true)}
+                    disabled={
+                      manualAdjustmentsSaving || !manualAdjustmentRiskAccepted
+                    }
+                  >
+                    {manualAdjustmentsSaving
+                      ? "Enabling..."
+                      : "I agree — enable Manual Adjustments"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {manualAdjustmentsError ? (
+              <p style={styles.errorText}>{manualAdjustmentsError}</p>
+            ) : null}
+          </section>
+        </section>
       ) : null}
 
       {activeTab === "workflow" ? (
@@ -958,6 +1217,66 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 10,
     fontWeight: 900,
     whiteSpace: "nowrap",
+  },
+
+  settingRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    alignItems: "center",
+    gap: 18,
+    borderTop: "1px solid #cbd5e1",
+    borderBottom: "1px solid #cbd5e1",
+    padding: "14px 0",
+  },
+  settingCopy: {
+    display: "grid",
+    gap: 5,
+  },
+  settingTitle: {
+    fontSize: 13,
+    fontWeight: 900,
+    color: "#0f172a",
+  },
+  settingHint: {
+    fontSize: 11,
+    lineHeight: 1.4,
+    color: "#475569",
+  },
+  settingStatus: {
+    fontSize: 10.5,
+    fontWeight: 900,
+    color: "#334155",
+  },
+  toggleGroup: {
+    display: "flex",
+    alignItems: "stretch",
+  },
+  toggleButton: {
+    minWidth: 72,
+    border: "1px solid #94a3b8",
+    background: "#ffffff",
+    color: "#475569",
+    padding: "9px 14px",
+    fontSize: 11,
+    fontWeight: 900,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  toggleButtonActive: {
+    background: "#0f172a",
+    borderColor: "#0f172a",
+    color: "#ffffff",
+  },
+  toggleButtonActiveBlue: {
+    background: "#2563eb",
+    borderColor: "#1d4ed8",
+    color: "#ffffff",
+  },
+  settingPermissionNote: {
+    margin: "8px 0 0",
+    color: "#64748b",
+    fontSize: 10.5,
+    fontWeight: 700,
   },
 
   contentStack: {
@@ -1263,5 +1582,58 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 10.5,
     lineHeight: 1.2,
     color: "#334155",
+  },
+  riskWarning: {
+    marginTop: 12,
+    border: "1px solid #dc2626",
+    background: "#fff7f7",
+    padding: 14,
+  },
+  riskWarningTitle: {
+    display: "block",
+    color: "#991b1b",
+    fontSize: 13,
+    fontWeight: 900,
+    marginBottom: 7,
+  },
+  riskWarningText: {
+    margin: "0 0 12px",
+    color: "#334155",
+    fontSize: 12,
+    lineHeight: 1.5,
+    maxWidth: 900,
+  },
+  riskAcceptanceRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 8,
+    color: "#0f172a",
+    fontSize: 12,
+    fontWeight: 800,
+    lineHeight: 1.4,
+  },
+  riskActions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 8,
+    marginTop: 12,
+  },
+  secondaryActionButton: {
+    border: "1px solid #94a3b8",
+    background: "#ffffff",
+    color: "#0f172a",
+    padding: "8px 12px",
+    fontSize: 12,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  dangerActionButton: {
+    border: "1px solid #991b1b",
+    background: "#b91c1c",
+    color: "#ffffff",
+    padding: "8px 12px",
+    fontSize: 12,
+    fontWeight: 900,
+    cursor: "pointer",
   },
 };

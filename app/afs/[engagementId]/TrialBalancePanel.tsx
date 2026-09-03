@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+const supabase =
+  supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey)
+    : null;
 
 type TrialBalanceLine = {
   id?: string;
@@ -117,9 +126,67 @@ export default function TrialBalancePanel({
   const [historyLines, setHistoryLines] = useState<TrialBalanceHistoryLine[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
-
+  const [manualAdjustmentsEnabled, setManualAdjustmentsEnabled] = useState(false);
+  const [manualAdjustmentsLoading, setManualAdjustmentsLoading] = useState(true);
 
   const activeLines = previewLines.length > 0 ? previewLines : trialBalanceLines;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadManualAdjustmentSetting() {
+      if (!engagementId || !supabase) {
+        setManualAdjustmentsLoading(false);
+        return;
+      }
+
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        const token = session?.access_token || "";
+
+        if (!token) {
+          setManualAdjustmentsEnabled(false);
+          return;
+        }
+
+        const response = await fetch("/api/afs/settings/manual-adjustments", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          cache: "no-store",
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to load manual adjustment setting.");
+        }
+
+        if (!cancelled) {
+          setManualAdjustmentsEnabled(Boolean(data.enabled));
+        }
+      } catch (error) {
+        console.error("Failed to load manual adjustment setting", error);
+        if (!cancelled) {
+          setManualAdjustmentsEnabled(false);
+        }
+      } finally {
+        if (!cancelled) {
+          setManualAdjustmentsLoading(false);
+        }
+      }
+    }
+
+    loadManualAdjustmentSetting();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [engagementId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -608,22 +675,46 @@ export default function TrialBalancePanel({
 
 
 
-  async function saveManualAdjustment(line: TrialBalanceLine, value: string) {
+  async function saveManualAdjustment(
+    line: TrialBalanceLine,
+    value: string,
+  ): Promise<boolean> {
+    if (!manualAdjustmentsEnabled) {
+      alert("Manual adjustments are disabled for this practice.");
+      return false;
+    }
+
     const manualAdjustment = numberOrZero(value);
     const lineId = line.id || null;
 
     if (!lineId) {
       alert("This line must be imported before you can save manual adjustments.");
-      return;
+      return false;
+    }
+
+    if (!supabase) {
+      alert("Could not connect to authentication.");
+      return false;
     }
 
     setSavingLineId(lineId);
 
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const token = session?.access_token || "";
+
+      if (!token) {
+        throw new Error("Not authenticated.");
+      }
+
       const res = await fetch(`/api/afs/engagements/${engagementId}/trial-balance`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           id: lineId,
@@ -646,10 +737,10 @@ export default function TrialBalancePanel({
       );
 
       notifyTrialBalanceSignoffRefresh();
-
-      notifyTrialBalanceSignoffRefresh();
+      return true;
     } catch (error: any) {
       alert(error.message || "Failed to save manual adjustment.");
+      return false;
     } finally {
       setSavingLineId(null);
     }
@@ -779,7 +870,7 @@ export default function TrialBalancePanel({
         <div>
           <h3 style={styles.title}>AFS Trial Balance</h3>
           <p style={styles.text}>
-            Import and review the balances used for the annual financial statements. Imported balances stay locked; manual adjustments and journals build the final AFS balance.
+            Import and review the balances used for the annual financial statements. Imported balances stay locked; {manualAdjustmentsEnabled ? "manual adjustments and journals" : "journals"} build the final AFS balance.
           </p>
           {fileName && <p style={styles.fileName}>Selected file: {fileName}</p>}
         </div>
@@ -864,15 +955,22 @@ export default function TrialBalancePanel({
       </div>
 
       {viewMode === "current" ? (
-  <div style={styles.summaryGrid}>
-    <Summary label="Imported Balance" value={formatMoney(totalSourceBalance)} />
-    <Summary label="Manual Adj." value={formatMoney(totalManualAdjustments)} />
-    <Summary label="Journal Adj." value={formatMoney(totalJournalAdjustments)} />
-    <Summary label="Final AFS Balance" value={formatMoney(totalFinalBalance)} />
-    <Summary label="Prior Year" value={formatMoney(totalPriorYear)} />
-    <Summary label="Lines" value={String(activeLines.length)} />
-  </div>
-) : null}
+        <div
+          style={{
+            ...styles.summaryGrid,
+            gridTemplateColumns: `repeat(${manualAdjustmentsEnabled ? 6 : 5}, minmax(0, 1fr))`,
+          }}
+        >
+          <Summary label="Imported Balance" value={formatMoney(totalSourceBalance)} />
+          {manualAdjustmentsEnabled ? (
+            <Summary label="Manual Adj." value={formatMoney(totalManualAdjustments)} />
+          ) : null}
+          <Summary label="Journal Adj." value={formatMoney(totalJournalAdjustments)} />
+          <Summary label="Final AFS Balance" value={formatMoney(totalFinalBalance)} />
+          <Summary label="Prior Year" value={formatMoney(totalPriorYear)} />
+          <Summary label="Lines" value={String(activeLines.length)} />
+        </div>
+      ) : null}
 
       {viewMode === "current" && previewLines.length > 0 && (
         <div style={styles.previewBanner}>
@@ -950,7 +1048,9 @@ export default function TrialBalancePanel({
                 <th style={styles.th}>Account</th>
                 <th style={styles.th}>Description</th>
                 <th style={styles.thRight}>Imported Balance</th>
-                <th style={styles.thRight}>Manual Adj.</th>
+                {manualAdjustmentsEnabled ? (
+                  <th style={styles.thRight}>Manual Adj.</th>
+                ) : null}
                 <th style={styles.thRight}>Journal Adj.</th>
                 <th style={styles.thRight}>Reclassification</th>
                 <th style={styles.thRight}>Final AFS Balance</th>
@@ -980,19 +1080,35 @@ export default function TrialBalancePanel({
                       />
                     </td>
                     <td style={styles.tdRight}>{formatMoney(sourceBalance)}</td>
-                    <td style={styles.tdRight}>
-                      <input
-                        style={styles.amountInput}
-                        defaultValue={formatPlainNumber(manualAdjustment)}
-                        disabled={previewLines.length > 0 || savingLineId === line.id}
-                        onBlur={(event) => saveManualAdjustment(line, event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.currentTarget.blur();
+                    {manualAdjustmentsEnabled ? (
+                      <td style={styles.tdRight}>
+                        <input
+                          style={styles.amountInput}
+                          defaultValue={formatPlainNumber(manualAdjustment)}
+                          disabled={
+                            manualAdjustmentsLoading ||
+                            previewLines.length > 0 ||
+                            savingLineId === line.id
                           }
-                        }}
-                      />
-                    </td>
+                          onBlur={async (event) => {
+                            const saved = await saveManualAdjustment(
+                              line,
+                              event.currentTarget.value,
+                            );
+
+                            if (!saved) {
+                              event.currentTarget.value =
+                                formatPlainNumber(manualAdjustment);
+                            }
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.currentTarget.blur();
+                            }
+                          }}
+                        />
+                      </td>
+                    ) : null}
                     <td style={styles.tdRight}>{formatMoney(journalAdjustment)}</td>
                     <td style={styles.tdRight}>{formatMoney(reclassifications)}</td>
                     <td style={styles.tdRightBold}>{formatMoney(finalBalance)}</td>
@@ -1011,7 +1127,9 @@ export default function TrialBalancePanel({
                 <td style={styles.totalRight}>
                   {formatMoney(totalSourceBalance)}
                 </td>
-                <td style={styles.totalRight}>{formatMoney(totalManualAdjustments)}</td>
+                {manualAdjustmentsEnabled ? (
+                  <td style={styles.totalRight}>{formatMoney(totalManualAdjustments)}</td>
+                ) : null}
                 <td style={styles.totalRight}>{formatMoney(totalJournalAdjustments)}</td>
                 <td style={styles.totalRight}>
                   {formatMoney(totalReclassifications)}

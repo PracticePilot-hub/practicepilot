@@ -558,17 +558,6 @@ export async function PATCH(req: NextRequest, context: any): Promise<NextRespons
 
       manualAdjustmentProfile = auth.profile;
 
-      const reason = cleanText(
-        body.manual_adjustment_reason ?? body.manualAdjustmentReason,
-      );
-
-      if (!reason) {
-        return NextResponse.json(
-          { error: "A reason is required for every manual adjustment." },
-          { status: 400 },
-        );
-      }
-
       const { data: engagement, error: engagementError } = await supabase
         .from("afs_engagements")
         .select("id,organisation_id")
@@ -631,9 +620,8 @@ export async function PATCH(req: NextRequest, context: any): Promise<NextRespons
 
     if (manualAdjustmentWasProvided) {
       updatePayload.manual_adjustment = manualAdjustment;
-      updatePayload.manual_adjustment_reason = cleanText(
-        body.manual_adjustment_reason ?? body.manualAdjustmentReason,
-      );
+      updatePayload.manual_adjustment_reason =
+        "Manual adjustment entered while the practice-wide Manual Adjustments control was enabled.";
       updatePayload.manual_adjustment_updated_by = manualAdjustmentProfile?.id || null;
       updatePayload.manual_adjustment_updated_at = new Date().toISOString();
       updatePayload.final_balance = finalBalance;
@@ -674,9 +662,8 @@ export async function PATCH(req: NextRequest, context: any): Promise<NextRespons
     if (updateError) throw updateError;
 
     if (manualAdjustmentWasProvided) {
-      const auditReason = cleanText(
-        body.manual_adjustment_reason ?? body.manualAdjustmentReason,
-      );
+      const auditReason =
+        "Manual adjustment entered while the practice-wide Manual Adjustments control was enabled.";
 
       const { error: auditError } = await supabase
         .from("afs_manual_adjustment_audit")
