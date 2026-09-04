@@ -666,25 +666,42 @@ export async function GET(req: NextRequest, context: any) {
 
 
 
-async function reverseJournalMovements(
+async function getJournalLines(
   supabase: any,
   engagementId: string,
   journalId: string,
-  journalPeriod: JournalPeriod,
 ) {
-  const { data: journalLines, error: linesError } = await supabase
+  const { data, error } = await supabase
     .from("afs_adjusting_journal_lines")
     .select("*")
     .eq("engagement_id", engagementId)
     .eq("journal_id", journalId)
     .order("line_number", { ascending: true });
 
-  if (linesError) throw linesError;
+  if (error) throw error;
+  return data || [];
+}
 
+function affectedAccountCodes(rawLines: any[]) {
+  return Array.from(
+    new Set(
+      rawLines
+        .map((line) => normaliseAccountCode(line?.account_code ?? line?.accountCode))
+        .filter(Boolean),
+    ),
+  );
+}
+
+async function reverseRawJournalMovements(
+  supabase: any,
+  engagementId: string,
+  rawLines: any[],
+  journalPeriod: JournalPeriod,
+) {
   const movements = new Map<string, number>();
 
-  for (const rawLine of journalLines || []) {
-    const accountCode = normaliseAccountCode(rawLine.account_code);
+  for (const rawLine of rawLines) {
+    const accountCode = normaliseAccountCode(rawLine.account_code ?? rawLine.accountCode);
     if (!accountCode) continue;
 
     const debit = Math.max(0, toNumber(rawLine.debit));
@@ -770,6 +787,131 @@ function buildLinePayloads(rawLines: any[], engagementId: string, journalId: str
   });
 }
 
+async function recalculateCurrentYearJournalAdjustmentByCode(
+  supabase: any,
+  engagementId: string,
+  accountCode: string,
+) {
+  const { data: existingLines, error: selectError } = await supabase
+    .from("afs_trial_balance_lines")
+    .select("*")
+    .eq("engagement_id", engagementId)
+    .eq("account_code", accountCode)
+    .limit(1);
+
+  if (selectError) throw selectError;
+
+  const existing = existingLines?.[0];
+  if (!existing) {
+    throw new Error(`Account ${accountCode} was not found in the trial balance lines.`);
+  }
+
+  const { data: journals, error: journalsError } = await supabase
+    .from("afs_adjusting_journals")
+    .select("id,journal_period")
+    .eq("engagement_id", engagementId);
+
+  if (journalsError) throw journalsError;
+
+  const currentYearJournalIds = (journals || [])
+    .filter((journal: any) => normaliseJournalPeriod(journal.journal_period) === "current_year")
+    .map((journal: any) => journal.id);
+
+  let exactJournalAdjustment = 0;
+
+  if (currentYearJournalIds.length) {
+    const { data: lines, error: linesError } = await supabase
+      .from("afs_adjusting_journal_lines")
+      .select("debit,credit")
+      .eq("engagement_id", engagementId)
+      .eq("account_code", accountCode)
+      .in("journal_id", currentYearJournalIds);
+
+    if (linesError) throw linesError;
+
+    exactJournalAdjustment = (lines || []).reduce(
+      (sum: number, line: any) =>
+        sum + Math.max(0, toNumber(line.debit)) - Math.max(0, toNumber(line.credit)),
+      0,
+    );
+  }
+
+  const hasStoredSourceBalance =
+    existing?.source_balance !== undefined &&
+    existing?.source_balance !== null &&
+    existing?.source_balance !== "";
+
+  const hasStoredImportedBalance =
+    existing?.source_current_balance !== undefined &&
+    existing?.source_current_balance !== null &&
+    existing?.source_current_balance !== "";
+
+  const hasLegacyImportedBalance =
+    existing?.imported_balance !== undefined &&
+    existing?.imported_balance !== null &&
+    existing?.imported_balance !== "";
+
+  const currentBase = hasStoredSourceBalance
+    ? toNumber(existing.source_balance)
+    : hasStoredImportedBalance
+      ? toNumber(existing.source_current_balance)
+      : hasLegacyImportedBalance
+        ? toNumber(existing.imported_balance)
+        : existing?.debit !== undefined &&
+            existing?.debit !== null &&
+            existing?.debit !== ""
+          ? toNumber(existing.debit)
+          : firstNumber(existing, ["current_year_balance", "current_balance", "final_balance"]);
+
+  const manualAdjustment = firstNumber(existing, [
+    "manual_adjustment",
+    "manual_adjustments",
+  ]);
+
+  const reclassifications = firstNumber(existing, [
+    "reclassifications",
+    "reclassification",
+  ]);
+
+  const finalBalance =
+    currentBase + manualAdjustment + exactJournalAdjustment + reclassifications;
+
+  const { data: updatedLines, error: updateError } = await supabase
+    .from("afs_trial_balance_lines")
+    .update({
+      adjustments: exactJournalAdjustment,
+      final_balance: finalBalance,
+      current_year_balance: finalBalance,
+      current_balance: finalBalance,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("engagement_id", engagementId)
+    .eq("account_code", accountCode)
+    .select("*");
+
+  if (updateError) throw updateError;
+  return updatedLines?.[0] || null;
+}
+
+async function recalculateCurrentYearAccounts(
+  supabase: any,
+  engagementId: string,
+  accountCodes: string[],
+) {
+  const updatedLines = [];
+
+  for (const accountCode of Array.from(new Set(accountCodes.filter(Boolean)))) {
+    const updated = await recalculateCurrentYearJournalAdjustmentByCode(
+      supabase,
+      engagementId,
+      accountCode,
+    );
+    if (updated) updatedLines.push(updated);
+  }
+
+  return updatedLines;
+}
+
 export async function PUT(req: NextRequest, context: any) {
   try {
     const engagementId = await getIdFromContext(context);
@@ -828,8 +970,25 @@ export async function PUT(req: NextRequest, context: any) {
       return NextResponse.json({ error: "Journal was not found." }, { status: 404 });
     }
 
+    const existingJournalPeriod = normaliseJournalPeriod(existingJournal.journal_period);
+    const existingLines = await getJournalLines(supabase, engagementId, journalId);
+    const currentYearAccountsToRecalculate = new Set<string>();
+
+    if (existingJournalPeriod === "current_year") {
+      affectedAccountCodes(existingLines).forEach((code) => currentYearAccountsToRecalculate.add(code));
+    } else {
+      await reverseRawJournalMovements(
+        supabase,
+        engagementId,
+        existingLines,
+        existingJournalPeriod,
+      );
+    }
+
     const finalJournalReference =
-      journalReference || clean(existingJournal.journal_reference) || fallbackJournalReference(Number(existingJournal.journal_number || 0));
+      journalReference ||
+      clean(existingJournal.journal_reference) ||
+      fallbackJournalReference(Number(existingJournal.journal_number || 0));
 
     const { data: duplicateReference, error: duplicateError } = await supabase
       .from("afs_adjusting_journals")
@@ -842,26 +1001,10 @@ export async function PUT(req: NextRequest, context: any) {
     if (duplicateError) throw duplicateError;
 
     if (duplicateReference?.length) {
-      throw new Error(`Journal reference ${finalJournalReference} already exists for this AFS file.`);
+      throw new Error(
+        `Journal reference ${finalJournalReference} already exists for this AFS file.`,
+      );
     }
-
-    const existingJournalPeriod = normaliseJournalPeriod(
-      existingJournal.journal_period,
-    );
-
-    const reversedLines = await reverseJournalMovements(
-      supabase,
-      engagementId,
-      journalId,
-      existingJournalPeriod,
-    );
-
-    const appliedLines = await applyRawJournalMovements(
-      supabase,
-      engagementId,
-      rawLines,
-      journalPeriod,
-    );
 
     const { data: journal, error: updateError } = await supabase
       .from("afs_adjusting_journals")
@@ -898,6 +1041,35 @@ export async function PUT(req: NextRequest, context: any) {
 
     if (insertLinesError) throw insertLinesError;
 
+    let updatedTrialBalanceLines: any[] = [];
+
+    if (journalPeriod === "current_year") {
+      affectedAccountCodes(rawLines).forEach((code) => currentYearAccountsToRecalculate.add(code));
+      updatedTrialBalanceLines = await recalculateCurrentYearAccounts(
+        supabase,
+        engagementId,
+        Array.from(currentYearAccountsToRecalculate),
+      );
+    } else {
+      const appliedLines = await applyRawJournalMovements(
+        supabase,
+        engagementId,
+        rawLines,
+        journalPeriod,
+      );
+
+      if (currentYearAccountsToRecalculate.size) {
+        const currentYearLines = await recalculateCurrentYearAccounts(
+          supabase,
+          engagementId,
+          Array.from(currentYearAccountsToRecalculate),
+        );
+        updatedTrialBalanceLines = [...currentYearLines, ...appliedLines];
+      } else {
+        updatedTrialBalanceLines = appliedLines;
+      }
+    }
+
     const signoffInvalidated = await invalidateAdjustingJournalsSignoff(
       supabase,
       engagementId,
@@ -909,8 +1081,8 @@ export async function PUT(req: NextRequest, context: any) {
         ...journal,
         lines: journalLines || [],
       },
-      trialBalanceLines: [...reversedLines, ...appliedLines],
-      lines: [...reversedLines, ...appliedLines],
+      trialBalanceLines: updatedTrialBalanceLines,
+      lines: updatedTrialBalanceLines,
       signoffInvalidated,
     });
   } catch (error: any) {
@@ -952,43 +1124,28 @@ export async function DELETE(req: NextRequest, context: any) {
       );
     }
 
-    const { data: journalLines, error: linesError } = await supabase
-      .from("afs_adjusting_journal_lines")
-      .select("*")
-      .eq("engagement_id", engagementId)
-      .eq("journal_id", journalId)
-      .order("line_number", { ascending: true });
+    const journalPeriod = normaliseJournalPeriod(journal.journal_period);
+    const journalLines = await getJournalLines(supabase, engagementId, journalId);
+    const accountCodes = affectedAccountCodes(journalLines);
 
-    if (linesError) throw linesError;
+    let updatedLines: any[] = [];
 
-    const movements = new Map<string, number>();
-
-    for (const rawLine of journalLines || []) {
-      const accountCode = normaliseAccountCode(rawLine.account_code);
-      if (!accountCode) continue;
-
-      const debit = Math.max(0, toNumber(rawLine.debit));
-      const credit = Math.max(0, toNumber(rawLine.credit));
-      const movement = debit - credit;
-
-      movements.set(accountCode, (movements.get(accountCode) || 0) - movement);
-    }
-
-    const updatedLines = [];
-
-    for (const [accountCode, reverseMovement] of movements.entries()) {
-      if (Math.abs(reverseMovement) < 0.005) continue;
-
-      const updated = await applyMovementByPeriod(
+    if (journalPeriod !== "current_year") {
+      updatedLines = await reverseRawJournalMovements(
         supabase,
         engagementId,
-        accountCode,
-        reverseMovement,
-        normaliseJournalPeriod(journal.journal_period),
+        journalLines,
+        journalPeriod,
       );
-
-      if (updated) updatedLines.push(updated);
     }
+
+    const { error: deleteLinesError } = await supabase
+      .from("afs_adjusting_journal_lines")
+      .delete()
+      .eq("engagement_id", engagementId)
+      .eq("journal_id", journalId);
+
+    if (deleteLinesError) throw deleteLinesError;
 
     const { error: deleteError } = await supabase
       .from("afs_adjusting_journals")
@@ -997,6 +1154,14 @@ export async function DELETE(req: NextRequest, context: any) {
       .eq("id", journalId);
 
     if (deleteError) throw deleteError;
+
+    if (journalPeriod === "current_year") {
+      updatedLines = await recalculateCurrentYearAccounts(
+        supabase,
+        engagementId,
+        accountCodes,
+      );
+    }
 
     const signoffInvalidated = await invalidateAdjustingJournalsSignoff(
       supabase,
@@ -1051,7 +1216,6 @@ export async function POST(req: NextRequest, context: any) {
     }
 
     const movements = new Map<string, number>();
-
     let debitTotal = 0;
     let creditTotal = 0;
 
@@ -1068,7 +1232,6 @@ export async function POST(req: NextRequest, context: any) {
 
       debitTotal += debit;
       creditTotal += credit;
-
       movements.set(accountCode, (movements.get(accountCode) || 0) + movement);
     }
 
@@ -1096,20 +1259,21 @@ export async function POST(req: NextRequest, context: any) {
       balanced,
     });
 
-    const updatedLines = [];
+    let updatedLines: any[] = [];
 
-    for (const [accountCode, movement] of movements.entries()) {
-      if (Math.abs(movement) < 0.005) continue;
-
-      const updated = await applyMovementByPeriod(
+    if (journalPeriod === "current_year") {
+      updatedLines = await recalculateCurrentYearAccounts(
         supabase,
         engagementId,
-        accountCode,
-        movement,
+        Array.from(movements.keys()),
+      );
+    } else {
+      updatedLines = await applyRawJournalMovements(
+        supabase,
+        engagementId,
+        rawLines,
         journalPeriod,
       );
-
-      if (updated) updatedLines.push(updated);
     }
 
     const signoffInvalidated = await invalidateAdjustingJournalsSignoff(

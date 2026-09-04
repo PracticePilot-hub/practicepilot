@@ -561,6 +561,7 @@ export default function AdjustingJournalsPanel({
       }
 
       await loadPostedJournals();
+      await onDataChanged?.();
       notifyAdjustingJournalsSignoffRefresh();
     } catch (error: any) {
       alert(error.message || "Failed to delete journal.");
@@ -678,6 +679,7 @@ export default function AdjustingJournalsPanel({
         await loadPostedJournals();
       }
 
+      await onDataChanged?.();
       notifyAdjustingJournalsSignoffRefresh();
     } catch (error: any) {
       alert(error?.message || "Failed to post journal.");
