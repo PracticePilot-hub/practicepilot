@@ -77,6 +77,10 @@ export async function PATCH(req: Request, context: any) {
     updateData.can_access_afs = Boolean(body.canAccessAfs);
   }
 
+  if (body.canAccessAssets !== undefined) {
+    updateData.can_access_assets = Boolean(body.canAccessAssets);
+  }
+
   if (body.canAccessSecretarial !== undefined) {
     updateData.can_access_secretarial = Boolean(body.canAccessSecretarial);
   }
@@ -120,6 +124,7 @@ export async function PATCH(req: Request, context: any) {
       updateData.can_access_crm = true;
       updateData.can_access_accounting = true;
       updateData.can_access_afs = true;
+      updateData.can_access_assets = true;
       updateData.can_access_secretarial = true;
       updateData.can_access_projects = true;
       updateData.can_access_budgeting = true;
@@ -133,6 +138,7 @@ export async function PATCH(req: Request, context: any) {
       updateData.can_access_crm = false;
       updateData.can_access_accounting = false;
       updateData.can_access_afs = false;
+      updateData.can_access_assets = false;
       updateData.can_access_secretarial = false;
       updateData.can_access_projects = false;
       updateData.can_access_budgeting = false;

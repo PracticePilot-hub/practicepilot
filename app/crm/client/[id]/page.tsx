@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
+import WorkFilters from "./WorkFilters";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,10 @@ type PageProps = {
     secretarialView?: string;
     uifEmployee?: string;
     registration?: string;
+    workStatus?: string;
+    workService?: string;
+    workSort?: string;
+    workSearch?: string;
   }>;
 };
 
@@ -74,6 +79,18 @@ function localDateKey(date = new Date()) {
   ].join("-");
 }
 
+function formatShortDate(value: string | null | undefined) {
+  if (!value) return "—";
+
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat("en-ZA", {
+    day: "2-digit",
+    month: "short",
+  }).format(date);
+}
+
 function formatTime(value: string | null | undefined) {
   if (!value) return "";
   const date = new Date(value);
@@ -100,17 +117,180 @@ function formatAddress(address: any) {
     .join(", ") || "—";
 }
 
+
+function addressLines(address: any) {
+  if (!address) return [];
+
+  const cityProvincePostal = [
+    address.city,
+    address.province,
+    address.postal_code,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(", ");
+
+  return [
+    address.line_1,
+    address.line_2,
+    cityProvincePostal,
+    address.country,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+}
+
+function serviceVisual(serviceName: string) {
+  const name = String(serviceName || "").toLowerCase();
+
+  if (name.includes("account")) return { background: "#4476c8", kind: "ledger" };
+  if (name.includes("payroll")) return { background: "#4ea6ad", kind: "people" };
+  if (name.includes("emp201")) return { background: "#7563b6", kind: "document" };
+  if (name.includes("emp501")) return { background: "#df973c", kind: "document" };
+  if (name.includes("vat")) return { background: "#5ca845", kind: "document" };
+  if (name.includes("provisional") || name.includes("income tax") || name.includes("sars")) {
+    return { background: "#4b86a6", kind: "percent" };
+  }
+  if (name.includes("financial statement")) return { background: "#367fc0", kind: "chart" };
+  if (name.includes("management report")) return { background: "#167f8c", kind: "chart" };
+  if (name.includes("beneficial")) return { background: "#a45cad", kind: "network" };
+  if (name.includes("cipc") || name.includes("secretarial")) {
+    return { background: "#cf6688", kind: "building" };
+  }
+  if (name.includes("paia")) return { background: "#697a3d", kind: "document" };
+  if (name.includes("wca") || name.includes("workman") || name.includes("coida")) {
+    return { background: "#b28f36", kind: "shield" };
+  }
+  return { background: "#60788d", kind: "work" };
+}
+
+function ServiceGlyph({
+  serviceName,
+  size = 26,
+}: {
+  serviceName: string;
+  size?: number;
+}) {
+  const visual = serviceVisual(serviceName);
+  const common = {
+    width: Math.round(size * 0.55),
+    height: Math.round(size * 0.55),
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+
+  let icon: React.ReactNode;
+
+  if (visual.kind === "ledger") {
+    icon = <svg {...common}><rect x="5" y="3" width="14" height="18" rx="1" /><path d="M8 7h8M8 11h3M13 11h3M8 15h3M13 15h3M8 19h8" /></svg>;
+  } else if (visual.kind === "people") {
+    icon = <svg {...common}><circle cx="9" cy="8" r="3" /><circle cx="17" cy="9" r="2" /><path d="M3 20c.5-4 2.5-6 6-6s5.5 2 6 6M15 15c3 0 4.7 1.7 5 5" /></svg>;
+  } else if (visual.kind === "percent") {
+    icon = <svg {...common}><path d="M7 17 17 7" /><circle cx="8" cy="8" r="2" /><circle cx="16" cy="16" r="2" /></svg>;
+  } else if (visual.kind === "chart") {
+    icon = <svg {...common}><path d="M6 3h9l3 3v15H6z" /><path d="M9 16v-3M12 16v-6M15 16v-9" /></svg>;
+  } else if (visual.kind === "network") {
+    icon = <svg {...common}><circle cx="12" cy="6" r="2.5" /><circle cx="6" cy="17" r="2.5" /><circle cx="18" cy="17" r="2.5" /><path d="M12 8.5v4M12 12.5 7.5 15M12 12.5l4.5 2.5" /></svg>;
+  } else if (visual.kind === "building") {
+    icon = <svg {...common}><path d="M4 20h16M6 20V9l6-5 6 5v11" /><path d="M9 13h6M9 16h6" /></svg>;
+  } else if (visual.kind === "shield") {
+    icon = <svg {...common}><path d="M12 3 19 6v5c0 4.5-2.6 8-7 10-4.4-2-7-5.5-7-10V6z" /><path d="m9 12 2 2 4-4" /></svg>;
+  } else {
+    icon = <svg {...common}><path d="M6 3h9l3 3v15H6z" /><path d="M14 3v4h4M9 11h6M9 15h6" /></svg>;
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        flex: `0 0 ${size}px`,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: "50%",
+        background: visual.background,
+        color: "#ffffff",
+      }}
+    >
+      {icon}
+    </span>
+  );
+}
+
+function PersonGlyph({
+  type,
+}: {
+  type: "contact" | "director";
+}) {
+  return (
+    <span style={personGlyph}>
+      {type === "director" ? (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 20h16M6 20V9l6-5 6 5v11" />
+          <path d="M9 13h6M9 16h6" />
+        </svg>
+      ) : (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="8" r="3" />
+          <path d="M5 20c.8-4 3.1-6 7-6s6.2 2 7 6" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
+function todayDateKeySA() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function workDueKey(task: any) {
+  if (task.due_date) return String(task.due_date).slice(0, 10);
+  if (task.start_at) return new Date(task.start_at).toISOString().slice(0, 10);
+  return "";
+}
+
+function normalisedWorkStatus(task: any) {
+  return String(task.status || "open").trim().toLowerCase().replaceAll(" ", "_");
+}
+
 export default async function ClientWorkingFilePage({
   params,
   searchParams,
 }: PageProps) {
   const { id } = await params;
-  const { tab, secretarialView, uifEmployee, registration } = await searchParams;
+  const {
+    tab,
+    secretarialView,
+    uifEmployee,
+    registration,
+    workStatus,
+    workService,
+    workSort,
+    workSearch,
+  } = await searchParams;
 
   const allowedTabs = [
     "overview",
     "profile",
     "services",
+    "work",
     "tasks",
     "people",
     "registrations",
@@ -161,6 +341,7 @@ export default async function ClientWorkingFilePage({
     statutoryProfileResult,
     uifRegistrationResult,
     uifEmployeesResult,
+    rrWorkflowResult,
   ] = await Promise.all([
     supabase.from("crm_clients").select("*").eq("id", id).maybeSingle(),
 
@@ -206,7 +387,7 @@ export default async function ClientWorkingFilePage({
       .neq("status", "cancelled")
       .order("due_date", { ascending: true, nullsFirst: false })
       .order("start_at", { ascending: true, nullsFirst: false })
-      .limit(30),
+      .limit(200),
 
     supabase
       .from("crm_client_directors")
@@ -327,29 +508,38 @@ export default async function ClientWorkingFilePage({
       )
       .eq("client_id", id)
       .order("surname"),
+
+    supabase
+      .from("crm_registered_representative_workflows")
+      .select("*")
+      .eq("client_id", id)
+      .maybeSingle(),
   ]);
 
   const client = clientResult.data;
 
   if (!client) notFound();
 
-  const responsibilityIds = [
-    client.client_lead_user_id,
-    client.manager_user_id,
-    client.partner_user_id,
-  ].filter(Boolean) as string[];
-
-  const responsibilityUsersResult = responsibilityIds.length
+  const { data: practiceUsersData, error: practiceUsersError } = client.organisation_id
     ? await supabase
         .from("user_profiles")
-        .select("id, full_name, email")
-        .in("id", responsibilityIds)
+        .select("id, user_id, full_name, email, access_enabled")
+        .eq("organisation_id", client.organisation_id)
+        .eq("access_enabled", true)
+        .order("full_name", { ascending: true })
     : { data: [], error: null };
 
-  const responsibilityUsers = responsibilityUsersResult.data || [];
-  const responsibilityName = (userId: string | null | undefined) => {
-    if (!userId) return "—";
-    const user = responsibilityUsers.find((row: any) => row.id === userId);
+  const practiceUsers = practiceUsersData || [];
+
+  const responsibilityName = (profileId: string | null | undefined) => {
+    if (!profileId) return "—";
+    const user = practiceUsers.find((row: any) => row.id === profileId);
+    return user?.full_name || user?.email || "Assigned";
+  };
+
+  const assignedName = (authUserId: string | null | undefined) => {
+    if (!authUserId) return "Unassigned";
+    const user = practiceUsers.find((row: any) => row.user_id === authUserId);
     return user?.full_name || user?.email || "Assigned";
   };
 
@@ -357,6 +547,108 @@ export default async function ClientWorkingFilePage({
   const addresses = addressesResult.data || [];
   const services = (servicesResult.data || []) as ServiceRow[];
   const tasks = tasksResult.data || [];
+
+  const workTodayKey = todayDateKeySA();
+  const next7Key = addDaysToDateKey(workTodayKey, 7);
+  const next31Key = addDaysToDateKey(workTodayKey, 31);
+
+  const selectedWorkStatus = String(workStatus || "open");
+  const selectedWorkService = String(workService || "all");
+  const selectedWorkSort = String(workSort || "due_asc");
+  const selectedWorkSearch = String(workSearch || "").trim().toLowerCase();
+
+  const availableWorkServices = Array.from(
+    new Set(
+      tasks
+        .map((task: any) =>
+          String(task.service_code || task.work_type || "General").trim()
+        )
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  const activeClientServiceNames = services
+    .filter((service: any) => service.is_active !== false)
+    .map((service: any) => relationOne(service.crm_services)?.service_name || "")
+    .filter(Boolean);
+
+  const taskServiceOptions = Array.from(
+    new Set([
+      ...activeClientServiceNames,
+      ...availableWorkServices,
+      "Ad Hoc Work",
+    ])
+  ).sort((a, b) => a.localeCompare(b));
+
+  const filteredWork = tasks
+    .filter((task: any) => {
+      const status = normalisedWorkStatus(task);
+      const dueKey = workDueKey(task);
+      const service = String(task.service_code || task.work_type || "General");
+      const completed = status === "completed" || Boolean(task.completed_at);
+
+      if (selectedWorkStatus === "open" && completed) return false;
+      if (selectedWorkStatus === "completed" && !completed) return false;
+      if (selectedWorkStatus === "overdue") {
+        if (completed || !dueKey || dueKey >= workTodayKey) return false;
+      }
+      if (selectedWorkStatus === "next7") {
+        if (completed || !dueKey || dueKey < workTodayKey || dueKey > next7Key) return false;
+      }
+      if (selectedWorkStatus === "next31") {
+        if (completed || !dueKey || dueKey < workTodayKey || dueKey > next31Key) return false;
+      }
+      if (selectedWorkStatus === "waiting" && !status.includes("waiting")) return false;
+      if (selectedWorkStatus === "in_progress" && status !== "in_progress") return false;
+
+      if (
+        selectedWorkService !== "all" &&
+        service !== selectedWorkService
+      ) {
+        return false;
+      }
+
+      if (selectedWorkSearch) {
+        const haystack = [
+          task.title,
+          task.description,
+          task.service_code,
+          task.work_type,
+          task.status,
+          assignedName(task.assigned_user_id),
+        ]
+          .join(" ")
+          .toLowerCase();
+
+        if (!haystack.includes(selectedWorkSearch)) return false;
+      }
+
+      return true;
+    })
+    .sort((a: any, b: any) => {
+      if (selectedWorkSort === "due_desc") {
+        return workDueKey(b).localeCompare(workDueKey(a));
+      }
+      if (selectedWorkSort === "service") {
+        return String(a.service_code || a.work_type || "").localeCompare(
+          String(b.service_code || b.work_type || "")
+        );
+      }
+      if (selectedWorkSort === "status") {
+        return normalisedWorkStatus(a).localeCompare(normalisedWorkStatus(b));
+      }
+      return workDueKey(a).localeCompare(workDueKey(b));
+    });
+
+  const workTimelineSource =
+    selectedWorkStatus === "open"
+      ? filteredWork.filter((task: any) => {
+          const dueKey = workDueKey(task);
+          return !dueKey || dueKey >= workTodayKey;
+        })
+      : filteredWork;
+
+  const workTimeline = workTimelineSource.slice(0, 14);
   const directors = directorsResult.data || [];
   const shareholders = shareholdersResult.data || [];
   const matters = mattersResult.data || [];
@@ -366,6 +658,57 @@ export default async function ClientWorkingFilePage({
   const statutoryProfile = statutoryProfileResult.data;
   const uifRegistration = uifRegistrationResult.data;
   const uifEmployees = uifEmployeesResult.data || [];
+
+  const rrWorkflow = (rrWorkflowResult.data || null) as any;
+  const rrDirectorId = String(rrWorkflow?.director_id || "");
+
+  const rrDirector =
+    directors.find((director: any) => String(director.id) === rrDirectorId) || null;
+
+  const rrRawStatus = String(rrWorkflow?.status || "")
+    .trim()
+    .toLowerCase()
+    .replaceAll(" ", "_");
+
+  const rrConfirmed = Boolean(
+    rrWorkflow &&
+      (rrRawStatus === "confirmed" || rrWorkflow?.confirmation_date)
+  );
+
+  const rrSubmitted = Boolean(
+    !rrConfirmed &&
+      rrWorkflow &&
+      (rrRawStatus === "submitted" || rrWorkflow?.submission_date)
+  );
+
+  const rrReady = Boolean(
+    !rrConfirmed &&
+      !rrSubmitted &&
+      rrWorkflow &&
+      ["ready_for_signature", "ready_for_submission"].includes(rrRawStatus)
+  );
+
+  const rrStarted = Boolean(rrWorkflow);
+
+  const rrHubStatus = rrConfirmed
+    ? "Confirmed"
+    : rrSubmitted
+      ? "Submitted"
+      : rrReady
+        ? "Ready"
+        : rrStarted
+          ? "In progress"
+          : "Not started";
+
+  const rrHubAction = rrConfirmed
+    ? "Change RR →"
+    : rrStarted
+      ? "Continue →"
+      : "Start →";
+
+  const rrRepresentativeName =
+    rrDirector?.director_name || "—";
+
   const editingUifEmployee =
     uifEmployees.find((employee: any) => employee.id === uifEmployee) || null;
 
@@ -656,15 +999,17 @@ export default async function ClientWorkingFilePage({
       servicesResult.error,
       directorsResult.error,
       shareholdersResult.error,
-      responsibilityUsersResult.error,
+      practiceUsersError,
     ].filter(Boolean),
     services: [servicesResult.error].filter(Boolean),
+    work: [tasksResult.error, practiceUsersError].filter(Boolean),
     tasks: [tasksResult.error].filter(Boolean),
     people: [contactsResult.error, directorsResult.error].filter(Boolean),
     registrations: [
       statutoryProfileResult.error,
       uifRegistrationResult.error,
       uifEmployeesResult.error,
+      rrWorkflowResult.error,
     ].filter(Boolean),
     secretarial: [
       directorsResult.error,
@@ -740,34 +1085,6 @@ export default async function ClientWorkingFilePage({
         </div>
       </section>
 
-      <nav style={sectionNav}>
-        {[
-          ["overview", "Overview"],
-          ["profile", "Client Profile"],
-          ["services", "Services"],
-          ["tasks", "Tasks"],
-          ["people", "People"],
-          ["registrations", "Registrations"],
-          ["secretarial", "Secretarial"],
-          ["documents", "Documents"],
-          ["activity", "Activity"],
-        ].map(([key, label]) => {
-          const active = activeTab === key;
-
-          return (
-            <Link
-              key={key}
-              href={`/crm/client/${client.id}?tab=${key}`}
-              style={{
-                ...sectionNavLink,
-                ...(active ? activeSectionNavLink : {}),
-              }}
-            >
-              {label}
-            </Link>
-          );
-        })}
-      </nav>
 
       {activeSectionErrors.length > 0 ? (
         <div style={sectionWarningBar}>
@@ -1098,11 +1415,27 @@ export default async function ClientWorkingFilePage({
                     <div style={profileAddressGrid}>
                       <div style={profileAddressBlock}>
                         <div style={profileLabel}>Physical address</div>
-                        <div style={profileAddressValue}>{formatAddress(physicalAddress)}</div>
+                        <div style={profileAddressValue}>
+                          {addressLines(physicalAddress).length ? (
+                            addressLines(physicalAddress).map((line) => (
+                              <div key={line}>{line}</div>
+                            ))
+                          ) : (
+                            "—"
+                          )}
+                        </div>
                       </div>
                       <div style={profileAddressBlock}>
                         <div style={profileLabel}>Postal address</div>
-                        <div style={profileAddressValue}>{formatAddress(postalAddress)}</div>
+                        <div style={profileAddressValue}>
+                          {addressLines(postalAddress).length ? (
+                            addressLines(postalAddress).map((line) => (
+                              <div key={line}>{line}</div>
+                            ))
+                          ) : (
+                            "—"
+                          )}
+                        </div>
                       </div>
                     </div>
                   </section>
@@ -1127,8 +1460,8 @@ export default async function ClientWorkingFilePage({
                     <div style={profileSectionHeader}>Practice responsibility</div>
                     <div style={profileFieldsGrid}>
                       <ProfileField label="Client lead" value={responsibilityName(client.client_lead_user_id)} />
-                      <ProfileField label="Manager" value={responsibilityName(client.manager_user_id)} />
-                      <ProfileField label="Partner" value={responsibilityName(client.partner_user_id)} />
+                      <ProfileField label="Default work owner" value={responsibilityName(client.manager_user_id)} />
+                      <ProfileField label="Reviewer" value={responsibilityName(client.partner_user_id)} />
                     </div>
                   </section>
 
@@ -1215,13 +1548,19 @@ export default async function ClientWorkingFilePage({
 
               return (
                 <div key={service.id} style={serviceRow}>
-                  <div style={serviceMain}>
-                    <strong style={rowTitle}>
-                      {serviceInfo?.service_name || "Unnamed service"}
-                    </strong>
-                    <span style={rowMeta}>
-                      {serviceInfo?.service_group || "General"}
-                    </span>
+                  <div style={serviceIdentity}>
+                    <ServiceGlyph
+                      serviceName={serviceInfo?.service_name || "Service"}
+                      size={26}
+                    />
+                    <div style={serviceMain}>
+                      <strong style={rowTitle}>
+                        {serviceInfo?.service_name || "Unnamed service"}
+                      </strong>
+                      <span style={rowMeta}>
+                        {serviceInfo?.service_group || "General"}
+                      </span>
+                    </div>
                   </div>
 
                   <div style={rightInfo}>
@@ -1240,52 +1579,197 @@ export default async function ClientWorkingFilePage({
       </section>
       ) : null}
 
-            {activeTab === "tasks" ? (
-<section id="tasks" style={panel}>
-        <PanelHeader
-          number="03"
-          title="Tasks"
-          subtitle="Open work currently moving through the PracticePilot Flight Map."
-          action={
-            <Link href="/crm/tasks" style={textLink}>
-              Open task centre
-            </Link>
-          }
-        />
+            {activeTab === "work" || activeTab === "tasks" ? (
+<section id="work" style={workPage}>
+  <PanelHeader
+    number="03"
+    title="Work"
+    subtitle="Open, upcoming and completed work for this client."
+    action={
+      <Link href="/crm/tasks" style={textLink}>
+        Open My Work
+      </Link>
+    }
+  />
 
-        {tasks.length ? (
-          <div style={list}>
-            {tasks.map((task: any) => (
-              <div key={task.id} style={taskRow}>
-                <div style={taskMain}>
-                  <strong style={rowTitle}>{task.title}</strong>
-                  <span style={rowMeta}>
-                    {formatStatus(task.service_code || task.work_type || "General")}
-                  </span>
-                </div>
+  <WorkFilters
+    clientId={client.id}
+    services={availableWorkServices}
+    taskServices={taskServiceOptions}
+    users={practiceUsers.map((user: any) => ({
+      user_id: user.user_id,
+      full_name: user.full_name,
+      email: user.email,
+    }))}
+    status={selectedWorkStatus}
+    service={selectedWorkService}
+    sort={selectedWorkSort}
+    search={workSearch || ""}
+  />
 
-                <div style={taskDue}>
-                  <span style={statusPill}>
-                    {formatStatus(task.status)}
-                  </span>
-                  <span style={smallMuted}>
-                    {task.start_at
-                      ? `Scheduled: ${formatDate(localDateKey(new Date(task.start_at)))} ${formatTime(task.start_at)}`
-                      : `Due: ${formatDate(task.due_date)}`}
-                  </span>
-                </div>
+  <div style={workLayout}>
+    <div style={workTableShell}>
+      <div style={workTableHeader}>
+        <span>Due / period</span>
+        <span>Work</span>
+        <span>Service</span>
+        <span>Status</span>
+        <span>Assigned to</span>
+        <span />
+      </div>
 
-                <Link href="/crm/tasks" style={textLink}>
-                  Open
-                </Link>
+      {filteredWork.length ? (
+        filteredWork.map((task: any) => {
+          const status = normalisedWorkStatus(task);
+          const completed = status === "completed" || Boolean(task.completed_at);
+          const dueKey = workDueKey(task);
+          const serviceName = String(task.service_code || task.work_type || "General");
+
+          return (
+            <div
+              key={task.id}
+              style={{
+                ...workTableRow,
+                ...(completed ? workTableRowCompleted : {}),
+              }}
+            >
+              <div style={workDueCell}>
+                <strong>{dueKey ? formatDate(dueKey) : "No due date"}</strong>
+                {task.start_at ? (
+                  <span>{formatTime(task.start_at)}</span>
+                ) : null}
               </div>
-            ))}
-          </div>
+
+              <div style={workTitleCell}>
+                <ServiceGlyph serviceName={serviceName} size={24} />
+                <div>
+                  <strong style={completed ? workCompletedTitle : rowTitle}>
+                    {task.title}
+                  </strong>
+                  {task.description ? (
+                    <div style={workDescription}>
+                      {String(task.description)
+                        .replace("Recurring service work for period ", "Period: ")
+                        .replace(" to ", " → ")
+                        .replace(/\.$/, "")}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div style={workServiceCell}>{formatStatus(serviceName)}</div>
+
+              <div>
+                <span
+                  style={{
+                    ...workStatusPill,
+                    ...(completed
+                      ? workStatusCompleted
+                      : status.includes("waiting")
+                        ? workStatusWaiting
+                        : status === "in_progress"
+                          ? workStatusProgress
+                          : dueKey && dueKey < todayKey
+                            ? workStatusOverdue
+                            : {}),
+                  }}
+                >
+                  {completed
+                    ? "✓ Completed"
+                    : dueKey && dueKey < todayKey
+                      ? "Overdue"
+                      : formatStatus(status)}
+                </span>
+              </div>
+
+              <div style={workAssignedCell}>
+                {assignedName(task.assigned_user_id)}
+              </div>
+
+              <Link
+                href={`/crm/client/${client.id}/work/${task.id}`}
+                style={textLink}
+              >
+                Open
+              </Link>
+            </div>
+          );
+        })
+      ) : (
+        <div style={workEmpty}>
+          No work matches these filters.
+        </div>
+      )}
+    </div>
+
+    <aside style={workTimelinePanel}>
+      <div style={workTimelineHeader}>
+        <div>
+          <div style={workTimelineEyebrow}>Client work timeline</div>
+          <strong style={workTimelineTitle}>What is coming up</strong>
+        </div>
+        <span style={workTimelineCount}>{filteredWork.length}</span>
+      </div>
+
+      <div style={workTimelineList}>
+        {workTimeline.length ? (
+          workTimeline.map((task: any, index: number) => {
+            const status = normalisedWorkStatus(task);
+            const completed = status === "completed" || Boolean(task.completed_at);
+            const dueKey = workDueKey(task);
+            const serviceName = String(task.service_code || task.work_type || "General");
+
+            return (
+              <div key={task.id} style={workTimelineItem}>
+                <div style={workTimelineDate}>
+                  {dueKey ? formatShortDate(dueKey) : "—"}
+                </div>
+
+                <div style={workTimelineRail}>
+                  <div
+                    style={{
+                      ...workTimelineLine,
+                      top: index === 0 ? "50%" : 0,
+                      bottom: index === workTimeline.length - 1 ? "50%" : 0,
+                    }}
+                  />
+                  <div
+                    style={{
+                      ...workTimelineGlyphWrap,
+                      ...(completed ? workTimelineGlyphCompleted : {}),
+                    }}
+                  >
+                    {completed ? (
+                      <span style={workTimelineCheck}>✓</span>
+                    ) : (
+                      <ServiceGlyph serviceName={serviceName} size={24} />
+                    )}
+                  </div>
+                </div>
+
+                <div style={workTimelineContent}>
+                  <strong style={completed ? workCompletedTitle : workTimelineItemTitle}>
+                    {task.title}
+                  </strong>
+                  <div style={workTimelineMeta}>
+                    {formatStatus(serviceName)} · {completed ? "Completed" : formatStatus(status)}
+                  </div>
+                </div>
+              </div>
+            );
+          })
         ) : (
-          <EmptyState text="No open tasks for this client." />
+          <div style={workEmpty}>Nothing to show on the timeline.</div>
         )}
-      </section>
-      ) : null}
+      </div>
+
+      <div style={workTimelineFooter}>
+        Completing a work item updates this timeline automatically.
+      </div>
+    </aside>
+  </div>
+</section>
+) : null}
 
             {activeTab === "people" ? (
 <section id="people" style={panel}>
@@ -1302,12 +1786,15 @@ export default async function ClientWorkingFilePage({
             {contacts.length ? (
               contacts.map((contact) => (
                 <div key={contact.id} style={personRow}>
-                  <div>
+                  <div style={personIdentity}>
+                    <PersonGlyph type="contact" />
+                    <div>
                     <strong style={rowTitle}>
                       {valueOrDash(contact.contact_name)}
                     </strong>
                     <div style={rowMeta}>
                       {valueOrDash(contact.contact_position)}
+                    </div>
                     </div>
                   </div>
 
@@ -1330,10 +1817,13 @@ export default async function ClientWorkingFilePage({
             {directors.length ? (
               directors.map((director) => (
                 <div key={director.id} style={personRow}>
-                  <div>
+                  <div style={personIdentity}>
+                    <PersonGlyph type="director" />
+                    <div>
                     <strong style={rowTitle}>{director.director_name}</strong>
                     <div style={rowMeta}>
                       {director.is_active === false ? "Inactive" : "Active"}
+                    </div>
                     </div>
                   </div>
 
@@ -2235,150 +2725,137 @@ export default async function ClientWorkingFilePage({
                   </div>
 
                   <div style={registrationHubList}>
-                    {[
-                      {
-                        key: "income-tax",
-                        label: "Income Tax",
-                        authority: "SARS",
-                        number: client.tax_number,
-                        
-                      },
-                      {
-                        key: "vat",
-                        label: "VAT",
-                        authority: "SARS",
-                        number: client.vat_number,
-                        
-                      },
-                      {
-                        key: "paye",
-                        label: "PAYE",
-                        authority: "SARS",
-                        number: client.paye_number,
-                        
-                      },
-                      {
-                        key: "uif",
-                        label: "UIF",
-                        authority: "Department of Employment and Labour",
-                        number: client.uif_registration_number,
-                        
-                      },
-                      {
-                        key: "coida",
-                        label: "COIDA / Compensation Fund",
-                        authority: "Compensation Fund",
-                        number: client.wcc_reference_number,
-                        
-                      },
-                      {
-                        key: "customs",
-                        label: "Customs",
-                        authority: "SARS",
-                        number: client.customs_number,
-                        
-                      },
-                    ].map((item) => {
-                      const registered = Boolean(String(item.number || "").trim());
-                      const uifInProgress =
-                        item.key === "uif" &&
-                        !registered &&
-                        Boolean(uifRegistration);
-                      const needsRegistration =
-                        item.key === "uif" && !registered && !uifInProgress;
+                    <div style={registrationHubRow}>
+                      <div style={registrationHubIdentity}>
+                        <div
+                          style={{
+                            ...registrationHubIcon,
+                            ...(rrConfirmed
+                              ? registrationHubIconRegistered
+                              : rrStarted
+                                ? registrationHubIconProgress
+                                : registrationHubIconMissing),
+                          }}
+                        >
+                          {rrConfirmed ? "✓" : rrStarted ? "→" : "!"}
+                        </div>
+                        <div>
+                          <strong style={registrationHubItemTitle}>
+                            Registered Representative
+                          </strong>
+                          <div style={registrationHubItemMeta}>SARS</div>
+                        </div>
+                      </div>
 
-                      return (
-                        <div key={item.key} style={registrationHubRow}>
-                          <div style={registrationHubIdentity}>
-                            <div
-                              style={{
-                                ...registrationHubIcon,
-                                ...(registered
-                                  ? registrationHubIconRegistered
-                                  : uifInProgress
-                                    ? registrationHubIconProgress
-                                    : needsRegistration
-                                      ? registrationHubIconMissing
-                                      : registrationHubIconNeutral),
-                              }}
-                            >
-                              {registered
-                                ? "✓"
-                                : uifInProgress
-                                  ? "→"
-                                  : needsRegistration
-                                    ? "!"
-                                    : "—"}
-                            </div>
-                            <div>
-                              <strong style={registrationHubItemTitle}>
-                                {item.label}
-                              </strong>
-                              <div style={registrationHubItemMeta}>{item.authority}</div>
-                            </div>
-                          </div>
+                      <div>
+                        <div style={registrationHubSmallLabel}>Status</div>
+                        <strong
+                          style={{
+                            ...registrationHubStatus,
+                            color: rrConfirmed
+                              ? "#2f7b4d"
+                              : rrStarted
+                                ? "#2457d6"
+                                : "#996017",
+                          }}
+                        >
+                          {rrHubStatus}
+                        </strong>
+                      </div>
 
-                          <div>
-                            <div style={registrationHubSmallLabel}>Status</div>
-                            <strong
-                              style={{
-                                ...registrationHubStatus,
-                                color: registered
-                                  ? "#2f7b4d"
-                                  : uifInProgress
-                                    ? "#2457d6"
-                                    : needsRegistration
-                                      ? "#996017"
-                                      : "#66737d",
-                              }}
-                            >
-                              {registered
-                                ? "Registered"
-                                : uifInProgress
-                                  ? "Registration in progress"
-                                  : needsRegistration
-                                    ? "Not registered"
-                                    : "Not registered"}
-                            </strong>
-                          </div>
+                      <div>
+                        <div style={registrationHubSmallLabel}>
+                          Registered representative
+                        </div>
+                        <strong style={registrationHubNumber}>
+                          {rrRepresentativeName}
+                        </strong>
+                      </div>
 
-                          <div>
-                            <div style={registrationHubSmallLabel}>Registration number</div>
-                            <strong style={registrationHubNumber}>
-                              {registered ? item.number : "—"}
-                            </strong>
-                          </div>
+                      <div style={registrationHubAction}>
+                        <Link
+                          href={`/crm/client/${client.id}/registered-representative`}
+                          style={
+                            rrConfirmed
+                              ? registrationHubSecondaryAction
+                              : registrationHubPrimaryAction
+                          }
+                        >
+                          {rrHubAction}
+                        </Link>
+                      </div>
+                    </div>
 
-                          <div style={registrationHubAction}>
-                            {registered ? (
-                              <Link
-                                href={`/crm/edit-client?id=${client.id}`}
-                                style={registrationHubSecondaryAction}
-                              >
-                                Edit details
-                              </Link>
-                            ) : item.key === "uif" ? (
-                              <Link
-                                href={`/crm/client/${client.id}?tab=registrations&registration=uif`}
-                                style={registrationHubPrimaryAction}
-                              >
-                                {uifInProgress
-                                  ? "Continue registration →"
-                                  : "Start registration →"}
-                              </Link>
-                            ) : needsRegistration ? (
-                              <span style={registrationHubPlanned}>
-                                Workflow to be added
-                              </span>
-                            ) : (
-                              <span style={registrationHubNeutralText}>
-                                No workflow started
-                              </span>
-                            )}
+                    <div style={registrationHubRow}>
+                      <div style={registrationHubIdentity}>
+                        <div
+                          style={{
+                            ...registrationHubIcon,
+                            ...(uifRegistered
+                              ? registrationHubIconRegistered
+                              : uifRegistration
+                                ? registrationHubIconProgress
+                                : registrationHubIconMissing),
+                          }}
+                        >
+                          {uifRegistered ? "✓" : uifRegistration ? "→" : "!"}
+                        </div>
+                        <div>
+                          <strong style={registrationHubItemTitle}>UIF</strong>
+                          <div style={registrationHubItemMeta}>
+                            Department of Employment and Labour
                           </div>
                         </div>
-                      );
-                    })}
+                      </div>
+
+                      <div>
+                        <div style={registrationHubSmallLabel}>Status</div>
+                        <strong
+                          style={{
+                            ...registrationHubStatus,
+                            color: uifRegistered
+                              ? "#2f7b4d"
+                              : uifRegistration
+                                ? "#2457d6"
+                                : "#996017",
+                          }}
+                        >
+                          {uifRegistered
+                            ? "Registered"
+                            : uifRegistration
+                              ? "Registration in progress"
+                              : "Not registered"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <div style={registrationHubSmallLabel}>
+                          Registration number
+                        </div>
+                        <strong style={registrationHubNumber}>
+                          {uifRegistered
+                            ? valueOrDash(client.uif_registration_number)
+                            : "—"}
+                        </strong>
+                      </div>
+
+                      <div style={registrationHubAction}>
+                        <Link
+                          href={`/crm/client/${client.id}?tab=registrations&registration=uif`}
+                          style={
+                            uifRegistered
+                              ? registrationHubSecondaryAction
+                              : registrationHubPrimaryAction
+                          }
+                        >
+                          {uifRegistered
+                            ? "Open UIF"
+                            : uifRegistration
+                              ? "Continue registration →"
+                              : "Start registration →"}
+                        </Link>
+                      </div>
+                    </div>
                   </div>
                 </section>
               )
@@ -3301,17 +3778,19 @@ const profileAddressGrid: React.CSSProperties = {
 };
 
 const profileAddressBlock: React.CSSProperties = {
-  minHeight: "88px",
+  minHeight: "118px",
   padding: "12px 14px",
   borderRight: "1px solid #edf0ef",
 };
 
 const profileAddressValue: React.CSSProperties = {
-  marginTop: "5px",
+  marginTop: "7px",
+  display: "grid",
+  gap: "3px",
   color: "#10233a",
   fontSize: "12px",
   fontWeight: 700,
-  lineHeight: 1.5,
+  lineHeight: 1.4,
 };
 
 const profileServicesGrid: React.CSSProperties = {
@@ -3746,23 +4225,23 @@ const clientStatusStrip: React.CSSProperties = {
 
 const clientStatusCell: React.CSSProperties = {
   minWidth: 0,
-  minHeight: "82px",
+  minHeight: "60px",
   display: "grid",
-  gridTemplateColumns: "34px minmax(0, 1fr)",
-  gap: "10px",
+  gridTemplateColumns: "26px minmax(0, 1fr)",
+  gap: "8px",
   alignItems: "center",
-  padding: "12px",
+  padding: "8px 10px",
   borderRight: "1px solid #e6ebea",
 };
 
 const clientStatusIcon: React.CSSProperties = {
-  width: "32px",
-  height: "32px",
+  width: "24px",
+  height: "24px",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   borderRadius: "50%",
-  fontSize: "13px",
+  fontSize: "10px",
   fontWeight: 900,
 };
 
@@ -4129,6 +4608,13 @@ const serviceRow: React.CSSProperties = {
   borderBottom: "1px solid #e5eaf0",
 };
 
+const serviceIdentity: React.CSSProperties = {
+  minWidth: 0,
+  display: "flex",
+  alignItems: "center",
+  gap: "9px",
+};
+
 const serviceMain: React.CSSProperties = {
   minWidth: 0,
   display: "flex",
@@ -4201,6 +4687,26 @@ const personRow: React.CSSProperties = {
   borderBottom: "1px solid #e5eaf0",
 };
 
+const personIdentity: React.CSSProperties = {
+  minWidth: 0,
+  display: "flex",
+  alignItems: "center",
+  gap: "9px",
+};
+
+const personGlyph: React.CSSProperties = {
+  width: "28px",
+  height: "28px",
+  flex: "0 0 28px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "50%",
+  background: "#eaf1f6",
+  color: "#31526d",
+  border: "1px solid #d3e0e8",
+};
+
 const personContact: React.CSSProperties = {
   minWidth: 0,
   display: "flex",
@@ -4209,6 +4715,324 @@ const personContact: React.CSSProperties = {
   textAlign: "right",
   overflowWrap: "anywhere",
   fontSize: "10px",
+};
+
+const workPage: React.CSSProperties = {
+  marginTop: "8px",
+  background: "#ffffff",
+  border: "1px solid #d7dee7",
+};
+
+const workFilterBar: React.CSSProperties = {
+  padding: "10px 12px",
+  display: "flex",
+  alignItems: "flex-end",
+  gap: "8px",
+  flexWrap: "wrap",
+  borderBottom: "1px solid #dde5ec",
+  background: "#f7fafc",
+};
+
+const workFilterField: React.CSSProperties = {
+  display: "grid",
+  gap: "4px",
+  flex: "0 1 170px",
+};
+
+const workFilterLabel: React.CSSProperties = {
+  color: "#607180",
+  fontSize: "9px",
+  fontWeight: 800,
+};
+
+const workFilterSelect: React.CSSProperties = {
+  height: "32px",
+  padding: "0 8px",
+  border: "1px solid #cfd9e3",
+  background: "#ffffff",
+  color: "#10233a",
+  fontSize: "10px",
+  fontWeight: 700,
+};
+
+const workFilterInput: React.CSSProperties = {
+  height: "32px",
+  padding: "0 9px",
+  border: "1px solid #cfd9e3",
+  background: "#ffffff",
+  color: "#10233a",
+  fontSize: "10px",
+};
+
+const workFilterButton: React.CSSProperties = {
+  height: "32px",
+  padding: "0 13px",
+  border: "1px solid #183c5c",
+  background: "#183c5c",
+  color: "#ffffff",
+  fontSize: "10px",
+  fontWeight: 850,
+  cursor: "pointer",
+};
+
+const workResetLink: React.CSSProperties = {
+  height: "32px",
+  display: "inline-flex",
+  alignItems: "center",
+  color: "#2457d6",
+  textDecoration: "none",
+  fontSize: "10px",
+  fontWeight: 800,
+};
+
+const workLayout: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) 300px",
+  minHeight: "330px",
+};
+
+const workTableShell: React.CSSProperties = {
+  minWidth: 0,
+  borderRight: "1px solid #dfe6ec",
+};
+
+const workTableHeader: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "112px minmax(220px,1.6fr) 135px 100px 120px 42px",
+  gap: "8px",
+  padding: "8px 10px",
+  background: "#10233a",
+  color: "#ffffff",
+  fontSize: "9px",
+  fontWeight: 800,
+};
+
+const workTableRow: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "112px minmax(220px,1.6fr) 135px 100px 120px 42px",
+  gap: "8px",
+  alignItems: "center",
+  minHeight: "58px",
+  padding: "7px 10px",
+  borderBottom: "1px solid #e5eaf0",
+};
+
+const workTableRowCompleted: React.CSSProperties = {
+  background: "#fafcfa",
+  color: "#7b8780",
+};
+
+const workDueCell: React.CSSProperties = {
+  display: "grid",
+  gap: "2px",
+  color: "#33475a",
+  fontSize: "9px",
+};
+
+const workTitleCell: React.CSSProperties = {
+  minWidth: 0,
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+};
+
+const workDescription: React.CSSProperties = {
+  marginTop: "2px",
+  color: "#7a8792",
+  fontSize: "9px",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  maxWidth: "340px",
+};
+
+const workServiceCell: React.CSSProperties = {
+  color: "#526577",
+  fontSize: "9px",
+  fontWeight: 750,
+};
+
+const workAssignedCell: React.CSSProperties = {
+  color: "#526577",
+  fontSize: "9px",
+};
+
+const workStatusPill: React.CSSProperties = {
+  display: "inline-flex",
+  padding: "3px 6px",
+  border: "1px solid #cad6df",
+  background: "#f7fafc",
+  color: "#485c6d",
+  fontSize: "8px",
+  fontWeight: 850,
+};
+
+const workStatusCompleted: React.CSSProperties = {
+  borderColor: "#afd7bd",
+  background: "#eef8f1",
+  color: "#31734b",
+};
+
+const workStatusWaiting: React.CSSProperties = {
+  borderColor: "#ead6a7",
+  background: "#fff9eb",
+  color: "#88611f",
+};
+
+const workStatusProgress: React.CSSProperties = {
+  borderColor: "#b8cee5",
+  background: "#edf5fc",
+  color: "#315f8c",
+};
+
+const workStatusOverdue: React.CSSProperties = {
+  borderColor: "#e8b8b1",
+  background: "#fff1ef",
+  color: "#a13d32",
+};
+
+const workCompletedTitle: React.CSSProperties = {
+  fontSize: "11px",
+  fontWeight: 800,
+  color: "#7b8780",
+  textDecoration: "line-through",
+};
+
+const workEmpty: React.CSSProperties = {
+  padding: "26px 14px",
+  color: "#71808c",
+  fontSize: "10px",
+};
+
+const workTimelinePanel: React.CSSProperties = {
+  minWidth: 0,
+  background: "#fbfcfd",
+};
+
+const workTimelineHeader: React.CSSProperties = {
+  minHeight: "62px",
+  padding: "11px 12px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "10px",
+  borderBottom: "1px solid #dfe6ec",
+};
+
+const workTimelineEyebrow: React.CSSProperties = {
+  color: "#657888",
+  fontSize: "9px",
+  fontWeight: 750,
+};
+
+const workTimelineTitle: React.CSSProperties = {
+  display: "block",
+  marginTop: "3px",
+  color: "#10233a",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const workTimelineCount: React.CSSProperties = {
+  minWidth: "28px",
+  height: "24px",
+  padding: "0 6px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #cdd8e1",
+  background: "#ffffff",
+  color: "#40576a",
+  fontSize: "9px",
+  fontWeight: 850,
+};
+
+const workTimelineList: React.CSSProperties = {
+  padding: "7px 10px 10px",
+};
+
+const workTimelineItem: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "58px 34px minmax(0,1fr)",
+  gap: "5px",
+  minHeight: "54px",
+};
+
+const workTimelineDate: React.CSSProperties = {
+  alignSelf: "center",
+  color: "#607486",
+  fontSize: "8.5px",
+  fontWeight: 800,
+  textAlign: "right",
+};
+
+const workTimelineRail: React.CSSProperties = {
+  position: "relative",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const workTimelineLine: React.CSSProperties = {
+  position: "absolute",
+  left: "50%",
+  width: "1px",
+  transform: "translateX(-50%)",
+  background: "#cbd8e1",
+};
+
+const workTimelineGlyphWrap: React.CSSProperties = {
+  position: "relative",
+  zIndex: 1,
+  padding: "3px 0",
+  background: "#fbfcfd",
+};
+
+const workTimelineGlyphCompleted: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const workTimelineCheck: React.CSSProperties = {
+  width: "24px",
+  height: "24px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "50%",
+  background: "#e8f5ec",
+  color: "#2f7b4d",
+  border: "1px solid #a9d4b7",
+  fontSize: "11px",
+  fontWeight: 900,
+};
+
+const workTimelineContent: React.CSSProperties = {
+  alignSelf: "center",
+  minWidth: 0,
+  padding: "8px 0",
+  borderBottom: "1px solid #e3e9ee",
+};
+
+const workTimelineItemTitle: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "10px",
+  fontWeight: 850,
+};
+
+const workTimelineMeta: React.CSSProperties = {
+  marginTop: "2px",
+  color: "#768592",
+  fontSize: "8.5px",
+};
+
+const workTimelineFooter: React.CSSProperties = {
+  padding: "10px 12px",
+  borderTop: "1px solid #dfe6ec",
+  color: "#697b89",
+  fontSize: "8.5px",
+  lineHeight: 1.45,
 };
 
 const certificateRow: React.CSSProperties = {

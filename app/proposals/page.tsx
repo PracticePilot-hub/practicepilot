@@ -2,6 +2,32 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useRouter } from "next/navigation";
+
+function getStoredAccessToken() {
+  if (typeof window === "undefined") return "";
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+
+  try {
+    const projectRef = new URL(supabaseUrl).hostname.split(".")[0];
+    const storageKey = `sb-${projectRef}-auth-token`;
+    const rawSession = window.localStorage.getItem(storageKey);
+
+    if (!rawSession) return "";
+
+    const parsed = JSON.parse(rawSession);
+
+    return String(
+      parsed?.access_token ||
+      parsed?.currentSession?.access_token ||
+      parsed?.session?.access_token ||
+      ""
+    ).trim();
+  } catch {
+    return "";
+  }
+}
 
 type ProposalStatus = "Draft" | "Sent" | "Accepted" | "Declined";
 
@@ -19,11 +45,14 @@ type Proposal = {
 };
 
 export default function ProposalsPage() {
+  const router = useRouter();
+
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | ProposalStatus>("All");
+  const [duplicatingId, setDuplicatingId] = useState("");
 
   const visibleProposals = useMemo(() => {
     const normalisedSearch = search.trim().toLowerCase();
@@ -41,7 +70,6 @@ export default function ProposalsPage() {
       return matchesSearch && matchesStatus;
     });
   }, [proposals, search, statusFilter]);
-
 
   useEffect(() => {
     let cancelled = false;
@@ -96,6 +124,42 @@ export default function ProposalsPage() {
       cancelled = true;
     };
   }, []);
+
+  async function duplicateProposal(proposalId: string) {
+    try {
+      setDuplicatingId(proposalId);
+      setLoadError("");
+
+      const accessToken = getStoredAccessToken();
+
+      if (!accessToken) {
+        throw new Error("Your login session could not be confirmed.");
+      }
+
+      const response = await fetch("/api/proposals", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          action: "duplicate",
+          proposalId,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result?.success || !result?.proposal_id) {
+        throw new Error(result?.error || "Unable to duplicate proposal.");
+      }
+
+      router.push(`/proposals/${result.proposal_id}`);
+    } catch (error: any) {
+      setLoadError(error?.message || "Unable to duplicate proposal.");
+      setDuplicatingId("");
+    }
+  }
 
   const money = new Intl.NumberFormat("en-ZA", {
     style: "currency",
@@ -154,7 +218,7 @@ export default function ProposalsPage() {
           <span style={styles.amountHeading}>Monthly fee</span>
           <span style={styles.amountHeading}>Annual fee</span>
           <span style={styles.amountHeading}>Once-off fee</span>
-          <span />
+          <span>Actions</span>
         </div>
 
         {loading ? (
@@ -191,9 +255,26 @@ export default function ProposalsPage() {
               <span style={styles.amount}>
                 {money.format(proposal.onceOffFee)}
               </span>
-              <Link href={`/proposals/${proposal.id}`} style={styles.viewLink}>
-                Open
-              </Link>
+
+              <div style={styles.actions}>
+                <Link href={`/proposals/${proposal.id}`} style={styles.viewLink}>
+                  Open
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={() => duplicateProposal(proposal.id)}
+                  disabled={duplicatingId === proposal.id}
+                  style={{
+                    ...styles.duplicateButton,
+                    ...(duplicatingId === proposal.id
+                      ? styles.duplicateButtonDisabled
+                      : {}),
+                  }}
+                >
+                  {duplicatingId === proposal.id ? "Duplicating..." : "Duplicate"}
+                </button>
+              </div>
             </div>
           ))
         )}
@@ -288,11 +369,12 @@ const styles: Record<string, CSSProperties> = {
   tableShell: {
     background: "#ffffff",
     border: "1px solid #dbe3ef",
+    overflowX: "auto",
   },
   tableHeader: {
     display: "grid",
     gridTemplateColumns:
-      "120px minmax(220px, 1.4fr) 110px 110px 95px 115px 115px 115px 55px",
+      "120px minmax(220px, 1.4fr) 110px 110px 95px 115px 115px 115px 150px",
     gap: 12,
     alignItems: "center",
     minHeight: 42,
@@ -308,7 +390,7 @@ const styles: Record<string, CSSProperties> = {
   tableRow: {
     display: "grid",
     gridTemplateColumns:
-      "120px minmax(220px, 1.4fr) 110px 110px 95px 115px 115px 115px 55px",
+      "120px minmax(220px, 1.4fr) 110px 110px 95px 115px 115px 115px 150px",
     gap: 12,
     alignItems: "center",
     minHeight: 58,
@@ -328,12 +410,31 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 11,
     color: "#64748b",
   },
+  actions: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 10,
+  },
   viewLink: {
     color: "#2563eb",
     textDecoration: "none",
     fontSize: 12,
     fontWeight: 850,
-    textAlign: "right",
+  },
+  duplicateButton: {
+    minHeight: 30,
+    padding: "0 9px",
+    border: "1px solid #94a3b8",
+    background: "#ffffff",
+    color: "#0f172a",
+    fontSize: 11,
+    fontWeight: 850,
+    cursor: "pointer",
+  },
+  duplicateButtonDisabled: {
+    opacity: 0.55,
+    cursor: "default",
   },
   emptyState: {
     display: "grid",

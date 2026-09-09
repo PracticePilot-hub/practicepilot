@@ -1,808 +1,175 @@
-// Path: app/admin/users/page.tsx
-
 "use client";
 
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { createClient } from "@supabase/supabase-js";
-
-type Organisation = {
-  id: string;
-  name: string;
-  status: string;
-  access_enabled: boolean;
-};
 
 type UserProfile = {
   id: string;
   user_id: string;
-  organisation_id: string | null;
   full_name: string | null;
   email: string;
   role: string;
-  can_edit_projects: boolean;
   access_enabled: boolean;
-
-  can_access_accounting: boolean;
-  can_access_projects: boolean;
-  can_access_budgeting: boolean;
-  can_access_crm?: boolean;
-  can_access_afs?: boolean;
-  can_access_secretarial?: boolean;
-  can_access_management_reports?: boolean;
-  can_access_paia?: boolean;
-  can_access_proposals?: boolean;
-
-  organisations?: {
-    id: string;
-    name: string;
-  } | null;
 };
 
-type ModuleKey =
-  | "crm"
-  | "accounting"
-  | "afs"
-  | "secretarial"
-  | "projects"
-  | "managementReports"
-  | "paia"
-  | "proposals";
-
-type ModuleAccessState = Record<ModuleKey, boolean>;
-
-const roleOptions = [
-  "Super Admin",
-  "Admin",
-  "Staff",
-  "Client Manager",
-  "Client Viewer",
-];
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl) {
-  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-}
-
-if (!supabaseAnonKey) {
-  throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
-}
-
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-function isAdminRoleValueSecure(role: string) {
-  return role === "Super Admin" || role === "Admin";
-}
-
-const moduleOptions: { key: ModuleKey; label: string }[] = [
-  { key: "crm", label: "CRM" },
-  { key: "accounting", label: "Accounting" },
-  { key: "afs", label: "Financial Statements" },
-  { key: "secretarial", label: "Secretarial" },
-  { key: "projects", label: "Projects" },
-  { key: "managementReports", label: "Management Reports" },
-  { key: "paia", label: "PAIA Manuals" },
-  { key: "proposals", label: "Proposals" },
-];
-
-const emptyModules: ModuleAccessState = {
-  crm: false,
-  accounting: false,
-  afs: false,
-  secretarial: false,
-  projects: false,
-  managementReports: false,
-  paia: false,
-  proposals: false,
-};
-
-const allModules: ModuleAccessState = {
-  crm: true,
-  accounting: true,
-  afs: true,
-  secretarial: true,
-  projects: true,
-  managementReports: true,
-  paia: true,
-  proposals: true,
-};
-
-function isInternalRoleValue(value: string) {
-  return value === "Super Admin" || value === "Admin" || value === "Staff";
-}
-
-function isAdminRoleValue(value: string) {
-  return value === "Super Admin" || value === "Admin";
-}
-
-function modulesFromUser(user: UserProfile): ModuleAccessState {
-  return {
-    crm: Boolean(user.can_access_crm),
-    accounting: Boolean(user.can_access_accounting),
-    afs: Boolean(user.can_access_afs),
-    secretarial: Boolean(user.can_access_secretarial),
-    projects: Boolean(user.can_access_projects),
-    managementReports: Boolean(user.can_access_management_reports),
-    paia: Boolean(user.can_access_paia),
-    proposals: Boolean(user.can_access_proposals),
-  };
-}
-
-function moduleSummary(modules: ModuleAccessState) {
-  const enabled = moduleOptions
-    .filter((item) => modules[item.key])
-    .map((item) => item.label);
-
-  if (enabled.length === 0) return "No modules";
-  return enabled.join(", ");
-}
+const roleOptions = ["Super Admin", "Admin", "Staff"];
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
-  const [organisations, setOrganisations] = useState<Organisation[]>([]);
-
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [warning, setWarning] = useState("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("Client Viewer");
-  const [organisationId, setOrganisationId] = useState("");
-  const [canEditProjects, setCanEditProjects] = useState(false);
-  const [modules, setModules] = useState<ModuleAccessState>(emptyModules);
-
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editFullName, setEditFullName] = useState("");
-  const [editEmail, setEditEmail] = useState("");
-  const [editRole, setEditRole] = useState("Client Viewer");
-  const [editOrganisationId, setEditOrganisationId] = useState("");
-  const [editCanEditProjects, setEditCanEditProjects] = useState(false);
-  const [editModules, setEditModules] = useState<ModuleAccessState>(emptyModules);
-
-  const [loading, setLoading] = useState(true);
-  const [loadingOrganisations, setLoadingOrganisations] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [savingEdit, setSavingEdit] = useState(false);
-  const [sendingWelcomeId, setSendingWelcomeId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
-
-  const isInternalRole = useMemo(() => isInternalRoleValue(role), [role]);
-  const isAdminRole = useMemo(() => isAdminRoleValue(role), [role]);
-  const isEditInternalRole = useMemo(() => isInternalRoleValue(editRole), [editRole]);
-  const isEditAdminRole = useMemo(() => isAdminRoleValue(editRole), [editRole]);
+  const [role, setRole] = useState("Staff");
 
   useEffect(() => {
-  loadSecurePage();
-}, []);
-
-  useEffect(() => {
-    if (isInternalRole) {
-      setOrganisationId("");
-    }
-
-    // Module access is independent from role.
-    // Only PracticePilot admin roles automatically receive all modules.
-    if (isAdminRole) {
-      setModules(allModules);
-      setCanEditProjects(true);
-    }
-  }, [role, isInternalRole, isAdminRole]);
-
-  useEffect(() => {
-    if (isEditInternalRole) {
-      setEditOrganisationId("");
-    }
-
-    // Never replace a user's saved module permissions merely because
-    // the Edit form loaded their role. The checkboxes must reflect
-    // modulesFromUser(user) exactly.
-    if (isEditAdminRole) {
-      setEditModules(allModules);
-      setEditCanEditProjects(true);
-    }
-  }, [editRole, isEditInternalRole, isEditAdminRole]);
-
-async function loadSecurePage() {
-  setLoading(true);
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    window.location.href = "/login";
-    return;
-  }
-
-  const { data: profileData, error: profileError } = await supabase
-    .from("user_profiles")
-    .select("*")
-    .eq("user_id", user.id)
-    .single();
-
-  if (profileError || !profileData) {
-    alert("Could not load your user profile.");
-    window.location.href = "/login";
-    return;
-  }
-
-  if (!profileData.access_enabled || !isAdminRoleValueSecure(profileData.role)) {
-    alert("You do not have access to Admin Users.");
-    window.location.href = "/project-management";
-    return;
-  }
-
-  await loadUsers();
-  await loadOrganisations();
-}
-
+    void loadUsers();
+  }, []);
 
   async function loadUsers() {
     setLoading(true);
-
     const response = await fetch("/api/users");
     const data = await response.json();
 
-    if (response.ok) {
-      setUsers(data.users || []);
+    if (!response.ok) {
+      setWarning(data.error || "Could not load PracticePilot users.");
     } else {
-      alert(data.error || "Could not load users.");
+      setUsers(data.users || []);
     }
 
     setLoading(false);
   }
 
-  async function loadOrganisations() {
-    setLoadingOrganisations(true);
-
-    const response = await fetch("/api/organisations");
-    const data = await response.json();
-
-    if (response.ok) {
-      setOrganisations(data.organisations || []);
-    } else {
-      alert(data.error || "Could not load clients.");
-    }
-
-    setLoadingOrganisations(false);
-  }
-
-  function toggleModule(key: ModuleKey) {
-    setModules((current) => {
-      const next = {
-        ...current,
-        [key]: !current[key],
-      };
-
-      if (key === "projects" && !next.projects) {
-        setCanEditProjects(false);
-      }
-
-      return next;
-    });
-  }
-
-  function toggleEditModule(key: ModuleKey) {
-    setEditModules((current) => {
-      const next = {
-        ...current,
-        [key]: !current[key],
-      };
-
-      if (key === "projects" && !next.projects) {
-        setEditCanEditProjects(false);
-      }
-
-      return next;
-    });
-  }
-
-  async function handleCreateUser() {
-    if (!email.trim()) {
-      alert("Email is required.");
-      return;
-    }
-
-    if (!password.trim() || password.trim().length < 6) {
-      alert("Password must be at least 6 characters.");
-      return;
-    }
-
-    if (!isInternalRole && !organisationId) {
-      alert("Please choose a client for this user.");
-      return;
-    }
-
+  async function createUser() {
     setSaving(true);
-    setNotice(null);
-    setWarning(null);
-
-    const response = await fetch("/api/users", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        fullName: fullName.trim(),
-        email: email.trim(),
-        password: password.trim(),
-        role,
-        organisationId,
-        canEditProjects,
-        canAccessCrm: modules.crm,
-        canAccessAccounting: modules.accounting,
-        canAccessAfs: modules.afs,
-        canAccessSecretarial: modules.secretarial,
-        canAccessProjects: modules.projects,
-        canAccessBudgeting: false,
-        canAccessManagementReports: modules.managementReports,
-        canAccessPaia: modules.paia,
-        canAccessProposals: modules.proposals,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      alert(data.error || "Could not create user.");
-      setSaving(false);
-      return;
-    }
-
-    setUsers((prev) => [data.user, ...prev]);
-    setFullName("");
-    setEmail("");
-    setPassword("");
-    setRole("Client Viewer");
-    setOrganisationId("");
-    setCanEditProjects(false);
-    setModules(emptyModules);
-
-    if (data.warning) {
-      setWarning(`User was created, but the welcome email failed: ${data.warning}`);
-    } else {
-      setNotice("User created and welcome email sent.");
-    }
-
-    setSaving(false);
-  }
-
-  async function resendWelcomeEmail(user: UserProfile) {
-    setSendingWelcomeId(user.id);
-    setNotice(null);
-    setWarning(null);
+    setNotice("");
+    setWarning("");
 
     try {
-      const response = await fetch(`/api/users/${user.id}/send-welcome`, {
+      const response = await fetch("/api/users", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: fullName.trim(),
+          email: email.trim(),
+          password: password.trim(),
+          role,
+        }),
       });
 
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not create user.");
 
-      if (!response.ok) {
-        throw new Error(data.error || "Could not send login email.");
+      setFullName("");
+      setEmail("");
+      setPassword("");
+      setRole("Staff");
+
+      if (data.warning) {
+        setWarning(`User created, but welcome email failed: ${data.warning}`);
+      } else {
+        setNotice("PracticePilot user created.");
       }
 
-      setNotice(`Login email sent to ${user.email}.`);
+      await loadUsers();
     } catch (error: any) {
-      setWarning(error?.message || "Could not send login email.");
+      setWarning(error?.message || "Could not create user.");
     } finally {
-      setSendingWelcomeId(null);
+      setSaving(false);
     }
-  }
-
-  function startEdit(user: UserProfile) {
-    setEditingId(user.id);
-    setEditFullName(user.full_name || "");
-    setEditEmail(user.email || "");
-    setEditRole(user.role || "Client Viewer");
-    setEditOrganisationId(user.organisation_id || "");
-    setEditCanEditProjects(Boolean(user.can_edit_projects));
-    setEditModules(modulesFromUser(user));
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setEditFullName("");
-    setEditEmail("");
-    setEditRole("Client Viewer");
-    setEditOrganisationId("");
-    setEditCanEditProjects(false);
-    setEditModules(emptyModules);
-  }
-
-  async function saveEdit(user: UserProfile) {
-    if (!editEmail.trim()) {
-      alert("Email is required.");
-      return;
-    }
-
-    if (!isEditInternalRole && !editOrganisationId) {
-      alert("Please choose a client for this user.");
-      return;
-    }
-
-    setSavingEdit(true);
-    setNotice(null);
-    setWarning(null);
-
-    const response = await fetch(`/api/users/${user.id}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        fullName: editFullName.trim(),
-        email: editEmail.trim(),
-        role: editRole,
-        organisationId: editOrganisationId,
-        canEditProjects: editCanEditProjects,
-        canAccessCrm: editModules.crm,
-        canAccessAccounting: editModules.accounting,
-        canAccessAfs: editModules.afs,
-        canAccessSecretarial: editModules.secretarial,
-        canAccessProjects: editModules.projects,
-        canAccessBudgeting: false,
-        canAccessManagementReports: editModules.managementReports,
-        canAccessPaia: editModules.paia,
-        canAccessProposals: editModules.proposals,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      alert(data.error || "Could not update user.");
-      setSavingEdit(false);
-      return;
-    }
-
-    setUsers((prev) => prev.map((item) => (item.id === user.id ? data.user : item)));
-    setNotice("User updated.");
-    setSavingEdit(false);
-    cancelEdit();
-  }
-
-  async function toggleAccess(user: UserProfile) {
-    setNotice(null);
-    setWarning(null);
-
-    const response = await fetch(`/api/users/${user.id}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        accessEnabled: !user.access_enabled,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      alert(data.error || "Could not update user access.");
-      return;
-    }
-
-    setUsers((prev) => prev.map((item) => (item.id === user.id ? data.user : item)));
-  }
-
-  function renderModuleCheckboxes(
-    currentModules: ModuleAccessState,
-    onToggle: (key: ModuleKey) => void,
-    locked: boolean
-  ) {
-    return (
-      <div style={styles.moduleGrid}>
-        {moduleOptions.map((item) => (
-          <label key={item.key} style={styles.moduleCheck}>
-            <input
-              type="checkbox"
-              checked={currentModules[item.key]}
-              onChange={() => onToggle(item.key)}
-              disabled={locked}
-            />
-            {item.label}
-          </label>
-        ))}
-      </div>
-    );
   }
 
   return (
     <main style={styles.page}>
-      <div style={styles.header}>
+      <section style={styles.header}>
         <div>
-          <h1 style={styles.title}>Admin Users</h1>
-          <p style={styles.subtitle}>Manage users, roles and module access.</p>
+          <div style={styles.kicker}>PracticePilot Admin</div>
+          <h1 style={styles.title}>PracticePilot Team</h1>
+          <p style={styles.subtitle}>
+            Internal PracticePilot users only. Practice staff are managed by each practice.
+          </p>
         </div>
-
-        <a href="/admin/clients" style={styles.backButton}>
-          Back to Clients
-        </a>
-      </div>
+      </section>
 
       {notice ? <div style={styles.notice}>{notice}</div> : null}
       {warning ? <div style={styles.warning}>{warning}</div> : null}
 
-      <section style={styles.card}>
-        <h2 style={styles.cardTitle}>Add New User</h2>
-
-        <div style={styles.formGrid}>
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Full Name</label>
-            <input
-              style={styles.input}
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Example: Sarah Smith"
-            />
-          </div>
-
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Email</label>
-            <input
-              style={styles.input}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Example: sarah@example.com"
-            />
-          </div>
-
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Temporary Password</label>
-            <input
-              style={styles.input}
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Minimum 6 characters"
-            />
-          </div>
-
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Role</label>
-            <select style={styles.input} value={role} onChange={(e) => setRole(e.target.value)}>
-              {roleOptions.map((roleOption) => (
-                <option key={roleOption} value={roleOption}>
-                  {roleOption}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Client</label>
-            <select
-              style={styles.input}
-              value={organisationId}
-              onChange={(e) => setOrganisationId(e.target.value)}
-              disabled={isInternalRole || loadingOrganisations}
-            >
-              <option value="">
-                {isInternalRole
-                  ? "Internal user"
-                  : loadingOrganisations
-                  ? "Loading clients..."
-                  : "Choose client"}
-              </option>
-
-              {organisations.map((organisation) => (
-                <option key={organisation.id} value={organisation.id}>
-                  {organisation.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={styles.checkboxGroup}>
-            <label style={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={canEditProjects}
-                onChange={(e) => setCanEditProjects(e.target.checked)}
-                disabled={!modules.projects || role === "Client Viewer" || isAdminRole}
-              />
-              Can edit projects
-            </label>
-          </div>
+      <section style={styles.panel}>
+        <div style={styles.panelHeader}>
+          <h2 style={styles.panelTitle}>Add PP User</h2>
         </div>
 
-        <div style={styles.moduleSection}>
-          <div style={styles.moduleHeader}>
-            <span style={styles.label}>Module access</span>
-            {isAdminRole && <span style={styles.helpText}>Admin roles get all modules.</span>}
-          </div>
+        <div style={styles.formGrid}>
+          <label style={styles.field}>
+            <span>Full name</span>
+            <input style={styles.input} value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          </label>
 
-          {renderModuleCheckboxes(modules, toggleModule, isAdminRole)}
+          <label style={styles.field}>
+            <span>Email</span>
+            <input style={styles.input} value={email} onChange={(e) => setEmail(e.target.value)} />
+          </label>
+
+          <label style={styles.field}>
+            <span>Temporary password</span>
+            <input type="password" style={styles.input} value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+
+          <label style={styles.field}>
+            <span>Role</span>
+            <select style={styles.input} value={role} onChange={(e) => setRole(e.target.value)}>
+              {roleOptions.map((item) => (
+                <option key={item} value={item}>{item}</option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <div style={styles.actions}>
-          <button style={styles.primaryButton} onClick={handleCreateUser} disabled={saving}>
-            {saving ? "Saving..." : "Add User"}
+          <button type="button" style={styles.primaryButton} onClick={createUser} disabled={saving}>
+            {saving ? "Saving..." : "Add PP User"}
           </button>
         </div>
       </section>
 
-      <section style={styles.card}>
-        <h2 style={styles.cardTitle}>Users</h2>
+      <section style={styles.panel}>
+        <div style={styles.panelHeader}>
+          <div>
+            <h2 style={styles.panelTitle}>Internal users</h2>
+            <div style={styles.smallMuted}>Only PracticePilot staff appear here.</div>
+          </div>
+          <strong>{users.length}</strong>
+        </div>
+
+        <div style={styles.tableHeader}>
+          <span>Name</span>
+          <span>Email</span>
+          <span>Role</span>
+          <span>Access</span>
+        </div>
 
         {loading ? (
-          <div style={styles.emptyState}>Loading users...</div>
-        ) : users.length === 0 ? (
-          <div style={styles.emptyState}>No users created yet.</div>
+          <div style={styles.empty}>Loading...</div>
+        ) : users.length ? (
+          users.map((user) => (
+            <div key={user.id} style={styles.tableRow}>
+              <strong>{user.full_name || "—"}</strong>
+              <span>{user.email}</span>
+              <span>{user.role}</span>
+              <span style={user.access_enabled ? styles.enabled : styles.blocked}>
+                {user.access_enabled ? "Enabled" : "Blocked"}
+              </span>
+            </div>
+          ))
         ) : (
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Name</th>
-                <th style={styles.th}>Email</th>
-                <th style={styles.th}>Client</th>
-                <th style={styles.th}>Role</th>
-                <th style={styles.th}>Can Edit Projects</th>
-                <th style={styles.th}>Modules</th>
-                <th style={styles.th}>Access</th>
-                <th style={styles.thRight}>Actions</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {users.map((user) => {
-                const isEditing = editingId === user.id;
-                const userModules = modulesFromUser(user);
-
-                return (
-                  <tr key={user.id}>
-                    <td style={styles.td}>
-                      {isEditing ? (
-                        <input
-                          style={styles.tableInput}
-                          value={editFullName}
-                          onChange={(e) => setEditFullName(e.target.value)}
-                        />
-                      ) : (
-                        user.full_name || "-"
-                      )}
-                    </td>
-
-                    <td style={styles.td}>
-                      {isEditing ? (
-                        <input
-                          style={styles.tableInput}
-                          value={editEmail}
-                          onChange={(e) => setEditEmail(e.target.value)}
-                        />
-                      ) : (
-                        user.email
-                      )}
-                    </td>
-
-                    <td style={styles.td}>
-                      {isEditing ? (
-                        <select
-                          style={styles.tableInput}
-                          value={editOrganisationId}
-                          onChange={(e) => setEditOrganisationId(e.target.value)}
-                          disabled={isEditInternalRole}
-                        >
-                          <option value="">
-                            {isEditInternalRole ? "Internal user" : "Choose client"}
-                          </option>
-
-                          {organisations.map((organisation) => (
-                            <option key={organisation.id} value={organisation.id}>
-                              {organisation.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        user.organisations?.name || "Internal user"
-                      )}
-                    </td>
-
-                    <td style={styles.td}>
-                      {isEditing ? (
-                        <select
-                          style={styles.tableInput}
-                          value={editRole}
-                          onChange={(e) => setEditRole(e.target.value)}
-                        >
-                          {roleOptions.map((roleOption) => (
-                            <option key={roleOption} value={roleOption}>
-                              {roleOption}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        user.role
-                      )}
-                    </td>
-
-                    <td style={styles.td}>
-                      {isEditing ? (
-                        <label style={styles.checkboxLabel}>
-                          <input
-                            type="checkbox"
-                            checked={editCanEditProjects}
-                            onChange={(e) => setEditCanEditProjects(e.target.checked)}
-                            disabled={
-                              !editModules.projects ||
-                              editRole === "Client Viewer" ||
-                              isEditAdminRole
-                            }
-                          />
-                          Yes
-                        </label>
-                      ) : user.can_edit_projects ? (
-                        "Yes"
-                      ) : (
-                        "No"
-                      )}
-                    </td>
-
-                    <td style={styles.tdWide}>
-                      {isEditing ? (
-                        renderModuleCheckboxes(editModules, toggleEditModule, isEditAdminRole)
-                      ) : (
-                        <span style={styles.moduleSummary}>{moduleSummary(userModules)}</span>
-                      )}
-                    </td>
-
-                    <td style={styles.td}>
-                      <span
-                        style={{
-                          ...styles.statusPill,
-                          ...(user.access_enabled ? styles.statusActive : styles.statusBlocked),
-                        }}
-                      >
-                        {user.access_enabled ? "Enabled" : "Blocked"}
-                      </span>
-                    </td>
-
-                    <td style={styles.tdRight}>
-                      {isEditing ? (
-                        <>
-                          <button
-                            style={styles.saveButton}
-                            onClick={() => saveEdit(user)}
-                            disabled={savingEdit}
-                          >
-                            {savingEdit ? "Saving..." : "Save"}
-                          </button>
-
-                          <button style={styles.cancelButton} onClick={cancelEdit}>
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button style={styles.editButton} onClick={() => startEdit(user)}>
-                            Edit
-                          </button>
-
-                          <button
-                            style={styles.emailButton}
-                            onClick={() => resendWelcomeEmail(user)}
-                            disabled={sendingWelcomeId === user.id}
-                          >
-                            {sendingWelcomeId === user.id ? "Sending..." : "Send login email"}
-                          </button>
-
-                          <button
-                            style={user.access_enabled ? styles.blockButton : styles.enableButton}
-                            onClick={() => toggleAccess(user)}
-                          >
-                            {user.access_enabled ? "Block Access" : "Enable Access"}
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div style={styles.empty}>No internal users found.</div>
         )}
       </section>
     </main>
@@ -810,302 +177,25 @@ async function loadSecurePage() {
 }
 
 const styles: Record<string, CSSProperties> = {
-  page: {
-    padding: "32px",
-    background: "#f6f8fb",
-    minHeight: "100vh",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "24px",
-  },
-  title: {
-    fontSize: "32px",
-    fontWeight: 700,
-    margin: 0,
-    color: "#12304a",
-  },
-  subtitle: {
-    marginTop: "8px",
-    color: "#5b6775",
-    fontSize: "15px",
-  },
-  backButton: {
-    background: "#eef3f8",
-    color: "#12304a",
-    borderRadius: "10px",
-    padding: "11px 18px",
-    fontSize: "14px",
-    fontWeight: 600,
-    textDecoration: "none",
-  },
-  notice: {
-    background: "#e8f8ee",
-    color: "#137333",
-    border: "1px solid #b8e6c8",
-    borderRadius: "12px",
-    padding: "12px 14px",
-    marginBottom: "16px",
-    fontSize: "14px",
-    fontWeight: 700,
-  },
-  warning: {
-    background: "#fff8e6",
-    color: "#9a5b00",
-    border: "1px solid #ffd88a",
-    borderRadius: "12px",
-    padding: "12px 14px",
-    marginBottom: "16px",
-    fontSize: "14px",
-    fontWeight: 700,
-  },
-  card: {
-    background: "#ffffff",
-    borderRadius: "16px",
-    padding: "24px",
-    marginBottom: "20px",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
-    border: "1px solid #e5eaf0",
-    overflowX: "auto",
-  },
-  cardTitle: {
-    fontSize: "20px",
-    margin: "0 0 20px 0",
-    color: "#12304a",
-  },
-  formGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
-    gap: "20px",
-    alignItems: "end",
-  },
-  fieldGroup: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-  },
-  label: {
-    fontSize: "14px",
-    fontWeight: 700,
-    color: "#34495e",
-  },
-  input: {
-    height: "42px",
-    borderRadius: "10px",
-    border: "1px solid #d5dde6",
-    padding: "0 12px",
-    fontSize: "15px",
-    outline: "none",
-    background: "#ffffff",
-  },
-  tableInput: {
-    height: "36px",
-    borderRadius: "8px",
-    border: "1px solid #d5dde6",
-    padding: "0 10px",
-    fontSize: "14px",
-    outline: "none",
-    background: "#ffffff",
-    width: "170px",
-  },
-  checkboxGroup: {
-    display: "flex",
-    alignItems: "center",
-    height: "42px",
-  },
-  checkboxLabel: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    fontSize: "14px",
-    fontWeight: 600,
-    color: "#12304a",
-  },
-  moduleSection: {
-    marginTop: "22px",
-    borderTop: "1px solid #e5eaf0",
-    paddingTop: "18px",
-  },
-  moduleHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    marginBottom: "10px",
-  },
-  helpText: {
-    fontSize: "12px",
-    color: "#64748b",
-  },
-  moduleGrid: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "10px 16px",
-  },
-  moduleCheck: {
-    display: "flex",
-    alignItems: "center",
-    gap: "7px",
-    fontSize: "13px",
-    fontWeight: 700,
-    color: "#12304a",
-    background: "#f8fbff",
-    border: "1px solid #d8e3ef",
-    borderRadius: "999px",
-    padding: "7px 10px",
-    whiteSpace: "nowrap",
-  },
-  moduleSummary: {
-    fontSize: "13px",
-    color: "#34495e",
-    lineHeight: 1.35,
-  },
-  actions: {
-    display: "flex",
-    justifyContent: "flex-end",
-    marginTop: "24px",
-  },
-  primaryButton: {
-    background: "#0b5cab",
-    color: "#ffffff",
-    border: "none",
-    borderRadius: "10px",
-    padding: "11px 18px",
-    fontSize: "14px",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  emptyState: {
-    padding: "32px",
-    textAlign: "center",
-    color: "#7b8794",
-    border: "1px dashed #c9d3df",
-    borderRadius: "14px",
-    background: "#fafcff",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-  },
-  th: {
-    textAlign: "left",
-    padding: "12px",
-    borderBottom: "1px solid #dce3eb",
-    fontSize: "13px",
-    color: "#34495e",
-    whiteSpace: "nowrap",
-  },
-  thRight: {
-    textAlign: "right",
-    padding: "12px",
-    borderBottom: "1px solid #dce3eb",
-    fontSize: "13px",
-    color: "#34495e",
-    whiteSpace: "nowrap",
-  },
-  td: {
-    padding: "12px",
-    borderBottom: "1px solid #edf1f5",
-    fontSize: "14px",
-    color: "#12304a",
-    verticalAlign: "middle",
-  },
-  tdWide: {
-    padding: "12px",
-    borderBottom: "1px solid #edf1f5",
-    fontSize: "14px",
-    color: "#12304a",
-    verticalAlign: "middle",
-    minWidth: "260px",
-  },
-  tdRight: {
-    padding: "12px",
-    borderBottom: "1px solid #edf1f5",
-    fontSize: "14px",
-    color: "#12304a",
-    textAlign: "right",
-    verticalAlign: "middle",
-    whiteSpace: "nowrap",
-  },
-  statusPill: {
-    display: "inline-block",
-    borderRadius: "999px",
-    padding: "5px 10px",
-    fontSize: "12px",
-    fontWeight: 700,
-  },
-  statusActive: {
-    background: "#e8f8ee",
-    color: "#137333",
-    border: "1px solid #b8e6c8",
-  },
-  statusBlocked: {
-    background: "#fff1f1",
-    color: "#b42318",
-    border: "1px solid #ffd0d0",
-  },
-  editButton: {
-    background: "#e8f3ff",
-    color: "#0b5cab",
-    border: "1px solid #c9e2ff",
-    borderRadius: "8px",
-    padding: "8px 12px",
-    fontSize: "13px",
-    fontWeight: 700,
-    cursor: "pointer",
-    marginRight: "8px",
-  },
-  emailButton: {
-    background: "#f3f6fb",
-    color: "#12304a",
-    border: "1px solid #d5dde6",
-    borderRadius: "8px",
-    padding: "8px 12px",
-    fontSize: "13px",
-    fontWeight: 700,
-    cursor: "pointer",
-    marginRight: "8px",
-  },
-  saveButton: {
-    background: "#e8f8ee",
-    color: "#137333",
-    border: "1px solid #b8e6c8",
-    borderRadius: "8px",
-    padding: "8px 12px",
-    fontSize: "13px",
-    fontWeight: 700,
-    cursor: "pointer",
-    marginRight: "8px",
-  },
-  cancelButton: {
-    background: "#eef3f8",
-    color: "#12304a",
-    border: "1px solid #d5dde6",
-    borderRadius: "8px",
-    padding: "8px 12px",
-    fontSize: "13px",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  blockButton: {
-    background: "#fff1f1",
-    color: "#b42318",
-    border: "1px solid #ffd0d0",
-    borderRadius: "8px",
-    padding: "8px 12px",
-    fontSize: "13px",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  enableButton: {
-    background: "#e8f8ee",
-    color: "#137333",
-    border: "1px solid #b8e6c8",
-    borderRadius: "8px",
-    padding: "8px 12px",
-    fontSize: "13px",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
+  page: { minHeight: "100vh", padding: "18px", background: "#eef2f5", color: "#10233a" },
+  header: { padding: "18px 20px", background: "#ffffff", border: "1px solid #d7dfde", marginBottom: "10px" },
+  kicker: { color: "#5d6f7b", fontSize: "11px", fontWeight: 850 },
+  title: { margin: "4px 0 0", fontSize: "24px", fontWeight: 900 },
+  subtitle: { margin: "5px 0 0", color: "#6b7882", fontSize: "11px" },
+  notice: { marginBottom: "10px", padding: "10px 12px", border: "1px solid #b7d7c1", background: "#edf7f0", color: "#2f7047", fontSize: "11px" },
+  warning: { marginBottom: "10px", padding: "10px 12px", border: "1px solid #efc2ba", background: "#fff3f1", color: "#9c3527", fontSize: "11px" },
+  panel: { background: "#ffffff", border: "1px solid #d7dfde", marginBottom: "10px" },
+  panelHeader: { minHeight: "58px", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #e5eae9" },
+  panelTitle: { margin: 0, fontSize: "14px", fontWeight: 900 },
+  smallMuted: { marginTop: "3px", color: "#78858e", fontSize: "9px" },
+  formGrid: { padding: "14px", display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: "10px" },
+  field: { display: "grid", gap: "5px", color: "#5f6d76", fontSize: "9px", fontWeight: 800 },
+  input: { minHeight: "36px", width: "100%", padding: "0 9px", boxSizing: "border-box", border: "1px solid #cfd8df", background: "#ffffff", color: "#10233a", fontSize: "10px" },
+  actions: { padding: "0 14px 14px", display: "flex", justifyContent: "flex-end" },
+  primaryButton: { minHeight: "36px", padding: "0 13px", border: "1px solid #10233a", background: "#10233a", color: "#ffffff", fontSize: "10px", fontWeight: 850, cursor: "pointer" },
+  tableHeader: { minHeight: "34px", padding: "0 14px", display: "grid", gridTemplateColumns: "1fr 1.3fr 140px 100px", gap: "12px", alignItems: "center", background: "#10233a", color: "#ffffff", fontSize: "9px", fontWeight: 850 },
+  tableRow: { minHeight: "56px", padding: "8px 14px", display: "grid", gridTemplateColumns: "1fr 1.3fr 140px 100px", gap: "12px", alignItems: "center", borderBottom: "1px solid #e7eceb", fontSize: "10px" },
+  enabled: { width: "fit-content", padding: "4px 7px", border: "1px solid #b7d7c1", background: "#edf7f0", color: "#2f7047", fontSize: "8px", fontWeight: 850 },
+  blocked: { width: "fit-content", padding: "4px 7px", border: "1px solid #efc2ba", background: "#fff3f1", color: "#9c3527", fontSize: "8px", fontWeight: 850 },
+  empty: { padding: "20px 14px", color: "#78858e", fontSize: "10px" },
 };

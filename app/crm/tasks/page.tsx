@@ -16,6 +16,12 @@ type ClientRow = {
   client_name: string;
 };
 
+type TeamUserRow = {
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+};
+
 type WorkItem = {
   id: string;
   client_id: string | null;
@@ -102,6 +108,7 @@ function normaliseServiceKey(value: string | null | undefined) {
 export default function CRMMyWorkPage() {
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [clients, setClients] = useState<ClientRow[]>([]);
+  const [teamUsers, setTeamUsers] = useState<TeamUserRow[]>([]);
   const [serviceColours, setServiceColours] = useState<
     Record<string, ServiceColourRow>
   >({});
@@ -162,12 +169,19 @@ export default function CRMMyWorkPage() {
         throw new Error("Your user profile is not linked to an organisation.");
       }
 
-      const [clientsResult, workResult] = await Promise.all([
+      const [clientsResult, teamUsersResult, workResult] = await Promise.all([
         supabaseAny
           .from("crm_clients")
           .select("id, client_name")
           .eq("organisation_id", profile.organisation_id)
           .order("client_name", { ascending: true }),
+
+        supabaseAny
+          .from("user_profiles")
+          .select("user_id, full_name, email")
+          .eq("organisation_id", profile.organisation_id)
+          .eq("access_enabled", true)
+          .order("full_name", { ascending: true }),
 
         supabaseAny
           .from("crm_work_items")
@@ -202,10 +216,13 @@ export default function CRMMyWorkPage() {
       ]);
 
       if (clientsResult.error) throw clientsResult.error;
+      if (teamUsersResult.error) throw teamUsersResult.error;
       if (workResult.error) throw workResult.error;
 
       const clientRows = (clientsResult.data || []) as ClientRow[];
+      const teamRows = (teamUsersResult.data || []) as TeamUserRow[];
       setClients(clientRows);
+      setTeamUsers(teamRows);
 
       const clientMap = Object.fromEntries(
         clientRows.map((client) => [client.id, client])
@@ -382,6 +399,13 @@ export default function CRMMyWorkPage() {
         }
 
         if (
+          assignmentFilter.startsWith("user:") &&
+          item.assigned_user_id !== assignmentFilter.slice(5)
+        ) {
+          return false;
+        }
+
+        if (
           clientFilter !== "all" &&
           (clientFilter === "personal"
             ? !item.is_personal
@@ -440,6 +464,15 @@ export default function CRMMyWorkPage() {
     todayKey,
   ]);
 
+  const teamUserNameById = useMemo(() => {
+    return Object.fromEntries(
+      teamUsers.map((member) => [
+        member.user_id,
+        member.full_name || member.email || "Team member",
+      ])
+    ) as Record<string, string>;
+  }, [teamUsers]);
+
   function getServiceColours(item: WorkItem) {
     const key = normaliseServiceKey(item.service_code || item.work_type);
     const row = serviceColours[key];
@@ -451,6 +484,14 @@ export default function CRMMyWorkPage() {
   }
 
   function openWorkItem(item: WorkItem) {
+    // Client work must open the full client work page so the real workflow,
+    // checklist, dependencies, activity and work-owner controls are shown.
+    if (item.client_id && !item.is_personal) {
+      window.location.href = `/crm/client/${item.client_id}/work/${item.id}`;
+      return;
+    }
+
+    // Personal / practice work keeps the lightweight My Work editor.
     setSelectedWorkItem(item);
     setEditTitle(item.title || "");
     setEditDescription(item.description || "");
@@ -653,7 +694,7 @@ export default function CRMMyWorkPage() {
         </div>
 
         <div>
-          <label style={styles.filterLabel}>Assignment</label>
+          <label style={styles.filterLabel}>Work owner</label>
           <select
             value={assignmentFilter}
             onChange={(event) => setAssignmentFilter(event.target.value)}
@@ -663,6 +704,13 @@ export default function CRMMyWorkPage() {
             <option value="mine">Mine only</option>
             <option value="unassigned">Unassigned</option>
             <option value="all">Everyone</option>
+            <optgroup label="My team">
+              {teamUsers.map((member) => (
+                <option key={member.user_id} value={`user:${member.user_id}`}>
+                  {member.full_name || member.email || "Team member"}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </div>
 
@@ -801,7 +849,7 @@ export default function CRMMyWorkPage() {
                       : item.assigned_user_id === userId
                       ? "Assigned to you"
                       : item.assigned_user_id
-                      ? "Assigned"
+                      ? teamUserNameById[item.assigned_user_id] || "Assigned"
                       : "Unassigned"}
                   </span>
                 </span>

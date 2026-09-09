@@ -8,20 +8,16 @@ const supabaseSecretKey =
   process.env.SUPABASE_SECRET_KEY ||
   process.env.SUPABASE_SERVICE_KEY;
 
-if (!supabaseUrl) {
-  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-}
-
-if (!supabaseSecretKey) {
-  throw new Error("Missing server Supabase key");
-}
+if (!supabaseUrl) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+if (!supabaseSecretKey) throw new Error("Missing server Supabase key");
 
 const supabase = createClient(supabaseUrl, supabaseSecretKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
+  auth: { persistSession: false, autoRefreshToken: false },
 });
+
+function isInternalRole(role: string) {
+  return role === "Super Admin" || role === "Admin" || role === "Staff";
+}
 
 function getSmtpConfig() {
   const host = process.env.SMTP_HOST;
@@ -35,14 +31,7 @@ function getSmtpConfig() {
     throw new Error("Missing SMTP configuration");
   }
 
-  return {
-    host,
-    port,
-    user,
-    pass,
-    fromName,
-    fromEmail,
-  };
+  return { host, port, user, pass, fromName, fromEmail };
 }
 
 async function sendWelcomeEmail({
@@ -60,78 +49,41 @@ async function sendWelcomeEmail({
     host: smtp.host,
     port: smtp.port,
     secure: smtp.port === 465,
-    auth: {
-      user: smtp.user,
-      pass: smtp.pass,
-    },
+    auth: { user: smtp.user, pass: smtp.pass },
   });
-
-  const displayName = fullName || "there";
 
   await transporter.sendMail({
     from: `"${smtp.fromName}" <${smtp.fromEmail}>`,
     to: email,
     subject: "Welcome to PracticePilot",
     html: `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
         <h2>Welcome to PracticePilot</h2>
-
-        <p>Hi ${displayName},</p>
-
-        <p>Your PracticePilot user account has been created.</p>
-
-        <p>You can log in using the details below:</p>
-
-        <p>
-          <strong>Login page:</strong><br />
-          <a href="https://practicepilot.co.za/login">https://practicepilot.co.za/login</a>
-        </p>
-
-        <p>
-          <strong>Username:</strong><br />
-          ${email}
-        </p>
-
-        <p>
-          <strong>Temporary password:</strong><br />
-          ${password}
-        </p>
-
-        <p>
-          Please keep these details safe. You may reset your password from the login page if needed.
-        </p>
-
-        <p>Kind regards,<br />The PracticePilot Team</p>
+        <p>Hi ${fullName || "there"},</p>
+        <p>Your PracticePilot internal user account has been created.</p>
+        <p><strong>Login page:</strong><br>
+        <a href="https://practicepilot.co.za/login">https://practicepilot.co.za/login</a></p>
+        <p><strong>Username:</strong><br>${email}</p>
+        <p><strong>Temporary password:</strong><br>${password}</p>
+        <p>Kind regards,<br>The PracticePilot Team</p>
       </div>
     `,
   });
 }
 
-function isAdminRole(role: string) {
-  return role === "Super Admin" || role === "Admin";
-}
-
-function isInternalRole(role: string) {
-  return role === "Super Admin" || role === "Admin" || role === "Staff";
-}
-
 export async function GET() {
   const { data, error } = await supabase
     .from("user_profiles")
-    .select(`
-      *,
-      organisations (
-        id,
-        name
-      )
-    `)
+    .select("id,user_id,full_name,email,role,access_enabled,created_at")
+    .is("organisation_id", null)
+    .in("role", ["Super Admin", "Admin", "Staff"])
     .order("created_at", { ascending: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ users: data });
+  return NextResponse.json({ users: data || [] });
 }
 
 export async function POST(req: Request) {
@@ -140,30 +92,11 @@ export async function POST(req: Request) {
   const fullName = String(body.fullName || "").trim();
   const email = String(body.email || "").trim().toLowerCase();
   const password = String(body.password || "").trim();
-  const role = String(body.role || "Client Viewer").trim();
-  const organisationId = String(body.organisationId || "").trim();
+  const role = String(body.role || "Staff").trim();
 
-  const adminRole = isAdminRole(role);
-  const internalRole = isInternalRole(role);
-
-  const canAccessCrm = adminRole ? true : Boolean(body.canAccessCrm);
-  const canAccessAccounting = adminRole ? true : Boolean(body.canAccessAccounting);
-  const canAccessAfs = adminRole ? true : Boolean(body.canAccessAfs);
-  const canAccessSecretarial = adminRole ? true : Boolean(body.canAccessSecretarial);
-  const canAccessProjects = adminRole ? true : Boolean(body.canAccessProjects);
-  const canAccessManagementReports = adminRole
-    ? true
-    : Boolean(body.canAccessManagementReports);
-  const canAccessPaia = adminRole ? true : Boolean(body.canAccessPaia);
-  const canAccessProposals = adminRole ? true : Boolean(body.canAccessProposals);
-  const canAccessBudgeting = adminRole ? true : Boolean(body.canAccessBudgeting);
-
-  const canEditProjects =
-    adminRole || role === "Client Manager"
-      ? true
-      : canAccessProjects
-        ? Boolean(body.canEditProjects)
-        : false;
+  if (!fullName) {
+    return NextResponse.json({ error: "Full name is required" }, { status: 400 });
+  }
 
   if (!email) {
     return NextResponse.json({ error: "Email is required" }, { status: 400 });
@@ -176,12 +109,14 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!internalRole && !organisationId) {
+  if (!isInternalRole(role)) {
     return NextResponse.json(
-      { error: "Client is required for client users" },
+      { error: "Admin Users can only create PracticePilot internal users." },
       { status: 400 }
     );
   }
+
+  const adminRole = role === "Super Admin" || role === "Admin";
 
   const { data: authData, error: authError } =
     await supabase.auth.admin.createUser({
@@ -190,66 +125,49 @@ export async function POST(req: Request) {
       email_confirm: true,
     });
 
-  if (authError) {
-    return NextResponse.json({ error: authError.message }, { status: 500 });
-  }
-
-  const userId = authData.user?.id;
-
-  if (!userId) {
+  if (authError || !authData.user?.id) {
     return NextResponse.json(
-      { error: "Could not create auth user" },
+      { error: authError?.message || "Could not create auth user" },
       { status: 500 }
     );
   }
 
+  const userId = authData.user.id;
+
   const { data, error } = await supabase
     .from("user_profiles")
-    .insert([
-      {
-        user_id: userId,
-        full_name: fullName || null,
-        email,
-        role,
-        organisation_id: internalRole ? null : organisationId || null,
-
-        can_edit_projects: canEditProjects,
-
-        can_access_crm: canAccessCrm,
-        can_access_accounting: canAccessAccounting,
-        can_access_afs: canAccessAfs,
-        can_access_secretarial: canAccessSecretarial,
-        can_access_projects: canAccessProjects,
-        can_access_budgeting: canAccessBudgeting,
-        can_access_management_reports: canAccessManagementReports,
-        can_access_paia: canAccessPaia,
-        can_access_proposals: canAccessProposals,
-
-        access_enabled: true,
-      },
-    ])
-    .select(`
-      *,
-      organisations (
-        id,
-        name
-      )
-    `)
+    .insert({
+      user_id: userId,
+      full_name: fullName,
+      email,
+      role,
+      organisation_id: null,
+      is_practice_owner: false,
+      can_manage_practice_users: false,
+      can_edit_projects: adminRole,
+      can_access_crm: adminRole,
+      can_access_accounting: adminRole,
+      can_access_afs: adminRole,
+      can_access_assets: adminRole,
+      can_access_secretarial: adminRole,
+      can_access_projects: adminRole,
+      can_access_budgeting: adminRole,
+      can_access_management_reports: adminRole,
+      can_access_paia: adminRole,
+      can_access_proposals: adminRole,
+      access_enabled: true,
+    })
+    .select("id,user_id,full_name,email,role,access_enabled,created_at")
     .single();
 
   if (error) {
+    await supabase.auth.admin.deleteUser(userId).catch(() => undefined);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   try {
-    await sendWelcomeEmail({
-      fullName,
-      email,
-      password,
-    });
+    await sendWelcomeEmail({ fullName, email, password });
   } catch (emailError) {
-    console.error("WELCOME EMAIL ERROR:", emailError);
-
     return NextResponse.json({
       user: data,
       warning:

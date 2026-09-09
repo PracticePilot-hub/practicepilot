@@ -21,6 +21,7 @@ type UserProfile = {
   can_access_crm?: boolean;
   can_access_accounting?: boolean;
   can_access_afs?: boolean;
+  can_access_assets?: boolean;
   can_access_secretarial?: boolean;
   can_access_projects?: boolean;
   can_access_management_reports?: boolean;
@@ -306,6 +307,13 @@ export default function TopNav() {
         label: "Financial Statements",
         href: "/afs",
         show: accessEnabled && Boolean(profile?.can_access_afs),
+      },
+      {
+        label: "Assets",
+        href: "/assets",
+        show:
+          accessEnabled &&
+          (admin || Boolean(profile?.can_access_assets)),
       },
       {
         label: "Tax",
@@ -621,8 +629,8 @@ const styles: Record<string, CSSProperties> = {
     minHeight: "54px",
     display: "flex",
     alignItems: "center",
-    gap: "16px",
-    padding: "0 18px",
+    gap: "10px",
+    padding: "0 10px",
     boxSizing: "border-box",
     overflow: "visible",
     whiteSpace: "nowrap",
@@ -630,7 +638,7 @@ const styles: Record<string, CSSProperties> = {
   brand: {
     color: "#0f172a",
     textDecoration: "none",
-    fontSize: "20px",
+    fontSize: "18px",
     fontWeight: 900,
     letterSpacing: "-0.03em",
     flex: "0 0 auto",
@@ -638,7 +646,7 @@ const styles: Record<string, CSSProperties> = {
   nav: {
     display: "flex",
     alignItems: "center",
-    gap: "14px",
+    gap: "clamp(6px, 0.55vw, 10px)",
     flex: "1 1 auto",
     minWidth: 0,
     overflow: "visible",
@@ -650,7 +658,7 @@ const styles: Record<string, CSSProperties> = {
     height: "54px",
     color: "#0f172a",
     textDecoration: "none",
-    fontSize: "14px",
+    fontSize: "clamp(11px, 0.78vw, 13px)",
     fontWeight: 700,
     borderBottom: "3px solid transparent",
     paddingTop: "3px",
@@ -665,7 +673,7 @@ const styles: Record<string, CSSProperties> = {
     height: "54px",
     color: "#0f172a",
     textDecoration: "none",
-    fontSize: "14px",
+    fontSize: "clamp(11px, 0.78vw, 13px)",
     fontWeight: 700,
     border: 0,
     borderBottom: "3px solid transparent",
@@ -734,9 +742,9 @@ const styles: Record<string, CSSProperties> = {
     background: "#f8fafc",
     color: "#0f172a",
     textDecoration: "none",
-    borderRadius: "9px",
-    padding: "9px 14px",
-    fontSize: "12px",
+    borderRadius: "7px",
+    padding: "8px 10px",
+    fontSize: "11px",
     fontWeight: 850,
     flex: "0 0 auto",
   },

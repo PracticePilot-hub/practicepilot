@@ -3,18 +3,34 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { createClient } from "@supabase/supabase-js";
+
+function getStoredAccessToken() {
+  if (typeof window === "undefined") return "";
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+
+  try {
+    const projectRef = new URL(supabaseUrl).hostname.split(".")[0];
+    const storageKey = `sb-${projectRef}-auth-token`;
+    const rawSession = window.localStorage.getItem(storageKey);
+
+    if (!rawSession) return "";
+
+    const parsed = JSON.parse(rawSession);
+
+    return String(
+      parsed?.access_token ||
+      parsed?.currentSession?.access_token ||
+      parsed?.session?.access_token ||
+      ""
+    ).trim();
+  } catch {
+    return "";
+  }
+}
 
 type ProposalStatus = "Draft" | "Sent" | "Accepted" | "Declined";
 
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-if (!supabaseAnonKey) throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 type Proposal = {
   id: string;
@@ -140,12 +156,9 @@ export default function ProposalDetailPage() {
       setCreatingEngagement(true);
       setError("");
 
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
+      const accessToken = getStoredAccessToken();
 
-      if (sessionError || !session?.access_token) {
+      if (!accessToken) {
         throw new Error("Your login session could not be confirmed.");
       }
 
@@ -153,7 +166,7 @@ export default function ProposalDetailPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           proposalId,

@@ -4,6 +4,31 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type CSSProperties } from "react";
 
+function getStoredAccessToken() {
+  if (typeof window === "undefined") return "";
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+
+  try {
+    const projectRef = new URL(supabaseUrl).hostname.split(".")[0];
+    const storageKey = `sb-${projectRef}-auth-token`;
+    const rawSession = window.localStorage.getItem(storageKey);
+
+    if (!rawSession) return "";
+
+    const parsed = JSON.parse(rawSession);
+
+    return String(
+      parsed?.access_token ||
+      parsed?.currentSession?.access_token ||
+      parsed?.session?.access_token ||
+      ""
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
 type PackageOption = {
   code: string;
   name: string;
@@ -285,6 +310,20 @@ const initialServices: ServiceLine[] = [
       "Included for the agreed payroll of up to 10 employees.",
   },
   {
+    id: "accounting-software",
+    category: "Software and Subscriptions",
+    name: "Accounting Software Subscription",
+    description:
+      "Monthly accounting software subscription required for processing and maintaining the agreed accounting records.",
+    includedInPackage: true,
+    feeType: "Monthly",
+    amount: 0,
+    scopeQuantity: 1,
+    scopeUnit: "entity",
+    clientFacingNote:
+      "Includes the accounting software subscription required for the agreed entity.",
+  },
+  {
     id: "tax-compliance",
     category: "Taxation Services",
     name: "Routine Tax Compliance and SARS Query Management",
@@ -303,6 +342,7 @@ export default function NewProposalPage() {
   const router = useRouter();
 
   const [companyName, setCompanyName] = useState("");
+  const [registrationNumber, setRegistrationNumber] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactNumber, setContactNumber] = useState("");
@@ -334,6 +374,7 @@ export default function NewProposalPage() {
     "letter-good-standing",
     "paia",
     "payroll-software",
+    "accounting-software",
     "tax-compliance",
   ]);
   const [services, setServices] = useState<ServiceLine[]>(initialServices);
@@ -429,14 +470,22 @@ export default function NewProposalPage() {
         );
       }
 
+      const accessToken = getStoredAccessToken();
+
+      if (!accessToken) {
+        throw new Error("Your login session could not be confirmed.");
+      }
+
       const response = await fetch("/api/proposals", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           clientId: null,
           clientName: companyName.trim(),
+          registrationNumber: registrationNumber.trim(),
           contactName: contactName.trim(),
           contactEmail: contactEmail.trim(),
           contactNumber: contactNumber.trim(),
@@ -510,6 +559,16 @@ export default function NewProposalPage() {
                   value={companyName}
                   onChange={(event) => setCompanyName(event.target.value)}
                   placeholder="Prospective client legal name"
+                  style={styles.input}
+                />
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.label}>Registration number</span>
+                <input
+                  value={registrationNumber}
+                  onChange={(event) => setRegistrationNumber(event.target.value)}
+                  placeholder="e.g. 2024/123456/07"
                   style={styles.input}
                 />
               </label>

@@ -138,6 +138,7 @@ function daysInMonth(year: number, monthIndex: number) {
 
 function addMonths(year: number, monthIndex: number, amount: number) {
   const date = new Date(Date.UTC(year, monthIndex + amount, 1));
+
   return {
     year: date.getUTCFullYear(),
     monthIndex: date.getUTCMonth(),
@@ -204,6 +205,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           contact_name,
           contact_email,
           prospect_company_name,
+          prospect_registration_number,
           prospect_contact_name,
           prospect_contact_email,
           prospect_contact_number,
@@ -258,7 +260,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     let organisationId = proposal.organisation_id as string | null;
-    let clientRegistrationNumber: string | null = null;
+    let clientRegistrationNumber: string | null =
+      proposal.prospect_registration_number || null;
     let clientRecord: any = null;
 
     if (proposal.client_id) {
@@ -284,14 +287,17 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
 
       clientRecord = client || null;
-      clientRegistrationNumber = client?.registration_number || null;
+
+      if (client?.registration_number) {
+        clientRegistrationNumber = client.registration_number;
+      }
 
       if (!organisationId && client?.organisation_id) {
         organisationId = client.organisation_id;
       }
     }
 
-    if (!organisationId && !isGlobalAdmin(profile.role)) {
+    if (!organisationId && profile.organisation_id) {
       organisationId = profile.organisation_id;
     }
 
@@ -361,6 +367,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       contractStart.monthIndex,
       11
     );
+
     const contractEndDate = isoDate(
       contractEndParts.year,
       contractEndParts.monthIndex,

@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/app/lib/supabase";
 
 type UserOption = {
@@ -16,7 +16,12 @@ type ServiceOption = {
   service_name: string;
   service_group: string | null;
   default_frequency: string | null;
+  default_due_day?: number | null;
+  default_workflow_type?: string | null;
   default_service_settings?: Record<string, unknown>;
+  colour_hex?: string | null;
+  text_colour_hex?: string | null;
+  is_active?: boolean | null;
 };
 
 type ServiceState = {
@@ -91,34 +96,124 @@ type ClientFormProps = {
   clientId?: string;
 };
 
-const BASE_SERVICES = [
-  "Accounting",
-  "VAT201",
-  "Payroll",
-  "Financial Statements",
-  "Beneficial Ownership Declaration",
-  "CIPC Annual Return",
-  "Provisional Tax",
-  "Income Tax",
-  "EMP201",
-  "EMP501",
-  "Workmans Compensation",
+const STANDARD_FREQUENCIES = [
+  "Weekly",
+  "Fortnightly",
+  "Monthly",
+  "Bi-monthly",
+  "Quarterly",
+  "Six-monthly",
+  "Annual",
+  "Once-off",
+  "Ad hoc",
 ];
 
+const MONTH_BASED_FREQUENCIES = new Set([
+  "Monthly",
+  "Bi-monthly",
+  "Quarterly",
+  "Six-monthly",
+]);
+
 function defaultFrequency(serviceName: string) {
-  switch (serviceName) {
-    case "Accounting":
-    case "Payroll":
-    case "EMP201":
-      return "Monthly";
-    case "VAT201":
-      return "Bi-monthly";
-    case "Provisional Tax":
-    case "EMP501":
-      return "Bi-annual";
-    default:
-      return "Annual";
+  const name = serviceName.trim().toLowerCase();
+
+  if (name === "payroll") return "Monthly";
+  if (name === "emp201") return "Monthly";
+  if (name === "vat201") return "Bi-monthly";
+  if (name === "emp501") return "Bi-annual";
+  if (name === "provisional tax") return "Bi-annual";
+  if (name === "accounting" || name === "management reports") return "Monthly";
+  if (
+    name.includes("registration") ||
+    name.includes("paia") ||
+    name.includes("cipc changes") ||
+    name.includes("share transaction") ||
+    name.includes("ad hoc") ||
+    name.includes("once-off")
+  ) {
+    return "Once-off";
   }
+
+  return "Annual";
+}
+
+function isManualService(serviceName: string, service: ServiceState) {
+  const mode = String(service.settings.tasking_mode || "").toLowerCase();
+  const frequency = String(service.frequency || "").toLowerCase();
+
+  return (
+    mode === "manual" ||
+    mode === "none" ||
+    frequency === "ad hoc" ||
+    frequency === "once-off"
+  );
+}
+
+function groupTitleFromServiceGroup(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Advisory & Other";
+
+  const lower = raw.toLowerCase();
+
+  if (lower.includes("payroll") || lower.includes("employment")) {
+    return "Payroll & Employment";
+  }
+  if (lower === "vat" || lower.includes("value added")) {
+    return "VAT";
+  }
+  if (lower.includes("tax")) {
+    return "Tax";
+  }
+  if (
+    lower.includes("corporate") ||
+    lower.includes("secretarial") ||
+    lower.includes("compliance") ||
+    lower.includes("cipc") ||
+    lower.includes("paia")
+  ) {
+    return "Corporate & Compliance";
+  }
+  if (
+    lower.includes("finance") ||
+    lower.includes("accounting") ||
+    lower.includes("report")
+  ) {
+    return "Finance & Reporting";
+  }
+
+  return raw;
+}
+
+const TASKING_GROUP_ORDER = [
+  "Finance & Reporting",
+  "Payroll & Employment",
+  "VAT",
+  "Tax",
+  "Corporate & Compliance",
+  "Advisory & Other",
+];
+
+function serviceFrequencyOptions(serviceName: string, option?: ServiceOption) {
+  const fromSettings = option?.default_service_settings?.frequency_options;
+
+  if (Array.isArray(fromSettings) && fromSettings.length > 0) {
+    return fromSettings.map(String);
+  }
+
+  const name = serviceName.trim().toLowerCase();
+
+  if (name === "accounting") {
+    return ["Monthly", "Bi-monthly", "Quarterly", "Six-monthly", "Annual"];
+  }
+  if (name === "payroll") {
+    return ["Weekly", "Fortnightly", "Monthly"];
+  }
+  if (name === "management reports") {
+    return ["Monthly", "Quarterly"];
+  }
+
+  return STANDARD_FREQUENCIES;
 }
 
 function getNestedServiceName(
@@ -170,10 +265,742 @@ function calculatePeriodEnd(
   return end.toISOString().slice(0, 10);
 }
 
+function monthInputValue(dateValue: string) {
+  if (!dateValue) return "";
+  return dateValue.slice(0, 7);
+}
+
+function monthStartFromInput(monthValue: string) {
+  if (!monthValue) return "";
+  return `${monthValue}-01`;
+}
+
+function monthEndFromInput(monthValue: string) {
+  if (!monthValue) return "";
+  const [year, month] = monthValue.split("-").map(Number);
+  if (!year || !month) return "";
+  return new Date(year, month, 0).toISOString().slice(0, 10);
+}
+
+function parseDateParts(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return { year, month, day };
+}
+
+function formatDateDisplay(value: string) {
+  const parts = parseDateParts(value);
+  if (!parts) return value || "—";
+  return `${String(parts.day).padStart(2, "0")}/${String(parts.month).padStart(
+    2,
+    "0"
+  )}/${parts.year}`;
+}
+
+function vatPeriodEndMatchesCategory(lastCompletedEnd: string, category: string) {
+  const parts = parseDateParts(lastCompletedEnd);
+  if (!parts || !category) return true;
+
+  if (category === "C") return true;
+  if (category === "A") return parts.month % 2 === 1;
+  if (category === "B") return parts.month % 2 === 0;
+
+  return true;
+}
+
+function calculateVatNextPeriod(lastCompletedEnd: string, category: string) {
+  const parts = parseDateParts(lastCompletedEnd);
+  if (!parts || !category) {
+    return { start: "", end: "", due: "", valid: true };
+  }
+
+  const valid = vatPeriodEndMatchesCategory(lastCompletedEnd, category);
+
+  const nextStart = new Date(parts.year, parts.month - 1, parts.day + 1);
+  const monthsInPeriod = category === "C" ? 1 : 2;
+  const nextEnd = new Date(
+    nextStart.getFullYear(),
+    nextStart.getMonth() + monthsInPeriod,
+    0
+  );
+
+  const dueMonth = new Date(
+    nextEnd.getFullYear(),
+    nextEnd.getMonth() + 1,
+    1
+  );
+  const due = new Date(
+    dueMonth.getFullYear(),
+    dueMonth.getMonth(),
+    25
+  );
+
+  return {
+    start: nextStart.toISOString().slice(0, 10),
+    end: nextEnd.toISOString().slice(0, 10),
+    due: due.toISOString().slice(0, 10),
+    valid,
+  };
+}
+
+function isMonthlyStyleService(serviceName: string, frequency: string) {
+  if (serviceName === "VAT201") return false;
+
+  const normalised = String(frequency || "").toLowerCase();
+
+  return (
+    normalised.includes("monthly") ||
+    serviceName === "Accounting" ||
+    serviceName === "Payroll" ||
+    serviceName === "EMP201"
+  );
+}
+
+function getServicePeriodLabel(serviceName: string, frequency: string) {
+  if (serviceName === "VAT201") return "Last completed VAT period";
+  if (isMonthlyStyleService(serviceName, frequency)) {
+    return "First month PP must manage";
+  }
+  return "First period PP must manage";
+}
+
+
+function monthName(value: number) {
+  return [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ][value] || "";
+}
+
+function getYearEndMonthIndex(yearEnd: string) {
+  const index = months.findIndex(
+    (month) => month.toLowerCase() === String(yearEnd || "").toLowerCase()
+  );
+  return index >= 0 ? index : 1;
+}
+
+function getFinancialYearDates(year: number, yearEnd: string) {
+  const endMonth = getYearEndMonthIndex(yearEnd);
+  const periodEnd = new Date(year, endMonth + 1, 0);
+  const periodStart = new Date(year - 1, endMonth + 1, 1);
+
+  return {
+    start: periodStart.toISOString().slice(0, 10),
+    end: periodEnd.toISOString().slice(0, 10),
+  };
+}
+
+function getPayrollTaxYearDates(year: number) {
+  return {
+    start: `${year - 1}-03-01`,
+    end: `${year}-02-${new Date(year, 2, 0).getDate()}`,
+  };
+}
+
+function buildYearOptions() {
+  const thisYear = new Date().getFullYear();
+  return Array.from({ length: 6 }, (_, index) => thisYear - 1 + index);
+}
+
+function vatPeriodOptions(category: string) {
+  const upper = String(category || "").toUpperCase();
+  if (!upper) return [] as Array<{ value: string; label: string; start: string; end: string }>;
+
+  const thisYear = new Date().getFullYear();
+  const options: Array<{ value: string; label: string; start: string; end: string }> = [];
+
+  for (let year = thisYear - 1; year <= thisYear + 2; year += 1) {
+    if (upper === "C") {
+      for (let month = 0; month < 12; month += 1) {
+        const start = new Date(year, month, 1);
+        const end = new Date(year, month + 1, 0);
+        options.push({
+          value: `${start.toISOString().slice(0, 10)}|${end.toISOString().slice(0, 10)}`,
+          label: `${monthName(month)} ${year}`,
+          start: start.toISOString().slice(0, 10),
+          end: end.toISOString().slice(0, 10),
+        });
+      }
+      continue;
+    }
+
+    const endMonths = upper === "A" ? [0, 2, 4, 6, 8, 10] : [1, 3, 5, 7, 9, 11];
+
+    for (const endMonth of endMonths) {
+      const end = new Date(year, endMonth + 1, 0);
+      const start = new Date(year, endMonth - 1, 1);
+      options.push({
+        value: `${start.toISOString().slice(0, 10)}|${end.toISOString().slice(0, 10)}`,
+        label: `${monthName(start.getMonth())}–${monthName(end.getMonth())} ${end.getFullYear()}`,
+        start: start.toISOString().slice(0, 10),
+        end: end.toISOString().slice(0, 10),
+      });
+    }
+  }
+
+  return options;
+}
+
+
+const ACCOUNTING_FREQUENCIES = [
+  "Monthly",
+  "Bi-monthly",
+  "Quarterly",
+  "Six-monthly",
+  "Annual",
+];
+
+const PAYROLL_FREQUENCIES = [
+  "Weekly",
+  "Fortnightly",
+  "Monthly",
+];
+
+function recurringMonths(frequency: string) {
+  const normalised = String(frequency || "").toLowerCase();
+  if (normalised.includes("bi-month")) return 2;
+  if (normalised.includes("quarter")) return 3;
+  if (normalised.includes("six")) return 6;
+  if (normalised.includes("annual") || normalised.includes("year")) return 12;
+  return 1;
+}
+
+function recurringPeriodFromMonth(monthValue: string, frequency: string) {
+  if (!monthValue) return { start: "", end: "", label: "" };
+
+  const [year, month] = monthValue.split("-").map(Number);
+  if (!year || !month) return { start: "", end: "", label: "" };
+
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month - 1 + recurringMonths(frequency), 0);
+
+  const startLabel = start.toLocaleDateString("en-ZA", {
+    month: "short",
+    year: "numeric",
+  });
+  const endLabel = end.toLocaleDateString("en-ZA", {
+    month: "short",
+    year: "numeric",
+  });
+
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+    label:
+      recurringMonths(frequency) === 1
+        ? start.toLocaleDateString("en-ZA", {
+            month: "long",
+            year: "numeric",
+          })
+        : `${startLabel} – ${endLabel}`,
+  };
+}
+
+function payrollPeriodFromStart(dateValue: string, frequency: string) {
+  if (!dateValue) return { start: "", end: "", label: "" };
+
+  const start = new Date(`${dateValue}T12:00:00`);
+  if (Number.isNaN(start.getTime())) {
+    return { start: "", end: "", label: "" };
+  }
+
+  const days = frequency === "Fortnightly" ? 13 : 6;
+  const end = new Date(start);
+  end.setDate(end.getDate() + days);
+
+  const formatted = start.toLocaleDateString("en-ZA", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+    label:
+      frequency === "Fortnightly"
+        ? `Fortnight commencing ${formatted}`
+        : `Week commencing ${formatted}`,
+  };
+}
+
+function getTaskingTypeLabel(serviceName: string, service: ServiceState) {
+  if (serviceName === "VAT201") {
+    const category = String(service.settings.vat_category || "");
+    return category ? `Category ${category}` : "VAT category";
+  }
+  if (serviceName === "EMP501") return "Bi-annual reconciliation";
+  if (serviceName === "Provisional Tax") return "Per tax period";
+  if (serviceName === "Financial Statements") return "Annual AFS";
+  if (serviceName === "Income Tax") return "Annual return";
+  if (serviceName === "CIPC Annual Return") return "Annual compliance";
+  if (serviceName === "Beneficial Ownership Declaration") return "Annual compliance";
+  if (serviceName === "Workmans Compensation") return "Annual return";
+  return service.frequency || defaultFrequency(serviceName);
+}
+
+
+type TimelineItem = {
+  serviceName: string;
+  sortKey: string;
+  dateLabel: string;
+  title: string;
+  detail: string;
+};
+
+const SERVICE_VISUALS: Record<
+  string,
+  { background: string; foreground: string; short: string }
+> = {
+  Accounting: { background: "#4476c8", foreground: "#ffffff", short: "A" },
+  Payroll: { background: "#4ea6ad", foreground: "#ffffff", short: "P" },
+  EMP201: { background: "#7563b6", foreground: "#ffffff", short: "E1" },
+  EMP501: { background: "#df973c", foreground: "#ffffff", short: "E5" },
+  VAT201: { background: "#5ca845", foreground: "#ffffff", short: "VAT" },
+  "Provisional Tax": { background: "#3d8bb0", foreground: "#ffffff", short: "PT" },
+  "Income Tax": { background: "#6f62b5", foreground: "#ffffff", short: "IT" },
+  "Financial Statements": { background: "#367fc0", foreground: "#ffffff", short: "FS" },
+  "CIPC Annual Return": { background: "#cf6688", foreground: "#ffffff", short: "AR" },
+  "Beneficial Ownership Declaration": { background: "#a45cad", foreground: "#ffffff", short: "BO" },
+  "Workmans Compensation": { background: "#b28f36", foreground: "#ffffff", short: "WC" },
+  "Management Reports": { background: "#167f8c", foreground: "#ffffff", short: "MR" },
+  "PAIA Manual": { background: "#697a3d", foreground: "#ffffff", short: "PA" },
+  "Company Secretarial": { background: "#52677a", foreground: "#ffffff", short: "CS" },
+  "CIPC Changes": { background: "#7c6b9f", foreground: "#ffffff", short: "CC" },
+  "UIF": { background: "#3c8791", foreground: "#ffffff", short: "UIF" },
+  "WCA Letter of Good Standing": { background: "#aa8734", foreground: "#ffffff", short: "WCA" },
+  "Tax Registration": { background: "#7a68ad", foreground: "#ffffff", short: "TR" },
+  "VAT Registration": { background: "#4d9c45", foreground: "#ffffff", short: "VR" },
+  "PAYE / UIF Registration": { background: "#4b8ba2", foreground: "#ffffff", short: "PR" },
+  "Share Transactions & Certificates": { background: "#a05d8d", foreground: "#ffffff", short: "SH" },
+  "Projects / Project Accounting": { background: "#477b9b", foreground: "#ffffff", short: "PJ" },
+  "Advisory / Consulting": { background: "#725a9d", foreground: "#ffffff", short: "AD" },
+  "Ad Hoc Work": { background: "#6b7785", foreground: "#ffffff", short: "AH" },
+};
+
+function ServiceIcon({
+  serviceName,
+  size = 24,
+}: {
+  serviceName: string;
+  size?: number;
+}) {
+  const visual =
+    SERVICE_VISUALS[serviceName] || {
+      background: "#60788d",
+      foreground: "#ffffff",
+      short: "",
+    };
+
+  const strokeWidth = 1.7;
+  const common = {
+    width: Math.round(size * 0.56),
+    height: Math.round(size * 0.56),
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+
+  let icon: React.ReactNode;
+
+  switch (serviceName) {
+    case "Accounting":
+      icon = (
+        <svg {...common}>
+          <rect x="5" y="3" width="14" height="18" rx="1" />
+          <path d="M8 7h8M8 11h3M13 11h3M8 15h3M13 15h3M8 19h8" />
+        </svg>
+      );
+      break;
+    case "Payroll":
+      icon = (
+        <svg {...common}>
+          <circle cx="9" cy="8" r="3" />
+          <circle cx="17" cy="9" r="2" />
+          <path d="M3 20c.5-4 2.5-6 6-6s5.5 2 6 6M15 15c3 0 4.7 1.7 5 5" />
+        </svg>
+      );
+      break;
+    case "EMP201":
+      icon = (
+        <svg {...common}>
+          <path d="M6 3h12v18H6z" />
+          <path d="M9 8h6M9 12h6M9 16h3" />
+          <path d="m14 16 1.5 1.5L19 14" />
+        </svg>
+      );
+      break;
+    case "EMP501":
+      icon = (
+        <svg {...common}>
+          <path d="M7 4h10v14H7z" />
+          <path d="M4 7v13h10M10 8h4M10 12h4" />
+        </svg>
+      );
+      break;
+    case "VAT201":
+      icon = (
+        <svg {...common}>
+          <path d="M6 3h9l3 3v15H6z" />
+          <path d="M14 3v4h4M9 11h6M9 15h6" />
+        </svg>
+      );
+      break;
+    case "Provisional Tax":
+    case "Income Tax":
+      icon = (
+        <svg {...common}>
+          <path d="M7 17 17 7" />
+          <circle cx="8" cy="8" r="2" />
+          <circle cx="16" cy="16" r="2" />
+        </svg>
+      );
+      break;
+    case "Financial Statements":
+      icon = (
+        <svg {...common}>
+          <path d="M6 3h9l3 3v15H6z" />
+          <path d="M9 16v-3M12 16v-6M15 16v-9" />
+        </svg>
+      );
+      break;
+    case "CIPC Annual Return":
+      icon = (
+        <svg {...common}>
+          <path d="M4 20h16M6 20V9l6-5 6 5v11" />
+          <path d="M9 13h6M9 16h6" />
+        </svg>
+      );
+      break;
+    case "Beneficial Ownership Declaration":
+      icon = (
+        <svg {...common}>
+          <circle cx="12" cy="6" r="2.5" />
+          <circle cx="6" cy="17" r="2.5" />
+          <circle cx="18" cy="17" r="2.5" />
+          <path d="M12 8.5v4M12 12.5 7.5 15M12 12.5l4.5 2.5" />
+        </svg>
+      );
+      break;
+    case "Workmans Compensation":
+      icon = (
+        <svg {...common}>
+          <path d="M12 3 19 6v5c0 4.5-2.6 8-7 10-4.4-2-7-5.5-7-10V6z" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      );
+      break;
+    default:
+      icon = (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="7" />
+          <path d="M8 12h8M12 8v8" />
+        </svg>
+      );
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        flex: `0 0 ${size}px`,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: "50%",
+        background: visual.background,
+        color: visual.foreground,
+        lineHeight: 1,
+      }}
+    >
+      {icon}
+    </span>
+  );
+}
+function formatTimelineMonth(date: Date) {
+  return date.toLocaleDateString("en-ZA", {
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatTimelineDay(date: Date) {
+  return date.toLocaleDateString("en-ZA", {
+    day: "2-digit",
+    month: "short",
+  });
+}
+
+function addCalendarMonths(date: Date, monthsToAdd: number) {
+  return new Date(date.getFullYear(), date.getMonth() + monthsToAdd, 1);
+}
+
+function getTimelinePoint(
+  serviceName: string,
+  service: ServiceState,
+  clientYearEnd: string
+) {
+  const start = service.firstPeriodStart
+    ? new Date(`${service.firstPeriodStart}T12:00:00`)
+    : null;
+  const end = service.firstPeriodEnd
+    ? new Date(`${service.firstPeriodEnd}T12:00:00`)
+    : null;
+
+  const year = Number(service.settings.tasking_year || 0);
+
+  if (serviceName === "Accounting") {
+    return {
+      sortKey: service.firstPeriodStart || "9999-12-31",
+      label: start ? formatTimelineMonth(start) : "Start",
+    };
+  }
+
+  if (serviceName === "Payroll") {
+    return {
+      sortKey: service.firstPeriodStart || "9999-12-31",
+      label:
+        start && service.frequency !== "Monthly"
+          ? formatTimelineDay(start)
+          : start
+            ? formatTimelineMonth(start)
+            : "Start",
+    };
+  }
+
+  if (serviceName === "EMP201" && end) {
+    const due = new Date(end.getFullYear(), end.getMonth() + 1, 7);
+    return {
+      sortKey: due.toISOString().slice(0, 10),
+      label: formatTimelineDay(due),
+    };
+  }
+
+  if (serviceName === "VAT201" && end) {
+    const due = new Date(end.getFullYear(), end.getMonth() + 1, 25);
+    return {
+      sortKey: due.toISOString().slice(0, 10),
+      label: formatTimelineDay(due),
+    };
+  }
+
+  if (serviceName === "EMP501" && year) {
+    const cycle = String(service.settings.emp501_cycle || "interim");
+    const due =
+      cycle === "interim"
+        ? new Date(year - 1, 9, 31)
+        : new Date(year, 4, 31);
+
+    return {
+      sortKey: due.toISOString().slice(0, 10),
+      label: formatTimelineDay(due),
+    };
+  }
+
+  if (serviceName === "Provisional Tax" && year) {
+    const period = Number(service.settings.provisional_period || 1);
+    const endMonth = getYearEndMonthIndex(clientYearEnd);
+    const yearEndDate = new Date(year, endMonth + 1, 0);
+
+    if (period === 1) {
+      const due = new Date(
+        yearEndDate.getFullYear(),
+        yearEndDate.getMonth() - 6,
+        new Date(
+          yearEndDate.getFullYear(),
+          yearEndDate.getMonth() - 5,
+          0
+        ).getDate()
+      );
+      return {
+        sortKey: due.toISOString().slice(0, 10),
+        label: formatTimelineDay(due),
+      };
+    }
+
+    if (period === 2) {
+      return {
+        sortKey: yearEndDate.toISOString().slice(0, 10),
+        label: formatTimelineDay(yearEndDate),
+      };
+    }
+
+    return {
+      sortKey: `${year}-12-31`,
+      label: `${year} P3`,
+    };
+  }
+
+  if (serviceName === "Income Tax" && year) {
+    const endMonth = getYearEndMonthIndex(clientYearEnd);
+    const due = new Date(year + 1, endMonth + 1, 0);
+
+    return {
+      sortKey: due.toISOString().slice(0, 10),
+      label: formatTimelineMonth(due),
+    };
+  }
+
+  if (serviceName === "Financial Statements" && year) {
+    return {
+      sortKey: `${year}-12-15`,
+      label: `FY ${year}`,
+    };
+  }
+
+  if (
+    serviceName === "CIPC Annual Return" ||
+    serviceName === "Beneficial Ownership Declaration" ||
+    serviceName === "Workmans Compensation"
+  ) {
+    return {
+      sortKey: year ? `${year}-12-20` : "9999-12-31",
+      label: year ? String(year) : "Year",
+    };
+  }
+
+  return {
+    sortKey: service.firstPeriodStart || (year ? `${year}-12-31` : "9999-12-31"),
+    label: start ? formatTimelineMonth(start) : year ? String(year) : "Start",
+  };
+}
+function buildTimelineItem(
+  serviceName: string,
+  service: ServiceState,
+  clientYearEnd: string
+): TimelineItem {
+  const point = getTimelinePoint(serviceName, service, clientYearEnd);
+
+  return {
+    serviceName,
+    sortKey: point.sortKey,
+    dateLabel: point.label,
+    title: serviceName,
+    detail: getTaskPreviewLabel(serviceName, service),
+  };
+}
+
+function getTaskPreviewLabel(serviceName: string, service: ServiceState) {
+  const year = String(service.settings.tasking_year || "");
+
+  if (serviceName === "VAT201") {
+    const label = String(service.settings.tasking_period_label || "");
+    return label ? `VAT201 ${label}` : "Choose VAT period";
+  }
+  if (serviceName === "EMP501") {
+    const cycle = String(service.settings.emp501_cycle || "");
+    return year && cycle ? `EMP501 ${cycle === "interim" ? "Interim" : "Annual"} ${year}` : "Choose EMP501 period";
+  }
+  if (serviceName === "Provisional Tax") {
+    const period = String(service.settings.provisional_period || "");
+    return year && period ? `Provisional Tax ${year} P${period}` : "Choose provisional tax period";
+  }
+  if (serviceName === "Financial Statements") {
+    return year ? `Financial Statements ${year}` : "Choose financial year";
+  }
+  if (serviceName === "Income Tax") {
+    return year ? `Income Tax ${year}` : "Choose tax year";
+  }
+  if (serviceName === "CIPC Annual Return") {
+    return year ? `CIPC Annual Return ${year}` : "Choose compliance year";
+  }
+  if (serviceName === "Beneficial Ownership Declaration") {
+    return year ? `Beneficial Ownership ${year}` : "Choose compliance year";
+  }
+  if (serviceName === "Workmans Compensation") {
+    return year ? `Workman's Compensation ${year}` : "Choose return year";
+  }
+  if (isManualService(serviceName, service)) {
+    return "Manual / on demand";
+  }
+
+  if (
+    serviceName === "Management Reports" &&
+    service.firstPeriodStart
+  ) {
+    const monthValue = service.firstPeriodStart.slice(0, 7);
+    const period = recurringPeriodFromMonth(monthValue, service.frequency);
+    return period.label
+      ? `Management Reports ${period.label}`
+      : "Choose reporting start";
+  }
+
+  if (serviceName === "Accounting" && service.firstPeriodStart) {
+    const monthValue = service.firstPeriodStart.slice(0, 7);
+    const period = recurringPeriodFromMonth(monthValue, service.frequency);
+    return period.label ? `Accounting ${period.label}` : "Choose Accounting start";
+  }
+  if (serviceName === "Payroll" && service.firstPeriodStart) {
+    if (service.frequency === "Monthly") {
+      const date = new Date(`${service.firstPeriodStart}T12:00:00`);
+      return `Payroll ${date.toLocaleDateString("en-ZA", {
+        month: "long",
+        year: "numeric",
+      })}`;
+    }
+
+    const label = String(service.settings.tasking_period_label || "");
+    return label ? `Payroll ${label}` : "Choose Payroll start";
+  }
+  if (service.firstPeriodStart) {
+    const date = new Date(`${service.firstPeriodStart}T12:00:00`);
+    return `${serviceName} ${date.toLocaleDateString("en-ZA", { month: "long", year: "numeric" })}`;
+  }
+  return `Choose ${serviceName} start`;
+}
+
+
+function registrationServiceAlreadyComplete(
+  serviceName: string,
+  values: {
+    incomeTaxNumber: string;
+    vatNumber: string;
+    payeNumber: string;
+    uifNumber: string;
+    wccRefNr: string;
+    customsNumber: string;
+  }
+) {
+  const name = serviceName.trim().toLowerCase();
+
+  if (name === "tax registration") {
+    return Boolean(values.incomeTaxNumber.trim());
+  }
+
+  if (name === "vat registration") {
+    return Boolean(values.vatNumber.trim());
+  }
+
+  if (name === "paye / uif registration") {
+    return Boolean(values.payeNumber.trim() && values.uifNumber.trim());
+  }
+
+  if (name === "coida registration") {
+    return Boolean(values.wccRefNr.trim());
+  }
+
+  if (name === "customs registration") {
+    return Boolean(values.customsNumber.trim());
+  }
+
+  return false;
+}
+
 export default function ClientForm({ mode, clientId }: ClientFormProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [activeSection, setActiveSection] = useState("core");
+  const requestedSection =
+    searchParams.get("section") || (mode === "edit" ? "services" : "core");
+
+  const resolvedSection = requestedSection === "tasking" ? "services" : requestedSection;
+
+  const [activeSection, setActiveSection] = useState(resolvedSection);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -225,18 +1052,86 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
 
   const isIndividual = clientType === "Individual";
 
-  const visibleServices = useMemo(() => {
-    const names = new Set(BASE_SERVICES);
-    serviceOptions.forEach((service) => names.add(service.service_name));
+  const visibleServices = useMemo(
+    () =>
+      serviceOptions
+        .filter((service) => service.is_active !== false)
+        .map((service) => service.service_name),
+    [serviceOptions]
+  );
 
-    return Array.from(names).filter((name) =>
-      BASE_SERVICES.includes(name)
-    );
+  const serviceOptionByName = useMemo(
+    () =>
+      new Map(
+        serviceOptions.map((service) => [service.service_name, service])
+      ),
+    [serviceOptions]
+  );
+
+  const taskingGroups = useMemo(() => {
+    const grouped = new Map<string, string[]>();
+
+    for (const option of serviceOptions) {
+      if (option.is_active === false) continue;
+
+      const group = groupTitleFromServiceGroup(option.service_group);
+      const existing = grouped.get(group) || [];
+      existing.push(option.service_name);
+      grouped.set(group, existing);
+    }
+
+    return Array.from(grouped.entries())
+      .map(([title, serviceNames]) => ({
+        key: title.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+        title,
+        subtitle:
+          title === "Finance & Reporting"
+            ? "Accounting, reporting and financial statement work"
+            : title === "Payroll & Employment"
+              ? "Payroll and employment compliance"
+              : title === "VAT"
+                ? "VAT returns and VAT-related work"
+                : title === "Tax"
+                  ? "Income tax, provisional tax and registrations"
+                  : title === "Corporate & Compliance"
+                    ? "CIPC, secretarial, PAIA and corporate compliance"
+                    : "Advisory, projects and other client work",
+        services: serviceNames.sort((a, b) => a.localeCompare(b)),
+      }))
+      .sort((a, b) => {
+        const ai = TASKING_GROUP_ORDER.indexOf(a.title);
+        const bi = TASKING_GROUP_ORDER.indexOf(b.title);
+        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+      });
   }, [serviceOptions]);
+
+  const onboardingTimeline = useMemo(() => {
+    return taskingGroups
+      .flatMap((group) => group.services)
+      .filter((serviceName) => {
+        const service = services[serviceName];
+        return (
+          service?.selected &&
+          !isManualService(serviceName, service) &&
+          Boolean(service.firstPeriodStart)
+        );
+      })
+      .map((serviceName) =>
+        buildTimelineItem(serviceName, services[serviceName], yearEnd)
+      )
+      .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+  }, [services, yearEnd, taskingGroups]);
 
   useEffect(() => {
     loadForm();
   }, [clientId]);
+
+  useEffect(() => {
+    const allowed = ["core", "services", "statutory", "contacts", "responsibility", "tasking"];
+    if (allowed.includes(requestedSection)) {
+      setActiveSection(requestedSection === "tasking" ? "services" : requestedSection);
+    }
+  }, [requestedSection]);
 
   async function getAccessToken() {
     const {
@@ -265,19 +1160,17 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
   function initialiseServiceStates(options: ServiceOption[]) {
     const state: Record<string, ServiceState> = {};
 
-    for (const serviceName of BASE_SERVICES) {
-      const option = options.find(
-        (item) => item.service_name === serviceName
-      );
+    for (const option of options) {
+      if (option.is_active === false) continue;
 
-      state[serviceName] = {
+      state[option.service_name] = {
         selected: false,
         frequency:
-          option?.default_frequency || defaultFrequency(serviceName),
+          option.default_frequency || defaultFrequency(option.service_name),
         firstPeriodStart: "",
         firstPeriodEnd: "",
         settings: {
-          ...(option?.default_service_settings || {}),
+          ...(option.default_service_settings || {}),
         },
       };
     }
@@ -383,9 +1276,19 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
     for (const clientService of client.crm_client_services || []) {
       const name = getNestedServiceName(clientService.crm_services);
 
-      if (!name || !serviceState[name]) continue;
+      if (!name) continue;
 
       const settings = clientService.service_settings || {};
+
+      if (!serviceState[name]) {
+        serviceState[name] = {
+          selected: false,
+          frequency: clientService.frequency || defaultFrequency(name),
+          firstPeriodStart: "",
+          firstPeriodEnd: "",
+          settings: {},
+        };
+      }
 
       serviceState[name] = {
         selected: Boolean(clientService.is_active),
@@ -436,6 +1339,203 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
     });
   }
 
+  function onVatTaskingChange(
+    serviceName: string,
+    lastCompletedEnd: string,
+    nextPeriodStart: string,
+    nextPeriodEnd: string,
+    nextDueDate: string
+  ) {
+    const current = services[serviceName];
+
+    updateService(serviceName, {
+      firstPeriodStart: nextPeriodStart,
+      firstPeriodEnd: nextPeriodEnd,
+      settings: {
+        ...(current?.settings || {}),
+        last_completed_period_end: lastCompletedEnd,
+        next_due_date: nextDueDate,
+      },
+    });
+  }
+
+  function updateMonthlyTasking(serviceName: string, monthValue: string) {
+    updateService(serviceName, {
+      firstPeriodStart: monthStartFromInput(monthValue),
+      firstPeriodEnd: monthEndFromInput(monthValue),
+      settings: {
+        ...(services[serviceName]?.settings || {}),
+        tasking_period_type: "month",
+        tasking_month: monthValue,
+      },
+    });
+  }
+
+  function updateAccountingTasking(
+    frequency: string,
+    monthValue?: string
+  ) {
+    const current = services["Accounting"];
+    const currentMonth =
+      monthValue !== undefined
+        ? monthValue
+        : monthInputValue(current?.firstPeriodStart || "");
+
+    const period = recurringPeriodFromMonth(currentMonth, frequency);
+
+    updateService("Accounting", {
+      frequency,
+      firstPeriodStart: period.start,
+      firstPeriodEnd: period.end,
+      settings: {
+        ...(current?.settings || {}),
+        tasking_period_type: "recurring_period",
+        tasking_month: currentMonth,
+        tasking_period_label: period.label,
+      },
+    });
+  }
+
+  function updatePayrollTasking(
+    frequency: string,
+    value?: string
+  ) {
+    const current = services["Payroll"];
+    const nextFrequency = frequency || current?.frequency || "Monthly";
+
+    if (nextFrequency === "Monthly") {
+      const monthValue =
+        value !== undefined
+          ? value
+          : monthInputValue(current?.firstPeriodStart || "");
+
+      updateService("Payroll", {
+        frequency: nextFrequency,
+        firstPeriodStart: monthStartFromInput(monthValue),
+        firstPeriodEnd: monthEndFromInput(monthValue),
+        settings: {
+          ...(current?.settings || {}),
+          tasking_period_type: "month",
+          tasking_month: monthValue,
+          tasking_period_label: monthValue,
+        },
+      });
+      return;
+    }
+
+    const dateValue =
+      value !== undefined
+        ? value
+        : current?.firstPeriodStart || "";
+
+    const period = payrollPeriodFromStart(dateValue, nextFrequency);
+
+    updateService("Payroll", {
+      frequency: nextFrequency,
+      firstPeriodStart: period.start,
+      firstPeriodEnd: period.end,
+      settings: {
+        ...(current?.settings || {}),
+        tasking_period_type:
+          nextFrequency === "Fortnightly" ? "fortnight" : "week",
+        tasking_period_label: period.label,
+      },
+    });
+  }
+
+  function updateVatCategory(serviceName: string, category: string) {
+    const current = services[serviceName];
+    updateService(serviceName, {
+      frequency: category === "C" ? "Monthly" : "Bi-monthly",
+      firstPeriodStart: "",
+      firstPeriodEnd: "",
+      settings: {
+        ...(current?.settings || {}),
+        vat_category: category,
+        tasking_period_type: "vat_period",
+        tasking_period_label: "",
+      },
+    });
+  }
+
+  function updateVatPeriod(serviceName: string, value: string) {
+    const [start, end] = value.split("|");
+    const category = String(services[serviceName]?.settings.vat_category || "");
+    const option = vatPeriodOptions(category).find((row) => row.value === value);
+
+    updateService(serviceName, {
+      firstPeriodStart: start || "",
+      firstPeriodEnd: end || "",
+      settings: {
+        ...(services[serviceName]?.settings || {}),
+        tasking_period_type: "vat_period",
+        tasking_period_label: option?.label || "",
+      },
+    });
+  }
+
+  function updateAnnualTasking(serviceName: string, yearValue: string) {
+    const year = Number(yearValue);
+    if (!year) return;
+
+    const financial = serviceName === "Financial Statements" || serviceName === "Income Tax";
+    const dates = financial
+      ? getFinancialYearDates(year, yearEnd)
+      : { start: `${year}-01-01`, end: `${year}-12-31` };
+
+    updateService(serviceName, {
+      firstPeriodStart: dates.start,
+      firstPeriodEnd: dates.end,
+      settings: {
+        ...(services[serviceName]?.settings || {}),
+        tasking_period_type: "year",
+        tasking_year: year,
+      },
+    });
+  }
+
+  function updateProvisionalTasking(yearValue: string, periodValue: string) {
+    const year = Number(yearValue);
+    const period = Number(periodValue);
+    if (!year || !period) return;
+
+    const fy = getFinancialYearDates(year, yearEnd);
+    const fyStart = new Date(`${fy.start}T12:00:00`);
+    const start = new Date(fyStart);
+    if (period === 2) start.setMonth(start.getMonth() + 6);
+    if (period === 3) start.setFullYear(start.getFullYear() + 1);
+
+    updateService("Provisional Tax", {
+      firstPeriodStart: start.toISOString().slice(0, 10),
+      firstPeriodEnd: fy.end,
+      settings: {
+        ...(services["Provisional Tax"]?.settings || {}),
+        tasking_period_type: "tax_period",
+        tasking_year: year,
+        provisional_period: period,
+      },
+    });
+  }
+
+  function updateEmp501Tasking(yearValue: string, cycleValue: string) {
+    const year = Number(yearValue);
+    if (!year || !cycleValue) return;
+
+    const payrollYear = getPayrollTaxYearDates(year);
+    const end = cycleValue === "interim" ? `${year - 1}-08-31` : payrollYear.end;
+
+    updateService("EMP501", {
+      firstPeriodStart: payrollYear.start,
+      firstPeriodEnd: end,
+      settings: {
+        ...(services.EMP501?.settings || {}),
+        tasking_period_type: "emp501_cycle",
+        tasking_year: year,
+        emp501_cycle: cycleValue,
+      },
+    });
+  }
+
   function copyPhysicalToPostal() {
     setPostal1(physical1);
     setPostal2(physical2);
@@ -456,13 +1556,53 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
     for (const [serviceName, service] of Object.entries(services)) {
       if (!service.selected) continue;
 
-      if (!service.firstPeriodStart) {
-        return `${serviceName}: first period start is required.`;
+      const registrationComplete = registrationServiceAlreadyComplete(
+        serviceName,
+        {
+          incomeTaxNumber,
+          vatNumber,
+          payeNumber,
+          uifNumber,
+          wccRefNr,
+          customsNumber,
+        }
+      );
+
+      if (registrationComplete) continue;
+
+      if (
+        !isManualService(serviceName, service) &&
+        !service.firstPeriodStart
+      ) {
+        return `${serviceName}: choose the first period PracticePilot must manage.`;
       }
 
 
       if (serviceName === "VAT201" && !service.settings.vat_category) {
         return "VAT201: select the VAT category.";
+      }
+
+      if (serviceName === "VAT201" && !service.firstPeriodStart) {
+        return "VAT201: choose the first VAT period PracticePilot must manage.";
+      }
+
+      if (
+        ["Financial Statements", "Income Tax", "CIPC Annual Return", "Beneficial Ownership Declaration", "Workmans Compensation"].includes(serviceName) &&
+        !service.settings.tasking_year
+      ) {
+        return `${serviceName}: choose the first year PracticePilot must manage.`;
+      }
+
+      if (serviceName === "Provisional Tax") {
+        if (!service.settings.tasking_year || !service.settings.provisional_period) {
+          return "Provisional Tax: choose the tax year and period PracticePilot starts with.";
+        }
+      }
+
+      if (serviceName === "EMP501") {
+        if (!service.settings.tasking_year || !service.settings.emp501_cycle) {
+          return "EMP501: choose the tax year and reconciliation cycle PracticePilot starts with.";
+        }
       }
     }
 
@@ -527,20 +1667,39 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         partnerUserId,
 
         services: Object.entries(services).map(
-          ([serviceName, service]) => ({
-            serviceName,
-            selected: service.selected,
-            frequency: service.frequency,
-            firstPeriodStart: service.firstPeriodStart || null,
-            firstPeriodEnd:
-              calculatePeriodEnd(
-                service.firstPeriodStart,
-                service.frequency,
-                serviceName,
-                service.settings
-              ) || null,
-            settings: service.settings,
-          })
+          ([serviceName, service]) => {
+            const registrationComplete = registrationServiceAlreadyComplete(
+              serviceName,
+              {
+                incomeTaxNumber,
+                vatNumber,
+                payeNumber,
+                uifNumber,
+                wccRefNr,
+                customsNumber,
+              }
+            );
+
+            return {
+              serviceName,
+              selected: registrationComplete ? false : service.selected,
+              frequency: service.frequency,
+              firstPeriodStart: registrationComplete
+                ? null
+                : service.firstPeriodStart || null,
+              firstPeriodEnd: registrationComplete
+                ? null
+                : service.firstPeriodEnd ||
+                  calculatePeriodEnd(
+                    service.firstPeriodStart,
+                    service.frequency,
+                    serviceName,
+                    service.settings
+                  ) ||
+                  null,
+              settings: service.settings,
+            };
+          }
         ),
       };
 
@@ -774,7 +1933,7 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
       )}
 
       <SectionHeader
-        title="Services and First Periods"
+        title="Services & Tasking Setup"
         open={activeSection === "services"}
         onClick={() =>
           setActiveSection(activeSection === "services" ? "" : "services")
@@ -783,86 +1942,445 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
 
       {activeSection === "services" && (
         <SectionBody>
-          <div style={serviceIntro}>
-            Tick only the services currently performed for this client. The
-            first period may be backdated. It becomes the starting point for
-            task generation.
-          </div>
-
-          <div style={serviceTableHeader}>
-            <div>Service</div>
-            <div>Frequency / Category</div>
-            <div>First Period</div>
-          </div>
-
-          {visibleServices.map((serviceName) => {
-            const service = services[serviceName] || {
-              selected: false,
-              frequency: defaultFrequency(serviceName),
-              firstPeriodStart: "",
-              firstPeriodEnd: "",
-              settings: {},
-            };
-
-            return (
-              <div key={serviceName} style={serviceRow}>
-                <label style={serviceCheckLabel}>
-                  <input
-                    type="checkbox"
-                    checked={service.selected}
-                    onChange={(event) =>
-                      updateService(serviceName, {
-                        selected: event.target.checked,
-                      })
-                    }
-                  />
-                  <span>{serviceName}</span>
-                </label>
-
-                <ServiceFrequency
-                  serviceName={serviceName}
-                  service={service}
-                  onFrequency={(value) =>
-                    updateService(serviceName, { frequency: value })
-                  }
-                  onSetting={(key, value) =>
-                    updateServiceSetting(serviceName, key, value)
-                  }
-                />
-
-                <div>
-                  <input
-                    type="date"
-                    style={inputStyle}
-                    disabled={!service.selected}
-                    value={service.firstPeriodStart}
-                    onChange={(event) =>
-                      updateService(serviceName, {
-                        firstPeriodStart: event.target.value,
-                        firstPeriodEnd: calculatePeriodEnd(
-                          event.target.value,
-                          service.frequency,
-                          serviceName,
-                          service.settings
-                        ),
-                      })
-                    }
-                  />
-                  {service.selected && service.firstPeriodStart && (
-                    <div style={periodHint}>
-                      Period ends {calculatePeriodEnd(
-                        service.firstPeriodStart,
-                        service.frequency,
-                        serviceName,
-                        service.settings
-                      )}
-                    </div>
-                  )}
-                </div>
+          <div style={taskingIntroBar}>
+            <div>
+              <div style={taskingIntroEyebrow}>Tasking setup</div>
+              <strong style={taskingIntroTitle}>
+                From which period must PracticePilot take responsibility?
+              </strong>
+              <div style={taskingIntroText}>
+                Choose the first period PP must manage for each active service.
+                The preview shows exactly what will be created before you save.
               </div>
-            );
-          })}
+            </div>
+            <div style={taskingIntroRule}>
+              First period in PP = first work PP must create
+            </div>
+          </div>
 
+          <div style={taskingWorkspace}>
+            <div style={taskingPlanner}>
+              {taskingGroups.map((group) => {
+                const groupServices = group.services.filter((serviceName) =>
+                  visibleServices.includes(serviceName)
+                );
+
+                return (
+                  <section key={group.key} style={taskingGroup}>
+                    <div style={taskingGroupHeader}>
+                      <div>
+                        <strong>{group.title}</strong>
+                        <span style={taskingGroupSubtitle}>{group.subtitle}</span>
+                      </div>
+                      <span style={taskingGroupCount}>
+                        {groupServices.filter((name) => {
+                          const service = services[name];
+                          if (!service?.selected) return false;
+
+                          return !registrationServiceAlreadyComplete(name, {
+                            incomeTaxNumber,
+                            vatNumber,
+                            payeNumber,
+                            uifNumber,
+                            wccRefNr,
+                            customsNumber,
+                          });
+                        }).length}/
+                        {groupServices.length} active
+                      </span>
+                    </div>
+
+                    <div style={taskingColumnHeader}>
+                      <div>Service</div>
+                      <div>Frequency / type</div>
+                      <div>PP starts with</div>
+                      <div>PP will create</div>
+                    </div>
+
+                    {groupServices.map((serviceName) => {
+                      const service = services[serviceName] || {
+                        selected: false,
+                        frequency: defaultFrequency(serviceName),
+                        firstPeriodStart: "",
+                        firstPeriodEnd: "",
+                        settings: {},
+                      };
+                      const serviceOption = serviceOptionByName.get(serviceName);
+                      const frequencyOptions = serviceFrequencyOptions(
+                        serviceName,
+                        serviceOption
+                      );
+                      const manualService = isManualService(serviceName, service);
+                      const registrationComplete = registrationServiceAlreadyComplete(
+                        serviceName,
+                        {
+                          incomeTaxNumber,
+                          vatNumber,
+                          payeNumber,
+                          uifNumber,
+                          wccRefNr,
+                          customsNumber,
+                        }
+                      );
+
+                      const taskingYear = String(service.settings.tasking_year || "");
+                      const provisionalPeriod = String(service.settings.provisional_period || "1");
+                      const emp501Cycle = String(service.settings.emp501_cycle || "interim");
+                      const vatCategory = String(service.settings.vat_category || "");
+                      const selectedVatValue =
+                        service.firstPeriodStart && service.firstPeriodEnd
+                          ? `${service.firstPeriodStart}|${service.firstPeriodEnd}`
+                          : "";
+
+                      return (
+                        <div
+                          key={serviceName}
+                          style={{
+                            ...taskingRow,
+                            ...(registrationComplete
+                              ? taskingRowRegistered
+                              : service.selected
+                                ? {}
+                                : taskingRowInactive),
+                          }}
+                        >
+                          <label style={taskingServiceCell}>
+                            <input
+                              type="checkbox"
+                              checked={registrationComplete ? false : service.selected}
+                              disabled={registrationComplete}
+                              onChange={(event) =>
+                                updateService(serviceName, {
+                                  selected: event.target.checked,
+                                })
+                              }
+                            />
+                            <ServiceIcon serviceName={serviceName} size={22} />
+                            <span>{serviceName}</span>
+                            {registrationComplete ? (
+                              <span style={taskingRegisteredBadge}>Already registered</span>
+                            ) : null}
+                          </label>
+
+                          <div style={taskingTypeCell}>
+                            {serviceName === "Accounting" ? (
+                              <select
+                                style={taskingCompactSelect}
+                                disabled={!service.selected}
+                                value={service.frequency || "Monthly"}
+                                onChange={(event) =>
+                                  updateAccountingTasking(event.target.value)
+                                }
+                              >
+                                {ACCOUNTING_FREQUENCIES.map((frequency) => (
+                                  <option key={frequency} value={frequency}>
+                                    {frequency}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : serviceName === "Payroll" ? (
+                              <select
+                                style={taskingCompactSelect}
+                                disabled={!service.selected}
+                                value={service.frequency || "Monthly"}
+                                onChange={(event) =>
+                                  updatePayrollTasking(event.target.value)
+                                }
+                              >
+                                {PAYROLL_FREQUENCIES.map((frequency) => (
+                                  <option key={frequency} value={frequency}>
+                                    {frequency}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : serviceName === "VAT201" ? (
+                              <select
+                                style={taskingCompactSelect}
+                                disabled={!service.selected}
+                                value={vatCategory}
+                                onChange={(event) =>
+                                  updateVatCategory(serviceName, event.target.value)
+                                }
+                              >
+                                <option value="">Choose category</option>
+                                <option value="A">A · 2-monthly · odd month end</option>
+                                <option value="B">B · 2-monthly · even month end</option>
+                                <option value="C">C · monthly</option>
+                              </select>
+                            ) : ["EMP201", "EMP501", "Provisional Tax", "Financial Statements", "Income Tax", "CIPC Annual Return", "Beneficial Ownership Declaration", "Workmans Compensation", "WCA Letter of Good Standing"].includes(serviceName) ? (
+                              <span style={taskingTypeBadge}>
+                                {getTaskingTypeLabel(serviceName, service)}
+                              </span>
+                            ) : (
+                              <select
+                                style={taskingCompactSelect}
+                                disabled={!service.selected}
+                                value={service.frequency || defaultFrequency(serviceName)}
+                                onChange={(event) => {
+                                  const nextFrequency = event.target.value;
+                                  updateService(serviceName, {
+                                    frequency: nextFrequency,
+                                    firstPeriodStart:
+                                      nextFrequency === "Once-off" || nextFrequency === "Ad hoc"
+                                        ? ""
+                                        : service.firstPeriodStart,
+                                    firstPeriodEnd:
+                                      nextFrequency === "Once-off" || nextFrequency === "Ad hoc"
+                                        ? ""
+                                        : service.firstPeriodEnd,
+                                    settings: {
+                                      ...(service.settings || {}),
+                                      tasking_mode:
+                                        nextFrequency === "Once-off" || nextFrequency === "Ad hoc"
+                                          ? "manual"
+                                          : "auto",
+                                    },
+                                  });
+                                }}
+                              >
+                                {frequencyOptions.map((frequency) => (
+                                  <option key={frequency} value={frequency}>
+                                    {frequency}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+
+                          <div style={taskingStartCell}>
+                            {serviceName === "Payroll" &&
+                            service.frequency !== "Monthly" ? (
+                              <input
+                                type="date"
+                                style={taskingCompactInput}
+                                disabled={!service.selected}
+                                value={service.firstPeriodStart || ""}
+                                onChange={(event) =>
+                                  updatePayrollTasking(
+                                    service.frequency || "Weekly",
+                                    event.target.value
+                                  )
+                                }
+                              />
+                            ) : manualService ? (
+                              <span style={taskingTypeBadge}>No recurring tasking</span>
+                            ) : ["Accounting", "Payroll", "EMP201", "Management Reports"].includes(serviceName) ||
+                              MONTH_BASED_FREQUENCIES.has(service.frequency) ? (
+                              <input
+                                type="month"
+                                style={taskingCompactInput}
+                                disabled={!service.selected}
+                                value={monthInputValue(service.firstPeriodStart)}
+                                onChange={(event) =>
+                                  serviceName === "Accounting"
+                                    ? updateAccountingTasking(
+                                        service.frequency || "Monthly",
+                                        event.target.value
+                                      )
+                                    : serviceName === "Payroll"
+                                      ? updatePayrollTasking(
+                                          service.frequency || "Monthly",
+                                          event.target.value
+                                        )
+                                      : updateMonthlyTasking(
+                                          serviceName,
+                                          event.target.value
+                                        )
+                                }
+                              />
+                            ) : serviceName === "VAT201" ? (
+                              <select
+                                style={taskingCompactSelect}
+                                disabled={!service.selected || !vatCategory}
+                                value={selectedVatValue}
+                                onChange={(event) =>
+                                  updateVatPeriod(serviceName, event.target.value)
+                                }
+                              >
+                                <option value="">Choose first VAT period</option>
+                                {vatPeriodOptions(vatCategory).map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : serviceName === "Provisional Tax" ? (
+                              <div style={taskingInlineControls}>
+                                <select
+                                  style={taskingCompactSelect}
+                                  disabled={!service.selected}
+                                  value={taskingYear}
+                                  onChange={(event) =>
+                                    updateProvisionalTasking(
+                                      event.target.value,
+                                      provisionalPeriod
+                                    )
+                                  }
+                                >
+                                  <option value="">Tax year</option>
+                                  {buildYearOptions().map((year) => (
+                                    <option key={year} value={year}>{year}</option>
+                                  ))}
+                                </select>
+                                <select
+                                  style={taskingCompactSelect}
+                                  disabled={!service.selected}
+                                  value={provisionalPeriod}
+                                  onChange={(event) =>
+                                    updateProvisionalTasking(taskingYear, event.target.value)
+                                  }
+                                >
+                                  <option value="1">Period 1</option>
+                                  <option value="2">Period 2</option>
+                                  <option value="3">Period 3</option>
+                                </select>
+                              </div>
+                            ) : serviceName === "EMP501" ? (
+                              <div style={taskingInlineControls}>
+                                <select
+                                  style={taskingCompactSelect}
+                                  disabled={!service.selected}
+                                  value={taskingYear}
+                                  onChange={(event) =>
+                                    updateEmp501Tasking(event.target.value, emp501Cycle)
+                                  }
+                                >
+                                  <option value="">Tax year</option>
+                                  {buildYearOptions().map((year) => (
+                                    <option key={year} value={year}>{year}</option>
+                                  ))}
+                                </select>
+                                <select
+                                  style={taskingCompactSelect}
+                                  disabled={!service.selected}
+                                  value={emp501Cycle}
+                                  onChange={(event) =>
+                                    updateEmp501Tasking(taskingYear, event.target.value)
+                                  }
+                                >
+                                  <option value="interim">Interim</option>
+                                  <option value="annual">Annual</option>
+                                </select>
+                              </div>
+                            ) : ["Weekly", "Fortnightly"].includes(service.frequency) ? (
+                              <input
+                                type="date"
+                                style={taskingCompactInput}
+                                disabled={!service.selected}
+                                value={service.firstPeriodStart || ""}
+                                onChange={(event) => {
+                                  const period = payrollPeriodFromStart(
+                                    event.target.value,
+                                    service.frequency
+                                  );
+                                  updateService(serviceName, {
+                                    firstPeriodStart: period.start,
+                                    firstPeriodEnd: period.end,
+                                    settings: {
+                                      ...(service.settings || {}),
+                                      tasking_period_type:
+                                        service.frequency === "Fortnightly"
+                                          ? "fortnight"
+                                          : "week",
+                                      tasking_period_label: period.label,
+                                    },
+                                  });
+                                }}
+                              />
+                            ) : (
+                              <select
+                                style={taskingCompactSelect}
+                                disabled={!service.selected}
+                                value={taskingYear}
+                                onChange={(event) =>
+                                  updateAnnualTasking(serviceName, event.target.value)
+                                }
+                              >
+                                <option value="">Choose year</option>
+                                {buildYearOptions().map((year) => (
+                                  <option key={year} value={year}>{year}</option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+
+                          <div style={taskingPreviewCell}>
+                            {service.selected
+  ? getTaskPreviewLabel(serviceName, service)
+  : "Not active"}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {group.title === "VAT" ? (
+                      <div style={vatGuideBar}>
+                        <strong>VAT categories:</strong>
+                        <span>A · 2-monthly, periods end Jan/Mar/May/Jul/Sep/Nov</span>
+                        <span>B · 2-monthly, periods end Feb/Apr/Jun/Aug/Oct/Dec</span>
+                        <span>C · Monthly</span>
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
+            </div>
+
+            <aside style={taskingLivePreview}>
+              <div style={taskingPreviewHeader}>
+                <div>
+                  <div style={taskingPreviewEyebrow}>Onboarding timeline</div>
+                  <strong>Upcoming work from your starting periods</strong>
+                </div>
+                <span style={taskingLiveBadge}>Live preview</span>
+              </div>
+
+              <div style={taskingTimelineList}>
+                {onboardingTimeline.map((item, index) => (
+                  <div key={item.serviceName} style={taskingTimelineItem}>
+                    <div style={taskingTimelineDate}>{item.dateLabel}</div>
+
+                    <div style={taskingTimelineRail}>
+                      <div
+                        style={{
+                          ...taskingTimelineLine,
+                          top: index === 0 ? "50%" : 0,
+                          bottom:
+                            index === onboardingTimeline.length - 1
+                              ? "50%"
+                              : 0,
+                        }}
+                      />
+                      <div style={taskingTimelineIconWrap}>
+                        <ServiceIcon serviceName={item.serviceName} size={24} />
+                      </div>
+                    </div>
+
+                    <div style={taskingTimelineContent}>
+                      <strong style={taskingPreviewItemTitle}>
+                        {item.title}
+                      </strong>
+                      <div style={taskingPreviewItemText}>
+                        {item.detail}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {onboardingTimeline.length === 0 ? (
+                  <div style={taskingPreviewEmpty}>
+                    Select a service and starting period. The onboarding timeline
+                    builds here immediately.
+                  </div>
+                ) : null}
+              </div>
+
+              <div style={taskingPreviewFoot}>
+                <strong>Live preview only.</strong>
+                <span>The timeline updates as you choose services and periods. Tasks are created only when you save.</span>
+              </div>
+            </aside>
+          </div>
         </SectionBody>
       )}
 
@@ -1111,14 +2629,14 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
             />
 
             <UserSelect
-              label="Manager"
+              label="Default Work Owner"
               value={managerUserId}
               setValue={setManagerUserId}
               users={users}
             />
 
             <UserSelect
-              label="Partner"
+              label="Reviewer"
               value={partnerUserId}
               setValue={setPartnerUserId}
               users={users}
@@ -1163,76 +2681,6 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
   );
 }
 
-function ServiceFrequency({
-  serviceName,
-  service,
-  onFrequency,
-  onSetting,
-}: {
-  serviceName: string;
-  service: ServiceState;
-  onFrequency: (value: string) => void;
-  onSetting: (key: string, value: unknown) => void;
-}) {
-  if (serviceName === "VAT201") {
-    return (
-      <select
-        style={inputStyle}
-        disabled={!service.selected}
-        value={String(service.settings.vat_category || "")}
-        onChange={(event) => {
-          const category = event.target.value;
-          onSetting("vat_category", category);
-          onFrequency(category === "C" ? "Monthly" : "Bi-monthly");
-        }}
-      >
-        <option value="">Select VAT Category...</option>
-        <option value="A">Category A</option>
-        <option value="B">Category B</option>
-        <option value="C">Category C</option>
-      </select>
-    );
-  }
-
-  if (serviceName === "Accounting") {
-    return (
-      <select
-        style={inputStyle}
-        disabled={!service.selected}
-        value={service.frequency}
-        onChange={(event) => onFrequency(event.target.value)}
-      >
-        <option value="Monthly">Monthly</option>
-        <option value="Bi-monthly">Bi-monthly</option>
-        <option value="Yearly / Ad Hoc">Yearly / Ad Hoc</option>
-      </select>
-    );
-  }
-
-  if (serviceName === "Payroll") {
-    return (
-      <select
-        style={inputStyle}
-        disabled={!service.selected}
-        value={service.frequency}
-        onChange={(event) => onFrequency(event.target.value)}
-      >
-        <option value="Monthly">Monthly</option>
-        <option value="Weekly">Weekly</option>
-        <option value="Every 2 weeks">Every 2 weeks</option>
-      </select>
-    );
-  }
-
-  return (
-    <input
-      style={inputStyle}
-      disabled
-      value={service.frequency}
-      onChange={() => undefined}
-    />
-  );
-}
 
 function SectionHeader({
   title,
@@ -1427,6 +2875,323 @@ const grid5: React.CSSProperties = {
   marginBottom: "12px",
 };
 
+const taskingIntroBar: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "18px",
+  padding: "12px 14px",
+  marginBottom: "12px",
+  borderTop: "1px solid #b9cad6",
+  borderBottom: "1px solid #b9cad6",
+  background: "#f4f8fa",
+};
+
+const taskingIntroEyebrow: React.CSSProperties = {
+  marginBottom: "4px",
+  color: "#0f6f86",
+  fontSize: "10px",
+  fontWeight: 800,
+  letterSpacing: 0,
+};
+
+const taskingIntroTitle: React.CSSProperties = {
+  display: "block",
+  color: "#10233a",
+  fontSize: "14px",
+};
+
+const taskingIntroText: React.CSSProperties = {
+  marginTop: "3px",
+  color: "#5a6d7d",
+  fontSize: "11px",
+};
+
+const taskingIntroRule: React.CSSProperties = {
+  flex: "0 0 auto",
+  paddingLeft: "16px",
+  borderLeft: "1px solid #cbd7df",
+  color: "#486171",
+  fontSize: "10px",
+  fontWeight: 800,
+};
+
+const taskingWorkspace: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) 310px",
+  gap: "14px",
+  alignItems: "start",
+};
+
+const taskingPlanner: React.CSSProperties = {
+  minWidth: 0,
+};
+
+const taskingGroup: React.CSSProperties = {
+  marginBottom: "12px",
+  border: "1px solid #cfd9e1",
+  background: "#ffffff",
+};
+
+const taskingGroupHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  padding: "8px 10px",
+  borderBottom: "1px solid #cfd9e1",
+  background: "#eef3f6",
+  color: "#10233a",
+  fontSize: "12px",
+};
+
+const taskingGroupSubtitle: React.CSSProperties = {
+  marginLeft: "8px",
+  color: "#748492",
+  fontSize: "9px",
+  fontWeight: 600,
+};
+
+const taskingGroupCount: React.CSSProperties = {
+  color: "#5c6c79",
+  fontSize: "9px",
+  fontWeight: 800,
+};
+
+const taskingColumnHeader: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1.35fr 1fr 1.35fr 1.35fr",
+  gap: "8px",
+  padding: "7px 9px",
+  background: "#10233a",
+  color: "#ffffff",
+  fontSize: "10px",
+  fontWeight: 800,
+  letterSpacing: 0,
+};
+
+const taskingRow: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1.35fr 1fr 1.35fr 1.35fr",
+  gap: "8px",
+  alignItems: "center",
+  minHeight: "42px",
+  padding: "6px 9px",
+  borderBottom: "1px solid #e0e7ec",
+  fontSize: "11px",
+};
+
+const taskingRowInactive: React.CSSProperties = {
+  background: "#fafbfc",
+  color: "#8996a1",
+};
+
+const taskingServiceCell: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "7px",
+  minWidth: 0,
+  fontWeight: 850,
+  color: "inherit",
+};
+
+const taskingTypeCell: React.CSSProperties = {
+  minWidth: 0,
+};
+
+const taskingRowRegistered: React.CSSProperties = {
+  background: "#f4faf6",
+  color: "#64776b",
+};
+
+const taskingRegisteredBadge: React.CSSProperties = {
+  marginLeft: "4px",
+  padding: "2px 5px",
+  border: "1px solid #abd9bb",
+  background: "#eef9f2",
+  color: "#2f7b4d",
+  fontSize: "8px",
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+};
+
+const taskingTypeBadge: React.CSSProperties = {
+  display: "inline-block",
+  padding: "3px 6px",
+  border: "1px solid #d8e0e6",
+  background: "#f4f6f8",
+  color: "#5b6976",
+  fontSize: "9px",
+  fontWeight: 800,
+};
+
+const taskingStartCell: React.CSSProperties = {
+  minWidth: 0,
+};
+
+const taskingCompactInput: React.CSSProperties = {
+  width: "100%",
+  minHeight: "31px",
+  border: "1px solid #cbd5df",
+  borderRadius: 0,
+  background: "#ffffff",
+  color: "#10233a",
+  padding: "5px 7px",
+  fontSize: "11px",
+  fontWeight: 750,
+  boxSizing: "border-box",
+};
+
+const taskingCompactSelect: React.CSSProperties = {
+  ...taskingCompactInput,
+};
+
+const taskingInlineControls: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "5px",
+};
+
+const taskingPreviewCell: React.CSSProperties = {
+  color: "#324b5d",
+  fontSize: "10px",
+  fontWeight: 750,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+const vatGuideBar: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "5px 12px",
+  padding: "7px 9px",
+  borderTop: "1px solid #dbe5ea",
+  background: "#f2f8f8",
+  color: "#45606c",
+  fontSize: "9px",
+  lineHeight: 1.45,
+};
+
+const taskingLivePreview: React.CSSProperties = {
+  position: "sticky",
+  top: "12px",
+  border: "1px solid #cfd9e1",
+  background: "#ffffff",
+};
+
+const taskingPreviewHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "10px",
+  padding: "10px 11px",
+  borderBottom: "1px solid #d7e0e6",
+  color: "#10233a",
+  fontSize: "12px",
+};
+
+const taskingPreviewEyebrow: React.CSSProperties = {
+  marginBottom: "3px",
+  color: "#687b89",
+  fontSize: "10px",
+  fontWeight: 800,
+  letterSpacing: 0,
+};
+
+const taskingLiveBadge: React.CSSProperties = {
+  padding: "3px 6px",
+  border: "1px solid #a9c6b4",
+  background: "#eef6f1",
+  color: "#3d7652",
+  fontSize: "9px",
+  fontWeight: 800,
+};
+
+const taskingTimelineList: React.CSSProperties = {
+  padding: "6px 10px 10px",
+};
+
+const taskingTimelineItem: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "62px 34px minmax(0, 1fr)",
+  gap: "5px",
+  minHeight: "54px",
+  alignItems: "stretch",
+};
+
+const taskingTimelineDate: React.CSSProperties = {
+  paddingTop: "17px",
+  color: "#607486",
+  fontSize: "9px",
+  fontWeight: 800,
+  textAlign: "right",
+  whiteSpace: "nowrap",
+};
+
+const taskingTimelineRail: React.CSSProperties = {
+  position: "relative",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: "54px",
+};
+
+const taskingTimelineLine: React.CSSProperties = {
+  position: "absolute",
+  left: "50%",
+  width: "1px",
+  transform: "translateX(-50%)",
+  background: "#cbd8e1",
+};
+
+const taskingTimelineIconWrap: React.CSSProperties = {
+  position: "relative",
+  zIndex: 1,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "3px 0",
+  background: "#ffffff",
+};
+
+const taskingTimelineContent: React.CSSProperties = {
+  alignSelf: "center",
+  minWidth: 0,
+  padding: "8px 0 9px 3px",
+  borderBottom: "1px solid #e4eaee",
+};
+
+const taskingPreviewItemTitle: React.CSSProperties = {
+  display: "block",
+  color: "#10233a",
+  fontSize: "10px",
+};
+
+const taskingPreviewItemText: React.CSSProperties = {
+  marginTop: "2px",
+  color: "#657784",
+  fontSize: "9px",
+  lineHeight: 1.35,
+};
+
+const taskingPreviewEmpty: React.CSSProperties = {
+  padding: "18px 4px",
+  color: "#7b8994",
+  fontSize: "10px",
+  lineHeight: 1.5,
+};
+
+const taskingPreviewFoot: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "3px",
+  padding: "9px 10px",
+  borderTop: "1px solid #d7e0e6",
+  background: "#f7f9fa",
+  color: "#667783",
+  fontSize: "9px",
+};
+
 const serviceIntro: React.CSSProperties = {
   padding: "10px 12px",
   marginBottom: "10px",
@@ -1434,6 +3199,41 @@ const serviceIntro: React.CSSProperties = {
   background: "#edf8fa",
   fontSize: "13px",
   color: "#405568",
+};
+
+const taskingFieldLabel: React.CSSProperties = {
+  marginBottom: 5,
+  color: "#536273",
+  fontSize: 10,
+  fontWeight: 800,
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+};
+
+const vatPreview: React.CSSProperties = {
+  marginTop: 6,
+  padding: "7px 9px",
+  borderLeft: "3px solid #0f7c82",
+  background: "#eef8f8",
+  color: "#17394a",
+  fontSize: 11,
+  lineHeight: 1.5,
+};
+
+const vatDue: React.CSSProperties = {
+  marginLeft: 12,
+  fontWeight: 800,
+};
+
+const vatWarning: React.CSSProperties = {
+  marginTop: 6,
+  padding: "7px 9px",
+  borderLeft: "3px solid #b7791f",
+  background: "#fff8e8",
+  color: "#7a4b00",
+  fontSize: 11,
+  fontWeight: 700,
+  lineHeight: 1.45,
 };
 
 const serviceTableHeader: React.CSSProperties = {

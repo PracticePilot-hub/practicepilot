@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -27,6 +33,16 @@ export default function AppShell({
     useState<string | null>(null);
 
   /*
+   * Tracks whether this mounted AppShell has completed its first billing check.
+   *
+   * Important:
+   * Internal route changes must NOT reset the whole application to a
+   * "Checking account access..." screen.
+   */
+  const initialBillingCheckComplete = useRef(false);
+  const billingCheckInFlight = useRef(false);
+
+  /*
    * PUBLIC WEBSITE ROUTES
    *
    * These routes must never run through PracticePilot's authenticated
@@ -51,31 +67,31 @@ export default function AppShell({
     pathname.startsWith("/billing/") ||
     pathname.startsWith("/legal/");
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadBillingState = useCallback(
+    async (showFullPageLoader: boolean) => {
+      if (billingCheckInFlight.current) return;
 
-    async function loadBillingState() {
       if (!supabase || isPublicPage || isDocumentExport) {
-        if (!cancelled) {
-          setBillingSuspended(false);
-          setBillingSuspensionReason(null);
-          setBillingCheckLoading(false);
-        }
+        setBillingSuspended(false);
+        setBillingSuspensionReason(null);
+        setBillingCheckLoading(false);
+        initialBillingCheckComplete.current = true;
         return;
       }
 
-      try {
-        setBillingCheckLoading(true);
+      billingCheckInFlight.current = true;
 
+      if (showFullPageLoader && !initialBillingCheckComplete.current) {
+        setBillingCheckLoading(true);
+      }
+
+      try {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token || "";
 
         if (!token) {
-          if (!cancelled) {
-            setBillingSuspended(false);
-            setBillingSuspensionReason(null);
-            setBillingCheckLoading(false);
-          }
+          setBillingSuspended(false);
+          setBillingSuspensionReason(null);
           return;
         }
 
@@ -92,32 +108,75 @@ export default function AppShell({
           throw new Error(json.error || "Could not check billing access.");
         }
 
-        if (!cancelled) {
-          setBillingSuspended(
-            Boolean(json.billing_access_suspended)
-          );
-          setBillingSuspensionReason(
-            json.billing_suspension_reason || null
-          );
-          setBillingCheckLoading(false);
-        }
+        setBillingSuspended(Boolean(json.billing_access_suspended));
+        setBillingSuspensionReason(
+          json.billing_suspension_reason || null
+        );
       } catch (error) {
         console.error("APP SHELL BILLING CHECK ERROR:", error);
 
-        if (!cancelled) {
-          setBillingSuspended(false);
-          setBillingSuspensionReason(null);
-          setBillingCheckLoading(false);
-        }
+        /*
+         * A temporary billing-check failure must not lock a valid user out.
+         * Keep the last known state where possible.
+         */
+      } finally {
+        initialBillingCheckComplete.current = true;
+        billingCheckInFlight.current = false;
+        setBillingCheckLoading(false);
       }
-    }
+    },
+    [isPublicPage, isDocumentExport]
+  );
 
-    loadBillingState();
+  /*
+   * Run the blocking billing check only when entering/leaving the authenticated
+   * application boundary.
+   *
+   * Deliberately DO NOT depend on `pathname`.
+   * Overview -> People -> Services -> Tasking Setup is an internal navigation
+   * change and must not blank the application while billing is checked again.
+   */
+  useEffect(() => {
+    void loadBillingState(!initialBillingCheckComplete.current);
+  }, [loadBillingState]);
+
+  /*
+   * Keep billing protection current without flashing the application.
+   *
+   * - Re-check silently when the browser/tab regains focus.
+   * - Re-check silently after an auth event such as sign-in or token refresh.
+   */
+  useEffect(() => {
+    if (!supabase || isPublicPage || isDocumentExport) return;
+
+    const handleFocus = () => {
+      void loadBillingState(false);
+    };
+
+    window.addEventListener("focus", handleFocus);
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (
+        event === "SIGNED_IN" ||
+        event === "TOKEN_REFRESHED" ||
+        event === "USER_UPDATED"
+      ) {
+        void loadBillingState(false);
+      }
+
+      if (event === "SIGNED_OUT") {
+        setBillingSuspended(false);
+        setBillingSuspensionReason(null);
+      }
+    });
 
     return () => {
-      cancelled = true;
+      window.removeEventListener("focus", handleFocus);
+      subscription.unsubscribe();
     };
-  }, [pathname, isPublicPage, isDocumentExport]);
+  }, [isPublicPage, isDocumentExport, loadBillingState]);
 
   const shouldBlockPaidModules =
     billingSuspended &&
@@ -130,6 +189,7 @@ export default function AppShell({
       {!isPublicPage && !isDocumentExport && <TopNav />}
 
       {billingCheckLoading &&
+      !initialBillingCheckComplete.current &&
       !isPublicPage &&
       !isDocumentExport ? (
         <main style={s.loadingPage}>
@@ -138,7 +198,7 @@ export default function AppShell({
       ) : shouldBlockPaidModules ? (
         <main style={s.blockedPage}>
           <section style={s.blockedPanel}>
-            <div style={s.blockedEyebrow}>ACCOUNT BILLING</div>
+            <div style={s.blockedEyebrow}>Account billing</div>
 
             <h1 style={s.blockedTitle}>
               PracticePilot access temporarily suspended

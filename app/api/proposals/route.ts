@@ -1,16 +1,80 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+type UserProfile = {
+  id: string;
+  user_id: string;
+  email: string;
+  role: string;
+  organisation_id: string | null;
+  access_enabled: boolean;
+};
+
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error("Missing Supabase admin environment variables.");
   }
 
-  return createClient(supabaseUrl, serviceRoleKey);
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+function getBearerToken(request: Request) {
+  const authHeader = request.headers.get("authorization") || "";
+  return authHeader.replace(/^Bearer\s+/i, "").trim();
+}
+
+async function getCurrentProfile(
+  request: Request,
+  supabase: ReturnType<typeof getSupabaseAdmin>
+) {
+  const token = getBearerToken(request);
+
+  if (!token) {
+    throw new Error("Not authenticated.");
+  }
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser(token);
+
+  if (userError || !user) {
+    throw new Error("Not authenticated.");
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .select(`
+      id,
+      user_id,
+      email,
+      role,
+      organisation_id,
+      access_enabled
+    `)
+    .eq("user_id", user.id)
+    .single();
+
+  if (profileError || !profile) {
+    throw new Error("Could not load user profile.");
+  }
+
+  if (!profile.access_enabled) {
+    throw new Error("User access is blocked.");
+  }
+
+  return profile as UserProfile;
 }
 
 function normaliseMoney(value: unknown) {
@@ -39,6 +103,135 @@ function makeProposalNumber() {
   ].join("");
 
   return `PP-${datePart}-${timePart}`;
+}
+
+async function duplicateProposal(
+  proposalId: string,
+  organisationId: string,
+  supabase: ReturnType<typeof getSupabaseAdmin>
+) {
+  const { data: original, error: originalError } = await supabase
+    .from("proposals")
+    .select(`
+      id,
+      organisation_id,
+      prospect_registration_number,
+      package_code,
+      package_name,
+      package_description,
+      package_monthly_fee,
+      fee_is_exclusive_vat,
+      monthly_fee,
+      annual_fee,
+      once_off_fee,
+      offer_annual_prepayment,
+      annual_prepayment_months,
+      normal_annual_fee,
+      annual_prepayment_fee,
+      annual_prepayment_saving,
+      introduction,
+      notes
+    `)
+    .eq("id", proposalId)
+    .single();
+
+  if (originalError) throw originalError;
+
+  const { data: originalServices, error: servicesError } = await supabase
+    .from("proposal_services")
+    .select(`
+      service_code,
+      category,
+      service_name,
+      description,
+      fee_type,
+      amount,
+      included_in_package,
+      scope_quantity,
+      scope_unit,
+      client_facing_note,
+      sort_order
+    `)
+    .eq("proposal_id", proposalId)
+    .order("sort_order", { ascending: true });
+
+  if (servicesError) throw servicesError;
+
+  const proposalDate = new Date();
+  const validUntil = new Date(proposalDate);
+  validUntil.setDate(validUntil.getDate() + 14);
+
+  const proposalNumber = makeProposalNumber();
+
+  const { data: duplicate, error: duplicateError } = await supabase
+    .from("proposals")
+    .insert({
+      proposal_number: proposalNumber,
+      organisation_id: original.organisation_id || organisationId,
+      client_id: null,
+      client_name: "New Prospective Client",
+      contact_name: null,
+      contact_email: null,
+      prospect_company_name: "New Prospective Client",
+      prospect_registration_number: original.prospect_registration_number || null,
+      prospect_contact_name: null,
+      prospect_contact_email: null,
+      prospect_contact_number: null,
+      package_code: original.package_code || "custom",
+      package_name: original.package_name || "Custom Package",
+      package_description: original.package_description || null,
+      package_monthly_fee: normaliseMoney(original.package_monthly_fee),
+      fee_is_exclusive_vat: original.fee_is_exclusive_vat !== false,
+      status: "Draft",
+      proposal_date: proposalDate.toISOString().slice(0, 10),
+      valid_until: validUntil.toISOString().slice(0, 10),
+      monthly_fee: normaliseMoney(original.monthly_fee),
+      annual_fee: normaliseMoney(original.annual_fee),
+      once_off_fee: normaliseMoney(original.once_off_fee),
+      offer_annual_prepayment: Boolean(original.offer_annual_prepayment),
+      annual_prepayment_months: original.annual_prepayment_months,
+      normal_annual_fee: original.normal_annual_fee,
+      annual_prepayment_fee: original.annual_prepayment_fee,
+      annual_prepayment_saving: original.annual_prepayment_saving,
+      introduction: original.introduction || null,
+      notes: original.notes || null,
+    })
+    .select("id, proposal_number")
+    .single();
+
+  if (duplicateError) throw duplicateError;
+
+  const serviceRows = (originalServices || []).map((service: any) => ({
+    proposal_id: duplicate.id,
+    service_code: service.service_code || null,
+    category: service.category || "Other Services",
+    service_name: service.service_name || "Service",
+    description: service.description || null,
+    fee_type: service.fee_type || "Monthly",
+    amount: normaliseMoney(service.amount),
+    included_in_package: service.included_in_package !== false,
+    scope_quantity: service.scope_quantity,
+    scope_unit: service.scope_unit || null,
+    client_facing_note: service.client_facing_note || null,
+    sort_order: service.sort_order ?? 0,
+  }));
+
+  if (serviceRows.length > 0) {
+    const { error: copiedServicesError } = await supabase
+      .from("proposal_services")
+      .insert(serviceRows);
+
+    if (copiedServicesError) {
+      await supabase.from("proposals").delete().eq("id", duplicate.id);
+      throw copiedServicesError;
+    }
+  }
+
+  return {
+    success: true,
+    proposal_id: duplicate.id,
+    proposal_number: duplicate.proposal_number,
+  };
 }
 
 export async function GET() {
@@ -88,11 +281,47 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const supabase = getSupabaseAdmin();
+    const profile = await getCurrentProfile(req, supabase);
+
+    if (!profile.organisation_id) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Your user profile is not linked to an organisation.",
+        },
+        { status: 400 }
+      );
+    }
+
     const body = await req.json();
+
+    if (body?.action === "duplicate") {
+      const proposalId = String(body?.proposalId || "").trim();
+
+      if (!proposalId) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Proposal ID is required.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const result = await duplicateProposal(
+        proposalId,
+        profile.organisation_id,
+        supabase
+      );
+
+      return NextResponse.json(result);
+    }
 
     const {
       clientId,
       clientName,
+      registrationNumber,
       contactName,
       contactEmail,
       contactNumber,
@@ -103,9 +332,6 @@ export async function POST(req: Request) {
       packageMonthlyFee,
       offerAnnualPrepayment,
       annualPrepaymentMonths,
-      normalAnnualFee,
-      annualPrepaymentFee,
-      annualPrepaymentSaving,
       services,
       introduction,
       notes,
@@ -193,18 +419,20 @@ export async function POST(req: Request) {
       }
     );
 
-    const supabase = getSupabaseAdmin();
     const proposalNumber = makeProposalNumber();
 
     const { data: proposal, error: proposalError } = await supabase
       .from("proposals")
       .insert({
         proposal_number: proposalNumber,
+        organisation_id: profile.organisation_id,
         client_id: clientId || null,
         client_name: clientName,
         contact_name: contactName || null,
         contact_email: contactEmail || null,
         prospect_company_name: clientName,
+        prospect_registration_number:
+          String(registrationNumber || "").trim() || null,
         prospect_contact_name: contactName || null,
         prospect_contact_email: contactEmail || null,
         prospect_contact_number: contactNumber || null,
@@ -279,12 +507,18 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("SAVE PROPOSAL ERROR:", error);
 
+    const message = error?.message || "Unable to save proposal.";
+    const status =
+      message === "Not authenticated." ? 401 :
+      message === "Could not load user profile." || message === "User access is blocked." ? 403 :
+      500;
+
     return NextResponse.json(
       {
         success: false,
-        error: error?.message || "Unable to save proposal.",
+        error: message,
       },
-      { status: 500 }
+      { status }
     );
   }
 }
