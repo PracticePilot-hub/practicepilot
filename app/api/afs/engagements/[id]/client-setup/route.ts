@@ -173,6 +173,7 @@ export async function PATCH(req: NextRequest, context: any) {
 
       basis_of_preparation: clean(body.basis_of_preparation) || "IFRS for SMEs",
       type_of_engagement: clean(body.type_of_engagement) || "Compilation",
+      type_of_trust: clean(body.type_of_trust),
       report_required:
         clean(body.report_required) || "Practitioner compilation report",
       industry: clean(body.industry),

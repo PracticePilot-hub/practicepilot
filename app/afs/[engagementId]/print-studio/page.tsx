@@ -677,6 +677,19 @@ function isDirectorLike(person: PersonData) {
   );
 }
 
+function isBeneficiaryLike(person: PersonData) {
+  const role = String(
+    person.role ||
+      person.type ||
+      person.designation ||
+      person.capacity ||
+      person.person_type ||
+      ""
+  ).toLowerCase();
+
+  return role.includes("beneficiary");
+}
+
 function roleLabel(entityType: string) {
   const lower = entityType.toLowerCase();
   if (lower.includes("trust")) return "Trustees";
@@ -711,6 +724,91 @@ function governingBody(entityType: string) {
     return "members";
   }
   return "directors";
+}
+
+
+function renderBeneficiariesInfoRow(
+  label: string,
+  beneficiaries: PersonData[],
+) {
+  if (!beneficiaries.length) return null;
+
+  return (
+    <tr key={label}>
+      <td
+        style={{
+          width: "36%",
+          padding: "5px 0",
+          fontWeight: 700,
+          verticalAlign: "top",
+        }}
+      >
+        {label}
+      </td>
+      <td style={{ padding: "5px 0", verticalAlign: "top" }}>
+        {beneficiaries.map((beneficiary, index) => {
+          const name = getPersonName(beneficiary);
+          const isLongBeneficiary = name.length > 90;
+
+          return (
+            <div
+              key={beneficiary.id || `${name}-${index}`}
+              style={{
+                marginBottom:
+                  index === beneficiaries.length - 1 ? 0 : 7,
+                lineHeight: isLongBeneficiary ? 1.45 : 1.35,
+                maxWidth: "100%",
+              }}
+            >
+              {name}
+            </div>
+          );
+        })}
+      </td>
+    </tr>
+  );
+}
+
+function isRepresentativeTrustee(person: PersonData) {
+  return /\s+represented by\s+signatory\s+as\s+at\s+page\s+\d+\.?\s*$/i.test(
+    getPersonName(person),
+  );
+}
+
+function trustSignatureDisplayName(person: PersonData) {
+  const name = getPersonName(person);
+
+  return name.replace(
+    /\s+represented by\s+signatory\s+as\s+at\s+page\s+\d+\.?\s*$/i,
+    " Represented by:",
+  );
+}
+
+function getTrustTypeDisplay(setup: ClientSetupData | null) {
+  const rawType = String(
+    getSetupValue(setup, ["type_of_trust", "trust_type"]) || "",
+  ).trim();
+
+  if (!rawType) return "";
+
+  const cleanType = rawType.replace(/\s+/g, " ").trim();
+
+  /*
+    Type of trust is captured explicitly in Client Setup.
+
+    Standard values:
+      Inter vivos trust
+      Testamentary trust
+
+    When "Other" is selected, Client Setup stores the user's custom wording
+    directly in type_of_trust, for example:
+      Discretionary inter vivos trust
+
+    Print Studio must therefore display the captured value exactly and must
+    never infer trust classification from Nature of business.
+  */
+
+  return cleanType;
 }
 
 function renderInfoRow(
@@ -1115,7 +1213,7 @@ function buildHistoricalCashFlowData(
   );
 
   const inventoryPrior = openingInventory - closingInventory;
-  const receivablesPrior = openingReceivables - closingReceivables;
+  const receivablesPrior = closingReceivables - openingReceivables;
   const payablesPrior = closingPayables - openingPayables;
 
   const openingCurrentTaxReceivable = totalFor(
@@ -1369,71 +1467,140 @@ function TrustTrusteesResponsibilitiesBlock({
   yearEnd,
   approvalDate,
   trustees,
+  numberOfTrusteesToSign,
 }: {
   clientName: string;
   yearEnd: string;
   approvalDate: string;
   trustees: PersonData[];
+  numberOfTrusteesToSign?: number;
 }) {
   const trusteeCount = Math.max(1, trustees.length);
   const trusteeWord = trusteeCount === 1 ? "trustee" : "trustees";
+  const trusteeWordCapitalised =
+    trusteeWord.charAt(0).toUpperCase() + trusteeWord.slice(1);
+
+  const requestedSignatureCount = Math.max(
+    0,
+    Math.floor(Number(numberOfTrusteesToSign || 0)),
+  );
+
+  const signatureTrustees = trustees.length
+    ? requestedSignatureCount > 0
+      ? trustees.slice(0, requestedSignatureCount)
+      : trustees
+    : [{ full_name: trusteeWordCapitalised }];
 
   return (
     <div>
       <p style={paragraphStyle()}>
-        The {trusteeWord} {trusteeCount === 1 ? "is" : "are"} responsible for the
-        maintenance of adequate accounting records and for the preparation and
-        integrity of the annual financial statements and related information.
+        The {trusteeWord} {trusteeCount === 1 ? "is" : "are"} required to maintain
+        adequate accounting records and {trusteeCount === 1 ? "is" : "are"} responsible
+        for the content and integrity of the annual financial statements and related
+        financial information. It is {trusteeCount === 1 ? "the trustee's" : "their"}{" "}
+        responsibility to ensure that the annual financial statements fairly present
+        the financial position of {clientName} as at the end of the financial year and
+        the results of its operations and cash flows for the period then ended.
       </p>
 
       <p style={paragraphStyle()}>
-        The {trusteeWord} {trusteeCount === 1 ? "is" : "are"} also responsible for
-        the trust&apos;s system of internal financial control. These controls are
-        designed to provide reasonable, but not absolute, assurance as to the
-        reliability of the annual financial statements, to safeguard and maintain
-        accountability for the trust&apos;s assets, and to prevent and detect material
-        misstatement and loss.
+        The {trusteeWord} acknowledge{trusteeCount === 1 ? "s" : ""} ultimate
+        responsibility for the trust&apos;s system of internal financial control and
+        place{trusteeCount === 1 ? "s" : ""} considerable importance on maintaining
+        an appropriate control environment. The controls are designed to reduce the
+        risk of error, loss or material misstatement in a cost-effective manner and
+        include appropriate delegation of responsibilities, accounting procedures and,
+        where practicable, segregation of duties.
       </p>
 
       <p style={paragraphStyle()}>
-        The annual financial statements have been prepared on the going concern
-        basis because the {trusteeWord} {trusteeCount === 1 ? "believes" : "believe"}{" "}
+        The {trusteeWord} {trusteeCount === 1 ? "is" : "are"} responsible for ensuring
+        that the trust&apos;s assets are safeguarded, that transactions are properly
+        authorised and recorded, and that the accounting records provide a reliable
+        basis for the preparation of the annual financial statements. The controls and
+        procedures are intended to ensure that the affairs of the trust are conducted
+        in an appropriate and responsible manner and that known risks are identified,
+        assessed and managed.
+      </p>
+
+      <p style={paragraphStyle()}>
+        Based on the information and explanations available to {trusteeCount === 1 ? "the trustee" : "them"},
+        the {trusteeWord} {trusteeCount === 1 ? "is" : "are"} of the opinion that the
+        system of internal financial control provides reasonable assurance that the
+        financial records may be relied upon for the preparation of the annual
+        financial statements. Any system of internal financial control can, however,
+        provide only reasonable and not absolute assurance against material
+        misstatement or loss.
+      </p>
+
+      <p style={paragraphStyle()}>
+        The {trusteeWord} {trusteeCount === 1 ? "has" : "have"} reviewed the
+        trust&apos;s financial position and {trusteeCount === 1 ? "is" : "are"} satisfied
         that {clientName} has adequate resources to continue in operation for the
-        foreseeable future.
+        foreseeable future. The annual financial statements have therefore been
+        prepared on the going concern basis.
       </p>
 
       <p style={paragraphStyle()}>
-        The annual financial statements for the year ended {yearEnd} were approved
-        by the {trusteeWord} on {approvalDate || "________________"} and are signed
-        below by the {trusteeWord} or on their behalf.
+        The annual financial statements for the year ended {yearEnd} were approved by
+        the {trusteeWord} on {approvalDate || "________________"} and are signed below
+        by the {trusteeWord} or on their behalf.
       </p>
 
-      <h2 style={sectionHeadingStyle()}>Approval of annual financial statements</h2>
+      <h2
+        style={{
+          ...sectionHeadingStyle(),
+          margin: "20px 0 6px",
+        }}
+      >
+        Approval of annual financial statements
+      </h2>
 
       <div
         style={{
           display: "grid",
           gridTemplateColumns:
-            trustees.length > 1 ? "repeat(2, minmax(0, 1fr))" : "minmax(0, 280px)",
-          gap: "28px 44px",
-          marginTop: 30,
+            signatureTrustees.length > 1
+              ? "repeat(2, minmax(0, 1fr))"
+              : "minmax(0, 320px)",
+          columnGap: 44,
+          rowGap: 64,
+          marginTop: 58,
+          alignItems: "start",
         }}
       >
-        {(trustees.length ? trustees : [{ full_name: "Trustee" }]).map(
-          (trustee: PersonData, index: number) => (
-            <div key={trustee.id || `${getPersonName(trustee)}-${index}`}>
-              <div
-                style={{
-                  width: "100%",
-                  borderTop: "1px solid #111827",
-                  paddingTop: 5,
-                  fontWeight: 700,
-                }}
-              >
-                {getPersonName(trustee)}
+        {signatureTrustees.map(
+          (trustee: PersonData, index: number) => {
+            const representativeTrustee = isRepresentativeTrustee(trustee);
+
+            return (
+              <div key={trustee.id || `${getPersonName(trustee)}-${index}`}>
+                <div
+                  style={{
+                    width: "100%",
+                    borderTop: "1px solid #111827",
+                    paddingTop: 5,
+                    fontWeight: 700,
+                  }}
+                >
+                  {trustSignatureDisplayName(trustee)}
+                </div>
+
+                {representativeTrustee ? (
+                  <div
+                    style={{
+                      width: "96%",
+                      borderTop: "1px solid #111827",
+                      marginTop: 46,
+                      minHeight: 18,
+                    }}
+                  >
+                    &nbsp;
+                  </div>
+                ) : null}
               </div>
-            </div>
-          ),
+            );
+          },
         )}
       </div>
     </div>
@@ -2570,17 +2737,23 @@ const clientLogoUrl = cleanString(
 
   const entityType = presentationEntityType;
 
+  /*
+    CANONICAL REPORTING DATE
+
+    The engagement financial_year_end is the single source of truth for the AFS.
+    Client Setup mirrors that date, but a stale setup/report-heading value must never
+    override the engagement period end.
+  */
   const yearEnd = String(
-    getSetupValue(clientSetup, [
-      "financial_year_end",
-      "year_end",
-      "reporting_date",
-      "period_end",
-    ]) ||
-      engagement?.financial_year_end ||
+    engagement?.financial_year_end ||
+      getSetupValue(clientSetup, [
+        "financial_year_end",
+        "year_end",
+        "reporting_date",
+        "period_end",
+      ]) ||
       "Year-end not set"
   );
-
 
   const displayYearEnd = formatAfsDisplayDate(yearEnd);
 
@@ -2627,32 +2800,16 @@ const clientLogoUrl = cleanString(
     "domicile",
   ]);
 
-  const currentHeading = shortYearHeading(
-    String(
-      getSetupValue(clientSetup, [
-        "current_period_heading",
-        "current_year_heading",
-      ]) || yearEnd
-    ),
-    "Current"
-  );
+  const trustTypeDisplay = isTrust ? getTrustTypeDisplay(clientSetup) : "";
 
-  const storedPriorHeading = String(
-    getSetupValue(clientSetup, [
-      "prior_period_heading",
-      "prior_year_heading",
-    ]) || ""
-  ).trim();
+  const currentHeading = shortYearHeading(yearEnd, "Current");
 
   const currentYearNumber = Number(
-    String(currentHeading || "").match(/(20\d{2})/)?.[1] || 0
+    String(yearEnd || "").match(/(20\d{2})/)?.[1] || 0
   );
 
-  const priorHeading = storedPriorHeading
-    ? shortYearHeading(storedPriorHeading, "")
-    : currentYearNumber > 0
-      ? String(currentYearNumber - 1)
-      : "Prior";
+  const priorHeading =
+    currentYearNumber > 0 ? String(currentYearNumber - 1) : "Prior";
 
   const peopleFromSetup = [
     ...formatMultiline(
@@ -2667,6 +2824,10 @@ const clientLogoUrl = cleanString(
       : clientPeople.length > 0
       ? clientPeople
       : peopleFromSetup;
+
+  const beneficiariesForDisplay = isTrust
+    ? clientPeople.filter(isBeneficiaryLike)
+    : [];
 
   const bodyLabel = governingBody(entityType);
   const bodyLabelCapitalised =
@@ -3425,6 +3586,15 @@ useEffect(() => {
         };
       }
 
+      if (section.key === "notesOtherInvestments") {
+        return {
+          ...section,
+          label: "Investments",
+          title: "Investments",
+          defaultTitle: "Investments",
+        };
+      }
+
       if (section.key === "notesLoansReceivable") {
         const loanRows =
           unnumberedStatementEngine.noteData?.loansReceivable || [];
@@ -3707,8 +3877,20 @@ const effectiveStructuredNotesState = useMemo(() => {
   const existingDepreciation =
     currentValues.depreciationAmortisationImpairment || {};
 
+  const existingInvestmentNote =
+    currentState.notesOtherInvestments &&
+    typeof currentState.notesOtherInvestments === "object"
+      ? currentState.notesOtherInvestments
+      : {};
+
   return {
     ...currentState,
+    notesOtherInvestments: {
+      ...existingInvestmentNote,
+      extraText:
+        String(existingInvestmentNote.extraText || "").trim() ||
+        "The investments comprise the interests reflected above and are presented at their carrying amounts at year end. The nature and measurement basis of each material investment, together with any material restrictions, pledges, impairment or fair value movements, are disclosed where applicable.",
+    },
     cashGeneratedFromOperations: {
       ...currentCashGenerated,
       values: {
@@ -3730,17 +3912,11 @@ const effectiveStructuredNotesState = useMemo(() => {
 
         inventories: {
           ...(currentValues.inventories || {}),
-          current:
-            currentValues.inventories?.current !== undefined &&
-            currentValues.inventories?.current !== null &&
-            currentValues.inventories?.current !== ""
-              ? currentValues.inventories.current
-              : Number(
-                  baseStatementEngine.cashFlowRows?.find(
-                    (row: any) =>
-                      String(row?.id || "") === "cfs-inventories",
-                  )?.current || 0,
-                ),
+          current: Number(
+            baseStatementEngine.cashFlowRows?.find(
+              (row: any) => String(row?.id || "") === "cfs-inventories",
+            )?.current || 0,
+          ),
           prior:
             currentValues.inventories?.prior !== undefined &&
             currentValues.inventories?.prior !== null &&
@@ -3751,18 +3927,12 @@ const effectiveStructuredNotesState = useMemo(() => {
 
         tradeReceivables: {
           ...(currentValues.tradeReceivables || {}),
-          current:
-            currentValues.tradeReceivables?.current !== undefined &&
-            currentValues.tradeReceivables?.current !== null &&
-            currentValues.tradeReceivables?.current !== ""
-              ? currentValues.tradeReceivables.current
-              : Number(
-                  baseStatementEngine.cashFlowRows?.find(
-                    (row: any) =>
-                      String(row?.id || "") ===
-                      "cfs-trade-receivables",
-                  )?.current || 0,
-                ),
+          current: Number(
+            baseStatementEngine.cashFlowRows?.find(
+              (row: any) =>
+                String(row?.id || "") === "cfs-trade-receivables",
+            )?.current || 0,
+          ),
           prior:
             currentValues.tradeReceivables?.prior !== undefined &&
             currentValues.tradeReceivables?.prior !== null &&
@@ -3773,18 +3943,11 @@ const effectiveStructuredNotesState = useMemo(() => {
 
         tradePayables: {
           ...(currentValues.tradePayables || {}),
-          current:
-            currentValues.tradePayables?.current !== undefined &&
-            currentValues.tradePayables?.current !== null &&
-            currentValues.tradePayables?.current !== ""
-              ? currentValues.tradePayables.current
-              : Number(
-                  baseStatementEngine.cashFlowRows?.find(
-                    (row: any) =>
-                      String(row?.id || "") ===
-                      "cfs-trade-payables",
-                  )?.current || 0,
-                ),
+          current: Number(
+            baseStatementEngine.cashFlowRows?.find(
+              (row: any) => String(row?.id || "") === "cfs-trade-payables",
+            )?.current || 0,
+          ),
           prior:
             currentValues.tradePayables?.prior !== undefined &&
             currentValues.tradePayables?.prior !== null &&
@@ -3811,17 +3974,12 @@ const effectiveStructuredNotesState = useMemo(() => {
 
         financeCosts: {
           ...(currentValues.financeCosts || {}),
-          current:
-            currentValues.financeCosts?.current !== undefined &&
-            currentValues.financeCosts?.current !== null &&
-            currentValues.financeCosts?.current !== ""
-              ? currentValues.financeCosts.current
-              : Math.abs(
-                  mappedNoteTotal(
-                    baseStatementEngine.noteData.financeCosts,
-                    "current",
-                  ),
-                ),
+          current: Math.abs(
+            mappedNoteTotal(
+              baseStatementEngine.noteData.financeCosts,
+              "current",
+            ),
+          ),
           prior:
             currentValues.financeCosts?.prior !== undefined &&
             currentValues.financeCosts?.prior !== null &&
@@ -3910,6 +4068,8 @@ const effectiveStructuredNotesState = useMemo(() => {
           0,
         );
 
+
+    // PP CASH FLOW V4: Note 8 and printed cash flow share the same current/prior values.
     const rows = (baseStatementEngine.cashFlowRows || []).map((row: any) => ({ ...row }));
     const findById = (id: string) => rows.find((row: any) => String(row?.id || "") === id);
     const findByLabel = (terms: string[]) => rows.find((row: any) => {
@@ -3935,7 +4095,8 @@ const effectiveStructuredNotesState = useMemo(() => {
       cashFlowMappedRawTotal(["750.14", "750.141"], "prior"),
     );
 
-    const manualAdjustmentKeys = [
+    const note8AdjustmentKeys = [
+      "depreciationAmortisationImpairment",
       "adjustments",
       "lossOnSaleAssetsLiabilities",
       "fairValueGainsLosses",
@@ -3945,19 +4106,16 @@ const effectiveStructuredNotesState = useMemo(() => {
       "financeCosts",
     ];
 
-    const adjustmentsCurrent =
-      mappedDepreciationAmortisationCurrent +
-      manualAdjustmentKeys.reduce(
-        (sum, key) => sum + storedAmount(key, "current", 0),
-        0,
-      );
+    // Statement of Cash Flows and Note 8 must use the same source.
+    const adjustmentsCurrent = note8AdjustmentKeys.reduce(
+      (sum, key) => sum + storedAmount(key, "current", 0),
+      0,
+    );
 
-    const adjustmentsPrior =
-      mappedDepreciationAmortisationPrior +
-      manualAdjustmentKeys.reduce(
-        (sum, key) => sum + storedAmount(key, "prior", 0),
-        0,
-      );
+    const adjustmentsPrior = note8AdjustmentKeys.reduce(
+      (sum, key) => sum + storedAmount(key, "prior", 0),
+      0,
+    );
 
     const profitRow = findById("cfs-profit-before-tax") || findByLabel(["profit", "before taxation"]);
     const adjustmentsRow = findById("cfs-adjustments") || findByLabel(["adjustments", "non-cash"]);
@@ -4151,7 +4309,9 @@ const effectiveStructuredNotesState = useMemo(() => {
           code === "551" ||
           code.startsWith("551.") ||
           code === "610" ||
-          code.startsWith("610.");
+          code.startsWith("610.") ||
+          code === "590" ||
+          code.startsWith("590.");
 
         if (!isOtherBorrowing || isAssetFinance) continue;
 
@@ -4310,16 +4470,19 @@ const effectiveStructuredNotesState = useMemo(() => {
       0,
     );
 
-    const inventoryCurrent =
-      mappedInventoryPriorBalance - mappedInventoryCurrentBalance;
+    const inventoryCurrent = storedAmount(
+      "inventories",
+      "current",
+      mappedInventoryPriorBalance - mappedInventoryCurrentBalance,
+    );
 
-    const inventoryPrior = historicalCashFlowData.hasTwoDistinctYears
-      ? historicalCashFlowData.inventoryPrior
-      : storedAmount(
-          "inventories",
-          "prior",
-          Number(inventoryRow?.prior || 0),
-        );
+    const inventoryPrior = storedAmount(
+      "inventories",
+      "prior",
+      historicalCashFlowData.hasTwoDistinctYears
+        ? historicalCashFlowData.inventoryPrior
+        : Number(inventoryRow?.prior || 0),
+    );
 
     /*
       CURRENT-YEAR WORKING CAPITAL — ALWAYS FROM SFP BALANCE MOVEMENTS.
@@ -4345,12 +4508,19 @@ const effectiveStructuredNotesState = useMemo(() => {
       0,
     );
 
-    const receivablesCurrent =
-      mappedReceivablesPriorBalance - mappedReceivablesCurrentBalance;
+    const receivablesCurrent = storedAmount(
+      "tradeReceivables",
+      "current",
+      mappedReceivablesPriorBalance - mappedReceivablesCurrentBalance,
+    );
 
-    const receivablesPrior = historicalCashFlowData.hasTwoDistinctYears
-      ? historicalCashFlowData.receivablesPrior
-      : Number(receivablesRow?.prior || 0);
+    const receivablesPrior = storedAmount(
+      "tradeReceivables",
+      "prior",
+      historicalCashFlowData.hasTwoDistinctYears
+        ? historicalCashFlowData.receivablesPrior
+        : Number(receivablesRow?.prior || 0),
+    );
 
     const mappedPayablesCurrentBalance = (
       baseStatementEngine.noteData.tradePayables || []
@@ -4366,12 +4536,19 @@ const effectiveStructuredNotesState = useMemo(() => {
       0,
     );
 
-    const payablesCurrent =
-      mappedPayablesCurrentBalance - mappedPayablesPriorBalance;
+    const payablesCurrent = storedAmount(
+      "tradePayables",
+      "current",
+      mappedPayablesCurrentBalance - mappedPayablesPriorBalance,
+    );
 
-    const payablesPrior = historicalCashFlowData.hasTwoDistinctYears
-      ? historicalCashFlowData.payablesPrior
-      : Number(payablesRow?.prior || 0);
+    const payablesPrior = storedAmount(
+      "tradePayables",
+      "prior",
+      historicalCashFlowData.hasTwoDistinctYears
+        ? historicalCashFlowData.payablesPrior
+        : Number(payablesRow?.prior || 0),
+    );
 
     /*
       CASH FLOW PROFIT BEFORE TAX
@@ -4444,27 +4621,20 @@ const effectiveStructuredNotesState = useMemo(() => {
         0,
       );
 
-    const mappedInterestReceivedCurrent = Math.max(
-      0,
-      -cashFlowMappedRawTotal(["770"], "current"),
+    const mappedInterestReceivedCurrent = Math.abs(
+      storedAmount("investmentIncome", "current", 0),
     );
 
     const mappedInterestReceivedPrior = Math.abs(
-      mappedNoteTotal(
-        baseStatementEngine.noteData.investmentIncome,
-        "prior",
-      ),
+      storedAmount("investmentIncome", "prior", 0),
     );
 
     const mappedFinanceCostsPaidCurrent = -Math.abs(
-      cashFlowMappedRawTotal(["775"], "current"),
+      storedAmount("financeCosts", "current", 0),
     );
 
     const mappedFinanceCostsPaidPrior = -Math.abs(
-      mappedNoteTotal(
-        baseStatementEngine.noteData.financeCosts,
-        "prior",
-      ),
+      storedAmount("financeCosts", "prior", 0),
     );
 
     /*
@@ -4551,7 +4721,7 @@ const effectiveStructuredNotesState = useMemo(() => {
       : 0;
 
     const interestReceivedCurrent =
-      effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
+      false && effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
       effectiveStatementOverrides.cashInterestReceivedCurrent !== undefined
         ? Number(
             effectiveStatementOverrides.cashInterestReceivedCurrent || 0,
@@ -4559,7 +4729,7 @@ const effectiveStructuredNotesState = useMemo(() => {
         : mappedInterestReceivedCurrent;
 
     const interestReceivedPrior =
-      effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
+      false && effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
       effectiveStatementOverrides.cashInterestReceivedPrior !== undefined
         ? Number(
             effectiveStatementOverrides.cashInterestReceivedPrior || 0,
@@ -4567,7 +4737,7 @@ const effectiveStructuredNotesState = useMemo(() => {
         : mappedInterestReceivedPrior;
 
     const financeCostsPaidCurrent =
-      effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== null &&
+      false && effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== null &&
       effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== undefined
         ? Number(
             effectiveStatementOverrides.cashFinanceCostsPaidCurrent || 0,
@@ -4575,7 +4745,7 @@ const effectiveStructuredNotesState = useMemo(() => {
         : mappedFinanceCostsPaidCurrent;
 
     const financeCostsPaidPrior =
-      effectiveStatementOverrides.cashFinanceCostsPaidPrior !== null &&
+      false && effectiveStatementOverrides.cashFinanceCostsPaidPrior !== null &&
       effectiveStatementOverrides.cashFinanceCostsPaidPrior !== undefined
         ? Number(
             effectiveStatementOverrides.cashFinanceCostsPaidPrior || 0,
@@ -4827,6 +4997,14 @@ const roundingCurrent =
 const roundingPrior =
   Math.abs(rawRoundingPrior) <= 1 ? rawRoundingPrior : 0;
 
+const finalNetMovementCurrent = netMovementCurrent + roundingCurrent;
+const finalNetMovementPrior = netMovementPrior + roundingPrior;
+
+if (netMovementRow) {
+  netMovementRow.current = Math.round(finalNetMovementCurrent);
+  netMovementRow.prior = Math.round(finalNetMovementPrior);
+}
+
 const closingRowIndex = rows.findIndex((row: any) => {
   const id = String(row?.id || "").toLowerCase();
   const label = String(row?.label || "").toLowerCase();
@@ -4845,6 +5023,7 @@ if (existingRoundingRow) {
   existingRoundingRow.current = roundingCurrent;
   existingRoundingRow.prior = roundingPrior;
 } else if (
+  false &&
   closingRowIndex >= 0 &&
   (roundingCurrent !== 0 || roundingPrior !== 0)
 ) {
@@ -4861,10 +5040,10 @@ if (existingRoundingRow) {
 }
 
 const finalClosingCurrent =
-  calculatedClosingCurrent + roundingCurrent;
+  openingCurrent + finalNetMovementCurrent;
 
 const finalClosingPrior =
-  calculatedClosingPrior + roundingPrior;
+  openingPrior + finalNetMovementPrior;
 
 if (closingCashRow) {
   closingCashRow.current = Math.round(finalClosingCurrent);
@@ -4873,16 +5052,16 @@ if (closingCashRow) {
 
     const checks = {
       ...baseStatementEngine.checks,
-      cashMovementFromCashFlow: Math.round(netMovementCurrent),
+      cashMovementFromCashFlow: Math.round(finalNetMovementCurrent),
       cashClosingFromCashFlow: Math.round(finalClosingCurrent),
       cashFlowMovementDifference: Math.round(
-        netMovementCurrent - Number(baseStatementEngine.checks.cashMovementFromSfp || 0),
+        finalNetMovementCurrent - Number(baseStatementEngine.checks.cashMovementFromSfp || 0),
       ),
       cashFlowClosingDifference: Math.round(
   finalClosingCurrent - sfpClosingCurrent,
 ),
       cashOpeningPrior: Math.round(openingPrior),
-      cashMovementPriorFromCashFlow: Math.round(netMovementPrior),
+      cashMovementPriorFromCashFlow: Math.round(finalNetMovementPrior),
       cashClosingPriorFromCashFlow: Math.round(finalClosingPrior),
       cashFlowPriorClosingDifference: Math.round(
   finalClosingPrior - sfpClosingPrior,
@@ -5114,7 +5293,7 @@ if (closingCashRow) {
           );
 
       const directInterestReceivedCurrent =
-        effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
+        false && effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
         effectiveStatementOverrides.cashInterestReceivedCurrent !== undefined
           ? Number(
               effectiveStatementOverrides.cashInterestReceivedCurrent || 0,
@@ -5122,7 +5301,7 @@ if (closingCashRow) {
           : mappedInterestReceivedCurrent;
 
       const directInterestReceivedPrior =
-        effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
+        false && effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
         effectiveStatementOverrides.cashInterestReceivedPrior !== undefined
           ? Number(
               effectiveStatementOverrides.cashInterestReceivedPrior || 0,
@@ -6348,6 +6527,68 @@ const flightDeckIssues = useMemo(() => {
   }
 
   const noteData = statementEngine.noteData;
+
+  /*
+    INVESTMENT NOTE DETAIL
+
+    Classification remains mapping-code-only. Mapping 329 identifies Other
+    investments. Once classified, the TB account description may be used purely as
+    the disclosure label so the note shows the actual investment instead of repeating
+    the generic "Other investments" caption.
+  */
+  const investmentDetailRows = useMemo(() => {
+    const grouped = new Map<string, any>();
+
+    (trialBalanceLines || [])
+      .filter((line: any) => {
+        const code = String(line?.mapping_code || "").trim();
+        return code === "329" || code.startsWith("329.");
+      })
+      .forEach((line: any, index: number) => {
+        const key = String(
+          line?.account_code ||
+            line?.id ||
+            line?.account_name ||
+            `investment-${index}`,
+        );
+
+        const current = Number(rawCurrent(line) || 0);
+        const prior = Number(rawPrior(line) || 0);
+
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            id: key,
+            label:
+              cleanString(line?.account_name) ||
+              cleanString(line?.mapping_label) ||
+              "Investment",
+            current: 0,
+            prior: 0,
+          });
+        }
+
+        const row = grouped.get(key);
+        row.current += current;
+        row.prior += prior;
+      });
+
+    return Array.from(grouped.values()).filter(
+      (row: any) =>
+        Math.round(Number(row.current || 0)) !== 0 ||
+        Math.round(Number(row.prior || 0)) !== 0,
+    );
+  }, [trialBalanceLines]);
+
+  const noteDataForDisplay = useMemo(
+    () => ({
+      ...noteData,
+      otherInvestments:
+        investmentDetailRows.length > 0
+          ? investmentDetailRows
+          : noteData.otherInvestments,
+    }),
+    [noteData, investmentDetailRows],
+  );
 
   const engineChecks = statementEngine.checks;
 
@@ -8376,7 +8617,7 @@ return Math.max(
                   noteSections={effectiveNoteSections}
                   reportOptions={reportOptions as any}
                   toggleReportOption={() => undefined}
-                  noteData={noteData as any}
+                  noteData={noteDataForDisplay as any}
                   trialBalanceLines={trialBalanceLines}
                   clientSetup={clientSetup}
                   entityType={entityType}
@@ -8490,7 +8731,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     </div>
 
                     <div style={{ marginTop: 8, fontSize: 12 }}>
-                      for the year ended {yearEnd}
+                      for the year ended {displayYearEnd}
                     </div>
 
                     {reportOptions.showCoverFrameworkStatement ? (
@@ -8577,6 +8818,9 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                         registrationNumber,
                       )}
                       {renderInfoRow("Entity type", entityType)}
+                      {isTrust
+                        ? renderInfoRow("Type of trust", trustTypeDisplay)
+                        : null}
                       {renderInfoRow("Financial year end", displayYearEnd)}
                       {renderInfoRow(
                         "Country of incorporation and domicile",
@@ -8596,6 +8840,12 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                         roleLabel(entityType),
                         directorsForDisplay.map(getPersonName)
                       )}
+                      {isTrust
+                        ? renderBeneficiariesInfoRow(
+                            "Beneficiaries",
+                            beneficiariesForDisplay,
+                          )
+                        : null}
                       {renderInfoRow(
                         "Registered office",
                         getSetupValue(clientSetup, [
@@ -8729,6 +8979,12 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       yearEnd={displayYearEnd}
                       approvalDate={String(approvalDate)}
                       trustees={directorsForDisplay}
+                      numberOfTrusteesToSign={Number(
+                        getSetupValue(clientSetup, [
+                          "number_of_directors",
+                          "number_of_trustees",
+                        ]) || 0,
+                      )}
                     />
                   ) : (
                     <DirectorsResponsibilitiesBlock context={narrativeContext} />
@@ -8836,7 +9092,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
             <div id="print-sfp">
               <AfsA4Page {...reportHeaderProps}>
                 <AfsStatementTable
-                  title={`Statement of Financial Position as at ${yearEnd}`}
+                  title={`Statement of Financial Position as at ${displayYearEnd}`}
                   currencyLabel="Figures in Rand"
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
@@ -8994,7 +9250,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       checked,
                     )
                   }
-                  noteData={noteData as any}
+                  noteData={noteDataForDisplay as any}
                   trialBalanceLines={trialBalanceLines}
                   clientSetup={clientSetup}
                   entityType={entityType}
@@ -9045,7 +9301,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                           checked,
                         )
                       }
-                      noteData={noteData as any}
+                      noteData={noteDataForDisplay as any}
                       trialBalanceLines={trialBalanceLines}
                       clientSetup={clientSetup}
                       entityType={entityType}

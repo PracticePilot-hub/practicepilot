@@ -124,6 +124,11 @@ const NOTE_KEY_MAP: Record<string, string> = {
   notesInvestmentProperty: "investmentProperty",
   notesIntangibleAssets: "intangibleAssets",
   notesBiologicalAssets: "biologicalAssets",
+  notesInvestmentsSubsidiaries: "investmentsSubsidiaries",
+  notesInvestmentsAssociates: "investmentsAssociates",
+  notesInvestmentsJointVentures: "investmentsJointVentures",
+  notesOtherInvestments: "otherInvestments",
+  notesOtherFinancialAssets: "otherFinancialAssets",
   notesOtherNonCurrentAssets: "otherNonCurrentAssets",
   notesLoansReceivable: "loansReceivable",
   notesInventories: "inventories",
@@ -895,6 +900,287 @@ function buildShareholderLoanDetailRows(
 
   return fallbackRows;
 }
+
+function isOtherInvestmentLine(line: any) {
+  /*
+    Classification remains mapping-code-only.
+    329 = Other investments.
+    Account names are used only as the printable detail description.
+  */
+  return mappingStartsWith(line, ["329"]);
+}
+
+function investmentLineLabel(line: any) {
+  return (
+    clean(line.account_name) ||
+    clean(line.description) ||
+    clean(line.mapping_label) ||
+    "Investment"
+  );
+}
+
+function investmentLineKey(line: any, index: number) {
+  return String(
+    line.id ||
+      line.account_code ||
+      line.account_name ||
+      line.mapping_leaf_id ||
+      line.mapping_code ||
+      `other-investment-${index}`,
+  );
+}
+
+function buildOtherInvestmentDetailRows(
+  trialBalanceLines: any[],
+  fallbackRows: AmountLine[],
+): AmountLine[] {
+  const grouped = new Map<string, AmountLine>();
+
+  (trialBalanceLines || [])
+    .filter(isOtherInvestmentLine)
+    .forEach((line, index) => {
+      const current = Math.round(toNumber(lineAmount(line, "current")));
+      const prior = Math.round(toNumber(lineAmount(line, "prior")));
+      if (current === 0 && prior === 0) return;
+
+      const key = investmentLineKey(line, index);
+      const label = investmentLineLabel(line);
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          id: key,
+          label,
+          current: 0,
+          prior: 0,
+          meta: {
+            source: "trialBalanceLine",
+            mappingCode: clean(line.mapping_code),
+            accountCode: clean(line.account_code),
+          },
+        });
+      }
+
+      const row = grouped.get(key);
+      if (!row) return;
+      row.current += current;
+      row.prior += prior;
+    });
+
+  const detailRows = Array.from(grouped.values()).filter(
+    (row) => roundAmount(row.current) !== 0 || roundAmount(row.prior) !== 0,
+  );
+
+  return detailRows.length > 0
+    ? detailRows.sort((a, b) => a.label.localeCompare(b.label))
+    : fallbackRows;
+}
+
+function OtherInvestmentsNote({
+  rows,
+  trialBalanceLines,
+  edit,
+  state,
+  update,
+}: {
+  rows: AmountLine[];
+  trialBalanceLines: any[];
+  edit: boolean;
+  state: StructuredState;
+  update: (path: string[], value: any) => void;
+}) {
+  const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
+  const visibleRows = splitRows(
+    buildOtherInvestmentDetailRows(trialBalanceLines, rows),
+  );
+
+  const totalCurrent = visibleRows.reduce(
+    (sum, row) => sum + toNumber(row.current),
+    0,
+  );
+  const totalPrior = visibleRows.reduce(
+    (sum, row) => sum + toNumber(row.prior),
+    0,
+  );
+
+  if (visibleRows.length === 0 && !edit) return null;
+
+  return (
+    <table style={styles.table}>
+      <colgroup>
+        <col style={{ width: "auto" }} />
+        <col style={{ width: 76 }} />
+        {!hideComparatives ? <col style={{ width: 76 }} /> : null}
+      </colgroup>
+      <thead>
+        <tr>
+          <th style={styles.thLeft}>Investment</th>
+          <th style={styles.thRight}>{currentHeading}</th>
+          {!hideComparatives ? (
+            <th style={styles.thRight}>{priorHeading}</th>
+          ) : null}
+        </tr>
+      </thead>
+      <tbody>
+        {visibleRows.map((row, index) => {
+          const key = row.id || row.label || String(index);
+          const saved = state.otherInvestments?.[key] || {};
+          const displayLabel = String(saved.label || row.label || "Investment");
+          const investmentType = String(saved.investmentType || "");
+          const interestHeld = String(saved.interestHeld || "");
+          const measurementBasis = String(saved.measurementBasis || "");
+          const restrictions = String(saved.restrictions || "");
+          const additionalTerms = String(saved.additionalTerms || "");
+
+          return (
+            <FragmentWithKey key={key}>
+              <tr>
+                <td style={styles.tdLeft}>
+                  {edit ? (
+                    <input
+                      value={displayLabel}
+                      onChange={(event) =>
+                        update(
+                          ["otherInvestments", key, "label"],
+                          event.target.value,
+                        )
+                      }
+                      style={inputStyle()}
+                    />
+                  ) : (
+                    displayLabel
+                  )}
+                </td>
+                <td style={styles.tdRight}>{amount(row.current)}</td>
+                {!hideComparatives ? (
+                  <td style={styles.tdRight}>{amount(row.prior)}</td>
+                ) : null}
+              </tr>
+
+              <tr>
+                <td
+                  colSpan={hideComparatives ? 2 : 3}
+                  style={styles.loanTermsCell}
+                >
+                  {edit ? (
+                    <div style={styles.loanTermsGrid}>
+                      <label>
+                        <span style={styles.smallLabel}>Nature / type of investment</span>
+                        <input
+                          value={investmentType}
+                          onChange={(event) =>
+                            update(
+                              ["otherInvestments", key, "investmentType"],
+                              event.target.value,
+                            )
+                          }
+                          placeholder="e.g. ordinary shares, unit trust, investment portfolio"
+                          style={inputStyle()}
+                        />
+                      </label>
+
+                      <label>
+                        <span style={styles.smallLabel}>Interest held (%)</span>
+                        <input
+                          value={interestHeld}
+                          onChange={(event) =>
+                            update(
+                              ["otherInvestments", key, "interestHeld"],
+                              event.target.value,
+                            )
+                          }
+                          placeholder="e.g. 25%"
+                          style={inputStyle()}
+                        />
+                      </label>
+
+                      <label>
+                        <span style={styles.smallLabel}>Measurement basis</span>
+                        <input
+                          value={measurementBasis}
+                          onChange={(event) =>
+                            update(
+                              ["otherInvestments", key, "measurementBasis"],
+                              event.target.value,
+                            )
+                          }
+                          placeholder="e.g. cost, fair value"
+                          style={inputStyle()}
+                        />
+                      </label>
+
+                      <label>
+                        <span style={styles.smallLabel}>Restrictions / pledged as security</span>
+                        <input
+                          value={restrictions}
+                          onChange={(event) =>
+                            update(
+                              ["otherInvestments", key, "restrictions"],
+                              event.target.value,
+                            )
+                          }
+                          placeholder="Leave blank if none"
+                          style={inputStyle()}
+                        />
+                      </label>
+
+                      <label style={{ gridColumn: "1 / -1" }}>
+                        <span style={styles.smallLabel}>Additional disclosure</span>
+                        <input
+                          value={additionalTerms}
+                          onChange={(event) =>
+                            update(
+                              ["otherInvestments", key, "additionalTerms"],
+                              event.target.value,
+                            )
+                          }
+                          placeholder="Optional"
+                          style={inputStyle()}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <div>
+                      {investmentType ? (
+                        <p style={styles.paragraph}>Nature / type: {investmentType}</p>
+                      ) : null}
+                      {interestHeld ? (
+                        <p style={styles.paragraph}>Interest held: {interestHeld}</p>
+                      ) : null}
+                      {measurementBasis ? (
+                        <p style={styles.paragraph}>Measurement basis: {measurementBasis}</p>
+                      ) : null}
+                      {restrictions ? (
+                        <p style={styles.paragraph}>Restrictions / security: {restrictions}</p>
+                      ) : null}
+                      {additionalTerms ? (
+                        <p style={styles.paragraph}>{additionalTerms}</p>
+                      ) : null}
+                    </div>
+                  )}
+                </td>
+              </tr>
+            </FragmentWithKey>
+          );
+        })}
+
+        <tr>
+          <td data-total-label="true" style={styles.totalLabel}>
+            Total investments
+          </td>
+          <td data-total-amount="true" style={styles.totalAmount}>
+            {amount(totalCurrent)}
+          </td>
+          {!hideComparatives ? (
+            <td data-total-amount="true" style={styles.totalAmount}>
+              {amount(totalPrior)}
+            </td>
+          ) : null}
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
 
 function NoteTable({
   rows,
@@ -3217,88 +3503,12 @@ function BankOverdraftNote(props: {
   );
 }
 
-
-function isMemberLoanReceivableLine(line: any) {
-  return clean(line?.mapping_code) === "340.20";
-}
-
-function memberLoanReceivableMappingCodes(trialBalanceLines: any[]) {
-  return Array.from(
-    new Set(
-      (trialBalanceLines || [])
-        .filter((line: any) => {
-          const code = clean(line?.mapping_code);
-          if (!(code === "340" || code.startsWith("340."))) return false;
-
-          return (
-            Math.round(Math.abs(lineAmount(line, "current"))) !== 0 ||
-            Math.round(Math.abs(lineAmount(line, "prior"))) !== 0
-          );
-        })
-        .map((line: any) => clean(line?.mapping_code)),
-    ),
-  );
-}
-
-function isPureMemberLoanReceivable(trialBalanceLines: any[]) {
-  const codes = memberLoanReceivableMappingCodes(trialBalanceLines);
-  return codes.length === 1 && codes[0] === "340.20";
-}
-
-function buildMemberLoanReceivableDetailRows(
-  trialBalanceLines: any[],
-  fallbackRows: AmountLine[],
-): AmountLine[] {
-  const grouped = new Map<string, AmountLine>();
-
-  (trialBalanceLines || [])
-    .filter(isMemberLoanReceivableLine)
-    .forEach((line, index) => {
-      const current = normaliseLoanAmount(lineAmount(line, "current"));
-      const prior = normaliseLoanAmount(lineAmount(line, "prior"));
-      if (current === 0 && prior === 0) return;
-
-      const label = shareholderLoanLabel(line);
-      const key = shareholderLoanLineKey(line, index);
-
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          id: key,
-          label,
-          current: 0,
-          prior: 0,
-          meta: {
-            source: "trialBalanceLine",
-            mappingCode: "340.20",
-            direction: "receivable",
-          },
-        });
-      }
-
-      const row = grouped.get(key);
-      if (!row) return;
-      row.current += current;
-      row.prior += prior;
-    });
-
-  const detailRows = Array.from(grouped.values()).filter(
-    (row) => roundAmount(row.current) !== 0 || roundAmount(row.prior) !== 0,
-  );
-
-  if (detailRows.length > 0) {
-    return detailRows.sort((a, b) => a.label.localeCompare(b.label));
-  }
-
-  return fallbackRows;
-}
-
-function RelatedPartyLoansNote({
+function ShareholderLoansNote({
   rows,
   trialBalanceLines,
   edit,
   state,
   update,
-  direction,
   isCloseCorporationEntity,
   isTrustEntity,
 }: {
@@ -3307,18 +3517,13 @@ function RelatedPartyLoansNote({
   edit: boolean;
   state: StructuredState;
   update: (path: string[], value: any) => void;
-  direction: "receivable" | "payable";
   isCloseCorporationEntity?: boolean;
   isTrustEntity?: boolean;
 }) {
   const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
-
   const visibleRows = splitRows(
-    direction === "receivable"
-      ? buildMemberLoanReceivableDetailRows(trialBalanceLines, rows)
-      : buildSharedShareholderLoanRows(trialBalanceLines, rows),
+    buildSharedShareholderLoanRows(trialBalanceLines, rows),
   );
-
   const totalCurrent = visibleRows.reduce(
     (sum, row) => sum + toNumber(row.current),
     0,
@@ -3329,28 +3534,6 @@ function RelatedPartyLoansNote({
   );
 
   if (visibleRows.length === 0 && !edit) return null;
-
-  const stateKey =
-    direction === "receivable"
-      ? "shareholderLoansReceivable"
-      : "shareholderLoans";
-
-  const relationshipLabel =
-    direction === "receivable"
-      ? "Relationship / borrower type"
-      : "Relationship / lender type";
-
-  const defaultRelationship = isCloseCorporationEntity
-    ? direction === "receivable"
-      ? "Member / borrower"
-      : "Member / lender"
-    : isTrustEntity
-      ? direction === "receivable"
-        ? "Trustee / beneficiary / borrower"
-        : "Trustee / beneficiary / lender"
-      : direction === "receivable"
-        ? "Shareholder / director / member / borrower"
-        : "Shareholder / director / member / lender";
 
   return (
     <table style={styles.table}>
@@ -3371,21 +3554,25 @@ function RelatedPartyLoansNote({
       <tbody>
         {visibleRows.map((row, index) => {
           const key = row.id || row.label || String(index);
-          const savedLabel = state?.[stateKey]?.[key]?.label || "";
+          const savedLabel = state.shareholderLoans?.[key]?.label || "";
           const displayLabel = savedLabel || row.label;
-          const savedTerms = state?.[stateKey]?.[key]?.terms;
+          const savedTerms = state.shareholderLoans?.[key]?.terms;
           const terms =
             savedTerms !== undefined
               ? String(savedTerms)
               : "The loan is unsecured, bears no interest and has no fixed repayment terms.";
-          const interest = state?.[stateKey]?.[key]?.interest || "";
-          const repayment = state?.[stateKey]?.[key]?.repayment || "";
-          const security = state?.[stateKey]?.[key]?.security || "";
-          const savedRelationship = state?.[stateKey]?.[key]?.relationship;
+          const interest = state.shareholderLoans?.[key]?.interest || "";
+          const repayment = state.shareholderLoans?.[key]?.repayment || "";
+          const security = state.shareholderLoans?.[key]?.security || "";
+          const savedRelationship = state.shareholderLoans?.[key]?.relationship;
           const relationship =
             savedRelationship !== undefined
               ? String(savedRelationship)
-              : defaultRelationship;
+              : isCloseCorporationEntity
+                ? "Member"
+                : isTrustEntity
+                  ? "Trustee"
+                  : "Shareholder / director / member";
 
           return (
             <FragmentWithKey key={key}>
@@ -3395,7 +3582,10 @@ function RelatedPartyLoansNote({
                     <input
                       value={displayLabel}
                       onChange={(event) =>
-                        update([stateKey, key, "label"], event.target.value)
+                        update(
+                          ["shareholderLoans", key, "label"],
+                          event.target.value,
+                        )
                       }
                       style={inputStyle()}
                     />
@@ -3419,57 +3609,62 @@ function RelatedPartyLoansNote({
                         <input
                           value={terms}
                           onChange={(event) =>
-                            update([stateKey, key, "terms"], event.target.value)
-                          }
-                          style={inputStyle()}
-                        />
-                      </label>
-
-                      <label>
-                        <span style={styles.smallLabel}>{relationshipLabel}</span>
-                        <input
-                          value={relationship}
-                          onChange={(event) =>
                             update(
-                              [stateKey, key, "relationship"],
+                              ["shareholderLoans", key, "terms"],
                               event.target.value,
                             )
                           }
                           style={inputStyle()}
                         />
                       </label>
-
+                      <label>
+                        <span style={styles.smallLabel}>Relationship / lender type</span>
+                        <input
+                          value={relationship}
+                          onChange={(event) =>
+                            update(
+                              ["shareholderLoans", key, "relationship"],
+                              event.target.value,
+                            )
+                          }
+                          style={inputStyle()}
+                        />
+                      </label>
                       <label>
                         <span style={styles.smallLabel}>Interest</span>
                         <input
                           value={interest}
                           onChange={(event) =>
-                            update([stateKey, key, "interest"], event.target.value)
+                            update(
+                              ["shareholderLoans", key, "interest"],
+                              event.target.value,
+                            )
                           }
                           style={inputStyle()}
                         />
                       </label>
-
                       <label>
                         <span style={styles.smallLabel}>Repayment</span>
                         <input
                           value={repayment}
                           onChange={(event) =>
                             update(
-                              [stateKey, key, "repayment"],
+                              ["shareholderLoans", key, "repayment"],
                               event.target.value,
                             )
                           }
                           style={inputStyle()}
                         />
                       </label>
-
                       <label>
                         <span style={styles.smallLabel}>Security</span>
                         <input
                           value={security}
                           onChange={(event) =>
-                            update([stateKey, key, "security"], event.target.value)
+                            update(
+                              ["shareholderLoans", key, "security"],
+                              event.target.value,
+                            )
                           }
                           style={inputStyle()}
                         />
@@ -3479,7 +3674,7 @@ function RelatedPartyLoansNote({
                     <div>
                       {relationship ? (
                         <p style={styles.paragraph}>
-                          {relationshipLabel}: {relationship}
+                          Relationship / lender type: {relationship}
                         </p>
                       ) : null}
                       {terms ? <p style={styles.paragraph}>{terms}</p> : null}
@@ -3501,7 +3696,6 @@ function RelatedPartyLoansNote({
             </FragmentWithKey>
           );
         })}
-
         <tr>
           <td data-total-label="true" style={styles.totalLabel}>
             &nbsp;
@@ -3519,7 +3713,6 @@ function RelatedPartyLoansNote({
     </table>
   );
 }
-
 
 function ShareCapitalNote({
   rows,
@@ -5027,13 +5220,6 @@ export default function AfsStructuredNotesPanel({
             ? "Member's contribution"
             : isShareCapitalSection(section) && effectiveIsTrust
               ? "Trust capital"
-              : section.key === "notesLoansReceivable" &&
-                  isPureMemberLoanReceivable(trialBalanceLines)
-                ? effectiveIsCloseCorporation
-                  ? "Member loans"
-                  : effectiveIsTrust
-                    ? "Trustee loans"
-                    : "Shareholder / director / member loans"
               : section.key === "notesShareholdersLoans" && effectiveIsCloseCorporation
                 ? "Member loans"
                 : section.key === "notesShareholdersLoans" && effectiveIsTrust
@@ -5128,28 +5314,23 @@ export default function AfsStructuredNotesPanel({
                     state={state}
                     update={update}
                   />
-                ) : section.key === "notesLoansReceivable" &&
-                  isPureMemberLoanReceivable(trialBalanceLines) ? (
-                  <RelatedPartyLoansNote
+                ) : section.key === "notesShareholdersLoans" ? (
+                  <ShareholderLoansNote
                     rows={rows}
                     trialBalanceLines={trialBalanceLines}
                     edit={isEditing}
                     state={state}
                     update={update}
-                    direction="receivable"
                     isCloseCorporationEntity={effectiveIsCloseCorporation}
                     isTrustEntity={effectiveIsTrust}
                   />
-                ) : section.key === "notesShareholdersLoans" ? (
-                  <RelatedPartyLoansNote
+                ) : section.key === "notesOtherInvestments" ? (
+                  <OtherInvestmentsNote
                     rows={rows}
                     trialBalanceLines={trialBalanceLines}
                     edit={isEditing}
                     state={state}
                     update={update}
-                    direction="payable"
-                    isCloseCorporationEntity={effectiveIsCloseCorporation}
-                    isTrustEntity={effectiveIsTrust}
                   />
                 ) : section.key === "notesCashUsedInOperations" ? (
                   <CashUsedInOperationsNote

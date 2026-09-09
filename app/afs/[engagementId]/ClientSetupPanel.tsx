@@ -18,6 +18,7 @@ type ClientSetup = {
 
   basis_of_preparation: string | null;
   type_of_engagement: string | null;
+  type_of_trust: string | null;
   report_required: string | null;
   industry: string | null;
   group_description: string | null;
@@ -146,6 +147,7 @@ const blankSetup: ClientSetup = {
 
   basis_of_preparation: "IFRS for SMEs",
   type_of_engagement: "Compilation",
+  type_of_trust: "",
   report_required: "Practitioner compilation report",
   industry: "",
   group_description: "",
@@ -290,6 +292,23 @@ function isGenericLegalFramework(value: unknown) {
   );
 }
 
+function isStandardTrustType(value: unknown) {
+  const clean = String(value || "").trim().toLowerCase();
+
+  return (
+    clean === "inter vivos trust" ||
+    clean === "testamentary trust"
+  );
+}
+
+function trustTypeSelectValue(value: unknown) {
+  const clean = String(value || "").trim();
+
+  if (!clean) return "";
+  if (isStandardTrustType(clean)) return clean;
+  return "Other";
+}
+
 export default function ClientSetupPanel({
   engagementId,
   clientName,
@@ -314,6 +333,7 @@ export default function ClientSetupPanel({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [customTrustType, setCustomTrustType] = useState("");
 
   async function loadSetup() {
     setLoading(true);
@@ -330,17 +350,23 @@ export default function ClientSetupPanel({
       }
 
       if (data.setup) {
+        const savedYearEnd =
+          data.setup.financial_year_end || financialYearEnd || "";
+
         setSetup({
           ...blankSetup,
           ...data.setup,
-          current_period_heading:
-            data.setup.current_period_heading ||
-            makeCurrentPeriodHeading(financialYearEnd),
-          prior_period_heading: resolvePriorPeriodHeading(
-            data.setup.prior_period_heading,
-            financialYearEnd,
-          ),
+          financial_year_end: savedYearEnd,
+          current_period_heading: makeCurrentPeriodHeading(savedYearEnd),
+          prior_period_heading: makePriorPeriodHeading(savedYearEnd),
         });
+
+        const savedTrustType = String(data.setup.type_of_trust || "").trim();
+        setCustomTrustType(
+          savedTrustType && !isStandardTrustType(savedTrustType)
+            ? savedTrustType
+            : "",
+        );
       } else {
         setSetup((current) => ({
           ...current,
@@ -373,12 +399,30 @@ export default function ClientSetupPanel({
     setSaving(true);
 
     try {
+      const masterYearEnd = String(setup.financial_year_end || financialYearEnd || "");
+
+      const selectedTrustType = trustTypeSelectValue(setup.type_of_trust);
+      const effectiveTrustType =
+        isTrustEntity(setup.entity_type) && selectedTrustType === "Other"
+          ? customTrustType.trim()
+          : String(setup.type_of_trust || "").trim();
+
+      const setupToSave: ClientSetup = {
+        ...setup,
+        type_of_trust: isTrustEntity(setup.entity_type)
+          ? effectiveTrustType
+          : "",
+        financial_year_end: masterYearEnd,
+        current_period_heading: makeCurrentPeriodHeading(masterYearEnd),
+        prior_period_heading: makePriorPeriodHeading(masterYearEnd),
+      };
+
       const res = await fetch(`/api/afs/engagements/${engagementId}/client-setup`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(setup),
+        body: JSON.stringify(setupToSave),
       });
 
       const data = await res.json();
@@ -394,16 +438,19 @@ export default function ClientSetupPanel({
         ...blankSetup,
         ...data.setup,
         financial_year_end: savedYearEnd,
-        current_period_heading:
-          data.setup.current_period_heading ||
-          makeCurrentPeriodHeading(savedYearEnd),
-        prior_period_heading: resolvePriorPeriodHeading(
-          data.setup.prior_period_heading,
-          savedYearEnd,
-        ),
+        current_period_heading: makeCurrentPeriodHeading(savedYearEnd),
+        prior_period_heading: makePriorPeriodHeading(savedYearEnd),
       };
 
       setSetup(savedSetup);
+
+      const savedTrustType = String(savedSetup.type_of_trust || "").trim();
+      setCustomTrustType(
+        savedTrustType && !isStandardTrustType(savedTrustType)
+          ? savedTrustType
+          : "",
+      );
+
       onSaved?.({ setup: savedSetup, engagement: data.engagement || null, people });
 
       if (data.signoffInvalidated) {
@@ -566,12 +613,20 @@ export default function ClientSetupPanel({
         if (isGenericLegalFramework(current.legal_framework)) {
           next.legal_framework = defaultLegalFrameworkForEntity(value);
         }
+
+        if (!isTrustEntity(value)) {
+          next.type_of_trust = "";
+        }
       }
 
       return next;
     });
 
     if (field === "entity_type") {
+      if (!isTrustEntity(value)) {
+        setCustomTrustType("");
+      }
+
       setNewPerson((current) => ({
         ...current,
         person_type: isTrustEntity(value)
@@ -798,6 +853,53 @@ export default function ClientSetupPanel({
             <option value="Accounting Officer">Accounting Officer</option>
           </select>
         </Field>
+
+        {isTrustEntity(setup.entity_type) ? (
+          <>
+            <Field label="Type of trust">
+              <select
+                style={styles.input}
+                value={trustTypeSelectValue(setup.type_of_trust)}
+                onChange={(e) => {
+                  const value = e.target.value;
+
+                  if (value === "Other") {
+                    setCustomTrustType(
+                      isStandardTrustType(setup.type_of_trust)
+                        ? ""
+                        : String(setup.type_of_trust || ""),
+                    );
+                    update("type_of_trust", customTrustType || "Other");
+                    return;
+                  }
+
+                  setCustomTrustType("");
+                  update("type_of_trust", value);
+                }}
+              >
+                <option value="">Select type of trust</option>
+                <option value="Inter vivos trust">Inter vivos trust</option>
+                <option value="Testamentary trust">Testamentary trust</option>
+                <option value="Other">Other</option>
+              </select>
+            </Field>
+
+            {trustTypeSelectValue(setup.type_of_trust) === "Other" ? (
+              <Field label="Specify type of trust">
+                <input
+                  style={styles.input}
+                  value={customTrustType}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setCustomTrustType(value);
+                    update("type_of_trust", value || "Other");
+                  }}
+                  placeholder="Example: Discretionary inter vivos trust"
+                />
+              </Field>
+            ) : null}
+          </>
+        ) : null}
 
         <Field label="Report required">
           <select
@@ -1306,19 +1408,29 @@ export default function ClientSetupPanel({
 
       <SetupSection title="Report Settings">
         <Field label="Current period heading">
-          <input
-            style={styles.input}
-            value={setup.current_period_heading || ""}
-            onChange={(e) => update("current_period_heading", e.target.value)}
-          />
+          <div style={styles.automaticField}>
+            <input
+              style={{ ...styles.input, background: "#f8fafc" }}
+              value={makeCurrentPeriodHeading(String(setup.financial_year_end || ""))}
+              readOnly
+            />
+            <span style={styles.fieldHelp}>
+              Automatic from Financial year end above.
+            </span>
+          </div>
         </Field>
 
         <Field label="Prior period heading">
-          <input
-            style={styles.input}
-            value={setup.prior_period_heading || ""}
-            onChange={(e) => update("prior_period_heading", e.target.value)}
-          />
+          <div style={styles.automaticField}>
+            <input
+              style={{ ...styles.input, background: "#f8fafc" }}
+              value={makePriorPeriodHeading(String(setup.financial_year_end || ""))}
+              readOnly
+            />
+            <span style={styles.fieldHelp}>
+              Automatic comparative date from Financial year end.
+            </span>
+          </div>
         </Field>
 
         {isTrustEntity(setup.entity_type) ? (
@@ -1696,6 +1808,10 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "12px",
     fontWeight: 800,
     color: "#334155",
+  },
+  automaticField: {
+    display: "grid",
+    gap: "5px",
   },
   taxLossField: {
     display: "grid",
