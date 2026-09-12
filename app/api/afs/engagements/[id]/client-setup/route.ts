@@ -35,6 +35,39 @@ function setupPayloadChanged(existing: Record<string, any> | null, next: Record<
   });
 }
 
+function isCompaniesActEntity(value: unknown) {
+  const lower = String(value || "").trim().toLowerCase();
+  return lower === "company" || lower.includes("non-profit company") || lower.includes("non profit company");
+}
+
+function isCloseCorporationEntity(value: unknown) {
+  const lower = String(value || "").trim().toLowerCase();
+  return lower === "cc" || lower.includes("close corporation");
+}
+
+function parseIsoDate(value: unknown) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function exceedsMaximumPeriod(
+  startValue: unknown,
+  endValue: unknown,
+  maximumMonths: number,
+) {
+  const start = parseIsoDate(startValue);
+  const end = parseIsoDate(endValue);
+  if (!start || !end) return false;
+
+  const maxEnd = new Date(start.getTime());
+  maxEnd.setUTCMonth(maxEnd.getUTCMonth() + maximumMonths);
+  maxEnd.setUTCDate(maxEnd.getUTCDate() - 1);
+  return end > maxEnd;
+}
+
 async function invalidateClientSetupSignoff(
   supabase: ReturnType<typeof getSupabaseServer>,
   engagementId: string,
@@ -156,6 +189,47 @@ export async function PATCH(req: NextRequest, context: any) {
 
     if (existingEngagementError) throw existingEngagementError;
 
+    const reportingPeriodStart = dateOrNull(body.reporting_period_start);
+    const reportingPeriodEnd = dateOrNull(body.financial_year_end) || existingEngagement?.financial_year_end || null;
+    const entityTypeForValidation = clean(body.entity_type) || existingEngagement?.entity_type || "";
+
+    if (!reportingPeriodStart) {
+      return NextResponse.json(
+        { error: "Reporting period start date is required." },
+        { status: 400 },
+      );
+    }
+
+    const parsedStart = parseIsoDate(reportingPeriodStart);
+    const parsedEnd = parseIsoDate(reportingPeriodEnd);
+
+    if (!parsedStart || !parsedEnd || parsedEnd < parsedStart) {
+      return NextResponse.json(
+        { error: "Reporting period start date must be before the financial year end." },
+        { status: 400 },
+      );
+    }
+
+    if (
+      isCompaniesActEntity(entityTypeForValidation) &&
+      exceedsMaximumPeriod(reportingPeriodStart, reportingPeriodEnd, 15)
+    ) {
+      return NextResponse.json(
+        { error: "A South African company / NPC reporting period may not exceed 15 months." },
+        { status: 400 },
+      );
+    }
+
+    if (
+      isCloseCorporationEntity(entityTypeForValidation) &&
+      exceedsMaximumPeriod(reportingPeriodStart, reportingPeriodEnd, 18)
+    ) {
+      return NextResponse.json(
+        { error: "A Close Corporation reporting period may not exceed 18 months." },
+        { status: 400 },
+      );
+    }
+
     const setupData = {
       engagement_id: engagementId,
 
@@ -170,10 +244,11 @@ export async function PATCH(req: NextRequest, context: any) {
       nature_of_business: clean(body.nature_of_business),
       trading_name: clean(body.trading_name),
       logo_url: clean(body.logo_url),
+      reporting_period_start: reportingPeriodStart,
+      type_of_trust: clean(body.type_of_trust),
 
       basis_of_preparation: clean(body.basis_of_preparation) || "IFRS for SMEs",
       type_of_engagement: clean(body.type_of_engagement) || "Compilation",
-      type_of_trust: clean(body.type_of_trust),
       report_required:
         clean(body.report_required) || "Practitioner compilation report",
       industry: clean(body.industry),

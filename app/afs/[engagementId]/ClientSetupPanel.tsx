@@ -13,12 +13,13 @@ type ClientSetup = {
   currency_symbol: string | null;
   legal_framework: string | null;
   nature_of_business: string | null;
+  type_of_trust: string | null;
   trading_name: string | null;
   financial_year_end: string | null;
+  reporting_period_start: string | null;
 
   basis_of_preparation: string | null;
   type_of_engagement: string | null;
-  type_of_trust: string | null;
   report_required: string | null;
   industry: string | null;
   group_description: string | null;
@@ -142,12 +143,13 @@ const blankSetup: ClientSetup = {
   currency_symbol: "R",
   legal_framework: "Companies Act of South Africa",
   nature_of_business: "",
+  type_of_trust: "",
   trading_name: "",
   financial_year_end: "",
+  reporting_period_start: "",
 
   basis_of_preparation: "IFRS for SMEs",
   type_of_engagement: "Compilation",
-  type_of_trust: "",
   report_required: "Practitioner compilation report",
   industry: "",
   group_description: "",
@@ -292,21 +294,76 @@ function isGenericLegalFramework(value: unknown) {
   );
 }
 
-function isStandardTrustType(value: unknown) {
-  const clean = String(value || "").trim().toLowerCase();
-
-  return (
-    clean === "inter vivos trust" ||
-    clean === "testamentary trust"
-  );
+function isCompaniesActEntity(value: unknown) {
+  const lower = String(value || "").trim().toLowerCase();
+  return lower === "company" || lower.includes("non-profit company") || lower.includes("non profit company");
 }
 
-function trustTypeSelectValue(value: unknown) {
-  const clean = String(value || "").trim();
+function parseIsoDate(value: unknown) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
 
-  if (!clean) return "";
-  if (isStandardTrustType(clean)) return clean;
-  return "Other";
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function maxReportingPeriodEnd(startValue: unknown, maximumMonths: number) {
+  const start = parseIsoDate(startValue);
+  if (!start) return null;
+
+  const maxExclusive = new Date(start.getTime());
+  maxExclusive.setUTCMonth(maxExclusive.getUTCMonth() + maximumMonths);
+  maxExclusive.setUTCDate(maxExclusive.getUTCDate() - 1);
+  return maxExclusive;
+}
+
+function reportingPeriodInfo(startValue: unknown, endValue: unknown) {
+  const start = parseIsoDate(startValue);
+  const end = parseIsoDate(endValue);
+
+  if (!start || !end) {
+    return {
+      validDates: false,
+      days: 0,
+      approximateMonths: 0,
+      exceeds15Months: false,
+      exceeds18Months: false,
+    };
+  }
+
+  if (end < start) {
+    return {
+      validDates: true,
+      days: -1,
+      approximateMonths: 0,
+      exceeds15Months: false,
+      exceeds18Months: false,
+    };
+  }
+
+  const days = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+  const max15End = maxReportingPeriodEnd(startValue, 15);
+  const max18End = maxReportingPeriodEnd(startValue, 18);
+  const exceeds15Months = Boolean(max15End && end > max15End);
+  const exceeds18Months = Boolean(max18End && end > max18End);
+
+  // Financial reporting periods are shown by calendar months covered.
+  // Example: 1 Jan 2024 to 28 Feb 2026 covers Jan 2024 through Feb 2026 = 26 months.
+  const months = Math.max(
+    1,
+    (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+      (end.getUTCMonth() - start.getUTCMonth()) +
+      1,
+  );
+
+  return {
+    validDates: true,
+    days,
+    approximateMonths: months,
+    exceeds15Months,
+    exceeds18Months,
+  };
 }
 
 export default function ClientSetupPanel({
@@ -333,7 +390,6 @@ export default function ClientSetupPanel({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
-  const [customTrustType, setCustomTrustType] = useState("");
 
   async function loadSetup() {
     setLoading(true);
@@ -360,13 +416,6 @@ export default function ClientSetupPanel({
           current_period_heading: makeCurrentPeriodHeading(savedYearEnd),
           prior_period_heading: makePriorPeriodHeading(savedYearEnd),
         });
-
-        const savedTrustType = String(data.setup.type_of_trust || "").trim();
-        setCustomTrustType(
-          savedTrustType && !isStandardTrustType(savedTrustType)
-            ? savedTrustType
-            : "",
-        );
       } else {
         setSetup((current) => ({
           ...current,
@@ -400,18 +449,27 @@ export default function ClientSetupPanel({
 
     try {
       const masterYearEnd = String(setup.financial_year_end || financialYearEnd || "");
+      const periodStart = String(setup.reporting_period_start || "").trim();
+      const periodInfo = reportingPeriodInfo(periodStart, masterYearEnd);
 
-      const selectedTrustType = trustTypeSelectValue(setup.type_of_trust);
-      const effectiveTrustType =
-        isTrustEntity(setup.entity_type) && selectedTrustType === "Other"
-          ? customTrustType.trim()
-          : String(setup.type_of_trust || "").trim();
+      if (!periodStart) {
+        throw new Error("Reporting period start date is required.");
+      }
+
+      if (!periodInfo.validDates || periodInfo.days <= 0) {
+        throw new Error("Reporting period start date must be before the financial year end.");
+      }
+
+      if (isCompaniesActEntity(setup.entity_type) && periodInfo.exceeds15Months) {
+        throw new Error("A South African company / NPC reporting period may not exceed 15 months.");
+      }
+
+      if (isCloseCorporationEntity(setup.entity_type) && periodInfo.exceeds18Months) {
+        throw new Error("A Close Corporation reporting period may not exceed 18 months.");
+      }
 
       const setupToSave: ClientSetup = {
         ...setup,
-        type_of_trust: isTrustEntity(setup.entity_type)
-          ? effectiveTrustType
-          : "",
         financial_year_end: masterYearEnd,
         current_period_heading: makeCurrentPeriodHeading(masterYearEnd),
         prior_period_heading: makePriorPeriodHeading(masterYearEnd),
@@ -443,14 +501,6 @@ export default function ClientSetupPanel({
       };
 
       setSetup(savedSetup);
-
-      const savedTrustType = String(savedSetup.type_of_trust || "").trim();
-      setCustomTrustType(
-        savedTrustType && !isStandardTrustType(savedTrustType)
-          ? savedTrustType
-          : "",
-      );
-
       onSaved?.({ setup: savedSetup, engagement: data.engagement || null, people });
 
       if (data.signoffInvalidated) {
@@ -613,20 +663,12 @@ export default function ClientSetupPanel({
         if (isGenericLegalFramework(current.legal_framework)) {
           next.legal_framework = defaultLegalFrameworkForEntity(value);
         }
-
-        if (!isTrustEntity(value)) {
-          next.type_of_trust = "";
-        }
       }
 
       return next;
     });
 
     if (field === "entity_type") {
-      if (!isTrustEntity(value)) {
-        setCustomTrustType("");
-      }
-
       setNewPerson((current) => ({
         ...current,
         person_type: isTrustEntity(value)
@@ -709,6 +751,26 @@ export default function ClientSetupPanel({
           </select>
         </Field>
 
+        {isTrustEntity(setup.entity_type) ? (
+          <Field label="Type of trust">
+            <input
+              style={styles.input}
+              value={setup.type_of_trust || ""}
+              onChange={(e) => update("type_of_trust", e.target.value)}
+              placeholder="e.g. Inter vivos trust"
+            />
+          </Field>
+        ) : null}
+
+        <Field label="Reporting period start">
+          <input
+            style={styles.input}
+            type="date"
+            value={setup.reporting_period_start || ""}
+            onChange={(e) => update("reporting_period_start", e.target.value)}
+          />
+        </Field>
+
         <Field label="Financial year end">
           <input
             style={styles.input}
@@ -717,6 +779,41 @@ export default function ClientSetupPanel({
             onChange={(e) => update("financial_year_end", e.target.value)}
           />
         </Field>
+
+        {setup.reporting_period_start && setup.financial_year_end ? (() => {
+          const info = reportingPeriodInfo(setup.reporting_period_start, setup.financial_year_end);
+          const companyLimitError = isCompaniesActEntity(setup.entity_type) && info.exceeds15Months;
+          const ccLimitError = isCloseCorporationEntity(setup.entity_type) && info.exceeds18Months;
+          const dateError = info.validDates && info.days <= 0;
+          const periodLimitError = companyLimitError || ccLimitError;
+
+          return (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <div
+                style={{
+                  padding: "8px 10px",
+                  border: `1px solid ${periodLimitError || dateError ? "#b91c1c" : "#cbd5e1"}`,
+                  background: periodLimitError || dateError ? "#fff7f7" : "#f8fafc",
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                }}
+              >
+                {dateError ? (
+                  <strong>Reporting period start must be before the financial year end.</strong>
+                ) : companyLimitError ? (
+                  <strong>Invalid reporting period: South African companies / NPCs may not exceed 15 months.</strong>
+                ) : ccLimitError ? (
+                  <strong>Invalid reporting period: Close Corporations may not exceed 18 months.</strong>
+                ) : (
+                  <>
+                    Reporting period: <strong>{info.approximateMonths} month{info.approximateMonths === 1 ? "" : "s"}</strong>
+                    {info.approximateMonths !== 12 ? " — non-standard reporting period." : " — standard reporting period."}
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })() : null}
 
         <Field label="Trading name">
           <input
@@ -853,53 +950,6 @@ export default function ClientSetupPanel({
             <option value="Accounting Officer">Accounting Officer</option>
           </select>
         </Field>
-
-        {isTrustEntity(setup.entity_type) ? (
-          <>
-            <Field label="Type of trust">
-              <select
-                style={styles.input}
-                value={trustTypeSelectValue(setup.type_of_trust)}
-                onChange={(e) => {
-                  const value = e.target.value;
-
-                  if (value === "Other") {
-                    setCustomTrustType(
-                      isStandardTrustType(setup.type_of_trust)
-                        ? ""
-                        : String(setup.type_of_trust || ""),
-                    );
-                    update("type_of_trust", customTrustType || "Other");
-                    return;
-                  }
-
-                  setCustomTrustType("");
-                  update("type_of_trust", value);
-                }}
-              >
-                <option value="">Select type of trust</option>
-                <option value="Inter vivos trust">Inter vivos trust</option>
-                <option value="Testamentary trust">Testamentary trust</option>
-                <option value="Other">Other</option>
-              </select>
-            </Field>
-
-            {trustTypeSelectValue(setup.type_of_trust) === "Other" ? (
-              <Field label="Specify type of trust">
-                <input
-                  style={styles.input}
-                  value={customTrustType}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setCustomTrustType(value);
-                    update("type_of_trust", value || "Other");
-                  }}
-                  placeholder="Example: Discretionary inter vivos trust"
-                />
-              </Field>
-            ) : null}
-          </>
-        ) : null}
 
         <Field label="Report required">
           <select

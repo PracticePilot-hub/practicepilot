@@ -4705,6 +4705,129 @@ function CurrentTaxBalanceNote({
 }
 
 
+
+function revenueMappingCode(line: any) {
+  /*
+    Revenue classification is mapping-code-only.
+    Any account mapped to 700 / 700.xx belongs in the Revenue note.
+  */
+  const code = clean(line?.mapping_code);
+  return code === "700" || code.startsWith("700.") ? code : "";
+}
+
+function buildRevenueDetailRows(
+  trialBalanceLines: any[],
+  fallbackRows: AmountLine[],
+): AmountLine[] {
+  const grouped = new Map<string, AmountLine>();
+
+  (trialBalanceLines || []).forEach((line) => {
+    const code = revenueMappingCode(line);
+    if (!code) return;
+
+    const current = Math.abs(lineAmount(line, "current"));
+    const prior = Math.abs(lineAmount(line, "prior"));
+
+    /*
+      IMPORTANT:
+      If a mapping code is used, show it even when BOTH years are exactly R0.00.
+      Mapping presence drives row visibility; amount does not.
+    */
+    const existing = grouped.get(code) || {
+      id: `revenue-${code}`,
+      label: clean(line.mapping_label) || code,
+      current: 0,
+      prior: 0,
+      meta: { mappingCode: code },
+    };
+
+    existing.current += current;
+    existing.prior += prior;
+
+    if ((!existing.label || existing.label === code) && clean(line.mapping_label)) {
+      existing.label = clean(line.mapping_label);
+    }
+
+    grouped.set(code, existing);
+  });
+
+  const detailRows = Array.from(grouped.values()).sort((a, b) =>
+    String(a.meta?.mappingCode || "").localeCompare(
+      String(b.meta?.mappingCode || ""),
+      undefined,
+      { numeric: true },
+    ),
+  );
+
+  return detailRows.length > 0 ? detailRows : fallbackRows;
+}
+
+function RevenueNote({
+  rows,
+  trialBalanceLines,
+}: {
+  rows: AmountLine[];
+  trialBalanceLines: any[];
+}) {
+  const { currentHeading, priorHeading, hideComparatives } = useNotesDisplay();
+  const detailRows = buildRevenueDetailRows(trialBalanceLines, rows);
+
+  const totalCurrent = detailRows.reduce(
+    (sum, row) => sum + toNumber(row.current),
+    0,
+  );
+  const totalPrior = detailRows.reduce(
+    (sum, row) => sum + toNumber(row.prior),
+    0,
+  );
+
+  if (detailRows.length === 0) return null;
+
+  return (
+    <table style={styles.table}>
+      <colgroup>
+        <col style={{ width: "auto" }} />
+        <col style={{ width: 76 }} />
+        {!hideComparatives ? <col style={{ width: 76 }} /> : null}
+      </colgroup>
+      <thead>
+        <tr>
+          <th style={styles.thLeft}>Description</th>
+          <th style={styles.thRight}>{currentHeading}</th>
+          {!hideComparatives ? (
+            <th style={styles.thRight}>{priorHeading}</th>
+          ) : null}
+        </tr>
+      </thead>
+      <tbody>
+        {detailRows.map((row, index) => (
+          <tr key={row.id || row.label || String(index)}>
+            <td style={styles.tdLeft}>{displayNoteLineLabel(row.label)}</td>
+            <td style={styles.tdRight}>{amount(row.current)}</td>
+            {!hideComparatives ? (
+              <td style={styles.tdRight}>{amount(row.prior)}</td>
+            ) : null}
+          </tr>
+        ))}
+
+        <tr>
+          <td data-total-label="true" style={styles.totalLabel}>
+            &nbsp;
+          </td>
+          <td data-total-amount="true" style={styles.totalAmount}>
+            {amount(totalCurrent)}
+          </td>
+          {!hideComparatives ? (
+            <td data-total-amount="true" style={styles.totalAmount}>
+              {amount(totalPrior)}
+            </td>
+          ) : null}
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
 function operatingExpenseSearchText(line: any) {
   return [
     line.mapping_code,
@@ -5403,6 +5526,15 @@ export default function AfsStructuredNotesPanel({
                     edit={isEditing}
                     state={state}
                     update={update}
+                  />
+                ) : (
+                  section.key === "notesRevenue" ||
+                  section.key === "revenue" ||
+                  section.optionKey === "notesRevenue"
+                ) ? (
+                  <RevenueNote
+                    rows={rows}
+                    trialBalanceLines={trialBalanceLines}
                   />
                 ) : section.key === "notesOperatingExpenses" ? (
                   <OperatingExpensesNote

@@ -126,6 +126,27 @@ function formatAfsDisplayDate(value: unknown) {
   });
 }
 
+function parseReportingIsoDate(value: unknown) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function reportingPeriodMonths(startValue: unknown, endValue: unknown) {
+  const start = parseReportingIsoDate(startValue);
+  const end = parseReportingIsoDate(endValue);
+  if (!start || !end || end < start) return null;
+
+  let months = (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+    (end.getUTCMonth() - start.getUTCMonth());
+  const anniversaryDay = start.getUTCDate();
+  if (end.getUTCDate() >= anniversaryDay - 1) months += 1;
+  return Math.max(1, months);
+}
+
 function professionalStatementLabel(value: unknown) {
   const label = String(value || "").trim();
 
@@ -1213,7 +1234,7 @@ function buildHistoricalCashFlowData(
   );
 
   const inventoryPrior = openingInventory - closingInventory;
-  const receivablesPrior = closingReceivables - openingReceivables;
+  const receivablesPrior = openingReceivables - closingReceivables;
   const payablesPrior = closingPayables - openingPayables;
 
   const openingCurrentTaxReceivable = totalFor(
@@ -1311,11 +1332,13 @@ function ccMemberCollective(memberCount: number) {
 function CcMembersResponsibilitiesBlock({
   clientName,
   yearEnd,
+  reportingPeriodLabel,
   approvalDate,
   members,
 }: {
   clientName: string;
   yearEnd: string;
+  reportingPeriodLabel?: string;
   approvalDate: string;
   members: PersonData[];
 }) {
@@ -1353,7 +1376,7 @@ function CcMembersResponsibilitiesBlock({
       </p>
 
       <p style={paragraphStyle()}>
-        The annual financial statements for the year ended {yearEnd} were
+        The annual financial statements for the {reportingPeriodLabel || `year ended ${yearEnd}`} were
         approved by the {memberWord} on {approvalDate || "________________"} and
         are signed below by the {memberWord} or on their behalf.
       </p>
@@ -1393,10 +1416,12 @@ function CcMembersResponsibilitiesBlock({
 function CcMembersReportBlock({
   clientName,
   yearEnd,
+  reportingPeriodLabel,
   members,
 }: {
   clientName: string;
   yearEnd: string;
+  reportingPeriodLabel?: string;
   members: PersonData[];
 }) {
   const memberCount = Math.max(1, members.length);
@@ -1406,8 +1431,8 @@ function CcMembersReportBlock({
     <div>
       <p style={paragraphStyle()}>
         The {memberWord} {memberCount === 1 ? "submits" : "submit"}{" "}
-        {memberCount === 1 ? "his or her" : "their"} report for the year ended{" "}
-        {yearEnd}.
+        {memberCount === 1 ? "his or her" : "their"} report for the{" "}
+        {reportingPeriodLabel || `year ended ${yearEnd}`}.
       </p>
 
       <h2 style={sectionHeadingStyle()}>1. Going concern</h2>
@@ -1465,12 +1490,14 @@ function CcMembersReportBlock({
 function TrustTrusteesResponsibilitiesBlock({
   clientName,
   yearEnd,
+  reportingPeriodLabel,
   approvalDate,
   trustees,
   numberOfTrusteesToSign,
 }: {
   clientName: string;
   yearEnd: string;
+  reportingPeriodLabel?: string;
   approvalDate: string;
   trustees: PersonData[];
   numberOfTrusteesToSign?: number;
@@ -1542,7 +1569,7 @@ function TrustTrusteesResponsibilitiesBlock({
       </p>
 
       <p style={paragraphStyle()}>
-        The annual financial statements for the year ended {yearEnd} were approved by
+        The annual financial statements for the {reportingPeriodLabel || `year ended ${yearEnd}`} were approved by
         the {trusteeWord} on {approvalDate || "________________"} and are signed below
         by the {trusteeWord} or on their behalf.
       </p>
@@ -1610,10 +1637,12 @@ function TrustTrusteesResponsibilitiesBlock({
 function TrustTrusteesReportBlock({
   clientName,
   yearEnd,
+  reportingPeriodLabel,
   trustees,
 }: {
   clientName: string;
   yearEnd: string;
+  reportingPeriodLabel?: string;
   trustees: PersonData[];
 }) {
   const trusteeCount = Math.max(1, trustees.length);
@@ -1623,8 +1652,8 @@ function TrustTrusteesReportBlock({
     <div>
       <p style={paragraphStyle()}>
         The {trusteeWord} {trusteeCount === 1 ? "submits" : "submit"}{" "}
-        {trusteeCount === 1 ? "his or her" : "their"} report for the year ended{" "}
-        {yearEnd}.
+        {trusteeCount === 1 ? "his or her" : "their"} report for the{" "}
+        {reportingPeriodLabel || `year ended ${yearEnd}`}.
       </p>
 
       <h2 style={sectionHeadingStyle()}>1. Nature of the trust and its activities</h2>
@@ -1688,6 +1717,7 @@ function TrustTrusteesReportBlock({
 function CcAccountingOfficerReportBlock({
   clientName,
   yearEnd,
+  reportingPeriodLabel,
   members,
   practitionerFirm,
   practitionerName,
@@ -1710,6 +1740,7 @@ function CcAccountingOfficerReportBlock({
 }: {
   clientName: string;
   yearEnd: string;
+  reportingPeriodLabel?: string;
   members: PersonData[];
   practitionerFirm: string;
   practitionerName: string;
@@ -1841,7 +1872,7 @@ function CcAccountingOfficerReportBlock({
 
       <p style={paragraphStyle()}>
         We have performed the duties of accounting officer to {clientName} for
-        the year ended {yearEnd} as required by section 62 of the Close
+        the {reportingPeriodLabel || `year ended ${yearEnd}`} as required by section 62 of the Close
         Corporations Act of South Africa. The annual financial statements are the
         responsibility of the {memberCount === 1 ? "member" : "members"}.
       </p>
@@ -2757,6 +2788,29 @@ const clientLogoUrl = cleanString(
 
   const displayYearEnd = formatAfsDisplayDate(yearEnd);
 
+  const reportingPeriodStart = String(
+    getSetupValue(clientSetup, [
+      "reporting_period_start",
+      "period_start",
+      "financial_period_start",
+    ]) || ""
+  ).trim();
+
+  const calculatedReportingPeriodMonths = reportingPeriodMonths(
+    reportingPeriodStart,
+    yearEnd,
+  );
+  const isStandardReportingPeriod =
+    !calculatedReportingPeriodMonths || calculatedReportingPeriodMonths === 12;
+  const reportingPeriodLabel = isStandardReportingPeriod
+    ? `year ended ${displayYearEnd}`
+    : `${calculatedReportingPeriodMonths}-month period ended ${displayYearEnd}`;
+  const reportingPeriodNoun = isStandardReportingPeriod ? "year" : "period";
+  const reportingPeriodHeaderLabel = `Annual financial statements for the ${reportingPeriodLabel}`;
+  const comparativePeriodDisclosure = !isStandardReportingPeriod
+    ? `The current annual financial statements cover a period of ${calculatedReportingPeriodMonths} months. Accordingly, the comparative amounts presented for the preceding financial year are not directly comparable with those of the current reporting period.`
+    : "";
+
   const legalFrameworkRaw = String(
     getSetupValue(clientSetup, [
       "legal_framework",
@@ -2930,6 +2984,10 @@ const clientLogoUrl = cleanString(
     clientName,
     entityType,
     yearEnd: displayYearEnd,
+    reportingPeriodLabel,
+    reportingPeriodNoun,
+    reportingPeriodMonths: calculatedReportingPeriodMonths || 12,
+    isStandardReportingPeriod,
     registrationNumber,
     bodyLabel,
     bodyLabelCapitalised,
@@ -3018,7 +3076,7 @@ const clientLogoUrl = cleanString(
         financialResults: {
           title: "Financial results",
           text:
-            "The financial results of the close corporation for the year ended {yearEnd} are set out in these annual financial statements. The members have considered the results for the year, the financial position at year end and the related disclosures, and are satisfied that the annual financial statements fairly reflect the affairs of the close corporation based on the accounting records and information available to them.",
+            "The financial results of the close corporation for the {reportingPeriodLabel} are set out in these annual financial statements. The members have considered the results for the reporting period, the financial position at period end and the related disclosures, and are satisfied that the annual financial statements fairly reflect the affairs of the close corporation based on the accounting records and information available to them.",
         },
         dividends: {
           title: "Distributions",
@@ -3084,7 +3142,7 @@ const clientLogoUrl = cleanString(
         financialResults: {
           title: "Financial results",
           text:
-            "The financial results of the trust for the year ended {yearEnd} are set out in these annual financial statements. The trustees have considered the results for the year, the financial position at year end and the related disclosures, and are satisfied that the annual financial statements fairly reflect the affairs of the trust based on the accounting records and information available to them.",
+            "The financial results of the trust for the {reportingPeriodLabel} are set out in these annual financial statements. The trustees have considered the results for the reporting period, the financial position at period end and the related disclosures, and are satisfied that the annual financial statements fairly reflect the affairs of the trust based on the accounting records and information available to them.",
         },
         dividends: {
           title: "Distributions to beneficiaries",
@@ -4721,7 +4779,7 @@ const effectiveStructuredNotesState = useMemo(() => {
       : 0;
 
     const interestReceivedCurrent =
-      false && effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
+      effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
       effectiveStatementOverrides.cashInterestReceivedCurrent !== undefined
         ? Number(
             effectiveStatementOverrides.cashInterestReceivedCurrent || 0,
@@ -4729,7 +4787,7 @@ const effectiveStructuredNotesState = useMemo(() => {
         : mappedInterestReceivedCurrent;
 
     const interestReceivedPrior =
-      false && effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
+      effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
       effectiveStatementOverrides.cashInterestReceivedPrior !== undefined
         ? Number(
             effectiveStatementOverrides.cashInterestReceivedPrior || 0,
@@ -4737,7 +4795,7 @@ const effectiveStructuredNotesState = useMemo(() => {
         : mappedInterestReceivedPrior;
 
     const financeCostsPaidCurrent =
-      false && effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== null &&
+      effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== null &&
       effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== undefined
         ? Number(
             effectiveStatementOverrides.cashFinanceCostsPaidCurrent || 0,
@@ -4745,7 +4803,7 @@ const effectiveStructuredNotesState = useMemo(() => {
         : mappedFinanceCostsPaidCurrent;
 
     const financeCostsPaidPrior =
-      false && effectiveStatementOverrides.cashFinanceCostsPaidPrior !== null &&
+      effectiveStatementOverrides.cashFinanceCostsPaidPrior !== null &&
       effectiveStatementOverrides.cashFinanceCostsPaidPrior !== undefined
         ? Number(
             effectiveStatementOverrides.cashFinanceCostsPaidPrior || 0,
@@ -4997,14 +5055,6 @@ const roundingCurrent =
 const roundingPrior =
   Math.abs(rawRoundingPrior) <= 1 ? rawRoundingPrior : 0;
 
-const finalNetMovementCurrent = netMovementCurrent + roundingCurrent;
-const finalNetMovementPrior = netMovementPrior + roundingPrior;
-
-if (netMovementRow) {
-  netMovementRow.current = Math.round(finalNetMovementCurrent);
-  netMovementRow.prior = Math.round(finalNetMovementPrior);
-}
-
 const closingRowIndex = rows.findIndex((row: any) => {
   const id = String(row?.id || "").toLowerCase();
   const label = String(row?.label || "").toLowerCase();
@@ -5023,7 +5073,6 @@ if (existingRoundingRow) {
   existingRoundingRow.current = roundingCurrent;
   existingRoundingRow.prior = roundingPrior;
 } else if (
-  false &&
   closingRowIndex >= 0 &&
   (roundingCurrent !== 0 || roundingPrior !== 0)
 ) {
@@ -5040,10 +5089,10 @@ if (existingRoundingRow) {
 }
 
 const finalClosingCurrent =
-  openingCurrent + finalNetMovementCurrent;
+  calculatedClosingCurrent + roundingCurrent;
 
 const finalClosingPrior =
-  openingPrior + finalNetMovementPrior;
+  calculatedClosingPrior + roundingPrior;
 
 if (closingCashRow) {
   closingCashRow.current = Math.round(finalClosingCurrent);
@@ -5052,16 +5101,16 @@ if (closingCashRow) {
 
     const checks = {
       ...baseStatementEngine.checks,
-      cashMovementFromCashFlow: Math.round(finalNetMovementCurrent),
+      cashMovementFromCashFlow: Math.round(netMovementCurrent),
       cashClosingFromCashFlow: Math.round(finalClosingCurrent),
       cashFlowMovementDifference: Math.round(
-        finalNetMovementCurrent - Number(baseStatementEngine.checks.cashMovementFromSfp || 0),
+        netMovementCurrent - Number(baseStatementEngine.checks.cashMovementFromSfp || 0),
       ),
       cashFlowClosingDifference: Math.round(
   finalClosingCurrent - sfpClosingCurrent,
 ),
       cashOpeningPrior: Math.round(openingPrior),
-      cashMovementPriorFromCashFlow: Math.round(finalNetMovementPrior),
+      cashMovementPriorFromCashFlow: Math.round(netMovementPrior),
       cashClosingPriorFromCashFlow: Math.round(finalClosingPrior),
       cashFlowPriorClosingDifference: Math.round(
   finalClosingPrior - sfpClosingPrior,
@@ -5293,7 +5342,7 @@ if (closingCashRow) {
           );
 
       const directInterestReceivedCurrent =
-        false && effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
+        effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
         effectiveStatementOverrides.cashInterestReceivedCurrent !== undefined
           ? Number(
               effectiveStatementOverrides.cashInterestReceivedCurrent || 0,
@@ -5301,7 +5350,7 @@ if (closingCashRow) {
           : mappedInterestReceivedCurrent;
 
       const directInterestReceivedPrior =
-        false && effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
+        effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
         effectiveStatementOverrides.cashInterestReceivedPrior !== undefined
           ? Number(
               effectiveStatementOverrides.cashInterestReceivedPrior || 0,
@@ -6579,15 +6628,76 @@ const flightDeckIssues = useMemo(() => {
     );
   }, [trialBalanceLines]);
 
+  /*
+    REVENUE NOTE DETAIL
+
+    Revenue note classification is mapping-code-only. Any TB line mapped to an
+    exact 700.xx revenue leaf is grouped by that mapping code. The mapping label
+    is used only as the disclosure caption after classification.
+
+    This allows the SOCI to remain a single Revenue line while the note shows,
+    for example, Services, Franchise income and Royalty income separately.
+  */
+  const revenueDetailRows = useMemo(() => {
+    const grouped = new Map<string, any>();
+
+    (trialBalanceLines || [])
+      .filter((line: any) => {
+        const code = String(line?.mapping_code || "").trim();
+        return /^700\.\d+/.test(code);
+      })
+      .forEach((line: any) => {
+        const code = String(line?.mapping_code || "").trim();
+        if (!code) return;
+
+        if (!grouped.has(code)) {
+          const rawLabel = cleanString(line?.mapping_label) || `Revenue ${code}`;
+          const displayLabel = rawLabel
+            .replace(/^revenue\s*[-–—:]\s*/i, "")
+            .trim() || rawLabel;
+
+          grouped.set(code, {
+            id: `revenue-${code}`,
+            mappingCode: code,
+            label: displayLabel,
+            current: 0,
+            prior: 0,
+          });
+        }
+
+        const row = grouped.get(code);
+
+        // Revenue is normally credit-negative in the TB but presented positive.
+        row.current += -Number(rawCurrent(line) || 0);
+        row.prior += -Number(rawPrior(line) || 0);
+      });
+
+    return Array.from(grouped.values())
+      .filter(
+        (row: any) =>
+          Math.round(Number(row.current || 0)) !== 0 ||
+          Math.round(Number(row.prior || 0)) !== 0,
+      )
+      .sort((a: any, b: any) =>
+        String(a.mappingCode).localeCompare(String(b.mappingCode), undefined, {
+          numeric: true,
+        }),
+      );
+  }, [trialBalanceLines]);
+
   const noteDataForDisplay = useMemo(
     () => ({
       ...noteData,
+      revenue:
+        revenueDetailRows.length > 1
+          ? revenueDetailRows
+          : noteData.revenue,
       otherInvestments:
         investmentDetailRows.length > 0
           ? investmentDetailRows
           : noteData.otherInvestments,
     }),
-    [noteData, investmentDetailRows],
+    [noteData, investmentDetailRows, revenueDetailRows],
   );
 
   const engineChecks = statementEngine.checks;
@@ -6666,7 +6776,7 @@ const flightDeckIssues = useMemo(() => {
     showReportHeader: true,
     clientName,
     registrationNumber: registrationNumber || undefined,
-    yearEndLabel: `Annual financial statements for the year ended ${displayYearEnd}`,
+    yearEndLabel: reportingPeriodHeaderLabel,
   };
 
   const visibleReportSections = sections.filter(
@@ -8731,7 +8841,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     </div>
 
                     <div style={{ marginTop: 8, fontSize: 12 }}>
-                      for the year ended {displayYearEnd}
+                      for the {reportingPeriodLabel}
                     </div>
 
                     {reportOptions.showCoverFrameworkStatement ? (
@@ -8787,6 +8897,21 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                         ))}
                     </tbody>
                   </table>
+
+                  {!hideComparatives && comparativePeriodDisclosure ? (
+                    <div
+                      style={{
+                        marginTop: 16,
+                        paddingTop: 10,
+                        borderTop: "1px solid #cbd5e1",
+                        fontSize: 10.5,
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      <strong>Comparability of amounts:</strong>{" "}
+                      {comparativePeriodDisclosure}
+                    </div>
+                  ) : null}
                 </section>
               </AfsA4Page>
             </div>
@@ -8821,6 +8946,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       {isTrust
                         ? renderInfoRow("Type of trust", trustTypeDisplay)
                         : null}
+                      {renderInfoRow("Reporting period start", formatAfsDisplayDate(reportingPeriodStart))}
                       {renderInfoRow("Financial year end", displayYearEnd)}
                       {renderInfoRow(
                         "Country of incorporation and domicile",
@@ -8970,6 +9096,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     <CcMembersResponsibilitiesBlock
                       clientName={clientName}
                       yearEnd={displayYearEnd}
+                      reportingPeriodLabel={reportingPeriodLabel}
                       approvalDate={String(approvalDate)}
                       members={directorsForDisplay}
                     />
@@ -8977,6 +9104,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     <TrustTrusteesResponsibilitiesBlock
                       clientName={clientName}
                       yearEnd={displayYearEnd}
+                      reportingPeriodLabel={reportingPeriodLabel}
                       approvalDate={String(approvalDate)}
                       trustees={directorsForDisplay}
                       numberOfTrusteesToSign={Number(
@@ -9038,6 +9166,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                   <CcAccountingOfficerReportBlock
                     clientName={clientName}
                     yearEnd={displayYearEnd}
+                    reportingPeriodLabel={reportingPeriodLabel}
                     members={directorsForDisplay}
                     practitionerFirm={String(practitionerFirm)}
                     practitionerName={String(practitionerName)}

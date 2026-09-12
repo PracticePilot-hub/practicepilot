@@ -45,6 +45,10 @@ type NarrativeContext = Record<string, any> & {
   clientName?: string | null;
   entityType?: string | null;
   yearEnd?: string | null;
+  reportingPeriodLabel?: string | null;
+  reportingPeriodNoun?: "year" | "period" | string | null;
+  reportingPeriodMonths?: number | null;
+  isStandardReportingPeriod?: boolean | null;
   registrationNumber?: string | null;
   bodyLabel?: string | null;
   bodyLabelCapitalised?: string | null;
@@ -137,6 +141,8 @@ function tokenise(text: string, context: NarrativeContext) {
   return String(text || "")
     .replaceAll("{clientName}", value(context, "clientName", "the entity"))
     .replaceAll("{yearEnd}", value(context, "yearEnd", "the reporting date"))
+    .replaceAll("{reportingPeriodLabel}", value(context, "reportingPeriodLabel", `year ended ${value(context, "yearEnd", "the reporting date")}`))
+    .replaceAll("{reportingPeriodNoun}", value(context, "reportingPeriodNoun", "year"))
     .replaceAll("{framework}", value(context, "framework", "the applicable financial reporting framework"))
     .replaceAll("{bodyLabel}", bodyLabel(context))
     .replaceAll("{body}", bodyLabel(context))
@@ -182,6 +188,8 @@ function personRole(person: any) {
 function defaultText(context: NarrativeContext): DirectorsReportTextOverrides {
   const client = value(context, "clientName", "The entity");
   const yearEnd = value(context, "yearEnd", "the reporting date");
+  const reportingPeriodLabel = value(context, "reportingPeriodLabel", `year ended ${yearEnd}`);
+  const reportingPeriodNoun = value(context, "reportingPeriodNoun", "year");
   const framework = value(context, "framework", "the applicable financial reporting framework");
   const body = bodyLabel(context);
   const bodyCap = bodyLabelCapitalised(context);
@@ -191,7 +199,7 @@ function defaultText(context: NarrativeContext): DirectorsReportTextOverrides {
   return {
     generalReview: {
       title: "General review",
-      text: `The ${body} submit their report on the annual financial statements of {clientName} for the year ended {yearEnd}.`,
+      text: `The ${body} submit their report on the annual financial statements of {clientName} for the {reportingPeriodLabel}.`,
     },
     incorporation: {
       title: "Incorporation",
@@ -203,11 +211,11 @@ function defaultText(context: NarrativeContext): DirectorsReportTextOverrides {
     },
     reviewActivities: {
       title: "Review of activities",
-      text: "The entity continued to conduct its principal activities during the year under review. The operating results and the state of affairs of the entity are fully set out in the attached annual financial statements and, in the opinion of the {body}, do not require further comment except as disclosed in this report. There were no major changes in the nature of the business or operations during the year, unless otherwise disclosed.",
+      text: "The entity continued to conduct its principal activities during the reporting period under review. The operating results and the state of affairs of the entity are fully set out in the attached annual financial statements and, in the opinion of the {body}, do not require further comment except as disclosed in this report. There were no major changes in the nature of the business or operations during the reporting period, unless otherwise disclosed.",
     },
     financialResults: {
       title: "Financial results",
-      text: `The financial results of the entity for the year ended ${yearEnd} are set out in these annual financial statements. The annual financial statements have been prepared in accordance with ${framework}. The ${body} have considered the results for the year under review, the financial position at year end and the related disclosures, and are satisfied that these annual financial statements fairly reflect the affairs of the entity based on the accounting records and information available to them.`,
+      text: `The financial results of the entity for the ${reportingPeriodLabel} are set out in these annual financial statements. The annual financial statements have been prepared in accordance with ${framework}. The ${body} have considered the results for the ${reportingPeriodNoun} under review, the financial position at ${reportingPeriodNoun} end and the related disclosures, and are satisfied that these annual financial statements fairly reflect the affairs of the entity based on the accounting records and information available to them.`,
     },
     eventsAfter: {
       title: "Events after the reporting date",
@@ -215,15 +223,15 @@ function defaultText(context: NarrativeContext): DirectorsReportTextOverrides {
     },
     dividends: {
       title: "Dividends",
-      text: "No dividends were declared or proposed during the year under review, unless otherwise disclosed in these annual financial statements.",
+      text: "No dividends were declared or proposed during the reporting period under review, unless otherwise disclosed in these annual financial statements.",
     },
     shareCapital: {
       title: "Authorised and issued share capital",
-      text: "There have been no changes to the authorised or issued share capital during the year under review, unless otherwise disclosed in these annual financial statements.",
+      text: "There have been no changes to the authorised or issued share capital during the reporting period under review, unless otherwise disclosed in these annual financial statements.",
     },
     directors: {
       title: roleLabel(context),
-      text: "The directors in office during the year and up to the date of this report are set out below.",
+      text: "The directors in office during the reporting period and up to the date of this report are set out below.",
     },
     secretary: {
       title: "Secretary",
@@ -235,7 +243,7 @@ function defaultText(context: NarrativeContext): DirectorsReportTextOverrides {
     },
     interestContracts: {
       title: "Interest in contracts",
-      text: `No material contracts in which ${body} had an interest and which significantly affected the affairs of the entity were entered into during the year, unless otherwise disclosed.`,
+      text: `No material contracts in which ${body} had an interest and which significantly affected the affairs of the entity were entered into during the reporting period, unless otherwise disclosed.`,
     },
     borrowingLimitations: {
       title: "Borrowing limitations",
@@ -243,7 +251,7 @@ function defaultText(context: NarrativeContext): DirectorsReportTextOverrides {
     },
     shareholder: {
       title: "Shareholder",
-      text: "There have been no changes in ownership during the current financial year, unless otherwise disclosed.",
+      text: "There have been no changes in ownership during the current reporting period, unless otherwise disclosed.",
     },
     goingConcern: {
       title: "Going concern",
@@ -438,7 +446,7 @@ export function DirectorsResponsibilitiesBlock({ context }: { context: Narrative
   return (
     <section>
       <p style={styles.paragraph}>
-        The {body} are required in terms of {act} to maintain adequate accounting records and are responsible for the content and integrity of the annual financial statements and related financial information included in this report. It is their responsibility to ensure that the annual financial statements fairly present the financial position of the entity as at the end of the financial year and the results of its operations and cash flows for the year then ended, in conformity with {framework}.
+        The {body} are required in terms of {act} to maintain adequate accounting records and are responsible for the content and integrity of the annual financial statements and related financial information included in this report. It is their responsibility to ensure that the annual financial statements fairly present the financial position of the entity as at the end of the financial year and the results of its operations and cash flows for the {value(context, "reportingPeriodNoun", "year")} then ended, in conformity with {framework}.
       </p>
 
       <p style={styles.paragraph}>
@@ -731,7 +739,7 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
       <h1 style={styles.compilationHeading}>Practitioner’s Compilation Report</h1>
 
       <p style={styles.paragraph}>
-        We have compiled the annual financial statements of {clientName}, as set out in this report, based on information provided by management. These annual financial statements comprise the statement of financial position as at {value(context, "yearEnd", "the reporting date")}, the {incomeStatementName}, {changesStatementName} and statement of cash flows for the year then ended, and the notes to the annual financial statements, including a summary of significant accounting policies and other explanatory information.
+        We have compiled the annual financial statements of {clientName}, as set out in this report, based on information provided by management. These annual financial statements comprise the statement of financial position as at {value(context, "yearEnd", "the reporting date")}, the {incomeStatementName}, {changesStatementName} and statement of cash flows for the {value(context, "reportingPeriodNoun", "year")} then ended, and the notes to the annual financial statements, including a summary of significant accounting policies and other explanatory information.
       </p>
 
       <p style={styles.paragraph}>
