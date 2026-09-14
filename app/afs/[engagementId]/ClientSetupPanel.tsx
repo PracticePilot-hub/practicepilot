@@ -682,6 +682,21 @@ export default function ClientSetupPanel({
     }
   }
 
+  function copyAddress(
+    sourcePrefix: "registered_office" | "physical_address" | "postal_address",
+    targetPrefix: "registered_office" | "physical_address" | "postal_address",
+  ) {
+    setSetup((current) => ({
+      ...current,
+      [`${targetPrefix}_line_1`]: current[`${sourcePrefix}_line_1` as keyof ClientSetup] || "",
+      [`${targetPrefix}_line_2`]: current[`${sourcePrefix}_line_2` as keyof ClientSetup] || "",
+      [`${targetPrefix}_city`]: current[`${sourcePrefix}_city` as keyof ClientSetup] || "",
+      [`${targetPrefix}_province`]: current[`${sourcePrefix}_province` as keyof ClientSetup] || "",
+      [`${targetPrefix}_postal_code`]:
+        current[`${sourcePrefix}_postal_code` as keyof ClientSetup] || "",
+    }));
+  }
+
   function updatePerson(field: keyof NewPerson, value: string) {
     setNewPerson((current) => ({
       ...current,
@@ -1103,6 +1118,12 @@ export default function ClientSetupPanel({
           prefix="physical_address"
           setup={setup}
           update={update}
+          copyActions={[
+            {
+              label: "Copy registered",
+              onClick: () => copyAddress("registered_office", "physical_address"),
+            },
+          ]}
         />
 
         <AddressBlock
@@ -1110,6 +1131,16 @@ export default function ClientSetupPanel({
           prefix="postal_address"
           setup={setup}
           update={update}
+          copyActions={[
+            {
+              label: "Copy registered",
+              onClick: () => copyAddress("registered_office", "postal_address"),
+            },
+            {
+              label: "Copy physical",
+              onClick: () => copyAddress("physical_address", "postal_address"),
+            },
+          ]}
         />
 
         <Field label="Banker">
@@ -1634,11 +1665,16 @@ function AddressBlock({
   prefix,
   setup,
   update,
+  copyActions = [],
 }: {
   title: string;
   prefix: "registered_office" | "physical_address" | "postal_address";
   setup: ClientSetup;
   update: (field: keyof ClientSetup, value: string | number) => void;
+  copyActions?: Array<{
+    label: string;
+    onClick: () => void;
+  }>;
 }) {
   const line1 = `${prefix}_line_1` as keyof ClientSetup;
   const line2 = `${prefix}_line_2` as keyof ClientSetup;
@@ -1648,7 +1684,24 @@ function AddressBlock({
 
   return (
     <div style={styles.addressBox}>
-      <strong style={styles.addressTitle}>{title}</strong>
+      <div style={styles.addressHeader}>
+        <strong style={styles.addressTitle}>{title}</strong>
+
+        {copyActions.length > 0 ? (
+          <div style={styles.addressActions}>
+            {copyActions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                style={styles.addressCopyButton}
+                onClick={action.onClick}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
 
       <input
         style={styles.input}
@@ -1988,9 +2041,34 @@ const styles: Record<string, React.CSSProperties> = {
     gap: "8px",
     background: "#f8fafc",
   },
+  addressHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+    minHeight: "26px",
+  },
   addressTitle: {
     fontSize: "13px",
     color: "#111827",
+  },
+  addressActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+  },
+  addressCopyButton: {
+    border: "1px solid #94a3b8",
+    borderRadius: "0px",
+    padding: "4px 7px",
+    background: "#ffffff",
+    color: "#334155",
+    fontWeight: 700,
+    fontSize: "10px",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
   },
   peopleArea: {
     gridColumn: "1 / -1",
