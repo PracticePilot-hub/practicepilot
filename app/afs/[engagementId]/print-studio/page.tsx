@@ -2976,12 +2976,15 @@ const clientLogoUrl = cleanString(
   ]) || "IFRS for SMEs";
 
   const approvalDate =
-    getSetupValue(clientSetup, [
-      "approval_date",
-      "directors_approval_date",
-      "signed_date",
-      "sign_off_date",
-    ]) || "________________";
+    formatAfsDisplayDate(
+      getSetupValue(clientSetup, [
+        "afs_approval_date",
+        "approval_date",
+        "directors_approval_date",
+        "signed_date",
+        "sign_off_date",
+      ]),
+    ) || "________________";
 
   const compilationDate =
     getSetupValue(clientSetup, [
@@ -3105,7 +3108,7 @@ const clientLogoUrl = cleanString(
         directors: {
           title: "Members",
           text:
-            "The members in office during the year and up to the date of this report are set out below.",
+            "The members in office during the year and up to the date of this report are set out above.",
         },
         externalAccountant: {
           title: "Accounting officer / compiler",
@@ -3171,7 +3174,7 @@ const clientLogoUrl = cleanString(
         directors: {
           title: "Trustees",
           text:
-            "The trustees in office during the year and up to the date of this report are set out below.",
+            "The trustees in office during the year and up to the date of this report are set out above.",
         },
         externalAccountant: {
           title: "External accountant / compiler",
@@ -3209,9 +3212,43 @@ const clientLogoUrl = cleanString(
     isTrust,
   ]);
 
+  const normaliseDirectorsReportTexts = (
+    source: DirectorsReportTextOverrides,
+  ): DirectorsReportTextOverrides => {
+    const next: DirectorsReportTextOverrides = { ...source };
+
+    const directorsSection = (next as any)?.directors;
+    if (directorsSection) {
+      (next as any).directors = {
+        ...directorsSection,
+        text: String(directorsSection.text || "").replace(
+          /are set out below\./gi,
+          "are set out above.",
+        ),
+      };
+    }
+
+    const authorisationSection = (next as any)?.authorisation;
+    if (authorisationSection) {
+      (next as any).authorisation = {
+        ...authorisationSection,
+        text: String(authorisationSection.text || "").replace(
+          /_{4,}/g,
+          "{approvalDate}",
+        ),
+      };
+    }
+
+    return next;
+  };
+
   const activeDirectorsReportTexts = useMemo(() => {
-    if (!directorsReportTexts) return defaultDirectorsReportTexts;
-    if (!isCloseCorporation && !isTrust) return directorsReportTexts;
+    if (!directorsReportTexts) {
+      return normaliseDirectorsReportTexts(defaultDirectorsReportTexts);
+    }
+    if (!isCloseCorporation && !isTrust) {
+      return normaliseDirectorsReportTexts(directorsReportTexts);
+    }
 
     const next: DirectorsReportTextOverrides = {
       ...directorsReportTexts,
@@ -3242,7 +3279,7 @@ const clientLogoUrl = cleanString(
       };
     });
 
-    return next;
+    return normaliseDirectorsReportTexts(next);
   }, [
     directorsReportTexts,
     genericDirectorsReportTexts,
