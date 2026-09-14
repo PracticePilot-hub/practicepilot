@@ -1063,9 +1063,10 @@ function historyCategory(line: TrialBalanceHistoryLine) {
     Account names and mapping labels are never used.
   */
   if (
-    mappingCode === "420.10" ||
-    mappingLeafId.startsWith("420-10-") ||
-    leadScheduleKey === "cash"
+    mappingIdentifierStartsWith(mappingCode, ["420", "620"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["420", "620"]) ||
+    leadScheduleKey === "cash" ||
+    leadScheduleKey === "bank-overdraft"
   ) {
     return "cash";
   }
@@ -1079,19 +1080,32 @@ function historyCategory(line: TrialBalanceHistoryLine) {
   }
 
   if (
-    mappingIdentifierStartsWith(mappingCode, ["430"]) ||
-    mappingIdentifierStartsWith(mappingLeafId, ["430"]) ||
+    mappingIdentifierStartsWith(mappingCode, ["415", "430", "490"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["415", "430", "490"]) ||
     leadScheduleKey === "trade-receivables" ||
-    leadScheduleKey === "trade-and-other-receivables"
+    leadScheduleKey === "trade-and-other-receivables" ||
+    leadScheduleKey === "contract-assets" ||
+    leadScheduleKey === "tax-statutory-receivables"
   ) {
     return "tradeReceivables";
   }
 
   if (
-    mappingIdentifierStartsWith(mappingCode, ["630"]) ||
-    mappingIdentifierStartsWith(mappingLeafId, ["630"]) ||
+    mappingIdentifierStartsWith(
+      mappingCode,
+      ["630", "640", "650", "660", "670", "690"],
+    ) ||
+    mappingIdentifierStartsWith(
+      mappingLeafId,
+      ["630", "640", "650", "660", "670", "690"],
+    ) ||
     leadScheduleKey === "trade-payables" ||
-    leadScheduleKey === "trade-and-other-payables"
+    leadScheduleKey === "trade-and-other-payables" ||
+    leadScheduleKey === "contract-liabilities" ||
+    leadScheduleKey === "deferred-income-current" ||
+    leadScheduleKey === "current-provisions" ||
+    leadScheduleKey === "employee-benefit-liabilities-current" ||
+    leadScheduleKey === "tax-and-statutory-payables"
   ) {
     return "tradePayables";
   }
@@ -3932,6 +3946,44 @@ const effectiveStructuredNotesState = useMemo(() => {
   const mappedDepreciationPrior =
     mappedPnlDepreciation("prior") || ppeDepreciation("prior");
 
+  /*
+    NOTE 7 WORKING CAPITAL — use the exact same operating payable families
+    as the cash-flow engine. This is presentation alignment only; it does not
+    change any cash-flow row or reconciliation logic.
+
+    Included current-liability mapping families:
+      630 trade and other payables
+      640 contract liabilities
+      650 deferred income
+      660 provisions
+      670 employee-benefit liabilities
+      690 tax and statutory payables (VAT/PAYE/statutory controls)
+
+    Current income tax payable (695) and financing liabilities remain excluded.
+  */
+  const operatingPayablesNoteTotal = (side: "current" | "prior") =>
+    [
+      "tradePayables",
+      "contractLiabilities",
+      "deferredIncomeGrants",
+      "provisions",
+      "employeeBenefitObligations",
+      "taxStatutoryPayables",
+    ].reduce((familyTotal, key) => {
+      const lines = (baseStatementEngine.noteData as any)?.[key] || [];
+      return (
+        familyTotal +
+        lines.reduce(
+          (sum: number, line: any) => sum + Number(line?.[side] || 0),
+          0,
+        )
+      );
+    }, 0);
+
+  const operatingPayablesMovementCurrent =
+    operatingPayablesNoteTotal("current") -
+    operatingPayablesNoteTotal("prior");
+
   const existingDepreciation =
     currentValues.depreciationAmortisationImpairment || {};
 
@@ -4001,11 +4053,9 @@ const effectiveStructuredNotesState = useMemo(() => {
 
         tradePayables: {
           ...(currentValues.tradePayables || {}),
-          current: Number(
-            baseStatementEngine.cashFlowRows?.find(
-              (row: any) => String(row?.id || "") === "cfs-trade-payables",
-            )?.current || 0,
-          ),
+          // Note 7 must show the same mapped operating-liability movement
+          // that the cash-flow engine uses, including VAT/statutory payables.
+          current: operatingPayablesMovementCurrent,
           prior:
             currentValues.tradePayables?.prior !== undefined &&
             currentValues.tradePayables?.prior !== null &&
@@ -4528,11 +4578,8 @@ const effectiveStructuredNotesState = useMemo(() => {
       0,
     );
 
-    const inventoryCurrent = storedAmount(
-      "inventories",
-      "current",
-      mappedInventoryPriorBalance - mappedInventoryCurrentBalance,
-    );
+    const inventoryCurrent =
+      mappedInventoryPriorBalance - mappedInventoryCurrentBalance;
 
     const inventoryPrior = storedAmount(
       "inventories",
@@ -4552,61 +4599,95 @@ const effectiveStructuredNotesState = useMemo(() => {
       Assets: decrease = cash inflow => opening - closing.
       Liabilities: increase = cash inflow => closing - opening.
     */
-    const mappedReceivablesCurrentBalance = (
-      baseStatementEngine.noteData.tradeReceivables || []
-    ).reduce(
-      (sum: number, line: any) => sum + Number(line?.current || 0),
-      0,
-    );
+    const noteFamilyTotal = (
+      keys: string[],
+      side: "current" | "prior",
+    ) =>
+      keys.reduce((familyTotal, key) => {
+        const lines = (baseStatementEngine.noteData as any)?.[key] || [];
+        return (
+          familyTotal +
+          lines.reduce(
+            (sum: number, line: any) => sum + Number(line?.[side] || 0),
+            0,
+          )
+        );
+      }, 0);
 
-    const mappedReceivablesPriorBalance = (
-      baseStatementEngine.noteData.tradeReceivables || []
-    ).reduce(
-      (sum: number, line: any) => sum + Number(line?.prior || 0),
-      0,
-    );
+    /*
+      Operating current assets included in working capital:
+        415 contract assets
+        430 trade and other receivables
+        490 tax and statutory receivables
 
-    const receivablesCurrent = storedAmount(
-      "tradeReceivables",
+      Current tax receivable (495) is excluded because income tax is handled
+      separately in the taxation-paid line.
+    */
+    const mappedReceivablesCurrentBalance = noteFamilyTotal(
+      ["contractAssets", "tradeReceivables", "taxStatutoryReceivables"],
       "current",
-      mappedReceivablesPriorBalance - mappedReceivablesCurrentBalance,
     );
-
-    const receivablesPrior = storedAmount(
-      "tradeReceivables",
+    const mappedReceivablesPriorBalance = noteFamilyTotal(
+      ["contractAssets", "tradeReceivables", "taxStatutoryReceivables"],
       "prior",
-      historicalCashFlowData.hasTwoDistinctYears
-        ? historicalCashFlowData.receivablesPrior
-        : Number(receivablesRow?.prior || 0),
     );
 
-    const mappedPayablesCurrentBalance = (
-      baseStatementEngine.noteData.tradePayables || []
-    ).reduce(
-      (sum: number, line: any) => sum + Number(line?.current || 0),
-      0,
-    );
+    const receivablesCurrent =
+      mappedReceivablesPriorBalance - mappedReceivablesCurrentBalance;
 
-    const mappedPayablesPriorBalance = (
-      baseStatementEngine.noteData.tradePayables || []
-    ).reduce(
-      (sum: number, line: any) => sum + Number(line?.prior || 0),
-      0,
-    );
+    const receivablesPrior = historicalCashFlowData.hasTwoDistinctYears
+      ? historicalCashFlowData.receivablesPrior
+      : storedAmount(
+          "tradeReceivables",
+          "prior",
+          Number(receivablesRow?.prior || 0),
+        );
 
-    const payablesCurrent = storedAmount(
-      "tradePayables",
+    /*
+      Operating current liabilities included in working capital:
+        630 trade and other payables
+        640 contract liabilities
+        650 deferred income
+        660 provisions
+        670 employee-benefit liabilities
+        690 tax and statutory payables (VAT/PAYE/statutory controls)
+
+      Financing mappings and current income tax payable (695) are deliberately
+      excluded from this working-capital movement.
+    */
+    const mappedPayablesCurrentBalance = noteFamilyTotal(
+      [
+        "tradePayables",
+        "contractLiabilities",
+        "deferredIncomeGrants",
+        "provisions",
+        "employeeBenefitObligations",
+        "taxStatutoryPayables",
+      ],
       "current",
-      mappedPayablesCurrentBalance - mappedPayablesPriorBalance,
+    );
+    const mappedPayablesPriorBalance = noteFamilyTotal(
+      [
+        "tradePayables",
+        "contractLiabilities",
+        "deferredIncomeGrants",
+        "provisions",
+        "employeeBenefitObligations",
+        "taxStatutoryPayables",
+      ],
+      "prior",
     );
 
-    const payablesPrior = storedAmount(
-      "tradePayables",
-      "prior",
-      historicalCashFlowData.hasTwoDistinctYears
-        ? historicalCashFlowData.payablesPrior
-        : Number(payablesRow?.prior || 0),
-    );
+    const payablesCurrent =
+      mappedPayablesCurrentBalance - mappedPayablesPriorBalance;
+
+    const payablesPrior = historicalCashFlowData.hasTwoDistinctYears
+      ? historicalCashFlowData.payablesPrior
+      : storedAmount(
+          "tradePayables",
+          "prior",
+          Number(payablesRow?.prior || 0),
+        );
 
     /*
       CASH FLOW PROFIT BEFORE TAX
@@ -4869,7 +4950,7 @@ const effectiveStructuredNotesState = useMemo(() => {
       Current-year cash tax is not inferred from a deferred/current tax balance.
       Comparative tax paid may be reconstructed from TB History using the exact
       current-tax mapping categories only. This preserves genuine prior cash tax
-      (for example Alphaman 2024) without allowing deferred tax to leak into cash.
+      without allowing deferred tax to leak into cash.
     */
     const taxPaidCurrent = 0;
 
@@ -4877,7 +4958,7 @@ const effectiveStructuredNotesState = useMemo(() => {
       Comparative cash tax is only allowed when the comparative TB actually
       contains a CURRENT-tax expense mapping (795.10). This stops a rolled
       deferred-tax balance from being reconstructed as comparative tax paid,
-      while preserving genuine historical cash tax such as Alphaman 2024.
+      while preserving genuine historical cash tax.
     */
     const hasPriorCurrentTaxExpense =
       Math.abs(cashFlowMappedRawTotal(["795.10"], "prior")) > 0.5;
@@ -4978,8 +5059,37 @@ const effectiveStructuredNotesState = useMemo(() => {
       netOperatingRow.prior = Math.round(netOperatingPrior);
     }
 
+  /*
+    CURRENT-YEAR OTHER INVESTING CASH FLOWS
+
+    Mapping 390 (Other non-current assets) is a balance-sheet investing family.
+    For the current year, derive the cash movement from the mapped opening and
+    closing balances so stale rolled-forward Workbench values cannot distort
+    the cash flow.
+
+    Asset increase = cash outflow => opening - closing.
+    Asset decrease = cash inflow => opening - closing.
+
+    Comparative remains sourced from the historical/workbench value because the
+    opening comparative balance is not always present in the current TB.
+  */
+  const mappedOtherNonCurrentAssetsCurrent = noteFamilyTotal(
+    ["otherNonCurrentAssets"],
+    "current",
+  );
+  const mappedOtherNonCurrentAssetsPrior = noteFamilyTotal(
+    ["otherNonCurrentAssets"],
+    "prior",
+  );
+
+  const mappedOtherInvestingCurrent =
+    mappedOtherNonCurrentAssetsPrior - mappedOtherNonCurrentAssetsCurrent;
+
   const otherInvestingCurrent =
-  Number(effectiveStatementOverrides.cashOtherInvestingCurrent || 0);
+    Math.abs(mappedOtherNonCurrentAssetsCurrent) > 0.005 ||
+    Math.abs(mappedOtherNonCurrentAssetsPrior) > 0.005
+      ? mappedOtherInvestingCurrent
+      : Number(effectiveStatementOverrides.cashOtherInvestingCurrent || 0);
 
 const otherInvestingPrior =
   Number(effectiveStatementOverrides.cashOtherInvestingPrior || 0);
@@ -5019,13 +5129,59 @@ const netInvestingPrior =
       netMovementRow.prior = Math.round(netMovementPrior);
     }
 
-    const openingCurrent = Number(
-      baseStatementEngine.checks.cashClosingPriorFromSfp || 0,
+    /*
+      CASH CONTROL — use the presented SFP cash row as the canonical control.
+
+      The statement engine's internal cash-note/check values can retain raw TB
+      debit/credit signs. The SFP row is already in final AFS presentation sign,
+      so the cash-flow opening, closing and movement checks must use that same
+      presented value.
+    */
+    const presentedCashSfpRow = (baseStatementEngine.sfpRows || []).find(
+      (row: any) => {
+        const id = String(row?.id || "").trim().toLowerCase();
+        const label = String(row?.label || "").trim().toLowerCase();
+
+        return (
+          id === "cash-and-cash-equivalents" ||
+          id === "cash-equivalents" ||
+          id === "cash" ||
+          label === "cash and cash equivalents"
+        );
+      },
     );
+
+    const presentedOverdraftSfpRow = (baseStatementEngine.sfpRows || []).find(
+      (row: any) => {
+        const id = String(row?.id || "").trim().toLowerCase();
+        const label = String(row?.label || "").trim().toLowerCase();
+
+        return (
+          id.includes("bank-overdraft") ||
+          label === "bank overdraft"
+        );
+      },
+    );
+
+    /*
+      Cash-flow cash and cash equivalents are the net of mapped cash/bank
+      balances and a mapped bank overdraft. This matches FlightDeck's SFP cash
+      movement control and prevents an overdraft-only entity from showing zero
+      opening cash.
+    */
+    const mappedCashCurrent =
+      Number(presentedCashSfpRow?.current || 0) -
+      Math.abs(Number(presentedOverdraftSfpRow?.current || 0));
+    const mappedCashPrior =
+      Number(presentedCashSfpRow?.prior || 0) -
+      Math.abs(Number(presentedOverdraftSfpRow?.prior || 0));
+
+    const openingCurrent = Math.round(mappedCashPrior);
+
     const openingPrior =
       effectiveStatementOverrides.cashPriorOpeningBalance !== null &&
       effectiveStatementOverrides.cashPriorOpeningBalance !== undefined
-        ? Number(effectiveStatementOverrides.cashPriorOpeningBalance || 0)
+        ? Math.round(Number(effectiveStatementOverrides.cashPriorOpeningBalance || 0))
         : 0;
 
     if (openingCashRow) {
@@ -5036,12 +5192,8 @@ const netInvestingPrior =
     const calculatedClosingCurrent = openingCurrent + netMovementCurrent;
 const calculatedClosingPrior = openingPrior + netMovementPrior;
 
-const sfpClosingCurrent = Number(
-  baseStatementEngine.checks.cashClosingFromSfp || 0,
-);
-const sfpClosingPrior = Number(
-  baseStatementEngine.checks.cashClosingPriorFromSfp || 0,
-);
+const sfpClosingCurrent = Math.round(mappedCashCurrent);
+const sfpClosingPrior = Math.round(mappedCashPrior);
 
 const rawRoundingCurrent =
   Math.round(sfpClosingCurrent) - Math.round(calculatedClosingCurrent);
@@ -5104,7 +5256,7 @@ if (closingCashRow) {
       cashMovementFromCashFlow: Math.round(netMovementCurrent),
       cashClosingFromCashFlow: Math.round(finalClosingCurrent),
       cashFlowMovementDifference: Math.round(
-        netMovementCurrent - Number(baseStatementEngine.checks.cashMovementFromSfp || 0),
+        netMovementCurrent - (sfpClosingCurrent - openingCurrent),
       ),
       cashFlowClosingDifference: Math.round(
   finalClosingCurrent - sfpClosingCurrent,
@@ -5152,65 +5304,57 @@ if (closingCashRow) {
             0,
           );
 
-      const revenueCurrent = -cashFlowMappedRawTotal(["700"], "current");
+      /*
+        DIRECT METHOD — canonical P&L sources
 
-      const revenuePrior = noteTotal(
-        baseStatementEngine.noteData.revenue,
-        "prior",
+        Use the same mapped note totals that feed the AFS. Do not rebuild current
+        revenue or operating expenses from debit/credit movement fields because
+        those fields can represent rollover movement data rather than the closing
+        AFS period amount.
+
+        This keeps direct cash flow on the same source of truth as SOCI / Notes.
+      */
+      const revenueCurrent = Math.abs(
+        noteTotal(baseStatementEngine.noteData.revenue, "current"),
       );
 
-      const otherIncomeCurrent = -cashFlowMappedRawTotal(
-        ["730", "770", "780", "781", "785"],
+      const revenuePrior = Math.abs(
+        noteTotal(baseStatementEngine.noteData.revenue, "prior"),
+      );
+
+      const costOfSalesCurrent = noteTotal(
+        baseStatementEngine.noteData.costOfSales,
         "current",
       );
 
-      const otherIncomePrior =
-        noteTotal(baseStatementEngine.noteData.otherOperatingIncome, "prior") +
-        noteTotal(baseStatementEngine.noteData.investmentIncome, "prior") +
-        noteTotal(baseStatementEngine.noteData.otherGainsLosses, "prior");
+      const costOfSalesPrior = noteTotal(
+        baseStatementEngine.noteData.costOfSales,
+        "prior",
+      );
+
+      const operatingExpensesCurrent = noteTotal(
+        baseStatementEngine.noteData.operatingExpenses,
+        "current",
+      );
+
+      const operatingExpensesPrior = noteTotal(
+        baseStatementEngine.noteData.operatingExpenses,
+        "prior",
+      );
 
       const financeCostsCurrent = Math.abs(
-        cashFlowMappedRawTotal(["775"], "current"),
+        noteTotal(baseStatementEngine.noteData.financeCosts, "current"),
       );
 
       const financeCostsPrior = Math.abs(
-        noteTotal(
-          baseStatementEngine.noteData.financeCosts,
-          "prior",
-        ),
+        noteTotal(baseStatementEngine.noteData.financeCosts, "prior"),
       );
 
-      const profitBeforeTaxCurrent =
-        Number(profitRow?.current || 0);
-
-      const profitBeforeTaxPrior =
-        Number(profitRow?.prior || 0);
-
-      /*
-        Profit before tax =
-          revenue
-          + other income
-          - cost of sales
-          - operating expenses
-          - finance costs
-
-        Therefore cost of sales plus operating expenses =
-          profit before tax
-          - revenue
-          - other income
-          + finance costs
-      */
       const tradingAndOperatingExpensesCurrent =
-        profitBeforeTaxCurrent -
-        revenueCurrent -
-        otherIncomeCurrent +
-        financeCostsCurrent;
+        costOfSalesCurrent + operatingExpensesCurrent;
 
       const tradingAndOperatingExpensesPrior =
-        profitBeforeTaxPrior -
-        revenuePrior -
-        otherIncomePrior +
-        financeCostsPrior;
+        costOfSalesPrior + operatingExpensesPrior;
 
       const mappedNonCashExpense = (side: "current" | "prior") =>
         side === "current"
@@ -5223,14 +5367,24 @@ if (closingCashRow) {
         manually completed cash-flow note.
       */
       const operatingNonCashAdjustmentCurrent =
-        mappedNonCashExpense("current") +
+        storedAmount(
+          "depreciationAmortisationImpairment",
+          "current",
+          mappedNonCashExpense("current"),
+        ) +
+        storedAmount("adjustments", "current", 0) +
         storedAmount("lossOnSaleAssetsLiabilities", "current", 0) +
         storedAmount("fairValueGainsLosses", "current", 0) +
         storedAmount("movementProvisions", "current", 0) +
         storedAmount("otherNonCash1", "current", 0);
 
       const operatingNonCashAdjustmentPrior =
-        mappedNonCashExpense("prior") +
+        storedAmount(
+          "depreciationAmortisationImpairment",
+          "prior",
+          mappedNonCashExpense("prior"),
+        ) +
+        storedAmount("adjustments", "prior", 0) +
         storedAmount("lossOnSaleAssetsLiabilities", "prior", 0) +
         storedAmount("fairValueGainsLosses", "prior", 0) +
         storedAmount("movementProvisions", "prior", 0) +
@@ -5269,18 +5423,17 @@ if (closingCashRow) {
         tradeReceivablesPriorBalance -
         tradeReceivablesCurrentBalance;
 
-      const directReceivablesMovementPrior =
-        historicalCashFlowData.receivablesPrior;
+      const directReceivablesMovementPrior = receivablesPrior;
 
       /*
         Customer receipts use the working-capital movement already
         controlled by the Cash generated from operations note.
       */
       const directReceiptsCurrentCalculated =
-        revenueCurrent + receivablesCurrent;
+        revenueCurrent + directReceivablesMovementCurrent;
 
       const directReceiptsPriorCalculated =
-        revenuePrior + receivablesPrior;
+        revenuePrior + directReceivablesMovementPrior;
 
       /*
         Direct-method customer receipts are always rebuilt from the mapped
@@ -5295,8 +5448,7 @@ if (closingCashRow) {
 
         Do NOT derive this backwards from "cash generated from operations".
         That subtotal also contains finance-cost and investment-income
-        adjustments, which caused Perfect Wood's 2026 supplier payment to be
-        understated by R70.
+        adjustments, which can otherwise understate supplier and employee payments.
 
         Start with cost of sales + operating expenses, then:
           + add back non-cash operating expenses
@@ -5668,10 +5820,7 @@ if (
             directClosingCurrent,
           ),
           cashFlowMovementDifference: Math.round(
-            directNetMovementCurrent -
-              Number(
-                baseStatementEngine.checks.cashMovementFromSfp || 0,
-              ),
+            directNetMovementCurrent - (sfpClosingCurrent - openingCurrent),
           ),
           cashFlowClosingDifference: Math.round(
             directClosingCurrent - sfpClosingCurrent,
@@ -6019,6 +6168,122 @@ const flightDeckIssues = useMemo(() => {
       ...rows.slice(insertAt),
     ];
   }, [statementEngine.detailedIncomeRows, sociRows]);
+
+  /*
+    NOTE 6 — same annual-period source as Detailed Income Statement.
+
+    The Detailed IS rows are already mapping-code driven by
+    AfsPrintStatementEngine. Their row id retains the mapping code after
+    "operatingExpenses:". Re-group those exact current/prior amounts for Note 6
+    instead of recalculating comparative P&L amounts from TB balance fields.
+  */
+  const note6OperatingExpenseRows = useMemo(() => {
+    const grouped = new Map<
+      string,
+      { id: string; label: string; current: number; prior: number }
+    >();
+
+    const add = (
+      id: string,
+      label: string,
+      current: number,
+      prior: number,
+    ) => {
+      const existing = grouped.get(id) || {
+        id,
+        label,
+        current: 0,
+        prior: 0,
+      };
+      existing.current += Number(current || 0);
+      existing.prior += Number(prior || 0);
+      grouped.set(id, existing);
+    };
+
+    const matches = (code: string, prefixes: string[]) =>
+      prefixes.some(
+        (prefix) => code === prefix || code.startsWith(`${prefix}.`),
+      );
+
+    for (const row of (statementEngine.detailedIncomeRows || []) as any[]) {
+      const id = String(row?.id || "");
+      if (!id.startsWith("operatingExpenses:")) continue;
+
+      const code = id.slice("operatingExpenses:".length).trim();
+      if (!(code === "750" || code.startsWith("750."))) continue;
+
+      const current = Number(row?.current || 0);
+      const prior = Number(row?.prior || 0);
+
+      if (matches(code, ["750.20", "750.21", "750.28", "750.29"])) {
+        add("employee-costs", "Employee costs", current, prior);
+      } else if (
+        matches(code, [
+          "750.18",
+          "750.19",
+          "750.30",
+          "750.31",
+          "750.32",
+          "750.33",
+        ])
+      ) {
+        add("occupancy-costs", "Rent and occupancy costs", current, prior);
+      } else if (matches(code, ["750.14", "750.141"])) {
+        add(
+          "depreciation",
+          "Depreciation and amortisation",
+          current,
+          prior,
+        );
+      } else if (matches(code, ["750.10", "750.11", "750.16"])) {
+        add(
+          "professional-fees",
+          "Professional and consulting fees",
+          current,
+          prior,
+        );
+      } else if (matches(code, ["750.40", "750.41"])) {
+        add(
+          "advertising",
+          "Advertising and promotion",
+          current,
+          prior,
+        );
+      } else {
+        add(
+          "other-operating-expenses",
+          "Other operating expenses",
+          current,
+          prior,
+        );
+      }
+    }
+
+    const order = [
+      "employee-costs",
+      "occupancy-costs",
+      "depreciation",
+      "professional-fees",
+      "advertising",
+      "other-operating-expenses",
+    ];
+
+    return order
+      .map((key) => grouped.get(key))
+      .filter(
+        (
+          row,
+        ): row is {
+          id: string;
+          label: string;
+          current: number;
+          prior: number;
+        } =>
+          Boolean(row) &&
+          (Math.round(Number(row?.current || 0)) !== 0 ||
+            Math.round(Number(row?.prior || 0)) !== 0),
+      );
+  }, [statementEngine.detailedIncomeRows]);
 
 
   function isEditableDetailedIncomeOtherExpense(row: AfsStatementRow) {
@@ -8728,6 +8993,7 @@ return Math.max(
                   reportOptions={reportOptions as any}
                   toggleReportOption={() => undefined}
                   noteData={noteDataForDisplay as any}
+                  operatingExpenseRows={note6OperatingExpenseRows as any}
                   trialBalanceLines={trialBalanceLines}
                   clientSetup={clientSetup}
                   entityType={entityType}
@@ -9431,6 +9697,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                         )
                       }
                       noteData={noteDataForDisplay as any}
+                      operatingExpenseRows={note6OperatingExpenseRows as any}
                       trialBalanceLines={trialBalanceLines}
                       clientSetup={clientSetup}
                       entityType={entityType}

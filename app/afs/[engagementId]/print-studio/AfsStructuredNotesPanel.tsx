@@ -24,6 +24,7 @@ type Props = {
   reportOptions: Record<string, boolean>;
   toggleReportOption: (key: string, checked: boolean) => void;
   noteData: Record<string, AmountLine[]>;
+  operatingExpenseRows?: AmountLine[];
   trialBalanceLines: any[];
   clientSetup: Record<string, any> | null;
   entityType?: string | null;
@@ -4828,76 +4829,19 @@ function RevenueNote({
   );
 }
 
-function operatingExpenseSearchText(line: any) {
-  return [
-    line.mapping_code,
-    line.mapping_leaf_id,
-    line.lead_schedule_key,
-    line.lead_schedule_number,
-    line.mapping_label,
-    line.mapping_path,
-    line.mapping_section,
-    line.mapping_category,
-    line.account_code,
-    line.account_name,
-    line.account_type,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-}
-
 function buildOperatingExpenseDetailRows(
   trialBalanceLines: any[],
   fallbackRows: AmountLine[],
 ): AmountLine[] {
-  const sourceRows: AmountLine[] = [];
+  /*
+    OPERATING EXPENSE NOTE — MAPPING CODE ONLY
 
-  (trialBalanceLines || []).forEach((line, index) => {
-    const text = operatingExpenseSearchText(line);
+    Classification is driven exclusively by mapping_code.
+    Account names, descriptions, labels, paths, categories and keywords are
+    presentation-only and must never decide whether a line belongs in Note 6.
 
-    const excluded =
-      text.includes("cost of sales") ||
-      text.includes("cost-of-sales") ||
-      text.includes("taxation") ||
-      text.includes("income tax") ||
-      text.includes("tax expense") ||
-      text.includes("finance cost") ||
-      text.includes("interest expense") ||
-      text.includes("revenue") ||
-      text.includes("sales") ||
-      text.includes("turnover") ||
-      text.includes("other income") ||
-      text.includes("operating income");
-
-    const included =
-      text.includes("operating expense") ||
-      text.includes("operating expenses") ||
-      text.includes("expense");
-
-    if (!included || excluded) return;
-
-    const currentRaw = lineAmount(line, "current");
-    const priorRaw = lineAmount(line, "prior");
-    const current = currentRaw > 0 ? -Math.abs(currentRaw) : currentRaw;
-    const prior = priorRaw > 0 ? -Math.abs(priorRaw) : priorRaw;
-
-    if (roundAmount(current) === 0 && roundAmount(prior) === 0) return;
-
-    sourceRows.push({
-      id: String(line.account_code || line.id || `operating-expense-${index}`),
-      label:
-        clean(line.account_name) ||
-        clean(line.description) ||
-        clean(line.mapping_label) ||
-        `Operating expense ${index + 1}`,
-      current,
-      prior,
-    });
-  });
-
-  const rowsToGroup = sourceRows.length > 0 ? sourceRows : fallbackRows;
-
+    All 750 / 750.xx mappings are operating expenses.
+  */
   const grouped = new Map<string, AmountLine>();
 
   const addToGroup = (
@@ -4918,57 +4862,77 @@ function buildOperatingExpenseDetailRows(
     grouped.set(id, existing);
   };
 
-  rowsToGroup.forEach((row) => {
-    const label = String(row.label || "").toLowerCase();
-    const current = toNumber(row.current);
-    const prior = toNumber(row.prior);
+  const codeMatches = (code: string, prefixes: string[]) =>
+    prefixes.some(
+      (prefix) => code === prefix || code.startsWith(`${prefix}.`),
+    );
 
-    if (
-      label.includes("salary") ||
-      label.includes("salaries") ||
-      label.includes("wage") ||
-      label.includes("staff") ||
-      label.includes("employee") ||
-      label.includes("training") ||
-      label.includes("uniform")
-    ) {
+  (trialBalanceLines || []).forEach((line) => {
+    const code = clean(line?.mapping_code);
+
+    // Note 6 may contain only the controlled operating-expense mapping family.
+    if (!(code === "750" || code.startsWith("750."))) return;
+
+    const currentRaw = lineAmount(line, "current");
+
+    /*
+      PRIOR-YEAR P&L MOVEMENT
+
+      Rolled-over engagements may carry prior_year_balance as a cumulative
+      closing P&L balance. Where opening_balance is available, the comparative
+      annual movement is closing less opening.
+    */
+    const hasPriorClosing =
+      line?.prior_year_balance !== null &&
+      line?.prior_year_balance !== undefined &&
+      Number.isFinite(Number(line.prior_year_balance));
+
+    const hasPriorOpening =
+      line?.opening_balance !== null &&
+      line?.opening_balance !== undefined &&
+      Number.isFinite(Number(line.opening_balance));
+
+    const priorRaw =
+      hasPriorClosing && hasPriorOpening
+        ? Number(line.prior_year_balance) - Number(line.opening_balance)
+        : lineAmount(line, "prior");
+
+    // AFS expense presentation is negative.
+    const current = currentRaw > 0 ? -Math.abs(currentRaw) : currentRaw;
+    const prior = priorRaw > 0 ? -Math.abs(priorRaw) : priorRaw;
+
+    if (roundAmount(current) === 0 && roundAmount(prior) === 0) return;
+
+    if (codeMatches(code, ["750.20", "750.21", "750.28", "750.29"])) {
       addToGroup("employee-costs", "Employee costs", current, prior);
       return;
     }
 
     if (
-      label.includes("rent") ||
-      label.includes("cleaning") ||
-      label.includes("repair") ||
-      label.includes("maintenance") ||
-      label.includes("lease") ||
-      label.includes("leasing")
+      codeMatches(code, [
+        "750.18",
+        "750.19",
+        "750.30",
+        "750.31",
+        "750.32",
+        "750.33",
+      ])
     ) {
+      addToGroup("occupancy-costs", "Rent and occupancy costs", current, prior);
+      return;
+    }
+
+    if (codeMatches(code, ["750.14", "750.141"])) {
       addToGroup(
-        "occupancy-costs",
-        "Rent and occupancy costs",
+        "depreciation",
+        "Depreciation and amortisation",
         current,
         prior,
       );
       return;
     }
 
-    if (label.includes("depreciation") || label.includes("amortisation")) {
-      addToGroup("depreciation", "Depreciation and amortisation", current, prior);
-      return;
-    }
-
-    if (label.includes("royalt")) {
-      addToGroup("royalties", "Royalties", current, prior);
-      return;
-    }
-
-    if (
-      label.includes("accounting") ||
-      label.includes("consult") ||
-      label.includes("legal") ||
-      label.includes("professional")
-    ) {
+    if (codeMatches(code, ["750.10", "750.11", "750.16"])) {
       addToGroup(
         "professional-fees",
         "Professional and consulting fees",
@@ -4978,7 +4942,7 @@ function buildOperatingExpenseDetailRows(
       return;
     }
 
-    if (label.includes("advert") || label.includes("promotion")) {
+    if (codeMatches(code, ["750.40", "750.41"])) {
       addToGroup(
         "advertising",
         "Advertising and promotion",
@@ -4988,6 +4952,7 @@ function buildOperatingExpenseDetailRows(
       return;
     }
 
+    // Every remaining 750.xx mapping belongs once, and only once, in Other.
     addToGroup(
       "other-operating-expenses",
       "Other operating expenses",
@@ -5000,38 +4965,46 @@ function buildOperatingExpenseDetailRows(
     "employee-costs",
     "occupancy-costs",
     "depreciation",
-    "royalties",
     "professional-fees",
     "advertising",
     "other-operating-expenses",
   ];
 
-  return order
+  const rows = order
     .map((key) => grouped.get(key))
     .filter(
       (row): row is AmountLine =>
         Boolean(row) &&
         (roundAmount(row?.current) !== 0 || roundAmount(row?.prior) !== 0),
     );
+
+  return rows.length > 0 ? rows : fallbackRows;
 }
 
 function OperatingExpensesNote({
   rows,
+  prebuiltRows,
   trialBalanceLines,
   edit,
   state,
   update,
 }: {
   rows: AmountLine[];
+  prebuiltRows?: AmountLine[];
   trialBalanceLines: any[];
   edit: boolean;
   state: StructuredState;
   update: (path: string[], value: any) => void;
 }) {
-  const detailRows = buildOperatingExpenseDetailRows(
-    trialBalanceLines,
-    rows,
-  );
+  /*
+    When Print Studio supplies mapping-derived Detailed IS rows, use those exact
+    current/prior values. This keeps Note 6 on the same annual-period source as
+    the Detailed Income Statement while retaining mapping-code-only grouping.
+  */
+  const detailRows =
+    prebuiltRows && prebuiltRows.length > 0
+      ? prebuiltRows
+      : buildOperatingExpenseDetailRows(trialBalanceLines, rows);
 
   return (
     <NoteTable
@@ -5112,6 +5085,7 @@ export default function AfsStructuredNotesPanel({
   reportOptions,
   toggleReportOption,
   noteData,
+  operatingExpenseRows,
   trialBalanceLines,
   clientSetup,
   entityType,
@@ -5539,6 +5513,7 @@ export default function AfsStructuredNotesPanel({
                 ) : section.key === "notesOperatingExpenses" ? (
                   <OperatingExpensesNote
                     rows={rows}
+                    prebuiltRows={operatingExpenseRows}
                     trialBalanceLines={trialBalanceLines}
                     edit={isEditing}
                     state={state}
