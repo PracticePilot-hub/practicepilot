@@ -9,8 +9,12 @@ const navItems = [
   { label: "My Day", href: "/crm", icon: "day" as IconName },
   { label: "My Work", href: "/crm/tasks", icon: "work" as IconName },
   { label: "Clients", href: "/crm/clients", icon: "clients" as IconName },
+  { label: "Client Groups", href: "/crm/groups", icon: "groups" as IconName },
   { label: "New Client", href: "/crm/new-client", icon: "newClient" as IconName },
   { label: "Secretarial", href: "/crm/secretarial", icon: "secretarial" as IconName },
+  { label: "FlightDeck", href: "/crm/flightdeck", icon: "flightdeck" as IconName, managerOnly: true },
+  { label: "Practice Reports", href: "/crm/reports", icon: "reports" as IconName },
+  { label: "Commercials", href: "/crm/commercials", icon: "commercials" as IconName, managerOnly: true },
 ];
 
 type ClientSummary = {
@@ -19,6 +23,8 @@ type ClientSummary = {
 };
 
 type IconName = string;
+
+let cachedManagerNavAccess: boolean | null = null;
 
 function NavIcon({ name }: { name: IconName }) {
   const common = {
@@ -53,6 +59,14 @@ function NavIcon({ name }: { name: IconName }) {
         <circle cx="17" cy="9" r="2.5" />
         <path d="M3 20c.5-4 2.2-6 5-6 2.8 0 4.5 2 5 6" />
         <path d="M14 15c3 0 5 1.7 5.5 5" />
+      </>
+    ),
+    groups: (
+      <>
+        <circle cx="7" cy="8" r="2.5" />
+        <circle cx="17" cy="8" r="2.5" />
+        <circle cx="12" cy="16" r="2.5" />
+        <path d="M9 9.5 10.8 14M15 9.5 13.2 14M9.5 8h5" />
       </>
     ),
     newClient: (
@@ -128,6 +142,26 @@ function NavIcon({ name }: { name: IconName }) {
         <path d="M12 7v5l3 2" />
       </>
     ),
+    flightdeck: (
+      <>
+        <path d="M4 18a8 8 0 1 1 16 0" />
+        <path d="M12 18l4-7" />
+        <path d="M6 16h2M16 16h2M8 11l1.4 1.4M16 11l-1.4 1.4" />
+      </>
+    ),
+    reports: (
+      <>
+        <path d="M5 20V10M12 20V4M19 20v-7" />
+        <path d="M3 20h18" />
+        <path d="m5 7 5-3 4 3 5-4" />
+      </>
+    ),
+    commercials: (
+      <>
+        <rect x="4" y="5" width="16" height="14" rx="1" />
+        <path d="M8 9h8M8 13h4M15 13h1M8 17h3" />
+      </>
+    ),
     core: (
       <>
         <path d="M4 5h16v14H4z" />
@@ -178,6 +212,55 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
   const showClientPanel = Boolean(clientId) || isNewClient;
 
   const [clientSummary, setClientSummary] = useState<ClientSummary | null>(null);
+  const [canViewCommercials, setCanViewCommercials] = useState(
+    cachedManagerNavAccess === true
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (cachedManagerNavAccess !== null) {
+      setCanViewCommercials(cachedManagerNavAccess);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const user = session?.user || null;
+
+      if (!user || cancelled) return;
+
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("role, access_enabled, can_manage_practice_users")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      const allowed = Boolean(
+        profile?.access_enabled &&
+          (
+            ["Client Manager", "Admin", "Super Admin"].includes(
+              String(profile?.role || "")
+            ) ||
+            profile?.can_manage_practice_users === true
+          )
+      );
+
+      cachedManagerNavAccess = allowed;
+      setCanViewCommercials(allowed);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -217,7 +300,7 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
   }
 
   const tab = searchParams.get("tab") || "overview";
-  const editSection = searchParams.get("section") || "services";
+  const editSection = searchParams.get("section") || "core";
   const newSection = searchParams.get("section") || "core";
 
   const existingClientItems = clientId
@@ -233,12 +316,6 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
           icon: "profile" as IconName,
           href: `/crm/client/${clientId}?tab=profile`,
           active: pathname.startsWith(`/crm/client/${clientId}`) && tab === "profile",
-        },
-        {
-          label: "Services",
-          icon: "services" as IconName,
-          href: `/crm/client/${clientId}?tab=services`,
-          active: pathname.startsWith(`/crm/client/${clientId}`) && tab === "services",
         },
         {
           label: "Work",
@@ -282,18 +359,28 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
           active: pathname.startsWith(`/crm/client/${clientId}`) && tab === "activity",
         },
         {
+          label: "Client Setup",
+          icon: "core" as IconName,
+          href: `/crm/edit-client?id=${clientId}&section=core`,
+          active:
+            pathname === "/crm/edit-client" &&
+            editSection !== "services" &&
+            editSection !== "tasking",
+          setup: true,
+        },
+        {
           label: "Tasking Setup",
           icon: "tasking" as IconName,
           href: `/crm/edit-client?id=${clientId}&section=services`,
-          active: pathname === "/crm/edit-client" && editSection === "services",
-          setup: true,
+          active:
+            pathname === "/crm/edit-client" &&
+            (editSection === "services" || editSection === "tasking"),
         },
       ]
     : [];
 
   const newClientItems = [
     { label: "Core Details", icon: "core" as IconName, section: "core" },
-    { label: "Services", icon: "services" as IconName, section: "services" },
     { label: "Tax & Registrations", icon: "registrations" as IconName, section: "statutory" },
     { label: "Contacts & Addresses", icon: "contacts" as IconName, section: "contacts" },
     { label: "Responsibility", icon: "responsibility" as IconName, section: "responsibility" },
@@ -313,7 +400,9 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
         <div style={sidebarTitle}>CRM</div>
 
         <nav style={nav}>
-          {navItems.map((item) => {
+          {navItems
+            .filter((item) => !item.managerOnly || canViewCommercials)
+            .map((item) => {
             const active = isActive(item.href);
 
             return (
@@ -359,24 +448,23 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
 
           <nav style={clientNav}>
             {isNewClient
-              ? newClientItems.map((item, index) => (
+              ? newClientItems.map((item) => (
                   <div
                     key={`${item.section}-${item.label}`}
                     style={item.setup ? clientSetupDivider : undefined}
                   >
-                  <Link
-                    key={`${item.section}-${item.label}`}
-                    href={`/crm/new-client?section=${item.section}`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onMouseUp={(event) => event.currentTarget.blur()}
-                    style={{
-                      ...clientNavLink,
-                      ...(newSection === item.section ? clientNavLinkActive : {}),
-                    }}
-                  >
-                    <NavIcon name={item.icon} />
-                    <span>{item.label}</span>
-                  </Link>
+                    <Link
+                      href={`/crm/new-client?section=${item.section}`}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseUp={(event) => event.currentTarget.blur()}
+                      style={{
+                        ...clientNavLink,
+                        ...(newSection === item.section ? clientNavLinkActive : {}),
+                      }}
+                    >
+                      <NavIcon name={item.icon} />
+                      <span>{item.label}</span>
+                    </Link>
                   </div>
                 ))
               : existingClientItems.map((item) => (
@@ -384,39 +472,27 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
                     key={item.label}
                     style={item.setup ? clientSetupDivider : undefined}
                   >
-                  <Link
-                    key={item.label}
-                    href={item.href}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onMouseUp={(event) => event.currentTarget.blur()}
-                    style={{
-                      ...clientNavLink,
-                      ...(item.active ? clientNavLinkActive : {}),
-                    }}
-                  >
-                    <NavIcon name={item.icon} />
-                    <span>{item.label}</span>
-                  </Link>
+                    <Link
+                      href={item.href}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseUp={(event) => event.currentTarget.blur()}
+                      style={{
+                        ...clientNavLink,
+                        ...(item.active ? clientNavLinkActive : {}),
+                      }}
+                    >
+                      <NavIcon name={item.icon} />
+                      <span>{item.label}</span>
+                    </Link>
                   </div>
                 ))}
           </nav>
 
-          {!isNewClient && clientId ? (
-            <div style={clientSidebarFoot}>
-              <Link
-                href={`/crm/edit-client?id=${clientId}&section=core`}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseUp={(event) => event.currentTarget.blur()}
-                style={editMasterLink}
-              >
-                Edit client master data →
-              </Link>
-            </div>
-          ) : (
+          {isNewClient ? (
             <div style={clientSidebarFoot}>
               Complete the setup from top to bottom. Tasking previews before anything is generated.
             </div>
-          )}
+          ) : null}
         </aside>
       ) : null}
 

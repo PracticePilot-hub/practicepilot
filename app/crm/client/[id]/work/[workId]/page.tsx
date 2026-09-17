@@ -316,16 +316,16 @@ export default async function WorkItemPage({
 }
 
 const page: React.CSSProperties = {
-  padding: "10px",
+  padding: "8px 10px 24px",
   color: "#10233a",
   fontFamily: "'Aptos', 'Segoe UI', Arial, sans-serif",
 };
 
 const crumbBar: React.CSSProperties = {
-  minHeight: "44px",
+  minHeight: "32px",
   display: "flex",
   alignItems: "center",
-  padding: "0 14px",
+  padding: "0 10px",
   border: "1px solid #d7e0e8",
   background: "#ffffff",
   fontSize: "12px",
@@ -334,15 +334,15 @@ const crumbBar: React.CSSProperties = {
 const backLink: React.CSSProperties = {
   color: "#174ea6",
   textDecoration: "none",
-  fontSize: "12px",
+  fontSize: "9px",
   fontWeight: 700,
   letterSpacing: 0,
 };
 
 const hero: React.CSSProperties = {
-  marginTop: "8px",
-  minHeight: "104px",
-  padding: "16px",
+  marginTop: "6px",
+  minHeight: "64px",
+  padding: "9px 10px",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
@@ -352,37 +352,37 @@ const hero: React.CSSProperties = {
 };
 
 const title: React.CSSProperties = {
-  margin: "5px 0 4px",
+  margin: "2px 0 3px",
   color: "#10233a",
-  fontSize: "23px",
+  fontSize: "19px",
   lineHeight: 1.15,
   fontWeight: 900,
 };
 
 const meta: React.CSSProperties = {
   display: "flex",
-  gap: "7px",
+  gap: "6px",
   color: "#687b8b",
-  fontSize: "10px",
+  fontSize: "9px",
 };
 
 const secondaryAction: React.CSSProperties = {
-  minHeight: "34px",
-  padding: "0 12px",
+  minHeight: "28px",
+  padding: "0 9px",
   display: "inline-flex",
   alignItems: "center",
   border: "1px solid #cbd6df",
   background: "#ffffff",
   color: "#10233a",
   textDecoration: "none",
-  fontSize: "10px",
+  fontSize: "9px",
   fontWeight: 850,
 };
 
 const periodStrip: React.CSSProperties = {
-  minHeight: "38px",
-  marginTop: "8px",
-  padding: "0 12px",
+  minHeight: "30px",
+  marginTop: "6px",
+  padding: "0 10px",
   display: "flex",
   alignItems: "center",
   gap: "10px",
@@ -393,10 +393,10 @@ const periodStrip: React.CSSProperties = {
 };
 
 const contentGrid: React.CSSProperties = {
-  marginTop: "8px",
+  marginTop: "6px",
   display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) 270px",
-  gap: "10px",
+  gridTemplateColumns: "minmax(0, 1fr) 235px",
+  gap: "8px",
   alignItems: "start",
 };
 
@@ -406,13 +406,13 @@ const activityPanel: React.CSSProperties = {
 };
 
 const activityHeader: React.CSSProperties = {
-  padding: "11px 12px",
+  padding: "8px 10px",
   borderBottom: "1px solid #e0e7ed",
 };
 
 const activityTitle: React.CSSProperties = {
   color: "#10233a",
-  fontSize: "13px",
+  fontSize: "11px",
   fontWeight: 900,
 };
 
@@ -423,7 +423,7 @@ const activitySub: React.CSSProperties = {
 };
 
 const activityRow: React.CSSProperties = {
-  padding: "10px 12px",
+  padding: "8px 10px",
   borderBottom: "1px solid #e6ebef",
 };
 

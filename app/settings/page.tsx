@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useState, type CSSProperties } from "react";
-import { PP, ppPage, ppPanel, ppSecondaryButton } from "../components/ppTheme";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -15,11 +14,9 @@ const supabase =
 
 type UserProfile = {
   role: string;
-  organisation_id?: string | null;
   can_access_crm?: boolean | null;
   can_access_afs?: boolean | null;
   can_manage_practice_users?: boolean | null;
-  is_practice_owner?: boolean | null;
 };
 
 function isGlobalAdmin(role: string) {
@@ -50,12 +47,13 @@ export default function SettingsPage() {
         const { data, error } = await supabase
           .from("user_profiles")
           .select(
-            "role,organisation_id,can_access_crm,can_access_afs,can_manage_practice_users,is_practice_owner"
+            "role,can_access_crm,can_access_afs,can_manage_practice_users"
           )
           .eq("user_id", user.id)
           .single();
 
         if (error) throw error;
+
         setProfile(data as UserProfile);
       } catch (error) {
         console.error("SETTINGS PROFILE LOAD ERROR:", error);
@@ -64,20 +62,19 @@ export default function SettingsPage() {
       }
     }
 
-    loadProfile();
+    void loadProfile();
   }, []);
 
   const globalAdmin = isGlobalAdmin(profile?.role || "");
   const clientManager = profile?.role === "Client Manager";
+
   const canManageUsers =
     globalAdmin ||
     clientManager ||
-    Boolean(profile?.can_manage_practice_users) ||
-    Boolean(profile?.is_practice_owner);
+    Boolean(profile?.can_manage_practice_users);
 
   const hasCrm = globalAdmin || Boolean(profile?.can_access_crm);
   const hasAfs = globalAdmin || Boolean(profile?.can_access_afs);
-  const isPracticeUser = Boolean(profile?.organisation_id);
 
   return (
     <main style={styles.page}>
@@ -86,7 +83,8 @@ export default function SettingsPage() {
           <p style={styles.eyebrow}>PracticePilot</p>
           <h1 style={styles.title}>Settings</h1>
           <p style={styles.subtitle}>
-            Manage shared practice settings and only the module settings available to your practice.
+            Manage shared practice settings and only the module settings
+            available to your practice.
           </p>
         </div>
 
@@ -102,19 +100,17 @@ export default function SettingsPage() {
           <Link href="/settings/practice" style={styles.card}>
             <h2 style={styles.cardTitle}>Practice Details & Letterhead</h2>
             <p style={styles.cardText}>
-              Practice identity, letterhead, authorised signatory and professional-body details used across PracticePilot.
+              Practice identity, letterhead, authorised signatory and
+              professional-body details used across PracticePilot.
             </p>
           </Link>
 
           {canManageUsers ? (
             <Link href="/settings/team" style={styles.card}>
-              <h2 style={styles.cardTitle}>
-                {isPracticeUser ? "My Team & Licences" : "PracticePilot Team"}
-              </h2>
+              <h2 style={styles.cardTitle}>My Team & Licences</h2>
               <p style={styles.cardText}>
-                {isPracticeUser
-                  ? "Manage staff, roles, module access, delegated team permissions and licence quantities."
-                  : "Manage PracticePilot internal team access separately from client practices."}
+                Manage staff, roles, module access, delegated team permissions
+                and licence quantities.
               </p>
             </Link>
           ) : null}
@@ -132,7 +128,8 @@ export default function SettingsPage() {
             <Link href="/settings/workflows" style={styles.card}>
               <h2 style={styles.cardTitle}>Workflows & Checklists</h2>
               <p style={styles.cardText}>
-                Choose the work steps, dependencies, review checks and submission controls your practice wants to use.
+                Choose the work steps, dependencies, review checks and
+                submission controls your practice wants to use.
               </p>
             </Link>
           ) : null}
@@ -141,7 +138,8 @@ export default function SettingsPage() {
             <Link href="/afs/settings" style={styles.card}>
               <h2 style={styles.cardTitle}>AFS Settings</h2>
               <p style={styles.cardText}>
-                AFS defaults, workflow, notifications, templates and entity types.
+                AFS defaults, workflow, notifications, templates and entity
+                types.
               </p>
             </Link>
           ) : null}
@@ -150,22 +148,65 @@ export default function SettingsPage() {
             <div style={styles.cardMuted}>
               <h2 style={styles.cardTitle}>Task Rules</h2>
               <p style={styles.cardText}>
-                VAT categories, payroll frequency, EMP501, provisional tax and annual CRM task rules.
+                VAT categories, payroll frequency, EMP501, provisional tax and
+                annual CRM task rules.
               </p>
             </div>
+          ) : null}
+
+          {hasCrm ? (
+            <Link href="/settings/client-numbering" style={styles.card}>
+              <h2 style={styles.cardTitle}>Client Numbering</h2>
+              <p style={styles.cardText}>
+                Configure practice numbering series, prefixes and legal-type
+                allocation rules.
+              </p>
+            </Link>
+          ) : null}
+
+          {hasCrm && canManageUsers ? (
+            <Link href="/settings/flightdeck" style={styles.card}>
+              <h2 style={styles.cardTitle}>FlightDeck</h2>
+              <p style={styles.cardText}>
+                Set practice targets, staff capacity and commercial silo
+                controls.
+              </p>
+            </Link>
+          ) : null}
+
+          {hasCrm && canManageUsers ? (
+            <Link href="/settings/team-costing" style={styles.card}>
+              <h2 style={styles.cardTitle}>Team Costing</h2>
+              <p style={styles.cardText}>
+                Set internal hourly cost rates and charge-out rates for practice
+                staff.
+              </p>
+            </Link>
+          ) : null}
+
+          {canManageUsers ? (
+            <Link href="/settings/email-sending" style={styles.card}>
+              <h2 style={styles.cardTitle}>Email Sending</h2>
+              <p style={styles.cardText}>
+                Configure the practice mailbox PracticePilot uses for mandates,
+                progress updates and other client emails.
+              </p>
+            </Link>
           ) : null}
 
           <div style={styles.cardMuted}>
             <h2 style={styles.cardTitle}>Feature Toggles</h2>
             <p style={styles.cardText}>
-              Practice-wide feature controls will live here as shared settings are consolidated.
+              Practice-wide feature controls will live here as shared settings
+              are consolidated.
             </p>
           </div>
 
           <div style={styles.cardMuted}>
             <h2 style={styles.cardTitle}>Document Providers</h2>
             <p style={styles.cardText}>
-              Configure Egnyte, Google Drive, Dropbox, OneDrive or manual document links.
+              Configure Egnyte, Google Drive, Dropbox, OneDrive or manual
+              document links.
             </p>
           </div>
 
@@ -173,7 +214,8 @@ export default function SettingsPage() {
             <div style={styles.cardMuted}>
               <h2 style={styles.cardTitle}>Billing & Profitability</h2>
               <p style={styles.cardText}>
-                Owner/admin-only area for retainers, employee cost rates and profitability reports.
+                Owner/admin-only area for retainers, employee cost rates and
+                profitability reports.
               </p>
             </div>
           ) : null}
@@ -185,85 +227,109 @@ export default function SettingsPage() {
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    ...ppPage,
-    padding: "24px 26px 30px",
+    minHeight: "100vh",
+    background: "#f5f7fa",
+    padding: "18px 20px 32px",
+    color: "#10233a",
   },
+
   header: {
-    ...ppPanel,
+    minHeight: "82px",
+    padding: "14px 4px 16px",
     display: "flex",
     justifyContent: "space-between",
-    gap: 18,
+    gap: "20px",
     alignItems: "center",
-    padding: "18px 18px 17px",
-    marginBottom: 12,
-    borderTop: `3px solid ${PP.color.navy900}`,
+    borderTop: "3px solid #10233a",
+    borderBottom: "1px solid #d8dee7",
   },
+
   eyebrow: {
     margin: 0,
-    color: PP.color.blue600,
-    fontSize: 10,
+    color: "#1758d5",
+    fontSize: "8px",
     fontWeight: 900,
     letterSpacing: "0.12em",
     textTransform: "uppercase",
   },
+
   title: {
     margin: "4px 0 0",
-    fontSize: 28,
-    lineHeight: 1.05,
-    fontWeight: 900,
-    letterSpacing: "-0.025em",
-    color: PP.color.text,
+    fontSize: "20px",
+    lineHeight: 1,
+    fontWeight: 950,
   },
+
   subtitle: {
-    margin: "7px 0 0",
-    color: PP.color.textMuted,
-    fontSize: 12,
-    maxWidth: 760,
-    lineHeight: 1.45,
+    margin: "5px 0 0",
+    color: "#64748b",
+    fontSize: "9px",
+    maxWidth: "760px",
   },
+
   secondaryButton: {
-    ...ppSecondaryButton,
-    minHeight: 38,
-    padding: "0 15px",
+    height: "32px",
+    padding: "0 12px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#ffffff",
+    color: "#10233a",
+    textDecoration: "none",
+    border: "1px solid #cbd5e1",
+    fontSize: "8px",
+    fontWeight: 900,
   },
+
   loading: {
-    ...ppPanel,
+    marginTop: "10px",
+    background: "#ffffff",
+    border: "1px solid #d8dee7",
     padding: "18px",
-    color: PP.color.textMuted,
-    fontSize: 12,
+    fontSize: "9px",
   },
+
   grid: {
+    marginTop: "10px",
     display: "grid",
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 10,
+    gap: "8px",
   },
+
   card: {
-    ...ppPanel,
-    display: "block",
-    minHeight: 112,
-    padding: "16px 17px",
+    minHeight: "92px",
+    padding: "12px 14px",
+    display: "grid",
+    alignContent: "center",
+    background: "#ffffff",
+    border: "1px solid #d8dee7",
+    borderTop: "3px solid #1758d5",
     textDecoration: "none",
-    color: PP.color.text,
-    borderTop: `3px solid ${PP.color.blue600}`,
+    color: "#10233a",
   },
+
   cardMuted: {
-    ...ppPanel,
-    minHeight: 112,
-    padding: "16px 17px",
-    background: PP.color.panelSoft,
-    borderTop: `3px solid ${PP.color.borderStrong}`,
+    minHeight: "92px",
+    padding: "12px 14px",
+    display: "grid",
+    alignContent: "center",
+    background: "#f8fafc",
+    border: "1px solid #d8dee7",
+    color: "#10233a",
+    opacity: 0.72,
   },
+
   cardTitle: {
-    margin: "0 0 7px",
-    fontSize: 17,
-    lineHeight: 1.2,
-    fontWeight: 850,
-    color: PP.color.text,
-  },
-  cardText: {
     margin: 0,
-    color: PP.color.textMuted,
-    fontSize: 12,
-    lineHeight: 1.45,
+    fontSize: "13px",
+    lineHeight: 1.15,
+    fontWeight: 900,
+  },
+
+  cardText: {
+    margin: "5px 0 0",
+    color: "#64748b",
+    fontSize: "8.5px",
+    lineHeight: 1.4,
   },
 };

@@ -15,6 +15,13 @@ type ServiceInput = {
 type ClientPayload = {
   clientName: string;
   clientType: string;
+  clientCategory?: "individual" | "entity" | "trust";
+  engagementType?: "ongoing_monthly" | "annual_monthly_retainer" | "annual_ad_hoc";
+  relationshipStatus?:
+    | "flying_client"
+    | "in_airspace"
+    | "on_radar"
+    | "former_client";
   internalCode?: string;
   status?: string;
   yearEnd?: string;
@@ -397,14 +404,38 @@ async function syncServices(
   }
 }
 
+function deriveClientCategory(payload: ClientPayload) {
+  if (payload.clientCategory) return payload.clientCategory;
+
+  const clientType = String(payload.clientType || "").trim().toLowerCase();
+
+  if (clientType === "individual") return "individual";
+  if (clientType.includes("trust")) return "trust";
+  return "entity";
+}
+
+function legacyStatusFromRelationship(
+  relationshipStatus: ClientPayload["relationshipStatus"]
+) {
+  if (relationshipStatus === "former_client") return "Closed";
+  if (relationshipStatus === "on_radar") return "Prospective";
+  if (relationshipStatus === "in_airspace") return "Airspace";
+  return "Active";
+}
+
 function buildClientRow(organisationId: string, payload: ClientPayload) {
   const isIndividual = payload.clientType === "Individual";
+  const relationshipStatus = payload.relationshipStatus || "flying_client";
+  const isFlyingClient = relationshipStatus === "flying_client";
 
   return {
     organisation_id: organisationId,
     client_name: cleanText(payload.clientName) || "",
     entity_type: cleanText(payload.clientType),
-    status: cleanText(payload.status) || "Active",
+    client_category: deriveClientCategory(payload),
+    engagement_type: isFlyingClient ? cleanText(payload.engagementType) : null,
+    relationship_status: relationshipStatus,
+    status: legacyStatusFromRelationship(relationshipStatus),
     year_end: cleanText(payload.yearEnd),
     client_code: cleanText(payload.internalCode),
     trading_name: cleanText(payload.tradingName),

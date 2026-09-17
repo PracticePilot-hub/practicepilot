@@ -21,6 +21,7 @@ type ClientRecord = {
 
 type DirectorRecord = {
   id: string;
+  linked_crm_client_id: string | null;
   director_name: string;
   id_passport_number: string | null;
   email: string | null;
@@ -51,6 +52,7 @@ type DirectorRecord = {
 
 type ShareholderRecord = {
   id: string;
+  linked_crm_client_id: string | null;
   full_legal_name: string;
   id_registration_number: string | null;
   holder_type: string | null;
@@ -178,6 +180,31 @@ type DocumentRecord = {
   external_path: string | null;
   external_url: string | null;
   created_at: string;
+};
+
+type AirspaceRecord = {
+  id: string;
+  client_name: string;
+  client_category: "individual" | "entity" | "trust" | null;
+  entity_type: string | null;
+  relationship_status: "flying_client" | "in_airspace" | "on_radar" | "former_client";
+  id_passport_number: string | null;
+  registration_number: string | null;
+  date_of_birth: string | null;
+  registration_date: string | null;
+  crm_client_contacts?: Array<{
+    email: string | null;
+    phone: string | null;
+    mobile: string | null;
+    is_primary: boolean | null;
+  }>;
+};
+
+const airspaceStatusLabel: Record<string, string> = {
+  flying_client: "Flying Client",
+  in_airspace: "In Airspace",
+  on_radar: "On Radar",
+  former_client: "Former Client",
 };
 
 const VIEWS = [
@@ -317,6 +344,7 @@ export default function SecretarialClientPage() {
   const [annualReturns, setAnnualReturns] = useState<AnnualReturnRecord[]>([]);
   const [companyChanges, setCompanyChanges] = useState<CompanyChangeRecord[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
+  const [airspaceRecords, setAirspaceRecords] = useState<AirspaceRecord[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -347,6 +375,8 @@ export default function SecretarialClientPage() {
   const [directorPostalSameAsPhysical, setDirectorPostalSameAsPhysical] = useState(false);
   const [directorAppointmentDate, setDirectorAppointmentDate] = useState("");
   const [editingDirectorId, setEditingDirectorId] = useState<string | null>(null);
+  const [directorLinkedCrmClientId, setDirectorLinkedCrmClientId] = useState("");
+  const [directorSearch, setDirectorSearch] = useState("");
 
   const [endingDirectorId, setEndingDirectorId] = useState<string | null>(null);
   const [directorCessationReason, setDirectorCessationReason] = useState("resigned");
@@ -376,6 +406,8 @@ export default function SecretarialClientPage() {
   const [shareholderPostalCountry, setShareholderPostalCountry] = useState("South Africa");
   const [postalSameAsPhysical, setPostalSameAsPhysical] = useState(false);
   const [editingShareholderId, setEditingShareholderId] = useState<string | null>(null);
+  const [shareholderLinkedCrmClientId, setShareholderLinkedCrmClientId] = useState("");
+  const [shareholderSearch, setShareholderSearch] = useState("");
 
   const [showShareClassForm, setShowShareClassForm] = useState(false);
   const [shareClassName, setShareClassName] = useState("Ordinary no-par-value shares");
@@ -427,6 +459,7 @@ export default function SecretarialClientPage() {
         annualReturnsResult,
         changesResult,
         documentsResult,
+        airspaceResult,
       ] = await Promise.all([
         supabaseAny
           .from("crm_clients")
@@ -499,11 +532,41 @@ export default function SecretarialClientPage() {
           .eq("client_id", clientId)
           .eq("is_deleted", false)
           .order("created_at", { ascending: false }),
+
+        supabaseAny
+          .from("crm_clients")
+          .select(`
+            id,
+            client_name,
+            client_category,
+            entity_type,
+            relationship_status,
+            id_passport_number,
+            registration_number,
+            date_of_birth,
+            registration_date,
+            organisation_id,
+            crm_client_contacts (
+              email,
+              phone,
+              mobile,
+              is_primary
+            )
+          `)
+          .neq("id", clientId)
+          .order("client_name"),
       ]);
 
       if (clientResult.error) throw clientResult.error;
 
-      setClient(clientResult.data as ClientRecord);
+      const loadedClient = clientResult.data as ClientRecord;
+      setClient(loadedClient);
+      setAirspaceRecords(
+        airspaceResult.error
+          ? []
+          : ((airspaceResult.data || []) as Array<AirspaceRecord & { organisation_id?: string | null }>)
+              .filter((row) => row.organisation_id === loadedClient.organisation_id)
+      );
 
       setDirectors(directorsResult.error ? [] : ((directorsResult.data || []) as DirectorRecord[]));
       setShareholders(shareholdersResult.error ? [] : ((shareholdersResult.data || []) as ShareholderRecord[]));
@@ -527,6 +590,7 @@ export default function SecretarialClientPage() {
         annualReturnsResult.error,
         changesResult.error,
         documentsResult.error,
+        airspaceResult.error,
       ].filter(Boolean);
 
       if (relatedErrors.length) {
@@ -925,13 +989,104 @@ export default function SecretarialClientPage() {
     }
   }
 
+  function primaryContactForAirspace(record: AirspaceRecord) {
+    const contacts = record.crm_client_contacts || [];
+    return contacts.find((row) => row.is_primary) || contacts[0] || null;
+  }
+
+  function populateDirectorFromAirspace(recordId: string) {
+    setDirectorLinkedCrmClientId(recordId);
+    const record = airspaceRecords.find((row) => row.id === recordId);
+    if (!record) return;
+
+    const contact = primaryContactForAirspace(record);
+    setDirectorName(record.client_name || "");
+    setDirectorIdNumber(record.id_passport_number || record.registration_number || "");
+    setDirectorEmail(contact?.email || "");
+    setDirectorPhone(contact?.mobile || contact?.phone || "");
+    setDirectorDateOfBirth(record.date_of_birth || "");
+  }
+
+  function populateShareholderFromAirspace(recordId: string) {
+    setShareholderLinkedCrmClientId(recordId);
+    const record = airspaceRecords.find((row) => row.id === recordId);
+    if (!record) return;
+
+    const contact = primaryContactForAirspace(record);
+    setShareholderType(
+      record.client_category === "trust"
+        ? "trust"
+        : record.client_category === "entity"
+          ? "entity"
+          : "individual"
+    );
+    setShareholderName(record.client_name || "");
+    setShareholderIdNumber(record.id_passport_number || record.registration_number || "");
+    setShareholderEmail(contact?.email || "");
+    setShareholderPhone(contact?.mobile || contact?.phone || "");
+    setShareholderDateOfBirth(record.date_of_birth || "");
+  }
+
+  const directorAirspaceMatches = useMemo(() => {
+    const query = directorSearch.trim().toLowerCase();
+
+    if (query.length < 2) return [];
+
+    return airspaceRecords
+      .filter((record) => record.client_category === "individual")
+      .filter((record) =>
+        [
+          record.client_name,
+          record.id_passport_number,
+          record.registration_number,
+          airspaceStatusLabel[record.relationship_status],
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(query)
+      )
+      .slice(0, 15);
+  }, [airspaceRecords, directorSearch]);
+
+  const shareholderAirspaceMatches = useMemo(() => {
+    const query = shareholderSearch.trim().toLowerCase();
+
+    if (query.length < 2) return [];
+
+    return airspaceRecords
+      .filter((record) =>
+        ["individual", "entity", "trust"].includes(record.client_category || "")
+      )
+      .filter((record) =>
+        [
+          record.client_name,
+          record.id_passport_number,
+          record.registration_number,
+          airspaceStatusLabel[record.relationship_status],
+          record.client_category,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(query)
+      )
+      .slice(0, 15);
+  }, [airspaceRecords, shareholderSearch]);
+
   async function saveDirector() {
     if (!client || !directorName.trim()) {
       setMessage("Enter the director's full legal name.");
       return;
     }
 
+    if (!directorLinkedCrmClientId) {
+      setMessage("Select an existing Practice Airspace record or create this director as In Airspace first.");
+      return;
+    }
+
     const values = {
+      linked_crm_client_id: directorLinkedCrmClientId,
       director_name: directorName.trim(),
       id_passport_number: directorIdNumber.trim() || null,
       email: directorEmail.trim() || null,
@@ -986,12 +1141,15 @@ export default function SecretarialClientPage() {
       setDirectorPostalSameAsPhysical(false);
       setDirectorAppointmentDate("");
       setEditingDirectorId(null);
+      setDirectorLinkedCrmClientId("");
+      setDirectorSearch("");
       setShowDirectorForm(false);
       setMessage(editingDirectorId ? "Director updated." : "Director added.");
     }
   }
 
   function editDirector(row: DirectorRecord) {
+    setDirectorLinkedCrmClientId(row.linked_crm_client_id || "");
     setDirectorName(row.director_name || "");
     setDirectorIdNumber(row.id_passport_number || "");
     setDirectorEmail(row.email || "");
@@ -1066,7 +1224,13 @@ export default function SecretarialClientPage() {
       return;
     }
 
+    if (!shareholderLinkedCrmClientId) {
+      setMessage("Select an existing Practice Airspace record or create this shareholder as In Airspace first.");
+      return;
+    }
+
     const values = {
+      linked_crm_client_id: shareholderLinkedCrmClientId,
       holder_type: shareholderType,
       full_legal_name: shareholderName.trim(),
       id_registration_number: shareholderIdNumber.trim() || null,
@@ -1121,6 +1285,8 @@ export default function SecretarialClientPage() {
       setShareholderPostalCountry("South Africa");
       setPostalSameAsPhysical(false);
       setEditingShareholderId(null);
+      setShareholderLinkedCrmClientId("");
+      setShareholderSearch("");
       setShowShareholderForm(false);
       setMessage(
         wasEditing
@@ -1131,6 +1297,7 @@ export default function SecretarialClientPage() {
   }
 
   function editShareholder(row: ShareholderRecord) {
+    setShareholderLinkedCrmClientId(row.linked_crm_client_id || "");
     setShareholderType(row.holder_type || "individual");
     setShareholderName(row.full_legal_name || "");
     setShareholderIdNumber(row.id_registration_number || "");
@@ -1582,10 +1749,10 @@ export default function SecretarialClientPage() {
         <section style={panel}>
           <PanelHeading
             title="Directors"
-            subtitle="Maintain the director master and preserve the full appointment history. A director is never deleted when an appointment ends."
+            subtitle="Link directors from Practice Airspace and preserve the full appointment history."
             action={
               <SectionButton
-                label={showDirectorForm ? "Cancel" : "Add Director"}
+                label={showDirectorForm ? "Cancel" : "Link Director"}
                 onClick={() => {
                   setShowDirectorForm(!showDirectorForm);
                   if (showDirectorForm) setEditingDirectorId(null);
@@ -1603,110 +1770,128 @@ export default function SecretarialClientPage() {
 
           {showDirectorForm ? (
             <FormPanel>
-              <FormGrid columns="repeat(3, minmax(0, 1fr))">
-                <Field label="FULL LEGAL NAME">
-                  <input value={directorName} onChange={(event) => setDirectorName(event.target.value)} style={input} />
-                </Field>
-                <Field label="ID / PASSPORT NUMBER">
-                  <input value={directorIdNumber} onChange={(event) => setDirectorIdNumber(event.target.value)} style={input} />
-                </Field>
-                <Field label="APPOINTMENT DATE">
-                  <input type="date" value={directorAppointmentDate} onChange={(event) => setDirectorAppointmentDate(event.target.value)} style={input} />
-                </Field>
+              <div style={linkOnlyIntro}>
+                <div>
+                  <strong style={airspaceLinkTitle}>Link director from Practice Airspace</strong>
+                  <div style={airspaceLinkText}>
+                    Directors are not captured here. The person must already exist in Practice Airspace as an Individual.
+                  </div>
+                </div>
 
-                <Field label="CAPACITY">
-                  <select value={directorCapacity} onChange={(event) => setDirectorCapacity(event.target.value)} style={input}>
-                    <option value="director">Director</option>
-                    <option value="alternate_director">Alternate Director</option>
-                    <option value="ex_officio_director">Ex Officio Director</option>
-                    <option value="prescribed_officer">Prescribed Officer</option>
-                    <option value="other">Other</option>
-                  </select>
-                </Field>
-                <Field label="NATIONALITY">
-                  <input value={directorNationality} onChange={(event) => setDirectorNationality(event.target.value)} style={input} />
-                </Field>
-                <Field label="COUNTRY OF RESIDENCE">
-                  <input value={directorCountryOfResidence} onChange={(event) => setDirectorCountryOfResidence(event.target.value)} style={input} />
-                </Field>
-
-                <Field label="DATE OF BIRTH">
-                  <input type="date" value={directorDateOfBirth} onChange={(event) => setDirectorDateOfBirth(event.target.value)} style={input} />
-                </Field>
-                <Field label="EMAIL ADDRESS">
-                  <input type="email" value={directorEmail} onChange={(event) => setDirectorEmail(event.target.value)} style={input} />
-                </Field>
-                <Field label="TELEPHONE / MOBILE">
-                  <input value={directorPhone} onChange={(event) => setDirectorPhone(event.target.value)} style={input} />
-                </Field>
-
-                <Field label="ID / PASSPORT ISSUE DATE">
-                  <input type="date" value={directorIdIssueDate} onChange={(event) => setDirectorIdIssueDate(event.target.value)} style={input} />
-                </Field>
-                <div />
-                <div />
-              </FormGrid>
-
-              <div style={formSectionTitle}>PHYSICAL / RESIDENTIAL ADDRESS</div>
-              <FormGrid columns="repeat(3, minmax(0, 1fr))">
-                <Field label="ADDRESS LINE 1"><input value={directorPhysical1} onChange={(event) => setDirectorPhysical1(event.target.value)} style={input} /></Field>
-                <Field label="ADDRESS LINE 2"><input value={directorPhysical2} onChange={(event) => setDirectorPhysical2(event.target.value)} style={input} /></Field>
-                <Field label="CITY / TOWN"><input value={directorPhysicalCity} onChange={(event) => setDirectorPhysicalCity(event.target.value)} style={input} /></Field>
-                <Field label="PROVINCE / STATE"><input value={directorPhysicalProvince} onChange={(event) => setDirectorPhysicalProvince(event.target.value)} style={input} /></Field>
-                <Field label="POSTAL CODE"><input value={directorPhysicalPostalCode} onChange={(event) => setDirectorPhysicalPostalCode(event.target.value)} style={input} /></Field>
-                <Field label="COUNTRY"><input value={directorPhysicalCountry} onChange={(event) => setDirectorPhysicalCountry(event.target.value)} style={input} /></Field>
-              </FormGrid>
-
-              <div style={formSectionTitleRow}>
-                <span style={formSectionTitle}>POSTAL ADDRESS</span>
-                <label style={copyAddressLabel}>
-                  <input
-                    type="checkbox"
-                    checked={directorPostalSameAsPhysical}
-                    onChange={(event) => setDirectorPostalSameAsPhysical(event.target.checked)}
-                  />{" "}
-                  Same as physical address
-                </label>
+                <Link
+                  href="/crm/new-client?relationship=in_airspace"
+                  style={airspaceAddLink}
+                >
+                  Add person to Airspace →
+                </Link>
               </div>
 
-              {!directorPostalSameAsPhysical ? (
-                <FormGrid columns="repeat(3, minmax(0, 1fr))">
-                  <Field label="ADDRESS LINE 1"><input value={directorPostal1} onChange={(event) => setDirectorPostal1(event.target.value)} style={input} /></Field>
-                  <Field label="ADDRESS LINE 2"><input value={directorPostal2} onChange={(event) => setDirectorPostal2(event.target.value)} style={input} /></Field>
-                  <Field label="CITY / TOWN"><input value={directorPostalCity} onChange={(event) => setDirectorPostalCity(event.target.value)} style={input} /></Field>
-                  <Field label="PROVINCE / STATE"><input value={directorPostalProvince} onChange={(event) => setDirectorPostalProvince(event.target.value)} style={input} /></Field>
-                  <Field label="POSTAL CODE"><input value={directorPostalPostalCode} onChange={(event) => setDirectorPostalPostalCode(event.target.value)} style={input} /></Field>
-                  <Field label="COUNTRY"><input value={directorPostalCountry} onChange={(event) => setDirectorPostalCountry(event.target.value)} style={input} /></Field>
-                </FormGrid>
+              <div style={linkSearchRow}>
+                <input
+                  value={directorSearch}
+                  onChange={(event) => setDirectorSearch(event.target.value)}
+                  placeholder="Search individual by name or ID / passport..."
+                  style={airspaceSearchInput}
+                />
+              </div>
+
+              {!directorLinkedCrmClientId ? (
+                directorSearch.trim().length < 2 ? (
+                  <div style={airspaceSearchHint}>
+                    Type at least 2 characters to search Practice Airspace.
+                  </div>
+                ) : (
+                  <div style={airspaceResults}>
+                    {directorAirspaceMatches.length ? (
+                      directorAirspaceMatches.map((record) => (
+                        <button
+                          key={record.id}
+                          type="button"
+                          onClick={() => populateDirectorFromAirspace(record.id)}
+                          style={airspaceResultRow}
+                        >
+                          <span>
+                            <strong>{record.client_name}</strong>
+                            <small>
+                              Individual · {airspaceStatusLabel[record.relationship_status] || record.relationship_status}
+                            </small>
+                          </span>
+                          <span style={airspaceResultId}>
+                            {record.id_passport_number || "No ID / passport captured"}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div style={airspaceNoResults}>
+                        No matching Individual Airspace record.
+                      </div>
+                    )}
+                  </div>
+                )
               ) : null}
 
-              <FormFooter>
-                <span style={formHelp}>
-                  {editingDirectorId
-                    ? "Update the permanent director record. Ending the directorship remains a separate history event."
-                    : "Capture the director once. CIPC changes, resolutions and mandates can then reuse this permanent record."}
-                </span>
-                <div style={rowActions}>
-                  {editingDirectorId &&
-                  directors.find((row) => row.id === editingDirectorId)?.is_active !== false ? (
+              {directorLinkedCrmClientId ? (
+                <>
+                  <div style={linkedRecordBar}>
+                    <span>
+                      Selected: <strong>{directorName}</strong>
+                      {directorIdNumber ? ` · ${directorIdNumber}` : ""}
+                    </span>
                     <button
                       type="button"
+                      style={textLinkButton}
                       onClick={() => {
-                        const director = directors.find((row) => row.id === editingDirectorId);
-                        if (director) startEndDirector(director);
+                        setDirectorLinkedCrmClientId("");
+                        setDirectorSearch("");
+                        setDirectorName("");
+                        setDirectorIdNumber("");
+                        setDirectorEmail("");
+                        setDirectorPhone("");
+                        setDirectorDateOfBirth("");
                       }}
-                      style={quietActionButton}
                     >
-                      End Directorship
+                      Change
                     </button>
-                  ) : null}
-                  <SaveButton
-                    onClick={saveDirector}
-                    saving={saving}
-                    label={editingDirectorId ? "Update Director" : "Save Director"}
-                  />
-                </div>
-              </FormFooter>
+                  </div>
+
+                  <FormGrid columns="repeat(2, minmax(0, 1fr))">
+                    <Field label="Capacity">
+                      <select
+                        value={directorCapacity}
+                        onChange={(event) => setDirectorCapacity(event.target.value)}
+                        style={input}
+                      >
+                        <option value="director">Director</option>
+                        <option value="alternate_director">Alternate Director</option>
+                        <option value="ex_officio_director">Ex Officio Director</option>
+                        <option value="prescribed_officer">Prescribed Officer</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </Field>
+
+                    <Field label="Appointment date">
+                      <input
+                        type="date"
+                        value={directorAppointmentDate}
+                        onChange={(event) => setDirectorAppointmentDate(event.target.value)}
+                        style={input}
+                      />
+                    </Field>
+                  </FormGrid>
+
+                  <FormFooter>
+                    <span style={formHelp}>
+                      Identity and contact details remain on the Practice Airspace record. Secretarial stores only the appointment relationship and history.
+                    </span>
+
+                    <SaveButton
+                      onClick={saveDirector}
+                      saving={saving}
+                      label={editingDirectorId ? "Update Director Link" : "Link Director"}
+                    />
+                  </FormFooter>
+                </>
+              ) : null}
             </FormPanel>
           ) : null}
 
@@ -1801,6 +1986,8 @@ export default function SecretarialClientPage() {
                     {director.is_active === false
                       ? formatStatus(director.cessation_reason || "Inactive")
                       : "Active"}
+                    {" · "}
+                    {director.linked_crm_client_id ? "Airspace linked" : "Airspace link required"}
                   </div>
                 </div>
                 <div>{clean(director.id_passport_number)}</div>
@@ -1845,7 +2032,7 @@ export default function SecretarialClientPage() {
         <section style={panel}>
           <PanelHeading
             title="Shareholders"
-            subtitle="Permanent holder master. Ownership is calculated from share transactions; it is never typed over the old history."
+            subtitle="Link shareholders from Practice Airspace. Ownership is calculated from share transactions and preserved in history."
             action={
               <div style={rowActions}>
                 <Link
@@ -1855,7 +2042,7 @@ export default function SecretarialClientPage() {
                   New Share Transaction
                 </Link>
                 <SectionButton
-                  label={showShareholderForm ? "Cancel" : "Add Shareholder"}
+                  label={showShareholderForm ? "Cancel" : "Link Shareholder"}
                   onClick={() => setShowShareholderForm(!showShareholderForm)}
                 />
               </div>
@@ -1865,89 +2052,111 @@ export default function SecretarialClientPage() {
           <div style={processNote}>
             <strong>How changes work</strong>
             <span>
-              Add the new shareholder once, then use a share transaction to change the holding. PracticePilot recalculates the percentages from the register. Any issued certificate that no longer agrees with the live holding is flagged for replacement; the old certificate remains in history as replaced / cancelled rather than disappearing.
+              Link the shareholder from Practice Airspace, then use a share transaction to change the holding. PracticePilot recalculates percentages from the register. Existing certificates remain in history and are flagged for replacement when required.
             </span>
           </div>
 
           {showShareholderForm ? (
             <FormPanel>
-              <FormGrid columns="repeat(3, minmax(0, 1fr))">
-                <Field label="HOLDER TYPE">
-                  <select value={shareholderType} onChange={(event) => setShareholderType(event.target.value)} style={input}>
-                    <option value="individual">Individual</option>
-                    <option value="entity">Entity</option>
-                    <option value="trust">Trust</option>
-                    <option value="other">Other</option>
-                  </select>
-                </Field>
-                <Field label="FULL LEGAL NAME">
-                  <input value={shareholderName} onChange={(event) => setShareholderName(event.target.value)} style={input} />
-                </Field>
-                <Field label="ID / REGISTRATION NUMBER">
-                  <input value={shareholderIdNumber} onChange={(event) => setShareholderIdNumber(event.target.value)} style={input} />
-                </Field>
+              <div style={linkOnlyIntro}>
+                <div>
+                  <strong style={airspaceLinkTitle}>Link shareholder from Practice Airspace</strong>
+                  <div style={airspaceLinkText}>
+                    Shareholders are not captured here. The holder must already exist in Practice Airspace as an Individual, Entity or Trust.
+                  </div>
+                </div>
 
-                <Field label={shareholderType === "individual" ? "NATIONALITY" : "COUNTRY OF INCORPORATION / FORMATION"}>
-                  <input value={shareholderNationalityOrCountry} onChange={(event) => setShareholderNationalityOrCountry(event.target.value)} style={input} />
-                </Field>
-                <Field label={shareholderType === "individual" ? "COUNTRY OF RESIDENCE" : "COUNTRY OF REGISTRATION"}>
-                  <input value={shareholderCountryOfResidenceOrRegistration} onChange={(event) => setShareholderCountryOfResidenceOrRegistration(event.target.value)} style={input} />
-                </Field>
-                {shareholderType === "individual" ? (
-                  <Field label="DATE OF BIRTH">
-                    <input type="date" value={shareholderDateOfBirth} onChange={(event) => setShareholderDateOfBirth(event.target.value)} style={input} />
-                  </Field>
-                ) : (
-                  <div />
-                )}
-
-                <Field label="EMAIL">
-                  <input value={shareholderEmail} onChange={(event) => setShareholderEmail(event.target.value)} style={input} />
-                </Field>
-                <Field label="PHONE">
-                  <input value={shareholderPhone} onChange={(event) => setShareholderPhone(event.target.value)} style={input} />
-                </Field>
-                <div />
-              </FormGrid>
-
-              <div style={formSectionTitle}>PHYSICAL / RESIDENTIAL ADDRESS</div>
-              <FormGrid columns="repeat(3, minmax(0, 1fr))">
-                <Field label="ADDRESS LINE 1"><input value={shareholderPhysical1} onChange={(event) => setShareholderPhysical1(event.target.value)} style={input} /></Field>
-                <Field label="ADDRESS LINE 2"><input value={shareholderPhysical2} onChange={(event) => setShareholderPhysical2(event.target.value)} style={input} /></Field>
-                <Field label="CITY / TOWN"><input value={shareholderPhysicalCity} onChange={(event) => setShareholderPhysicalCity(event.target.value)} style={input} /></Field>
-                <Field label="PROVINCE / STATE"><input value={shareholderPhysicalProvince} onChange={(event) => setShareholderPhysicalProvince(event.target.value)} style={input} /></Field>
-                <Field label="POSTAL CODE"><input value={shareholderPhysicalPostalCode} onChange={(event) => setShareholderPhysicalPostalCode(event.target.value)} style={input} /></Field>
-                <Field label="COUNTRY"><input value={shareholderPhysicalCountry} onChange={(event) => setShareholderPhysicalCountry(event.target.value)} style={input} /></Field>
-              </FormGrid>
-
-              <div style={formSectionTitleRow}>
-                <span style={formSectionTitle}>POSTAL ADDRESS</span>
-                <label style={copyAddressLabel}>
-                  <input type="checkbox" checked={postalSameAsPhysical} onChange={(event) => setPostalSameAsPhysical(event.target.checked)} /> Same as physical address
-                </label>
+                <Link
+                  href="/crm/new-client?relationship=in_airspace"
+                  style={airspaceAddLink}
+                >
+                  Add record to Airspace →
+                </Link>
               </div>
 
-              {!postalSameAsPhysical ? (
-                <FormGrid columns="repeat(3, minmax(0, 1fr))">
-                  <Field label="ADDRESS LINE 1"><input value={shareholderPostal1} onChange={(event) => setShareholderPostal1(event.target.value)} style={input} /></Field>
-                  <Field label="ADDRESS LINE 2"><input value={shareholderPostal2} onChange={(event) => setShareholderPostal2(event.target.value)} style={input} /></Field>
-                  <Field label="CITY / TOWN"><input value={shareholderPostalCity} onChange={(event) => setShareholderPostalCity(event.target.value)} style={input} /></Field>
-                  <Field label="PROVINCE / STATE"><input value={shareholderPostalProvince} onChange={(event) => setShareholderPostalProvince(event.target.value)} style={input} /></Field>
-                  <Field label="POSTAL CODE"><input value={shareholderPostalPostalCode} onChange={(event) => setShareholderPostalPostalCode(event.target.value)} style={input} /></Field>
-                  <Field label="COUNTRY"><input value={shareholderPostalCountry} onChange={(event) => setShareholderPostalCountry(event.target.value)} style={input} /></Field>
-                </FormGrid>
+              <div style={linkSearchRow}>
+                <input
+                  value={shareholderSearch}
+                  onChange={(event) => setShareholderSearch(event.target.value)}
+                  placeholder="Search by name, ID or registration number..."
+                  style={airspaceSearchInput}
+                />
+              </div>
+
+              {!shareholderLinkedCrmClientId ? (
+                shareholderSearch.trim().length < 2 ? (
+                  <div style={airspaceSearchHint}>
+                    Type at least 2 characters to search Practice Airspace.
+                  </div>
+                ) : (
+                  <div style={airspaceResults}>
+                    {shareholderAirspaceMatches.length ? (
+                      shareholderAirspaceMatches.map((record) => (
+                        <button
+                          key={record.id}
+                          type="button"
+                          onClick={() => populateShareholderFromAirspace(record.id)}
+                          style={airspaceResultRow}
+                        >
+                          <span>
+                            <strong>{record.client_name}</strong>
+                            <small>
+                              {formatStatus(record.client_category || "record")} · {airspaceStatusLabel[record.relationship_status] || record.relationship_status}
+                            </small>
+                          </span>
+                          <span style={airspaceResultId}>
+                            {record.id_passport_number ||
+                              record.registration_number ||
+                              "No ID / registration captured"}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div style={airspaceNoResults}>
+                        No matching Practice Airspace record.
+                      </div>
+                    )}
+                  </div>
+                )
               ) : null}
 
-              <FormFooter>
-                <span style={formHelp}>
-                  Adding or editing a shareholder updates the permanent holder master. Share ownership itself changes only through share transactions.
-                </span>
-                <SaveButton
-                  onClick={saveShareholder}
-                  saving={saving}
-                  label={editingShareholderId ? "Update Shareholder" : "Save Shareholder"}
-                />
-              </FormFooter>
+              {shareholderLinkedCrmClientId ? (
+                <>
+                  <div style={linkedRecordBar}>
+                    <span>
+                      Selected: <strong>{shareholderName}</strong>
+                      {shareholderIdNumber ? ` · ${shareholderIdNumber}` : ""}
+                    </span>
+                    <button
+                      type="button"
+                      style={textLinkButton}
+                      onClick={() => {
+                        setShareholderLinkedCrmClientId("");
+                        setShareholderSearch("");
+                        setShareholderName("");
+                        setShareholderIdNumber("");
+                        setShareholderEmail("");
+                        setShareholderPhone("");
+                        setShareholderDateOfBirth("");
+                      }}
+                    >
+                      Change
+                    </button>
+                  </div>
+
+                  <FormFooter>
+                    <span style={formHelp}>
+                      Identity details remain in Practice Airspace. Share ownership is still created and changed only through the share transaction workflow.
+                    </span>
+
+                    <SaveButton
+                      onClick={saveShareholder}
+                      saving={saving}
+                      label={editingShareholderId ? "Update Shareholder Link" : "Link Shareholder"}
+                    />
+                  </FormFooter>
+                </>
+              ) : null}
             </FormPanel>
           ) : null}
 
@@ -1995,7 +2204,11 @@ export default function SecretarialClientPage() {
                 >
                   <div>
                     <strong>{row.full_legal_name}</strong>
-                    <div style={mutedSmall}>{formatStatus(row.holder_type)}</div>
+                    <div style={mutedSmall}>
+                      {formatStatus(row.holder_type)}
+                      {" · "}
+                      {row.linked_crm_client_id ? "Airspace linked" : "Airspace link required"}
+                    </div>
                   </div>
                   <div>{clean(row.id_registration_number)}</div>
                   <strong>{issuedToHolder.toLocaleString("en-ZA")}</strong>
@@ -3718,6 +3931,139 @@ const documentFace: React.CSSProperties = {
   color: "#166534",
   fontSize: "9px",
 };
+
+
+const linkOnlyIntro: React.CSSProperties = {
+  minHeight: "42px",
+  padding: "7px 9px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  marginBottom: "7px",
+  border: "1px solid #cbd5e1",
+  background: "#f3f7fb",
+};
+
+const linkSearchRow: React.CSSProperties = {
+  marginBottom: "7px",
+};
+
+const airspaceSearchInput: React.CSSProperties = {
+  width: "100%",
+  minHeight: "32px",
+  padding: "0 9px",
+  boxSizing: "border-box",
+  border: "1px solid #b9c6d3",
+  background: "#ffffff",
+  color: "#10233a",
+  fontSize: "10px",
+};
+
+const airspaceAddLink: React.CSSProperties = {
+  minHeight: "32px",
+  padding: "0 10px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#1856a0",
+  textDecoration: "none",
+  fontSize: "9px",
+  fontWeight: 900,
+};
+
+const airspaceResults: React.CSSProperties = {
+  maxHeight: "230px",
+  overflowY: "auto",
+  marginBottom: "8px",
+  border: "1px solid #d8dee7",
+  background: "#ffffff",
+};
+
+const airspaceResultRow: React.CSSProperties = {
+  width: "100%",
+  minHeight: "42px",
+  padding: "6px 9px",
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) 210px",
+  gap: "10px",
+  alignItems: "center",
+  border: "none",
+  borderBottom: "1px solid #e7ecf0",
+  background: "#ffffff",
+  color: "#10233a",
+  textAlign: "left",
+  fontSize: "9px",
+  cursor: "pointer",
+};
+
+const airspaceResultRowActive: React.CSSProperties = {
+  background: "#eef4fb",
+  borderLeft: "3px solid #1856a0",
+};
+
+const airspaceResultId: React.CSSProperties = {
+  color: "#64748b",
+  fontSize: "8px",
+  textAlign: "right",
+};
+
+const airspaceSearchHint: React.CSSProperties = {
+  marginBottom: "7px",
+  padding: "8px 10px",
+  border: "1px dashed #cbd5e1",
+  background: "#ffffff",
+  color: "#74808a",
+  fontSize: "9px",
+};
+
+const airspaceNoResults: React.CSSProperties = {
+  padding: "12px 10px",
+  color: "#64748b",
+  fontSize: "9px",
+};
+
+const linkedRecordBar: React.CSSProperties = {
+  minHeight: "36px",
+  marginBottom: "8px",
+  padding: "0 9px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "10px",
+  borderLeft: "3px solid #166534",
+  background: "#ecfdf3",
+  color: "#166534",
+  fontSize: "9px",
+};
+
+const textLinkButton: React.CSSProperties = {
+  padding: 0,
+  border: "none",
+  background: "transparent",
+  color: "#1856a0",
+  fontSize: "8px",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const airspaceLinkTitle: React.CSSProperties = {
+  display: "block",
+  color: "#10233a",
+  fontSize: "10px",
+  fontWeight: 900,
+};
+
+const airspaceLinkText: React.CSSProperties = {
+  marginTop: "2px",
+  color: "#64748b",
+  fontSize: "8px",
+  lineHeight: 1.35,
+};
+
+
 
 const formPanel: React.CSSProperties = {
   padding: "12px",

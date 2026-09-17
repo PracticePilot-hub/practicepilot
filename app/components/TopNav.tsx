@@ -18,6 +18,7 @@ type UserProfile = {
   email: string;
   role: string;
   access_enabled: boolean;
+  organisation_id?: string | null;
   can_access_crm?: boolean;
   can_access_accounting?: boolean;
   can_access_afs?: boolean;
@@ -27,6 +28,8 @@ type UserProfile = {
   can_access_management_reports?: boolean;
   can_access_paia?: boolean;
   can_access_proposals?: boolean;
+  can_access_trusts?: boolean;
+  trusts_organisation_id?: string | null;
 };
 
 type NavItem = {
@@ -333,6 +336,14 @@ export default function TopNav() {
         label: "Secretarial",
         href: "/secretarial",
         show: accessEnabled && Boolean(profile?.can_access_secretarial),
+      },
+      {
+        label: "Trusts",
+        href: "/trusts",
+        show:
+          accessEnabled &&
+          Boolean(profile?.can_access_trusts) &&
+          Boolean(profile?.organisation_id || profile?.trusts_organisation_id),
       },
       {
         label: "Projects",

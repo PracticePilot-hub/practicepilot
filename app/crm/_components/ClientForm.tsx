@@ -36,6 +36,18 @@ type ClientApiData = {
   id: string;
   client_name: string;
   entity_type: string | null;
+  client_category: "individual" | "entity" | "trust" | null;
+  engagement_type:
+    | "ongoing_monthly"
+    | "annual_monthly_retainer"
+    | "annual_ad_hoc"
+    | null;
+  relationship_status:
+    | "flying_client"
+    | "in_airspace"
+    | "on_radar"
+    | "former_client"
+    | null;
   client_code: string | null;
   status: string | null;
   year_end: string | null;
@@ -95,6 +107,19 @@ type ClientFormProps = {
   mode: "create" | "edit";
   clientId?: string;
 };
+
+type ClientGroupOption = {
+  id: string;
+  group_name: string;
+};
+
+type ClientGroupMember = {
+  id: string;
+  group_id: string;
+  client_id: string;
+  is_active: boolean;
+};
+
 
 const STANDARD_FREQUENCIES = [
   "Weekly",
@@ -414,9 +439,10 @@ function vatPeriodOptions(category: string) {
       for (let month = 0; month < 12; month += 1) {
         const start = new Date(year, month, 1);
         const end = new Date(year, month + 1, 0);
+        const due = new Date(end.getFullYear(), end.getMonth() + 1, 25);
         options.push({
           value: `${start.toISOString().slice(0, 10)}|${end.toISOString().slice(0, 10)}`,
-          label: `${monthName(month)} ${year}`,
+          label: `${monthName(month)} ${year} · due ${String(due.getDate()).padStart(2, "0")} ${monthName(due.getMonth())} ${due.getFullYear()}`,
           start: start.toISOString().slice(0, 10),
           end: end.toISOString().slice(0, 10),
         });
@@ -429,9 +455,10 @@ function vatPeriodOptions(category: string) {
     for (const endMonth of endMonths) {
       const end = new Date(year, endMonth + 1, 0);
       const start = new Date(year, endMonth - 1, 1);
+      const due = new Date(end.getFullYear(), end.getMonth() + 1, 25);
       options.push({
         value: `${start.toISOString().slice(0, 10)}|${end.toISOString().slice(0, 10)}`,
-        label: `${monthName(start.getMonth())}–${monthName(end.getMonth())} ${end.getFullYear()}`,
+        label: `${monthName(start.getMonth())}–${monthName(end.getMonth())} ${end.getFullYear()} · due ${String(due.getDate()).padStart(2, "0")} ${monthName(due.getMonth())} ${due.getFullYear()}`,
         start: start.toISOString().slice(0, 10),
         end: end.toISOString().slice(0, 10),
       });
@@ -996,9 +1023,12 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
   const searchParams = useSearchParams();
 
   const requestedSection =
-    searchParams.get("section") || (mode === "edit" ? "services" : "core");
+    searchParams.get("section") || "core";
 
-  const resolvedSection = requestedSection === "tasking" ? "services" : requestedSection;
+  const isTaskingWorkspace =
+    requestedSection === "tasking" ||
+    (mode === "edit" && requestedSection === "services");
+  const resolvedSection = isTaskingWorkspace ? "services" : requestedSection;
 
   const [activeSection, setActiveSection] = useState(resolvedSection);
   const [loading, setLoading] = useState(true);
@@ -1006,9 +1036,21 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
   const [errorMessage, setErrorMessage] = useState("");
   const [users, setUsers] = useState<UserOption[]>([]);
   const [serviceOptions, setServiceOptions] = useState<ServiceOption[]>([]);
+  const [groupOptions, setGroupOptions] = useState<ClientGroupOption[]>([]);
+  const [currentGroupMembers, setCurrentGroupMembers] = useState<ClientGroupMember[]>([]);
+  const [clientGroupId, setClientGroupId] = useState("");
 
   const [clientName, setClientName] = useState("");
   const [clientType, setClientType] = useState("");
+  const [clientCategory, setClientCategory] = useState<
+    "individual" | "entity" | "trust" | ""
+  >("");
+  const [engagementType, setEngagementType] = useState<
+    "ongoing_monthly" | "annual_monthly_retainer" | "annual_ad_hoc" | ""
+  >("");
+  const [relationshipStatus, setRelationshipStatus] = useState<
+    "flying_client" | "in_airspace" | "on_radar" | "former_client"
+  >("flying_client");
   const [internalCode, setInternalCode] = useState("");
   const [status, setStatus] = useState("Active");
   const [yearEnd, setYearEnd] = useState("");
@@ -1048,9 +1090,20 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
   const [managerUserId, setManagerUserId] = useState("");
   const [partnerUserId, setPartnerUserId] = useState("");
 
+
   const [services, setServices] = useState<Record<string, ServiceState>>({});
 
   const isIndividual = clientType === "Individual";
+  const isFlyingClient = relationshipStatus === "flying_client";
+
+  const relationshipStatusLabel =
+    relationshipStatus === "flying_client"
+      ? "Flying Client"
+      : relationshipStatus === "in_airspace"
+        ? "In Airspace"
+        : relationshipStatus === "on_radar"
+          ? "On Radar"
+          : "Former Client";
 
   const visibleServices = useMemo(
     () =>
@@ -1201,6 +1254,28 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
       setUsers(loadedUsers);
       setServiceOptions(loadedServices);
 
+      const groupsResponse = await apiFetch("/api/crm/groups");
+      const groupsData = await groupsResponse.json();
+
+      if (!groupsResponse.ok || !groupsData.success) {
+        throw new Error(groupsData.error || "Could not load client groups.");
+      }
+
+      const loadedGroups = (groupsData.groups || []) as ClientGroupOption[];
+      const loadedMembers = (groupsData.members || []) as ClientGroupMember[];
+
+      setGroupOptions(loadedGroups);
+      setCurrentGroupMembers(loadedMembers);
+
+      if (mode === "edit" && clientId) {
+        const currentMembership = loadedMembers.find(
+          (member) => member.client_id === clientId && member.is_active
+        );
+        setClientGroupId(currentMembership?.group_id || "");
+      } else {
+        setClientGroupId("");
+      }
+
       const serviceState = initialiseServiceStates(loadedServices);
 
       if (mode === "edit" && data.client) {
@@ -1223,6 +1298,18 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
   ) {
     setClientName(client.client_name || "");
     setClientType(client.entity_type || "");
+
+    const loadedCategory =
+      client.client_category ||
+      (String(client.entity_type || "").toLowerCase() === "individual"
+        ? "individual"
+        : String(client.entity_type || "").toLowerCase().includes("trust")
+          ? "trust"
+          : "entity");
+
+    setClientCategory(loadedCategory);
+    setEngagementType(client.engagement_type || "");
+    setRelationshipStatus(client.relationship_status || "flying_client");
     setInternalCode(client.client_code || "");
     setStatus(client.status || "Active");
     setYearEnd(client.year_end || "");
@@ -1463,6 +1550,14 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
     const category = String(services[serviceName]?.settings.vat_category || "");
     const option = vatPeriodOptions(category).find((row) => row.value === value);
 
+    const endDate = end ? new Date(`${end}T12:00:00`) : null;
+    const dueDate =
+      endDate && !Number.isNaN(endDate.getTime())
+        ? new Date(endDate.getFullYear(), endDate.getMonth() + 1, 25)
+            .toISOString()
+            .slice(0, 10)
+        : "";
+
     updateService(serviceName, {
       firstPeriodStart: start || "",
       firstPeriodEnd: end || "",
@@ -1470,6 +1565,9 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         ...(services[serviceName]?.settings || {}),
         tasking_period_type: "vat_period",
         tasking_period_label: option?.label || "",
+        first_period_start: start || "",
+        first_period_end: end || "",
+        first_due_date: dueDate,
       },
     });
   }
@@ -1549,11 +1647,24 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
       return "Client name is required.";
     }
 
-    if (!clientType) {
-      return "Client type is required.";
+    if (!clientCategory) {
+      return "Record type is required.";
     }
 
-    for (const [serviceName, service] of Object.entries(services)) {
+    if (!clientType) {
+      return "Entity / legal type is required.";
+    }
+
+    if (!relationshipStatus) {
+      return "PracticePilot relationship is required.";
+    }
+
+    if (isFlyingClient && !engagementType) {
+      return "Service relationship is required for a Flying Client.";
+    }
+
+    if (isFlyingClient) {
+      for (const [serviceName, service] of Object.entries(services)) {
       if (!service.selected) continue;
 
       const registrationComplete = registrationServiceAlreadyComplete(
@@ -1604,9 +1715,65 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
           return "EMP501: choose the tax year and reconciliation cycle PracticePilot starts with.";
         }
       }
+      }
     }
 
     return "";
+  }
+
+  async function syncClientGroup(savedClientId: string) {
+    const existingMemberships = currentGroupMembers.filter(
+      (member) => member.client_id === savedClientId && member.is_active
+    );
+
+    const selectedMembership = existingMemberships.find(
+      (member) => member.group_id === clientGroupId
+    );
+
+    for (const member of existingMemberships) {
+      if (!clientGroupId || member.group_id !== clientGroupId) {
+        const response = await apiFetch("/api/crm/groups", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "remove_member",
+            memberId: member.id,
+          }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || data?.success === false) {
+          throw new Error(
+            data?.error ||
+              "Client saved, but the Client Group could not be updated."
+          );
+        }
+      }
+    }
+
+    if (clientGroupId && !selectedMembership) {
+      const response = await apiFetch("/api/crm/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "add_member",
+          groupId: clientGroupId,
+          clientId: savedClientId,
+          relationshipLabel: null,
+          isPrimary: false,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data?.success === false) {
+        throw new Error(
+          data?.error ||
+            "Client saved, but the Client Group could not be updated."
+        );
+      }
+    }
   }
 
   async function handleSave() {
@@ -1627,6 +1794,9 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         clientId: mode === "edit" ? clientId : undefined,
         clientName,
         clientType,
+        clientCategory,
+        engagementType: isFlyingClient ? engagementType : "",
+        relationshipStatus,
         internalCode,
         status,
         yearEnd,
@@ -1682,7 +1852,8 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
 
             return {
               serviceName,
-              selected: registrationComplete ? false : service.selected,
+              selected:
+                !isFlyingClient || registrationComplete ? false : service.selected,
               frequency: service.frequency,
               firstPeriodStart: registrationComplete
                 ? null
@@ -1717,15 +1888,30 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         throw new Error(data.error || "Client could not be saved.");
       }
 
-      void apiFetch("/api/crm/tasks/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId: data.clientId }),
-      }).catch((taskError) => {
-        console.error("Task generation failed:", taskError);
-      });
+      await syncClientGroup(data.clientId);
 
-      router.push(`/crm/client/${data.clientId}?tab=profile`);
+      if (isFlyingClient) {
+        const taskResponse = await apiFetch("/api/crm/tasks/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId: data.clientId }),
+        });
+
+        const taskData = await taskResponse.json().catch(() => ({}));
+
+        if (!taskResponse.ok || taskData?.success === false) {
+          throw new Error(
+            taskData?.error ||
+              "Client saved, but PracticePilot could not rebuild the work schedule."
+          );
+        }
+      }
+
+      router.push(
+        isTaskingWorkspace
+          ? `/crm/client/${data.clientId}?tab=work`
+          : `/crm/client/${data.clientId}?tab=profile`
+      );
       router.refresh();
     } catch (error) {
       setErrorMessage(
@@ -1742,41 +1928,16 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
 
   return (
     <div style={pageStyle}>
-      <div style={workingFileBar}>
-        <button
-          type="button"
-          onClick={() =>
-            router.push(
-              mode === "edit" && clientId
-                ? `/crm/client/${clientId}`
-                : "/crm/clients"
-            )
-          }
-          style={backButton}
-        >
-          {mode === "edit" ? "← Back to Client" : "← Back to Clients"}
-        </button>
-
-        <div style={workingFileLabel}>CRM WORKING FILE</div>
-        <div style={workingFileDivider}>|</div>
-        <div style={workingFileClient}>
-          {clientName.trim() || (mode === "create" ? "New Client" : "Client")}
-        </div>
-        <div style={workingFileDivider}>|</div>
-        <div style={workingFileMeta}>
-          {mode === "create" ? "Client setup" : "Edit client master"}
-        </div>
-
-        <div style={statusBadge}>
-          {status || "Active"}
-        </div>
-      </div>
-
       <div style={pageHeadingBar}>
+
         <div>
-          <div style={pageHeadingKicker}>Client Setup</div>
+          <div style={pageHeadingKicker}>
+            {isTaskingWorkspace ? "Tasking Setup" : "Client Setup"}
+          </div>
           <div style={pageHeadingSubtext}>
-            Maintain the client master data used across CRM, compliance, tax and recurring work.
+            {isTaskingWorkspace
+              ? "Maintain recurring work rules, frequencies and starting periods."
+              : "Maintain the client master data used across CRM, compliance and tax. Services and recurring work are managed under Tasking Setup."}
           </div>
         </div>
 
@@ -1792,155 +1953,106 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         >
           {saving
             ? "Saving..."
-            : mode === "create"
-              ? "Save client setup"
-              : "Save changes"}
+            : isTaskingWorkspace
+              ? "Save tasking"
+              : mode === "create"
+                ? "Save"
+                : "Save changes"}
         </button>
       </div>
 
-      <div style={contentHeading}>
-        <div>
-          <h1 style={titleStyle}>
-            {mode === "create" ? "Add Client" : "Edit Client"}
-          </h1>
-          <p style={contentSubtitle}>
-            Maintain the client master record used across CRM, compliance and recurring work.
-          </p>
+      {!isTaskingWorkspace ? (
+        <div style={contentHeading}>
+          <div>
+            <h1 style={titleStyle}>
+              {mode === "create" ? "Add Client" : "Edit Client"}
+            </h1>
+            <p style={contentSubtitle}>
+              Maintain the client master record used across CRM, compliance and recurring work.
+            </p>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {errorMessage && <div style={errorBox}>{errorMessage}</div>}
 
-      <SectionHeader
-        title="Core Details"
-        open={activeSection === "core"}
-        onClick={() =>
-          setActiveSection(activeSection === "core" ? "" : "core")
-        }
-      />
+      {!isTaskingWorkspace ? (
+        <>
+          <SectionHeader
+            title="Core Details"
+            open={activeSection === "core"}
+            onClick={() =>
+              setActiveSection(activeSection === "core" ? "" : "core")
+            }
+          />
 
-      {activeSection === "core" && (
+          {activeSection === "core" && (
+            <SectionBody>
+              <div style={grid4}>
+                <Field label="Name *"><input style={inputStyle} value={clientName} onChange={(event) => setClientName(event.target.value)} /></Field>
+                <Field label="Record Type *">
+                  <select style={inputStyle} value={clientCategory} onChange={(event) => setClientCategory(event.target.value as "individual" | "entity" | "trust" | "")}>
+                    <option value="">Select...</option><option value="individual">Individual</option><option value="entity">Entity</option><option value="trust">Trust</option>
+                  </select>
+                </Field>
+                <Field label="Entity / Legal Type *">
+                  <select style={inputStyle} value={clientType} onChange={(event) => { const nextType = event.target.value; setClientType(nextType); if (nextType === "Individual") setClientCategory("individual"); else if (nextType === "Trust") setClientCategory("trust"); else if (nextType) setClientCategory("entity"); }}>
+                    <option value="">Select...</option><option value="PTY LTD">PTY LTD</option><option value="Close Corporation">Close Corporation</option><option value="Individual">Individual</option><option value="Trust">Trust</option><option value="Non-Profit Company">Non-Profit Company</option><option value="Partnership">Partnership</option><option value="Sole Proprietor">Sole Proprietor</option>
+                  </select>
+                </Field>
+                <Field label="Client Group">
+                  <select
+                    style={inputStyle}
+                    value={clientGroupId}
+                    onChange={(event) => setClientGroupId(event.target.value)}
+                  >
+                    <option value="">No group</option>
+                    {groupOptions.map((group) => (
+                      <option key={group.id} value={group.id}>
+                        {group.group_name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              <div style={relationshipRow}>
+                <Field label="PracticePilot Relationship *">
+                  <select style={inputStyle} value={relationshipStatus} onChange={(event) => setRelationshipStatus(event.target.value as "flying_client" | "in_airspace" | "on_radar" | "former_client")}>
+                    <option value="flying_client">Flying Client</option><option value="in_airspace">In Airspace</option><option value="on_radar">On Radar</option><option value="former_client">Former Client</option>
+                  </select>
+                </Field>
+                <Field label="Service Relationship">
+                  <select style={inputStyle} value={engagementType} disabled={!isFlyingClient} onChange={(event) => setEngagementType(event.target.value as "ongoing_monthly" | "annual_monthly_retainer" | "annual_ad_hoc" | "")}>
+                    <option value="">{isFlyingClient ? "Select..." : "Not applicable"}</option><option value="ongoing_monthly">Ongoing monthly</option><option value="annual_monthly_retainer">Annual – monthly retainer</option><option value="annual_ad_hoc">Annual – ad hoc</option>
+                  </select>
+                </Field>
+                <div style={relationshipSummary}><strong>{relationshipStatusLabel}</strong><span>{relationshipStatus === "flying_client" ? "Actively engaged. Services and recurring work may apply." : relationshipStatus === "in_airspace" ? "Known to the practice, but not currently engaged." : relationshipStatus === "on_radar" ? "A genuine future opportunity." : "No longer actively engaged."}</span></div>
+              </div>
+
+              <div style={grid4}>
+                <Field label="Trading Name"><input style={inputStyle} value={tradingName} onChange={(event) => setTradingName(event.target.value)} /></Field>
+                <Field label={isIndividual ? "ID / Passport Number" : "Registration Number"}><input style={inputStyle} value={isIndividual ? idPassportNumber : registrationNumber} onChange={(event) => isIndividual ? setIdPassportNumber(event.target.value) : setRegistrationNumber(event.target.value)} /></Field>
+                <Field label={isIndividual ? "Date of Birth" : "Registration Date"}><input type="date" style={inputStyle} value={isIndividual ? dateOfBirth : registrationDate} onChange={(event) => isIndividual ? setDateOfBirth(event.target.value) : setRegistrationDate(event.target.value)} /></Field>
+                <Field label="Financial Year End"><select style={inputStyle} value={yearEnd} onChange={(event) => setYearEnd(event.target.value)}><option value="">Select...</option>{months.map((month) => <option key={month} value={month}>{month}</option>)}</select></Field>
+                <Field label="Internal Code"><input style={inputStyle} value={internalCode} onChange={(event) => setInternalCode(event.target.value)} /></Field>
+              </div>
+            </SectionBody>
+          )}
+        </>
+      ) : null}
+
+
+      {isTaskingWorkspace && !isFlyingClient ? (
         <SectionBody>
-          <div style={grid4}>
-            <Field label="Client Name *">
-              <input
-                style={inputStyle}
-                value={clientName}
-                onChange={(event) => setClientName(event.target.value)}
-              />
-            </Field>
-
-            <Field label="Client Type *">
-              <select
-                style={inputStyle}
-                value={clientType}
-                onChange={(event) => setClientType(event.target.value)}
-              >
-                <option value="">Select...</option>
-                <option value="PTY LTD">PTY LTD</option>
-                <option value="Close Corporation">Close Corporation</option>
-                <option value="Individual">Individual</option>
-                <option value="Trust">Trust</option>
-                <option value="Non-Profit Company">Non-Profit Company</option>
-                <option value="Partnership">Partnership</option>
-                <option value="Sole Proprietor">Sole Proprietor</option>
-              </select>
-            </Field>
-
-            <Field label="Internal Code">
-              <input
-                style={inputStyle}
-                value={internalCode}
-                onChange={(event) => setInternalCode(event.target.value)}
-              />
-            </Field>
-
-            <Field label="Status">
-              <select
-                style={inputStyle}
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-              >
-                <option value="Active">Active</option>
-                <option value="Prospective">Prospective</option>
-                <option value="Inactive">Inactive</option>
-              </select>
-            </Field>
-          </div>
-
-          <div style={grid4}>
-            <Field label="Trading Name">
-              <input
-                style={inputStyle}
-                value={tradingName}
-                onChange={(event) => setTradingName(event.target.value)}
-              />
-            </Field>
-
-            <Field
-              label={
-                isIndividual
-                  ? "ID / Passport Number"
-                  : "Registration Number"
-              }
-            >
-              <input
-                style={inputStyle}
-                value={
-                  isIndividual ? idPassportNumber : registrationNumber
-                }
-                onChange={(event) =>
-                  isIndividual
-                    ? setIdPassportNumber(event.target.value)
-                    : setRegistrationNumber(event.target.value)
-                }
-              />
-            </Field>
-
-            <Field
-              label={
-                isIndividual ? "Date of Birth" : "Registration Date"
-              }
-            >
-              <input
-                type="date"
-                style={inputStyle}
-                value={isIndividual ? dateOfBirth : registrationDate}
-                onChange={(event) =>
-                  isIndividual
-                    ? setDateOfBirth(event.target.value)
-                    : setRegistrationDate(event.target.value)
-                }
-              />
-            </Field>
-
-            <Field label="Financial Year End">
-              <select
-                style={inputStyle}
-                value={yearEnd}
-                onChange={(event) => setYearEnd(event.target.value)}
-              >
-                <option value="">Select...</option>
-                {months.map((month) => (
-                  <option key={month} value={month}>
-                    {month}
-                  </option>
-                ))}
-              </select>
-            </Field>
+          <div style={nonFlyingNotice}>
+            Services and recurring tasking are only active for Flying Clients.
+            Change the PracticePilot Relationship to Flying Client when this record becomes actively engaged.
           </div>
         </SectionBody>
-      )}
+      ) : null}
 
-      <SectionHeader
-        title="Services & Tasking Setup"
-        open={activeSection === "services"}
-        onClick={() =>
-          setActiveSection(activeSection === "services" ? "" : "services")
-        }
-      />
-
-      {activeSection === "services" && (
+      {isTaskingWorkspace && isFlyingClient && (
         <SectionBody>
           <div style={taskingIntroBar}>
             <div>
@@ -2384,15 +2496,17 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         </SectionBody>
       )}
 
-      <SectionHeader
+      {!isTaskingWorkspace ? (
+        <SectionHeader
         title="Tax & Statutory Registrations"
         open={activeSection === "statutory"}
         onClick={() =>
           setActiveSection(activeSection === "statutory" ? "" : "statutory")
         }
       />
+      ) : null}
 
-      {activeSection === "statutory" && (
+      {!isTaskingWorkspace && activeSection === "statutory" && (
         <SectionBody>
           <div style={statutoryNotice}>
             <strong>Existing registration details</strong>
@@ -2464,15 +2578,17 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         </SectionBody>
       )}
 
-      <SectionHeader
+      {!isTaskingWorkspace ? (
+        <SectionHeader
         title="Contacts and Addresses"
         open={activeSection === "contact"}
         onClick={() =>
           setActiveSection(activeSection === "contact" ? "" : "contact")
         }
       />
+      ) : null}
 
-      {activeSection === "contact" && (
+      {!isTaskingWorkspace && activeSection === "contact" && (
         <SectionBody>
           <div style={grid5}>
             <Field label="Primary Contact">
@@ -2610,15 +2726,17 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         </SectionBody>
       )}
 
-      <SectionHeader
+      {!isTaskingWorkspace ? (
+        <SectionHeader
         title="Internal Responsibility"
         open={activeSection === "internal"}
         onClick={() =>
           setActiveSection(activeSection === "internal" ? "" : "internal")
         }
       />
+      ) : null}
 
-      {activeSection === "internal" && (
+      {!isTaskingWorkspace && activeSection === "internal" && (
         <SectionBody>
           <div style={grid3}>
             <UserSelect
@@ -2645,38 +2763,40 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         </SectionBody>
       )}
 
-      <div style={footerBar}>
-        <button
-          type="button"
-          onClick={() =>
-            router.push(
-              mode === "edit" && clientId
-                ? `/crm/client/${clientId}`
-                : "/crm/clients"
-            )
-          }
-          style={secondaryButton}
-        >
-          Cancel
-        </button>
+      {!isTaskingWorkspace ? (
+        <div style={footerBar}>
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                mode === "edit" && clientId
+                  ? `/crm/client/${clientId}`
+                  : "/crm/clients"
+              )
+            }
+            style={secondaryButton}
+          >
+            Cancel
+          </button>
 
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          style={{
-            ...primaryButton,
-            opacity: saving ? 0.6 : 1,
-            cursor: saving ? "not-allowed" : "pointer",
-          }}
-        >
-          {saving
-            ? "Saving..."
-            : mode === "create"
-              ? "Save Client and Create Tasks"
-              : "Save Changes and Update Tasks"}
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              ...primaryButton,
+              opacity: saving ? 0.6 : 1,
+              cursor: saving ? "not-allowed" : "pointer",
+            }}
+          >
+            {saving
+              ? "Saving..."
+              : mode === "create"
+                ? "Save"
+                : "Save changes"}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2777,7 +2897,7 @@ const statutoryNotice: React.CSSProperties = {
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
-  padding: "0 10px 28px",
+  padding: "0 8px 20px",
   background: "#eef2f5",
   color: "#10233a",
 };
@@ -2792,7 +2912,7 @@ const eyebrow: React.CSSProperties = {
 
 const titleStyle: React.CSSProperties = {
   margin: 0,
-  fontSize: "24px",
+  fontSize: "18px",
   fontWeight: 500,
   letterSpacing: "-0.02em",
   color: "#111827",
@@ -2812,19 +2932,19 @@ const sectionHeader: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  padding: "11px 12px",
+  padding: "7px 9px",
   marginTop: "10px",
   border: "1px solid #d2d9e2",
   borderRadius: 0,
   background: "#f7f8fa",
   color: "#111827",
-  fontSize: "16px",
+  fontSize: "12px",
   fontWeight: 500,
   cursor: "pointer",
 };
 
 const sectionBody: React.CSSProperties = {
-  padding: "14px 12px 16px",
+  padding: "8px",
   border: "1px solid #d2d9e2",
   borderTop: "none",
   background: "#ffffff",
@@ -2837,51 +2957,90 @@ const fieldStyle: React.CSSProperties = {
 };
 
 const fieldLabel: React.CSSProperties = {
-  fontSize: "12px",
+  fontSize: "9px",
   fontWeight: 700,
   color: "#2f4055",
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  minHeight: "38px",
-  padding: "8px 9px",
+  minHeight: "28px",
+  padding: "3px 6px",
   border: "1px solid #cfd7e1",
   borderRadius: 0,
   background: "#ffffff",
   color: "#111827",
-  fontSize: "14px",
+  fontSize: "10px",
   boxSizing: "border-box",
   fontWeight: 600,
 };
 
+const relationshipRow: React.CSSProperties = { display: "grid", gridTemplateColumns: "minmax(220px,.9fr) minmax(250px,1fr) minmax(0,1.4fr)", gap: "7px", alignItems: "end", marginBottom: "7px" };
+const relationshipSummary: React.CSSProperties = { minHeight: "28px", padding: "4px 7px", display: "flex", flexDirection: "column", justifyContent: "center", gap: "1px", borderLeft: "2px solid #819bad", background: "#f7f9fb", color: "#526273", fontSize: "9px", lineHeight: 1.3 };
+
 const grid3: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: "12px",
+  gap: "7px",
 };
 
 const grid4: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: "7px",
+  marginBottom: "8px",
+};
+
+const relationshipStrip: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(240px, .8fr) minmax(0, 2.2fr)",
   gap: "12px",
+  alignItems: "stretch",
   marginBottom: "12px",
+  padding: "12px",
+  border: "1px solid #c8d5df",
+  background: "#f5f8fa",
+};
+
+const relationshipExplanation: React.CSSProperties = {
+  minHeight: "38px",
+  padding: "8px 10px",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  gap: "3px",
+  borderLeft: "3px solid #819bad",
+  background: "#ffffff",
+  color: "#536273",
+  fontSize: "10px",
+  lineHeight: 1.4,
+};
+
+const nonFlyingNotice: React.CSSProperties = {
+  marginBottom: "12px",
+  padding: "11px 12px",
+  borderLeft: "4px solid #819bad",
+  background: "#f5f8fa",
+  color: "#40515d",
+  fontSize: "10px",
+  lineHeight: 1.5,
 };
 
 const grid5: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-  gap: "12px",
-  marginBottom: "12px",
+  gap: "7px",
+  marginBottom: "8px",
 };
 
 const taskingIntroBar: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: "18px",
-  padding: "12px 14px",
-  marginBottom: "12px",
+  gap: "12px",
+  padding: "8px 10px",
+  marginTop: 0,
+  marginBottom: "8px",
   borderTop: "1px solid #b9cad6",
   borderBottom: "1px solid #b9cad6",
   background: "#f4f8fa",
@@ -2904,7 +3063,7 @@ const taskingIntroTitle: React.CSSProperties = {
 const taskingIntroText: React.CSSProperties = {
   marginTop: "3px",
   color: "#5a6d7d",
-  fontSize: "11px",
+  fontSize: "10px",
 };
 
 const taskingIntroRule: React.CSSProperties = {
@@ -2960,7 +3119,7 @@ const taskingGroupCount: React.CSSProperties = {
 const taskingColumnHeader: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1.35fr 1fr 1.35fr 1.35fr",
-  gap: "8px",
+  gap: "7px",
   padding: "7px 9px",
   background: "#10233a",
   color: "#ffffff",
@@ -2972,12 +3131,12 @@ const taskingColumnHeader: React.CSSProperties = {
 const taskingRow: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1.35fr 1fr 1.35fr 1.35fr",
-  gap: "8px",
+  gap: "7px",
   alignItems: "center",
   minHeight: "42px",
   padding: "6px 9px",
   borderBottom: "1px solid #e0e7ec",
-  fontSize: "11px",
+  fontSize: "10px",
 };
 
 const taskingRowInactive: React.CSSProperties = {
@@ -3035,8 +3194,8 @@ const taskingCompactInput: React.CSSProperties = {
   borderRadius: 0,
   background: "#ffffff",
   color: "#10233a",
-  padding: "5px 7px",
-  fontSize: "11px",
+  padding: "4px 6px",
+  fontSize: "10px",
   fontWeight: 750,
   boxSizing: "border-box",
 };
@@ -3206,7 +3365,7 @@ const taskingFieldLabel: React.CSSProperties = {
   color: "#536273",
   fontSize: 10,
   fontWeight: 800,
-  textTransform: "uppercase",
+  textTransform: "none",
   letterSpacing: "0.04em",
 };
 
@@ -3239,19 +3398,19 @@ const vatWarning: React.CSSProperties = {
 const serviceTableHeader: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1.5fr 1fr 1.25fr",
-  gap: "8px",
+  gap: "7px",
   padding: "9px 10px",
   background: "#0f172a",
   color: "#ffffff",
-  fontSize: "11px",
+  fontSize: "10px",
   fontWeight: 800,
-  textTransform: "uppercase",
+  textTransform: "none",
 };
 
 const serviceRow: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1.5fr 1fr 1.25fr",
-  gap: "8px",
+  gap: "7px",
   alignItems: "center",
   padding: "8px 10px",
   border: "1px solid #d5e0e8",
@@ -3261,7 +3420,7 @@ const serviceRow: React.CSSProperties = {
 const serviceCheckLabel: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "8px",
+  gap: "7px",
   fontWeight: 800,
   fontSize: "13px",
 };
@@ -3277,7 +3436,7 @@ const subHeading: React.CSSProperties = {
 const checkboxField: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "8px",
+  gap: "7px",
   minHeight: "38px",
   fontWeight: 800,
   fontSize: "13px",
@@ -3285,7 +3444,7 @@ const checkboxField: React.CSSProperties = {
 
 const periodHint: React.CSSProperties = {
   marginTop: "4px",
-  fontSize: "11px",
+  fontSize: "10px",
   color: "#5a6d7d",
 };
 
@@ -3297,7 +3456,7 @@ const subHeadingRow: React.CSSProperties = {
 };
 
 const copyButton: React.CSSProperties = {
-  padding: "7px 10px",
+  padding: "7px 9px",
   border: "1px solid #7891a5",
   borderRadius: 0,
   background: "#ffffff",
@@ -3310,46 +3469,51 @@ const copyButton: React.CSSProperties = {
 const footerBar: React.CSSProperties = {
   display: "flex",
   justifyContent: "flex-end",
-  gap: "10px",
-  marginTop: "18px",
-  paddingTop: "14px",
+  gap: "7px",
+  marginTop: "10px",
+  paddingTop: "9px",
   borderTop: "1px solid #a9bac8",
 };
 
 const primaryButton: React.CSSProperties = {
-  padding: "11px 18px",
+  minHeight: "30px",
+  padding: "0 10px",
   border: "1px solid #111827",
   borderRadius: 0,
   background: "#111827",
   color: "#ffffff",
+  fontSize: "10px",
   fontWeight: 800,
+  cursor: "pointer",
 };
 
 const secondaryButton: React.CSSProperties = {
-  padding: "10px 16px",
+  minHeight: "30px",
+  padding: "0 10px",
   border: "1px solid #cfd7e1",
   borderRadius: 0,
   background: "#ffffff",
   color: "#111827",
+  fontSize: "10px",
   fontWeight: 700,
   cursor: "pointer",
 };
 
 
 const workingFileBar: React.CSSProperties = {
-  minHeight: "42px",
+  minHeight: "34px",
   display: "flex",
   alignItems: "center",
   gap: "10px",
-  padding: "0 10px",
-  margin: "8px 0 8px",
+  padding: "0 8px",
+  margin: "6px 0",
   border: "1px solid #d2d9e2",
   background: "#ffffff",
   fontSize: "12px",
 };
 
 const backButton: React.CSSProperties = {
-  padding: "7px 10px",
+  padding: "5px 8px",
   border: "1px solid #cfd7e1",
   borderRadius: 0,
   background: "#ffffff",
@@ -3359,9 +3523,9 @@ const backButton: React.CSSProperties = {
 };
 
 const workingFileLabel: React.CSSProperties = {
-  fontSize: "11px",
-  fontWeight: 900,
-  letterSpacing: "0.08em",
+  fontSize: "10px",
+  fontWeight: 800,
+  letterSpacing: 0,
   color: "#1d4ed8",
 };
 
@@ -3380,59 +3544,66 @@ const workingFileMeta: React.CSSProperties = {
 
 const statusBadge: React.CSSProperties = {
   marginLeft: "auto",
-  padding: "4px 8px",
-  borderRadius: 999,
+  padding: "3px 7px",
+  borderRadius: 2,
   background: "#e8eefc",
   color: "#1d4ed8",
-  fontSize: "11px",
+  fontSize: "10px",
   fontWeight: 800,
 };
 
+const compactHeadingLeft: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+};
+
 const pageHeadingBar: React.CSSProperties = {
-  minHeight: "52px",
+  minHeight: "50px",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   gap: "16px",
-  padding: "8px 12px",
+  padding: "7px 10px",
   border: "1px solid #d2d9e2",
   background: "#ffffff",
 };
 
 const pageHeadingKicker: React.CSSProperties = {
-  fontSize: "14px",
+  fontSize: "12px",
   fontWeight: 800,
   color: "#111827",
 };
 
 const pageHeadingSubtext: React.CSSProperties = {
   marginTop: "2px",
-  fontSize: "12px",
+  fontSize: "10px",
   color: "#64748b",
 };
 
 const topSaveButton: React.CSSProperties = {
-  padding: "10px 16px",
+  padding: "7px 11px",
   border: "1px solid #0f172a",
   borderRadius: 0,
   background: "#0f172a",
   color: "#ffffff",
   fontWeight: 800,
+  fontSize: "10px",
 };
 
 const contentHeading: React.CSSProperties = {
-  display: "flex",
+  display: "none",
   alignItems: "center",
   justifyContent: "space-between",
   gap: "16px",
-  padding: "16px 12px",
-  marginTop: "8px",
+  padding: "10px",
+  marginTop: "6px",
   border: "1px solid #d2d9e2",
   background: "#ffffff",
 };
 
 const contentSubtitle: React.CSSProperties = {
   margin: "6px 0 0",
-  fontSize: "13px",
+  fontSize: "10px",
   color: "#64748b",
 };

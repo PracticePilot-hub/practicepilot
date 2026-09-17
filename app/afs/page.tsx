@@ -248,7 +248,21 @@ export default function AFSPage() {
   const organisationScopedEngagements = useMemo(() => {
     let rows = [...engagements];
 
-    return rows;
+    if (!profile) return [];
+
+    if (internalUser) {
+      if (!selectedOrganisationId) return [];
+      if (selectedOrganisationId !== "all") {
+        rows = rows.filter(
+          (engagement) => engagement.organisation_id === selectedOrganisationId,
+        );
+      }
+      return rows;
+    }
+
+    return rows.filter(
+      (engagement) => engagement.organisation_id === profile.organisation_id,
+    );
   }, [
     engagements,
     selectedOrganisationId,
@@ -275,23 +289,6 @@ export default function AFSPage() {
 
   const visibleEngagements = useMemo(() => {
     let rows = [...organisationScopedEngagements];
-
-    if (profile) {
-      if (internalUser) {
-        if (!selectedOrganisationId) rows = [];
-        else if (selectedOrganisationId !== "all") {
-          rows = rows.filter(
-            (engagement) =>
-              engagement.organisation_id === selectedOrganisationId,
-          );
-        }
-      } else {
-        rows = rows.filter(
-          (engagement) =>
-            engagement.organisation_id === profile.organisation_id,
-        );
-      }
-    }
 
     if (entityView !== "All") {
       rows = rows.filter(

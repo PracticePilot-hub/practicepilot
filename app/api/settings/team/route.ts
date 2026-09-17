@@ -26,6 +26,7 @@ const moduleFields: Record<string, string> = {
   management_reports: "can_access_management_reports",
   paia: "can_access_paia",
   proposals: "can_access_proposals",
+  trusts: "can_access_trusts",
 };
 
 function bearerToken(request: Request) {
@@ -98,7 +99,7 @@ async function loadPracticeTeam(profile: any) {
     const { data: users, error: usersError } = await admin
       .from("user_profiles")
       .select(
-        "id,user_id,organisation_id,full_name,email,role,access_enabled,can_manage_practice_users,is_practice_owner,can_access_crm,can_access_accounting,can_access_afs,can_access_assets,can_access_secretarial,can_access_projects,can_access_management_reports,can_access_paia,can_access_proposals"
+        "id,user_id,organisation_id,full_name,email,role,access_enabled,can_manage_practice_users,is_practice_owner,can_access_crm,can_access_accounting,can_access_afs,can_access_assets,can_access_secretarial,can_access_projects,can_access_management_reports,can_access_paia,can_access_proposals,can_access_trusts"
       )
       .is("organisation_id", null)
       .in("role", ["Super Admin", "Admin", "Staff"])
@@ -128,7 +129,7 @@ async function loadPracticeTeam(profile: any) {
     admin
       .from("user_profiles")
       .select(
-        "id,user_id,organisation_id,full_name,email,role,access_enabled,can_manage_practice_users,is_practice_owner,can_access_crm,can_access_accounting,can_access_afs,can_access_assets,can_access_secretarial,can_access_projects,can_access_management_reports,can_access_paia,can_access_proposals"
+        "id,user_id,organisation_id,full_name,email,role,access_enabled,can_manage_practice_users,is_practice_owner,can_access_crm,can_access_accounting,can_access_afs,can_access_assets,can_access_secretarial,can_access_projects,can_access_management_reports,can_access_paia,can_access_proposals,can_access_trusts"
       )
       .eq("organisation_id", profile.organisation_id)
       .order("is_practice_owner", { ascending: false })
@@ -210,10 +211,13 @@ async function enforceLicenceLimits(
     if (!requested) continue;
 
     const licence: any = configured.get(moduleKey);
-    if (!licence) continue;
 
-    if (licence.is_enabled === false) {
-      throw new Error(`${moduleKey} is not enabled for this practice.`);
+    if (
+      !licence ||
+      licence.is_enabled === false ||
+      Number(licence.licence_limit || 0) <= 0
+    ) {
+      throw new Error(`${moduleKey} is not subscribed for this practice.`);
     }
 
     const field = moduleFields[moduleKey];
@@ -250,6 +254,7 @@ function modulesFromBody(body: any) {
     management_reports: bool(body.canAccessManagementReports),
     paia: bool(body.canAccessPaia),
     proposals: bool(body.canAccessProposals),
+    trusts: bool(body.canAccessTrusts),
   };
 }
 
@@ -264,6 +269,7 @@ function moduleUpdate(modules: Record<string, boolean>) {
     can_access_management_reports: modules.management_reports,
     can_access_paia: modules.paia,
     can_access_proposals: modules.proposals,
+    can_access_trusts: modules.trusts,
   };
 }
 
@@ -409,6 +415,29 @@ export async function PATCH(request: Request) {
         );
       }
 
+      const { data: existingLicence, error: existingLicenceError } = await admin
+        .from("practice_module_licences")
+        .select("module_key,licence_limit,is_enabled")
+        .eq("organisation_id", profile.organisation_id)
+        .eq("module_key", moduleKey)
+        .maybeSingle();
+
+      if (existingLicenceError) throw existingLicenceError;
+
+      if (
+        !existingLicence ||
+        existingLicence.is_enabled === false ||
+        Number(existingLicence.licence_limit || 0) <= 0
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "This module is not currently subscribed. Contact PracticePilot to add a new module.",
+          },
+          { status: 400 }
+        );
+      }
+
       const { count, error: usageError } = await admin
         .from("user_profiles")
         .select("id", { count: "exact", head: true })
@@ -419,11 +448,15 @@ export async function PATCH(request: Request) {
       if (usageError) throw usageError;
 
       const used = Number(count || 0);
+      const minimum = Math.max(used, 1);
 
-      if (licenceLimit < used) {
+      if (licenceLimit < minimum) {
         return NextResponse.json(
           {
-            error: `This module is currently allocated to ${used} active user(s). Remove access from users before reducing the licence quantity below ${used}.`,
+            error:
+              used > 0
+                ? `This module is currently allocated to ${used} active user(s). Remove access from users before reducing the licence quantity below ${used}.`
+                : "A subscribed module must keep at least 1 licence.",
           },
           { status: 400 }
         );
@@ -431,16 +464,13 @@ export async function PATCH(request: Request) {
 
       const { data: licence, error: licenceError } = await admin
         .from("practice_module_licences")
-        .upsert(
-          {
-            organisation_id: profile.organisation_id,
-            module_key: moduleKey,
-            licence_limit: licenceLimit,
-            is_enabled: licenceLimit > 0,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "organisation_id,module_key" }
-        )
+        .update({
+          licence_limit: licenceLimit,
+          is_enabled: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("organisation_id", profile.organisation_id)
+        .eq("module_key", moduleKey)
         .select("module_key,licence_limit,is_enabled")
         .single();
 
@@ -488,6 +518,7 @@ export async function PATCH(request: Request) {
         management_reports: Boolean(source.can_access_management_reports),
         paia: Boolean(source.can_access_paia),
         proposals: Boolean(source.can_access_proposals),
+        trusts: Boolean(source.can_access_trusts),
       };
 
       await enforceLicenceLimits(

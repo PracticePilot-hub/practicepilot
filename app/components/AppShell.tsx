@@ -8,7 +8,7 @@ import {
   type CSSProperties,
 } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import TopNav from "./TopNav";
 
@@ -26,27 +26,26 @@ export default function AppShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname() || "";
+  const router = useRouter();
+
+  const [authCheckLoading, setAuthCheckLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const [billingCheckLoading, setBillingCheckLoading] = useState(true);
   const [billingSuspended, setBillingSuspended] = useState(false);
   const [billingSuspensionReason, setBillingSuspensionReason] =
     useState<string | null>(null);
 
-  /*
-   * Tracks whether this mounted AppShell has completed its first billing check.
-   *
-   * Important:
-   * Internal route changes must NOT reset the whole application to a
-   * "Checking account access..." screen.
-   */
   const initialBillingCheckComplete = useRef(false);
   const billingCheckInFlight = useRef(false);
 
   /*
-   * PUBLIC WEBSITE ROUTES
+   * PUBLIC ROUTES
    *
-   * These routes must never run through PracticePilot's authenticated
-   * account/billing access check and must never show the internal TopNav.
+   * /mandate/[token] is deliberately public:
+   * - no TopNav
+   * - no account/billing check
+   * - no PracticePilot login required
    */
   const publicPages = [
     "/",
@@ -55,7 +54,9 @@ export default function AppShell({
     "/financial-statements",
   ];
 
-  const isPublicPage = publicPages.includes(pathname);
+  const isPublicMandate = pathname.startsWith("/mandate/");
+  const isPublicPage =
+    publicPages.includes(pathname) || isPublicMandate;
 
   const isDocumentExport =
     /^\/proposals\/[^/]+\/export\/?$/.test(pathname) ||
@@ -67,11 +68,107 @@ export default function AppShell({
     pathname.startsWith("/billing/") ||
     pathname.startsWith("/legal/");
 
+  /*
+   * AUTH BOUNDARY
+   *
+   * Every non-public PracticePilot route requires a real Supabase session.
+   * If the user is logged out and manually browses to /crm, /afs, /settings, etc,
+   * they are redirected to /login.
+   */
+  useEffect(() => {
+    let alive = true;
+
+    async function checkAuth() {
+      if (isPublicPage || isDocumentExport) {
+        if (!alive) return;
+        setIsAuthenticated(false);
+        setAuthCheckLoading(false);
+        return;
+      }
+
+      if (!supabase) {
+        if (!alive) return;
+        setIsAuthenticated(false);
+        setAuthCheckLoading(false);
+        router.replace("/login");
+        return;
+      }
+
+      setAuthCheckLoading(true);
+
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!alive) return;
+
+        if (!session?.access_token) {
+          setIsAuthenticated(false);
+
+          const next =
+            pathname && pathname !== "/login"
+              ? `?next=${encodeURIComponent(pathname)}`
+              : "";
+
+          router.replace(`/login${next}`);
+          return;
+        }
+
+        setIsAuthenticated(true);
+      } finally {
+        if (alive) {
+          setAuthCheckLoading(false);
+        }
+      }
+    }
+
+    void checkAuth();
+
+    if (!supabase) {
+      return () => {
+        alive = false;
+      };
+    }
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!alive) return;
+
+      if (event === "SIGNED_OUT") {
+        setIsAuthenticated(false);
+
+        if (!isPublicPage && !isDocumentExport) {
+          router.replace("/login");
+        }
+      }
+
+      if (
+        event === "SIGNED_IN" ||
+        event === "TOKEN_REFRESHED" ||
+        event === "USER_UPDATED"
+      ) {
+        setIsAuthenticated(Boolean(session?.access_token));
+      }
+    });
+
+    return () => {
+      alive = false;
+      subscription.unsubscribe();
+    };
+  }, [pathname, isPublicPage, isDocumentExport, router]);
+
   const loadBillingState = useCallback(
     async (showFullPageLoader: boolean) => {
       if (billingCheckInFlight.current) return;
 
-      if (!supabase || isPublicPage || isDocumentExport) {
+      if (
+        !supabase ||
+        isPublicPage ||
+        isDocumentExport ||
+        !isAuthenticated
+      ) {
         setBillingSuspended(false);
         setBillingSuspensionReason(null);
         setBillingCheckLoading(false);
@@ -114,40 +211,30 @@ export default function AppShell({
         );
       } catch (error) {
         console.error("APP SHELL BILLING CHECK ERROR:", error);
-
-        /*
-         * A temporary billing-check failure must not lock a valid user out.
-         * Keep the last known state where possible.
-         */
       } finally {
         initialBillingCheckComplete.current = true;
         billingCheckInFlight.current = false;
         setBillingCheckLoading(false);
       }
     },
-    [isPublicPage, isDocumentExport]
+    [isPublicPage, isDocumentExport, isAuthenticated]
   );
 
-  /*
-   * Run the blocking billing check only when entering/leaving the authenticated
-   * application boundary.
-   *
-   * Deliberately DO NOT depend on `pathname`.
-   * Overview -> People -> Services -> Tasking Setup is an internal navigation
-   * change and must not blank the application while billing is checked again.
-   */
   useEffect(() => {
-    void loadBillingState(!initialBillingCheckComplete.current);
-  }, [loadBillingState]);
+    if (!isAuthenticated) return;
 
-  /*
-   * Keep billing protection current without flashing the application.
-   *
-   * - Re-check silently when the browser/tab regains focus.
-   * - Re-check silently after an auth event such as sign-in or token refresh.
-   */
+    void loadBillingState(!initialBillingCheckComplete.current);
+  }, [isAuthenticated, loadBillingState]);
+
   useEffect(() => {
-    if (!supabase || isPublicPage || isDocumentExport) return;
+    if (
+      !supabase ||
+      isPublicPage ||
+      isDocumentExport ||
+      !isAuthenticated
+    ) {
+      return;
+    }
 
     const handleFocus = () => {
       void loadBillingState(false);
@@ -155,28 +242,15 @@ export default function AppShell({
 
     window.addEventListener("focus", handleFocus);
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
-      if (
-        event === "SIGNED_IN" ||
-        event === "TOKEN_REFRESHED" ||
-        event === "USER_UPDATED"
-      ) {
-        void loadBillingState(false);
-      }
-
-      if (event === "SIGNED_OUT") {
-        setBillingSuspended(false);
-        setBillingSuspensionReason(null);
-      }
-    });
-
     return () => {
       window.removeEventListener("focus", handleFocus);
-      subscription.unsubscribe();
     };
-  }, [isPublicPage, isDocumentExport, loadBillingState]);
+  }, [
+    isPublicPage,
+    isDocumentExport,
+    isAuthenticated,
+    loadBillingState,
+  ]);
 
   const shouldBlockPaidModules =
     billingSuspended &&
@@ -184,14 +258,31 @@ export default function AppShell({
     !isPublicPage &&
     !isDocumentExport;
 
+  /*
+   * Public pages render cleanly and immediately.
+   * The mandate therefore has NO PracticePilot TopNav.
+   */
+  if (isPublicPage || isDocumentExport) {
+    return <>{children}</>;
+  }
+
+  /*
+   * Never flash a private page before the session check is complete.
+   */
+  if (authCheckLoading || !isAuthenticated) {
+    return (
+      <main style={s.loadingPage}>
+        <div style={s.loadingText}>Checking sign-in...</div>
+      </main>
+    );
+  }
+
   return (
     <>
-      {!isPublicPage && !isDocumentExport && <TopNav />}
+      <TopNav />
 
       {billingCheckLoading &&
-      !initialBillingCheckComplete.current &&
-      !isPublicPage &&
-      !isDocumentExport ? (
+      !initialBillingCheckComplete.current ? (
         <main style={s.loadingPage}>
           <div style={s.loadingText}>Checking account access...</div>
         </main>
@@ -247,7 +338,7 @@ export default function AppShell({
 
 const s: Record<string, CSSProperties> = {
   loadingPage: {
-    minHeight: "calc(100vh - 54px)",
+    minHeight: "100vh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

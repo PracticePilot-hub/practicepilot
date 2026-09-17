@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 
@@ -109,6 +109,7 @@ function monthLabel(value: string) {
 
 export default function EngagementDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const engagementId = String(params?.id || "");
 
   const [engagement, setEngagement] = useState<Engagement | null>(null);
@@ -134,6 +135,12 @@ export default function EngagementDetailPage() {
   const [recipientName, setRecipientName] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
   const [signingUrl, setSigningUrl] = useState("");
+
+  const [previousAccountantPractice, setPreviousAccountantPractice] = useState("");
+  const [previousAccountantName, setPreviousAccountantName] = useState("");
+  const [previousAccountantEmail, setPreviousAccountantEmail] = useState("");
+  const [handoverEffectiveDate, setHandoverEffectiveDate] = useState("");
+  const [handoverNotes, setHandoverNotes] = useState("");
 
   const money = useMemo(
     () =>
@@ -197,6 +204,10 @@ export default function EngagementDetailPage() {
       setRenewalMethod(loaded.renewal_method || "New contract required");
       setSpecialTerms(loaded.special_terms || "");
       setInternalNotes(loaded.internal_notes || "");
+
+      if (!handoverEffectiveDate) {
+        setHandoverEffectiveDate(loaded.contract_start_date || "");
+      }
     } catch (loadError: any) {
       setError(loadError?.message || "Unable to load engagement.");
     } finally {
@@ -372,6 +383,25 @@ export default function EngagementDetailPage() {
     } catch {
       setError("Could not copy the signing link.");
     }
+  }
+
+  function openHandoverLetter() {
+    if (!previousAccountantPractice.trim()) {
+      setError("Please enter the previous accountant or practice name.");
+      return;
+    }
+
+    const params = new URLSearchParams({
+      practice: previousAccountantPractice.trim(),
+      accountant: previousAccountantName.trim(),
+      email: previousAccountantEmail.trim(),
+      effectiveDate: handoverEffectiveDate || engagement?.contract_start_date || "",
+      notes: handoverNotes.trim(),
+    });
+
+    router.push(
+      `/engagements/${engagementId}/handover-letter?${params.toString()}`
+    );
   }
 
   if (loading) {
@@ -623,6 +653,93 @@ export default function EngagementDetailPage() {
                 handled through an addendum or replacement engagement.
               </div>
             )}
+          </section>
+
+          <section style={styles.panel}>
+            <div style={styles.panelHeader}>
+              <div>
+                <p style={styles.sectionKicker}>CLIENT ONBOARDING</p>
+                <h2 style={styles.panelTitle}>Previous Accountant Handover</h2>
+              </div>
+            </div>
+
+            <div style={styles.formGrid}>
+              <label style={styles.field}>
+                <span style={styles.fieldLabel}>Previous practice / accountant</span>
+                <input
+                  value={previousAccountantPractice}
+                  onChange={(event) =>
+                    setPreviousAccountantPractice(event.target.value)
+                  }
+                  style={styles.input}
+                  placeholder="Previous accounting practice"
+                />
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.fieldLabel}>Contact person</span>
+                <input
+                  value={previousAccountantName}
+                  onChange={(event) =>
+                    setPreviousAccountantName(event.target.value)
+                  }
+                  style={styles.input}
+                  placeholder="Accountant / partner name"
+                />
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.fieldLabel}>Email address</span>
+                <input
+                  type="email"
+                  value={previousAccountantEmail}
+                  onChange={(event) =>
+                    setPreviousAccountantEmail(event.target.value)
+                  }
+                  style={styles.input}
+                  placeholder="accountant@example.com"
+                />
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.fieldLabel}>Effective takeover date</span>
+                <input
+                  type="date"
+                  value={handoverEffectiveDate}
+                  onChange={(event) =>
+                    setHandoverEffectiveDate(event.target.value)
+                  }
+                  style={styles.input}
+                />
+              </label>
+            </div>
+
+            <div style={styles.handoverNotesWrap}>
+              <label style={styles.field}>
+                <span style={styles.fieldLabel}>Optional handover note</span>
+                <textarea
+                  value={handoverNotes}
+                  onChange={(event) => setHandoverNotes(event.target.value)}
+                  rows={3}
+                  style={styles.textarea}
+                  placeholder="Optional additional wording or records to request."
+                />
+              </label>
+            </div>
+
+            <div style={styles.saveBar}>
+              <div style={styles.saveHint}>
+                Generates the professional handover letter using this engagement's client details.
+              </div>
+
+              <button
+                type="button"
+                onClick={openHandoverLetter}
+                style={styles.primaryActionButton}
+              >
+                Preview Handover Letter
+              </button>
+            </div>
           </section>
 
           <section style={styles.panel}>
@@ -1080,6 +1197,9 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
     gap: 14,
     padding: 16,
+  },
+  handoverNotesWrap: {
+    padding: "0 16px 16px",
   },
   longFieldGrid: {
     display: "grid",

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import WorkFilters from "./WorkFilters";
+import ClientLifecycleAction from "./ClientLifecycleAction";
 
 export const dynamic = "force-dynamic";
 
@@ -342,6 +343,9 @@ export default async function ClientWorkingFilePage({
     uifRegistrationResult,
     uifEmployeesResult,
     rrWorkflowResult,
+    documentsResult,
+    documentRequestTemplatesResult,
+    documentRequestTemplateItemsResult,
   ] = await Promise.all([
     supabase.from("crm_clients").select("*").eq("id", id).maybeSingle(),
 
@@ -514,6 +518,34 @@ export default async function ClientWorkingFilePage({
       .select("*")
       .eq("client_id", id)
       .maybeSingle(),
+
+    supabase
+      .from("crm_client_documents")
+      .select(
+        "id, document_name, category, description, provider, external_url, file_name, file_path, mime_type, file_size_bytes, document_date, received_date, linked_work_item_id, source_type, status, created_at, updated_at"
+      )
+      .eq("client_id", id)
+      .eq("status", "active")
+      .order("document_date", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false }),
+
+    supabase
+      .from("crm_document_request_templates")
+      .select(
+        "id, template_name, service_code, frequency, reminder_enabled, reminder_interval_days, is_active, created_at, updated_at"
+      )
+      .eq("client_id", id)
+      .eq("is_active", true)
+      .order("template_name"),
+
+    supabase
+      .from("crm_document_request_template_items")
+      .select(
+        "id, template_id, item_name, sort_order, is_required, is_active, created_at"
+      )
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true }),
   ]);
 
   const client = clientResult.data;
@@ -658,6 +690,20 @@ export default async function ClientWorkingFilePage({
   const statutoryProfile = statutoryProfileResult.data;
   const uifRegistration = uifRegistrationResult.data;
   const uifEmployees = uifEmployeesResult.data || [];
+
+  const documents = (documentsResult.data || []) as any[];
+  const documentRequestTemplates =
+    (documentRequestTemplatesResult.data || []) as any[];
+
+  const activeDocumentRequestTemplateIds = new Set(
+    documentRequestTemplates.map((template: any) => String(template.id))
+  );
+
+  const documentRequestTemplateItems =
+    ((documentRequestTemplateItemsResult.data || []) as any[]).filter(
+      (item: any) =>
+        activeDocumentRequestTemplateIds.has(String(item.template_id))
+    );
 
   const rrWorkflow = (rrWorkflowResult.data || null) as any;
   const rrDirectorId = String(rrWorkflow?.director_id || "");
@@ -1019,7 +1065,11 @@ export default async function ClientWorkingFilePage({
       shareClassesResult.error,
       transactionsResult.error,
     ].filter(Boolean),
-    documents: [],
+    documents: [
+      documentsResult.error,
+      documentRequestTemplatesResult.error,
+      documentRequestTemplateItemsResult.error,
+    ].filter(Boolean),
     activity: [tasksResult.error, mattersResult.error].filter(Boolean),
   } as const;
 
@@ -1028,26 +1078,9 @@ export default async function ClientWorkingFilePage({
 
   return (
     <div style={page}>
-      <div style={workingFileBar}>
-        <span style={workingFileLabel}>CLIENT WORKING FILE</span>
-        <span style={divider}>|</span>
-        <Link href="/crm/clients" style={crumbLink}>
-          Clients
-        </Link>
-        <span style={divider}>|</span>
-        <strong>{client.client_name}</strong>
-        <span style={workingFileMeta}>{registrationOrId}</span>
-      </div>
-
       <section style={hero}>
-        <div style={{ minWidth: 0 }}>
-          <div style={statusLine}>
-            <span style={statusBadge}>{valueOrDash(client.status)}</span>
-            <span style={clientCode}>
-              {client.client_code ? `Client code: ${client.client_code}` : ""}
-            </span>
-          </div>
 
+        <div style={{ minWidth: 0 }}>
           <h1 style={title}>{client.client_name}</h1>
 
           {client.trading_name ? (
@@ -1061,7 +1094,23 @@ export default async function ClientWorkingFilePage({
             {client.year_end ? (
               <>
                 <span>•</span>
-                <span>Year-end: {client.year_end}</span>
+                <span>{client.year_end} year-end</span>
+              </>
+            ) : null}
+            <span>•</span>
+            <span>
+              {client.relationship_status === "in_airspace"
+                ? "In Airspace"
+                : client.relationship_status === "on_radar"
+                  ? "On Radar"
+                  : client.relationship_status === "former_client"
+                    ? "Former Client"
+                    : "Flying Client"}
+            </span>
+            {client.client_code ? (
+              <>
+                <span>•</span>
+                <span>Code {client.client_code}</span>
               </>
             ) : null}
           </div>
@@ -1069,19 +1118,31 @@ export default async function ClientWorkingFilePage({
 
         <div style={heroActions}>
           <Link
-            href={`/crm/edit-client?id=${client.id}`}
-            style={secondaryButton}
+            href={`/crm/edit-client?id=${client.id}&section=core`}
+            style={compactActionLink}
           >
-            Edit Client Details
+            Edit
           </Link>
 
           <Link
             href={`/crm/client/${client.id}/print`}
-            style={primaryButton}
+            style={compactPrimaryLink}
             target="_blank"
           >
-            Client PDF / Sign-off
+            PDF / Sign-off
           </Link>
+
+          <ClientLifecycleAction
+            clientId={client.id}
+            clientName={client.client_name}
+            isClosed={Boolean(
+              client.closed_at ||
+                ["inactive", "closed", "former"].includes(
+                  String(client.status || "").trim().toLowerCase()
+                )
+            )}
+            compact
+          />
         </div>
       </section>
 
@@ -1374,12 +1435,6 @@ export default async function ClientWorkingFilePage({
                     </p>
                   </div>
 
-                  <Link
-                    href={`/crm/edit-client?id=${client.id}`}
-                    style={secondaryButton}
-                  >
-                    Edit Client Details
-                  </Link>
                 </div>
 
                 <div style={profileGrid}>
@@ -1394,6 +1449,11 @@ export default async function ClientWorkingFilePage({
                       <ProfileField label="Financial year-end" value={client.year_end} />
                       <ProfileField label="Internal client code" value={client.client_code} />
                       <ProfileField label="Client status" value={client.status} />
+                      <ProfileField
+                        label="Closed date"
+                        value={client.closed_at ? new Date(client.closed_at).toLocaleDateString("en-ZA") : null}
+                      />
+                      <ProfileField label="Closure reason" value={client.closure_reason} />
                     </div>
                   </section>
 
@@ -1776,12 +1836,12 @@ export default async function ClientWorkingFilePage({
         <PanelHeader
           number="04"
           title="People"
-          subtitle="Contacts and statutory office bearers linked to the client."
+          subtitle="Contacts and statutory office bearers currently linked to this CRM record."
         />
 
         <div style={twoColumn}>
           <div style={detailSection}>
-            <h3 style={miniHeading}>Contacts</h3>
+            <h3 style={miniHeading}>Current CRM contacts</h3>
 
             {contacts.length ? (
               contacts.map((contact) => (
@@ -1807,12 +1867,12 @@ export default async function ClientWorkingFilePage({
                 </div>
               ))
             ) : (
-              <EmptyState text="No contacts captured." />
+              <EmptyState text="No CRM contacts captured." />
             )}
           </div>
 
           <div style={detailSection}>
-            <h3 style={miniHeading}>Directors / office bearers</h3>
+            <h3 style={miniHeading}>Current directors / office bearers</h3>
 
             {directors.length ? (
               directors.map((director) => (
@@ -1856,7 +1916,7 @@ export default async function ClientWorkingFilePage({
                 </div>
                 <div style={registrationHero}>
                   <div>
-                    <div style={eyebrow}>STATUTORY REGISTRATION</div>
+                    <div style={eyebrow}>Statutory registration</div>
                     <h2 style={registrationHeroTitle}>UIF Employer Registration</h2>
                     <div style={registrationHeroSubtitle}>
                       One guided workflow from client information to registration confirmation.
@@ -1864,7 +1924,7 @@ export default async function ClientWorkingFilePage({
                   </div>
 
                   <div style={registrationHeroAction}>
-                    <span style={nextActionLabel}>NEXT ACTION</span>
+                    <span style={nextActionLabel}>Next action</span>
                     <strong style={nextActionValue}>{uifNextAction}</strong>
                   </div>
                 </div>
@@ -1894,7 +1954,7 @@ export default async function ClientWorkingFilePage({
 
                 <div style={registrationSummary}>
                   <div style={registrationSummaryItem}>
-                    <span style={summarySmallLabel}>UIF STATUS</span>
+                    <span style={summarySmallLabel}>UIF status</span>
                     <strong style={registrationSummaryValue}>
                       {client.uif_registration_number
                         ? "Registered"
@@ -1905,21 +1965,21 @@ export default async function ClientWorkingFilePage({
                   </div>
 
                   <div style={registrationSummaryItem}>
-                    <span style={summarySmallLabel}>CONTRIBUTORS</span>
+                    <span style={summarySmallLabel}>Contributors</span>
                     <strong style={registrationSummaryValue}>
                       {uifRegistration?.number_of_contributors ?? "—"}
                     </strong>
                   </div>
 
                   <div style={registrationSummaryItem}>
-                    <span style={summarySmallLabel}>UI-19 EMPLOYEES</span>
+                    <span style={summarySmallLabel}>UI-19 employees</span>
                     <strong style={registrationSummaryValue}>
                       {uifEmployees.length}
                     </strong>
                   </div>
 
                   <div style={registrationSummaryItemLast}>
-                    <span style={summarySmallLabel}>UIF NUMBER</span>
+                    <span style={summarySmallLabel}>UIF number</span>
                     <strong style={registrationSummaryValue}>
                       {valueOrDash(client.uif_registration_number)}
                     </strong>
@@ -2879,21 +2939,21 @@ export default async function ClientWorkingFilePage({
 
                 <div style={secretarialSummary}>
                   <div style={secretarialSummaryItem}>
-                    <span style={summarySmallLabel}>DIRECTORS</span>
+                    <span style={summarySmallLabel}>Directors</span>
                     <strong style={summaryBigValue}>
                       {directors.filter((director) => director.is_active !== false).length}
                     </strong>
                   </div>
                   <div style={secretarialSummaryItem}>
-                    <span style={summarySmallLabel}>SHAREHOLDERS</span>
+                    <span style={summarySmallLabel}>Shareholders</span>
                     <strong style={summaryBigValue}>{shareholders.length}</strong>
                   </div>
                   <div style={secretarialSummaryItem}>
-                    <span style={summarySmallLabel}>ISSUED SHARES</span>
+                    <span style={summarySmallLabel}>Issued shares</span>
                     <strong style={summaryBigValue}>{totalIssuedShares}</strong>
                   </div>
                   <div style={secretarialSummaryItem}>
-                    <span style={summarySmallLabel}>ISSUED CERTIFICATES</span>
+                    <span style={summarySmallLabel}>Issued certificates</span>
                     <strong style={summaryBigValue}>
                       {(certificates as any[]).filter(
                         (certificate) =>
@@ -2903,7 +2963,7 @@ export default async function ClientWorkingFilePage({
                     </strong>
                   </div>
                   <div style={secretarialSummaryItemLast}>
-                    <span style={summarySmallLabel}>OPEN MATTERS</span>
+                    <span style={summarySmallLabel}>Open matters</span>
                     <strong style={summaryBigValue}>{pendingMatters.length}</strong>
                   </div>
                 </div>
@@ -3245,21 +3305,346 @@ export default async function ClientWorkingFilePage({
             ) : null}
 
             {activeTab === "documents" ? (
-<section id="documents" style={panel}>
-        <PanelHeader
-          number="06"
-          title="Documents"
-          subtitle="This will become PracticePilot's window into the client's Egnyte, Google Drive, Dropbox or server folders."
-        />
+<section id="documents" style={documentsWorkspace}>
+  <div style={documentsHeader}>
+    <div>
+      <div style={clientHomeEyebrow}>Documents</div>
+      <h2 style={documentsTitle}>Client Document Workspace</h2>
+      <p style={documentsSubtitle}>
+        A single index of the client&apos;s important documents, whether they live in Egnyte,
+        Google Drive, Dropbox, OneDrive, a server folder or PracticePilot.
+      </p>
+    </div>
 
-        <div style={comingSoon}>
-          <strong>External document workspace</strong>
-          <span>
-            We will connect this section to the firm's selected storage provider
-            rather than duplicating documents inside PracticePilot.
-          </span>
+    <form
+      method="post"
+      action={`/api/crm/clients/${client.id}/documents`}
+      style={documentsQuickAdd}
+    >
+      <input type="hidden" name="action" value="create" />
+
+      <input
+        name="document_name"
+        required
+        placeholder="Document name"
+        style={documentsInput}
+      />
+
+      <select name="category" defaultValue="General" style={documentsInput}>
+        <option value="General">General</option>
+        <option value="Tax">Tax</option>
+        <option value="Payroll">Payroll</option>
+        <option value="Accounting">Accounting</option>
+        <option value="AFS">AFS</option>
+        <option value="Secretarial">Secretarial</option>
+        <option value="Registrations">Registrations</option>
+        <option value="Engagement">Engagement</option>
+        <option value="Client supplied">Client supplied</option>
+      </select>
+
+      <select name="provider" defaultValue="egnyte" style={documentsInput}>
+        <option value="egnyte">Egnyte</option>
+        <option value="google_drive">Google Drive</option>
+        <option value="dropbox">Dropbox</option>
+        <option value="onedrive">OneDrive</option>
+        <option value="server">Server / network folder</option>
+        <option value="manual">Manual / other</option>
+      </select>
+
+      <input
+        name="external_url"
+        placeholder="Document link"
+        style={documentsInput}
+      />
+
+      <button type="submit" style={primaryButton}>
+        Add Document
+      </button>
+    </form>
+  </div>
+
+  <div style={documentsSummary}>
+    <div style={documentsSummaryCell}>
+      <span style={summarySmallLabel}>Indexed documents</span>
+      <strong style={summaryBigValue}>{documents.length}</strong>
+    </div>
+    <div style={documentsSummaryCell}>
+      <span style={summarySmallLabel}>Linked to work</span>
+      <strong style={summaryBigValue}>
+        {documents.filter((doc: any) => Boolean(doc.linked_work_item_id)).length}
+      </strong>
+    </div>
+    <div style={documentsSummaryCell}>
+      <span style={summarySmallLabel}>External links</span>
+      <strong style={summaryBigValue}>
+        {documents.filter((doc: any) => Boolean(doc.external_url)).length}
+      </strong>
+    </div>
+    <div style={documentsSummaryCellLast}>
+      <span style={summarySmallLabel}>Providers</span>
+      <strong style={summaryBigValue}>
+        {new Set(documents.map((doc: any) => String(doc.provider || "manual"))).size}
+      </strong>
+    </div>
+  </div>
+
+  <div style={documentsTableHeader}>
+    <span>Document</span>
+    <span>Category</span>
+    <span>Provider</span>
+    <span>Document date</span>
+    <span>Linked work</span>
+    <span />
+  </div>
+
+  {documents.length ? (
+    documents.map((document: any) => {
+      const linkedTask = document.linked_work_item_id
+        ? tasks.find((task: any) => task.id === document.linked_work_item_id)
+        : null;
+
+      return (
+        <div key={document.id} style={documentsTableRow}>
+          <div>
+            <strong style={documentsName}>
+              {document.document_name}
+            </strong>
+
+            <div style={documentsMeta}>
+              {document.description ||
+                document.file_name ||
+                formatStatus(document.source_type || "external")}
+            </div>
+          </div>
+
+          <div style={documentsCell}>
+            {document.category || "General"}
+          </div>
+
+          <div style={documentsCell}>
+            {formatStatus(document.provider || "manual")}
+          </div>
+
+          <div style={documentsCell}>
+            {formatDate(document.document_date || document.received_date)}
+          </div>
+
+          <div style={documentsCell}>
+            {linkedTask ? linkedTask.title : "—"}
+          </div>
+
+          <div style={documentsActions}>
+            {document.external_url ? (
+              <a
+                href={document.external_url}
+                target="_blank"
+                rel="noreferrer"
+                style={textLink}
+              >
+                Open
+              </a>
+            ) : null}
+
+            <form
+              method="post"
+              action={`/api/crm/clients/${client.id}/documents`}
+            >
+              <input type="hidden" name="action" value="archive" />
+              <input type="hidden" name="document_id" value={document.id} />
+              <button type="submit" style={dangerTextButton}>
+                Archive
+              </button>
+            </form>
+          </div>
         </div>
-      </section>
+      );
+    })
+  ) : (
+    <div style={documentsEmpty}>
+      No client documents have been indexed yet.
+    </div>
+  )}
+
+  <section style={requestTemplatesSection}>
+    <div style={requestTemplatesHeader}>
+      <div>
+        <h3 style={requestTemplatesTitle}>Recurring document request templates</h3>
+        <p style={requestTemplatesSubtitle}>
+          Maintain the standard checklist PP should ask this client for each cycle.
+        </p>
+      </div>
+    </div>
+
+    <form
+      method="post"
+      action={`/api/crm/clients/${client.id}/document-request-templates`}
+      style={requestTemplateCreate}
+    >
+      <input type="hidden" name="action" value="create_template" />
+
+      <input
+        name="template_name"
+        required
+        placeholder="e.g. Monthly Accounting Request"
+        style={documentsInput}
+      />
+
+      <select
+        name="service_code"
+        defaultValue=""
+        style={documentsInput}
+      >
+        <option value="">No linked service</option>
+        {taskServiceOptions.map((serviceName) => (
+          <option key={serviceName} value={serviceName}>
+            {serviceName}
+          </option>
+        ))}
+      </select>
+
+      <select
+        name="frequency"
+        defaultValue="monthly"
+        style={documentsInput}
+      >
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+        <option value="bi_monthly">Bi-monthly</option>
+        <option value="quarterly">Quarterly</option>
+        <option value="six_monthly">Six-monthly</option>
+        <option value="annual">Annual</option>
+        <option value="ad_hoc">Ad hoc</option>
+      </select>
+
+      <input
+        type="number"
+        min="1"
+        name="reminder_interval_days"
+        defaultValue="7"
+        style={documentsInput}
+        title="Reminder interval in days"
+      />
+
+      <button type="submit" style={primaryButton}>
+        Add Template
+      </button>
+    </form>
+
+    {documentRequestTemplates.length ? (
+      <div style={requestTemplateList}>
+        {documentRequestTemplates.map((template: any) => {
+          const templateItems = documentRequestTemplateItems.filter(
+            (item: any) => item.template_id === template.id
+          );
+
+          return (
+            <div key={template.id} style={requestTemplateCard}>
+              <div style={requestTemplateTop}>
+                <div>
+                  <strong style={requestTemplateName}>
+                    {template.template_name}
+                  </strong>
+                  <div style={requestTemplateMeta}>
+                    {formatStatus(template.frequency)}
+                    {template.service_code ? ` · ${template.service_code}` : ""}
+                    {template.reminder_enabled
+                      ? ` · Reminder every ${template.reminder_interval_days} days`
+                      : " · Reminders off"}
+                  </div>
+                </div>
+
+                <form
+                  method="post"
+                  action={`/api/crm/clients/${client.id}/document-request-templates`}
+                >
+                  <input type="hidden" name="action" value="archive_template" />
+                  <input type="hidden" name="template_id" value={template.id} />
+                  <button type="submit" style={dangerTextButton}>
+                    Archive
+                  </button>
+                </form>
+              </div>
+
+              <div style={requestItemsHeader}>
+                <span>Requested item</span>
+                <span>Required</span>
+                <span />
+              </div>
+
+              {templateItems.length ? (
+                templateItems.map((item: any) => (
+                  <div key={item.id} style={requestItemRow}>
+                    <span style={documentsCell}>{item.item_name}</span>
+                    <span style={documentsCell}>
+                      {item.is_required ? "Yes" : "Optional"}
+                    </span>
+
+                    <form
+                      method="post"
+                      action={`/api/crm/clients/${client.id}/document-request-templates`}
+                    >
+                      <input type="hidden" name="action" value="archive_item" />
+                      <input type="hidden" name="item_id" value={item.id} />
+                      <button type="submit" style={dangerTextButton}>
+                        Remove
+                      </button>
+                    </form>
+                  </div>
+                ))
+              ) : (
+                <div style={requestTemplateEmpty}>
+                  No request items yet.
+                </div>
+              )}
+
+              <form
+                method="post"
+                action={`/api/crm/clients/${client.id}/document-request-templates`}
+                style={requestItemCreate}
+              >
+                <input type="hidden" name="action" value="add_item" />
+                <input type="hidden" name="template_id" value={template.id} />
+
+                <input
+                  name="item_name"
+                  required
+                  placeholder="e.g. Bank statements"
+                  style={documentsInput}
+                />
+
+                <select
+                  name="is_required"
+                  defaultValue="yes"
+                  style={documentsInput}
+                >
+                  <option value="yes">Required</option>
+                  <option value="no">Optional</option>
+                </select>
+
+                <button type="submit" style={secondaryButton}>
+                  Add Item
+                </button>
+              </form>
+            </div>
+          );
+        })}
+      </div>
+    ) : (
+      <div style={documentsEmpty}>
+        No recurring document request templates have been created for this client.
+      </div>
+    )}
+  </section>
+
+  <div style={documentsFooter}>
+    <span>
+      This is the document index. Physical files can remain in the practice&apos;s selected storage provider.
+    </span>
+    <strong>
+      Next step: issue request cycles from these templates.
+    </strong>
+  </div>
+</section>
       ) : null}
 
             {activeTab === "activity" ? (
@@ -3396,7 +3781,7 @@ function EmptyState({ text }: { text: string }) {
 
 const secretarialSubNav: React.CSSProperties = {
   minHeight: "38px",
-  padding: "0 10px",
+  padding: "0 8px",
   display: "flex",
   alignItems: "stretch",
   flexWrap: "wrap",
@@ -3421,7 +3806,7 @@ const secretarialSubNavLinkActive: React.CSSProperties = {
 const permanentRecordLinks: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: "7px",
+  gap: "6px",
 };
 
 const recordLink: React.CSSProperties = {
@@ -3498,8 +3883,8 @@ const registerRow: React.CSSProperties = {
 };
 
 const secretarialWorkspaceCallout: React.CSSProperties = {
-  minHeight: "62px",
-  padding: "10px 12px",
+  minHeight: "46px",
+  padding: "7px 9px",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
@@ -3519,7 +3904,7 @@ const page: React.CSSProperties = {
 };
 
 const workingFileBar: React.CSSProperties = {
-  minHeight: "42px",
+  minHeight: "34px",
   display: "flex",
   alignItems: "center",
   flexWrap: "wrap",
@@ -3531,9 +3916,9 @@ const workingFileBar: React.CSSProperties = {
 
 const workingFileLabel: React.CSSProperties = {
   color: "#1d4ed8",
-  fontSize: "11px",
-  fontWeight: 900,
-  letterSpacing: "0.08em",
+  fontSize: "10px",
+  fontWeight: 800,
+  letterSpacing: 0,
 };
 
 const divider: React.CSSProperties = { color: "#94a3b8" };
@@ -3551,9 +3936,9 @@ const workingFileMeta: React.CSSProperties = {
 };
 
 const hero: React.CSSProperties = {
-  marginTop: "8px",
-  minHeight: "112px",
-  padding: "15px 14px",
+  marginTop: "6px",
+  minHeight: "66px",
+  padding: "8px 10px",
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
@@ -3569,12 +3954,12 @@ const statusLine: React.CSSProperties = {
 };
 
 const statusBadge: React.CSSProperties = {
-  padding: "3px 7px",
+  padding: "2px 6px",
   border: "1px solid #bbf7d0",
   background: "#ecfdf3",
   color: "#166534",
-  fontSize: "10px",
-  fontWeight: 900,
+  fontSize: "9px",
+  fontWeight: 850,
 };
 
 const clientCode: React.CSSProperties = {
@@ -3583,8 +3968,8 @@ const clientCode: React.CSSProperties = {
 };
 
 const title: React.CSSProperties = {
-  margin: "7px 0 0",
-  fontSize: "24px",
+  margin: "5px 0 0",
+  fontSize: "18px",
   lineHeight: 1.15,
   fontWeight: 900,
 };
@@ -3596,23 +3981,23 @@ const tradingName: React.CSSProperties = {
 };
 
 const heroMeta: React.CSSProperties = {
-  marginTop: "8px",
+  marginTop: "5px",
   display: "flex",
   flexWrap: "wrap",
   gap: "7px",
   color: "#64748b",
-  fontSize: "12px",
+  fontSize: "11px",
 };
 
 const heroActions: React.CSSProperties = {
   flex: "0 0 auto",
   display: "flex",
-  gap: "8px",
+  gap: "6px",
 };
 
 const primaryButton: React.CSSProperties = {
-  minHeight: "38px",
-  padding: "0 14px",
+  minHeight: "30px",
+  padding: "0 10px",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -3620,8 +4005,8 @@ const primaryButton: React.CSSProperties = {
   color: "#ffffff",
   border: "1px solid #07111f",
   textDecoration: "none",
-  fontSize: "12px",
-  fontWeight: 900,
+  fontSize: "10px",
+  fontWeight: 850,
 };
 
 const secondaryButton: React.CSSProperties = {
@@ -3629,6 +4014,27 @@ const secondaryButton: React.CSSProperties = {
   background: "#ffffff",
   color: "#0f1f33",
   border: "1px solid #cbd5e1",
+};
+
+const compactActionLink: React.CSSProperties = {
+  minHeight: "28px",
+  padding: "0 9px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#10233a",
+  textDecoration: "none",
+  fontSize: "9px",
+  fontWeight: 800,
+};
+
+const compactPrimaryLink: React.CSSProperties = {
+  ...compactActionLink,
+  background: "#10233a",
+  borderColor: "#10233a",
+  color: "#ffffff",
 };
 
 const sectionWarningBar: React.CSSProperties = {
@@ -3692,56 +4098,55 @@ const activeSectionNavLink: React.CSSProperties = {
 };
 
 const profilePage: React.CSSProperties = {
-  marginTop: "8px",
-  background: "#f7f7f4",
-  border: "1px solid #d7dfde",
+  marginTop: "6px",
+  background: "#eef2f5",
 };
 
 const profileHeader: React.CSSProperties = {
-  minHeight: "90px",
-  padding: "18px 20px",
+  minHeight: "54px",
+  padding: "9px 12px",
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  gap: "18px",
+  gap: "12px",
   background: "#ffffff",
-  borderBottom: "1px solid #dfe5e4",
+  border: "1px solid #d7dfde",
 };
 
 const profileTitle: React.CSSProperties = {
-  margin: "5px 0 0",
+  margin: "2px 0 0",
   color: "#10233a",
-  fontSize: "22px",
+  fontSize: "18px",
   lineHeight: 1.2,
   fontWeight: 900,
 };
 
 const profileSubtitle: React.CSSProperties = {
-  margin: "6px 0 0",
+  margin: "3px 0 0",
   maxWidth: "760px",
   color: "#65717d",
-  fontSize: "12px",
-  lineHeight: 1.5,
+  fontSize: "10px",
+  lineHeight: 1.4,
 };
 
 const profileGrid: React.CSSProperties = {
-  padding: "10px 12px",
+  padding: "8px 0 0",
   display: "grid",
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: "12px",
+  gap: "8px",
 };
 
 const profileSection: React.CSSProperties = {
   minWidth: 0,
   background: "#ffffff",
-  border: "1px solid #dfe5e4",
+  border: "1px solid #d7dfde",
 };
 
 const profileSectionHeader: React.CSSProperties = {
-  padding: "11px 14px",
+  padding: "7px 10px",
   borderBottom: "1px solid #e5eae9",
   color: "#10233a",
-  fontSize: "13px",
+  fontSize: "11px",
   fontWeight: 900,
 };
 
@@ -3751,24 +4156,24 @@ const profileFieldsGrid: React.CSSProperties = {
 };
 
 const profileField: React.CSSProperties = {
-  minHeight: "64px",
-  padding: "10px 14px",
+  minHeight: "46px",
+  padding: "7px 10px",
   borderRight: "1px solid #edf0ef",
   borderBottom: "1px solid #edf0ef",
 };
 
 const profileLabel: React.CSSProperties = {
   color: "#697680",
-  fontSize: "10px",
+  fontSize: "9px",
   fontWeight: 800,
 };
 
 const profileValue: React.CSSProperties = {
-  marginTop: "4px",
+  marginTop: "2px",
   color: "#10233a",
-  fontSize: "12px",
+  fontSize: "10px",
   fontWeight: 800,
-  lineHeight: 1.4,
+  lineHeight: 1.35,
   overflowWrap: "anywhere",
 };
 
@@ -3778,19 +4183,19 @@ const profileAddressGrid: React.CSSProperties = {
 };
 
 const profileAddressBlock: React.CSSProperties = {
-  minHeight: "118px",
-  padding: "12px 14px",
+  minHeight: "82px",
+  padding: "8px 10px",
   borderRight: "1px solid #edf0ef",
 };
 
 const profileAddressValue: React.CSSProperties = {
-  marginTop: "7px",
+  marginTop: "4px",
   display: "grid",
-  gap: "3px",
+  gap: "2px",
   color: "#10233a",
-  fontSize: "12px",
+  fontSize: "10px",
   fontWeight: 700,
-  lineHeight: 1.4,
+  lineHeight: 1.35,
 };
 
 const profileServicesGrid: React.CSSProperties = {
@@ -3938,28 +4343,28 @@ const registrationHub: React.CSSProperties = {
 };
 
 const registrationHubHeader: React.CSSProperties = {
-  minHeight: "102px",
+  minHeight: "62px",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: "20px",
-  padding: "18px 20px",
+  gap: "14px",
+  padding: "9px 12px",
   borderBottom: "1px solid #e3e8e7",
 };
 
 const registrationHubTitle: React.CSSProperties = {
-  margin: "5px 0 0",
+  margin: "2px 0 0",
   color: "#10233a",
-  fontSize: "22px",
+  fontSize: "18px",
   fontWeight: 900,
 };
 
 const registrationHubSubtitle: React.CSSProperties = {
   maxWidth: "820px",
-  margin: "6px 0 0",
+  margin: "3px 0 0",
   color: "#65717d",
-  fontSize: "12px",
-  lineHeight: 1.45,
+  fontSize: "10px",
+  lineHeight: 1.4,
 };
 
 const registrationHubList: React.CSSProperties = {
@@ -3967,12 +4372,12 @@ const registrationHubList: React.CSSProperties = {
 };
 
 const registrationHubRow: React.CSSProperties = {
-  minHeight: "78px",
+  minHeight: "58px",
   display: "grid",
-  gridTemplateColumns: "minmax(240px, 1.35fr) minmax(170px, .8fr) minmax(220px, 1fr) minmax(190px, .85fr)",
-  gap: "16px",
+  gridTemplateColumns: "minmax(220px, 1.35fr) minmax(150px, .8fr) minmax(200px, 1fr) minmax(150px, .7fr)",
+  gap: "10px",
   alignItems: "center",
-  padding: "12px 18px",
+  padding: "8px 12px",
   borderBottom: "1px solid #e7eceb",
 };
 
@@ -3984,9 +4389,9 @@ const registrationHubIdentity: React.CSSProperties = {
 };
 
 const registrationHubIcon: React.CSSProperties = {
-  width: "34px",
-  height: "34px",
-  flex: "0 0 34px",
+  width: "28px",
+  height: "28px",
+  flex: "0 0 28px",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -4012,14 +4417,14 @@ const registrationHubIconMissing: React.CSSProperties = {
 
 const registrationHubItemTitle: React.CSSProperties = {
   color: "#10233a",
-  fontSize: "12px",
+  fontSize: "10px",
   fontWeight: 900,
 };
 
 const registrationHubItemMeta: React.CSSProperties = {
-  marginTop: "3px",
+  marginTop: "2px",
   color: "#74808a",
-  fontSize: "10px",
+  fontSize: "9px",
 };
 
 const registrationHubSmallLabel: React.CSSProperties = {
@@ -4048,8 +4453,8 @@ const registrationHubAction: React.CSSProperties = {
 };
 
 const registrationHubPrimaryAction: React.CSSProperties = {
-  minHeight: "34px",
-  padding: "0 12px",
+  minHeight: "28px",
+  padding: "0 9px",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -4063,8 +4468,8 @@ const registrationHubPrimaryAction: React.CSSProperties = {
 };
 
 const registrationHubSecondaryAction: React.CSSProperties = {
-  minHeight: "34px",
-  padding: "0 12px",
+  minHeight: "28px",
+  padding: "0 9px",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -4104,8 +4509,8 @@ const clientNextMain: React.CSSProperties = {
 
 const clientHomeEyebrow: React.CSSProperties = {
   color: "#5c6f67",
-  fontSize: "11px",
-  fontWeight: 850,
+  fontSize: "9px",
+  fontWeight: 800,
 };
 
 const clientNextTitleStyle: React.CSSProperties = {
@@ -4497,8 +4902,8 @@ const panel: React.CSSProperties = {
 };
 
 const panelHeader: React.CSSProperties = {
-  minHeight: "62px",
-  padding: "10px 12px",
+  minHeight: "48px",
+  padding: "7px 10px",
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
@@ -4513,8 +4918,8 @@ const panelTitleGroup: React.CSSProperties = {
 };
 
 const panelNumber: React.CSSProperties = {
-  width: "30px",
-  height: "30px",
+  width: "24px",
+  height: "24px",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -4526,14 +4931,14 @@ const panelNumber: React.CSSProperties = {
 
 const panelTitle: React.CSSProperties = {
   margin: 0,
-  fontSize: "16px",
+  fontSize: "13px",
   fontWeight: 900,
 };
 
 const panelSubtitle: React.CSSProperties = {
-  margin: "3px 0 0",
+  margin: "2px 0 0",
   color: "#64748b",
-  fontSize: "11px",
+  fontSize: "9px",
 };
 
 const twoColumn: React.CSSProperties = {
@@ -5077,7 +5482,7 @@ const certificateHeader: React.CSSProperties = {
   color: "#64748b",
   fontSize: "9px",
   fontWeight: 900,
-  textTransform: "uppercase",
+  textTransform: "none",
 };
 
 const certificateRegisterRow: React.CSSProperties = {
@@ -5131,8 +5536,8 @@ const secretarialSummary: React.CSSProperties = {
 };
 
 const secretarialSummaryItem: React.CSSProperties = {
-  minHeight: "62px",
-  padding: "10px 12px",
+  minHeight: "48px",
+  padding: "7px 10px",
   display: "flex",
   flexDirection: "column",
   justifyContent: "center",
@@ -5147,26 +5552,26 @@ const secretarialSummaryItemLast: React.CSSProperties = {
 
 const summarySmallLabel: React.CSSProperties = {
   color: "#64748b",
-  fontSize: "9px",
-  fontWeight: 900,
-  letterSpacing: "0.05em",
+  fontSize: "8px",
+  fontWeight: 800,
+  letterSpacing: 0,
 };
 
 const summaryBigValue: React.CSSProperties = {
   color: "#0f1f33",
-  fontSize: "20px",
+  fontSize: "16px",
   lineHeight: 1,
   fontWeight: 900,
 };
 
 const secretarialBlock: React.CSSProperties = {
-  padding: "12px",
+  padding: "9px 10px",
   borderBottom: "1px solid #e5eaf0",
 };
 
 const secretarialHeading: React.CSSProperties = {
   margin: 0,
-  fontSize: "13px",
+  fontSize: "11px",
   color: "#0f2942",
   fontWeight: 900,
 };
@@ -5378,7 +5783,7 @@ const ownershipPrettyCompanyEyebrow: React.CSSProperties = {
   color: "#7a8791",
   fontSize: "8px",
   fontWeight: 800,
-  textTransform: "uppercase",
+  textTransform: "none",
   letterSpacing: "0.08em",
 };
 
@@ -6592,7 +6997,7 @@ const uifEmployeeHeader: React.CSSProperties = {
   color: "#64748b",
   fontSize: "8px",
   fontWeight: 900,
-  textTransform: "uppercase",
+  textTransform: "none",
 };
 
 const uifEmployeeRow: React.CSSProperties = {
@@ -6763,7 +7168,7 @@ const uifPeopleHeader: React.CSSProperties = {
   color: "#64748b",
   fontSize: "8px",
   fontWeight: 900,
-  textTransform: "uppercase",
+  textTransform: "none",
 };
 
 const uifPeopleRow: React.CSSProperties = {
@@ -6823,6 +7228,250 @@ const comingSoon: React.CSSProperties = {
   gap: "4px",
   color: "#475569",
   fontSize: "11px",
+};
+
+const documentsWorkspace: React.CSSProperties = {
+  marginTop: "8px",
+  background: "#ffffff",
+  border: "1px solid #d7dfde",
+};
+
+const documentsHeader: React.CSSProperties = {
+  minHeight: "82px",
+  padding: "10px 12px",
+  display: "grid",
+  gridTemplateColumns: "minmax(280px, .8fr) minmax(620px, 1.6fr)",
+  gap: "14px",
+  alignItems: "end",
+  borderBottom: "1px solid #e5eae9",
+};
+
+const documentsTitle: React.CSSProperties = {
+  margin: "2px 0 0",
+  color: "#10233a",
+  fontSize: "18px",
+  fontWeight: 900,
+};
+
+const documentsSubtitle: React.CSSProperties = {
+  margin: "3px 0 0",
+  color: "#65717d",
+  fontSize: "10px",
+  lineHeight: 1.4,
+};
+
+const documentsQuickAdd: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(160px,1.2fr) 130px 140px minmax(180px,1fr) auto",
+  gap: "6px",
+  alignItems: "end",
+};
+
+const documentsInput: React.CSSProperties = {
+  width: "100%",
+  height: "30px",
+  boxSizing: "border-box",
+  padding: "0 8px",
+  border: "1px solid #cbd5e1",
+  borderRadius: 0,
+  background: "#ffffff",
+  color: "#10233a",
+  fontSize: "9px",
+};
+
+const documentsSummary: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  borderBottom: "1px solid #d7dfde",
+};
+
+const documentsSummaryCell: React.CSSProperties = {
+  minHeight: "48px",
+  padding: "7px 10px",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  gap: "3px",
+  borderRight: "1px solid #e5eae9",
+};
+
+const documentsSummaryCellLast: React.CSSProperties = {
+  ...documentsSummaryCell,
+  borderRight: "none",
+};
+
+const documentsTableHeader: React.CSSProperties = {
+  minHeight: "32px",
+  padding: "0 10px",
+  display: "grid",
+  gridTemplateColumns: "minmax(280px,1.6fr) 120px 130px 120px minmax(180px,1fr) 100px",
+  gap: "8px",
+  alignItems: "center",
+  background: "#10233a",
+  color: "#ffffff",
+  fontSize: "8px",
+  fontWeight: 850,
+};
+
+const documentsTableRow: React.CSSProperties = {
+  minHeight: "46px",
+  padding: "5px 10px",
+  display: "grid",
+  gridTemplateColumns: "minmax(280px,1.6fr) 120px 130px 120px minmax(180px,1fr) 100px",
+  gap: "8px",
+  alignItems: "center",
+  borderBottom: "1px solid #e5eaf0",
+};
+
+const documentsName: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "10px",
+  fontWeight: 900,
+};
+
+const documentsMeta: React.CSSProperties = {
+  marginTop: "2px",
+  color: "#74808a",
+  fontSize: "8px",
+};
+
+const documentsCell: React.CSSProperties = {
+  color: "#52616b",
+  fontSize: "9px",
+};
+
+const documentsActions: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "center",
+  gap: "8px",
+};
+
+const documentsEmpty: React.CSSProperties = {
+  padding: "18px 10px",
+  color: "#64748b",
+  fontSize: "9px",
+};
+
+const documentsFooter: React.CSSProperties = {
+  minHeight: "38px",
+  padding: "7px 10px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  background: "#f8fafc",
+  borderTop: "1px solid #e5eaf0",
+  color: "#64748b",
+  fontSize: "8px",
+};
+
+const requestTemplatesSection: React.CSSProperties = {
+  borderTop: "1px solid #d7dfde",
+  background: "#ffffff",
+};
+
+const requestTemplatesHeader: React.CSSProperties = {
+  minHeight: "52px",
+  padding: "8px 10px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  borderBottom: "1px solid #e5eaf0",
+};
+
+const requestTemplatesTitle: React.CSSProperties = {
+  margin: 0,
+  color: "#10233a",
+  fontSize: "13px",
+  fontWeight: 900,
+};
+
+const requestTemplatesSubtitle: React.CSSProperties = {
+  margin: "2px 0 0",
+  color: "#64748b",
+  fontSize: "9px",
+};
+
+const requestTemplateCreate: React.CSSProperties = {
+  padding: "8px 10px",
+  display: "grid",
+  gridTemplateColumns: "minmax(220px,1.4fr) minmax(160px,1fr) 130px 100px auto",
+  gap: "7px",
+  alignItems: "end",
+  background: "#f8fafc",
+  borderBottom: "1px solid #e5eaf0",
+};
+
+const requestTemplateList: React.CSSProperties = {
+  display: "grid",
+};
+
+const requestTemplateCard: React.CSSProperties = {
+  borderBottom: "1px solid #d7dfde",
+};
+
+const requestTemplateTop: React.CSSProperties = {
+  minHeight: "48px",
+  padding: "7px 10px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  background: "#ffffff",
+};
+
+const requestTemplateName: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "10px",
+  fontWeight: 900,
+};
+
+const requestTemplateMeta: React.CSSProperties = {
+  marginTop: "2px",
+  color: "#64748b",
+  fontSize: "8px",
+};
+
+const requestItemsHeader: React.CSSProperties = {
+  minHeight: "28px",
+  padding: "0 10px",
+  display: "grid",
+  gridTemplateColumns: "minmax(260px,1fr) 100px 70px",
+  gap: "8px",
+  alignItems: "center",
+  background: "#f7f9fb",
+  borderTop: "1px solid #e5eaf0",
+  borderBottom: "1px solid #e5eaf0",
+  color: "#526174",
+  fontSize: "8px",
+  fontWeight: 850,
+};
+
+const requestItemRow: React.CSSProperties = {
+  minHeight: "36px",
+  padding: "0 10px",
+  display: "grid",
+  gridTemplateColumns: "minmax(260px,1fr) 100px 70px",
+  gap: "8px",
+  alignItems: "center",
+  borderBottom: "1px solid #edf1f4",
+};
+
+const requestItemCreate: React.CSSProperties = {
+  padding: "7px 10px",
+  display: "grid",
+  gridTemplateColumns: "minmax(260px,1fr) 120px auto",
+  gap: "7px",
+  alignItems: "center",
+  background: "#fbfcfd",
+};
+
+const requestTemplateEmpty: React.CSSProperties = {
+  padding: "10px",
+  color: "#64748b",
+  fontSize: "9px",
+  borderBottom: "1px solid #edf1f4",
 };
 
 const activityGrid: React.CSSProperties = {

@@ -17,7 +17,8 @@ type ModuleKey =
   | "projects"
   | "management_reports"
   | "paia"
-  | "proposals";
+  | "proposals"
+  | "trusts";
 
 type ModuleState = Record<ModuleKey, boolean>;
 
@@ -39,6 +40,7 @@ type TeamUser = {
   can_access_management_reports?: boolean | null;
   can_access_paia?: boolean | null;
   can_access_proposals?: boolean | null;
+  can_access_trusts?: boolean | null;
 };
 
 type LicenceRow = {
@@ -69,6 +71,7 @@ const moduleOptions: { key: ModuleKey; label: string }[] = [
   { key: "management_reports", label: "Management Reports" },
   { key: "paia", label: "PAIA Manuals" },
   { key: "proposals", label: "Proposals" },
+  { key: "trusts", label: "Trusts" },
 ];
 
 const emptyModules: ModuleState = {
@@ -81,6 +84,7 @@ const emptyModules: ModuleState = {
   management_reports: false,
   paia: false,
   proposals: false,
+  trusts: false,
 };
 
 function modulesFromUser(user: TeamUser): ModuleState {
@@ -94,6 +98,7 @@ function modulesFromUser(user: TeamUser): ModuleState {
     management_reports: Boolean(user.can_access_management_reports),
     paia: Boolean(user.can_access_paia),
     proposals: Boolean(user.can_access_proposals),
+    trusts: Boolean(user.can_access_trusts),
   };
 }
 
@@ -194,6 +199,15 @@ export default function TeamPage() {
 
   const practiceOwner = users.find((user) => user.is_practice_owner);
 
+  const subscribedModuleOptions = moduleOptions.filter((item) =>
+    licences.some(
+      (licence) =>
+        licence.module_key === item.key &&
+        licence.is_enabled &&
+        Number(licence.licence_limit || 0) > 0
+    )
+  );
+
   function toggleAddModule(key: ModuleKey) {
     setAddModules((current) => ({ ...current, [key]: !current[key] }));
   }
@@ -244,6 +258,7 @@ export default function TeamPage() {
           canAccessManagementReports: addModules.management_reports,
           canAccessPaia: addModules.paia,
           canAccessProposals: addModules.proposals,
+          canAccessTrusts: addModules.trusts,
         }),
       });
 
@@ -294,6 +309,7 @@ export default function TeamPage() {
           canAccessManagementReports: editModules.management_reports,
           canAccessPaia: editModules.paia,
           canAccessProposals: editModules.proposals,
+          canAccessTrusts: editModules.trusts,
         }),
       });
 
@@ -384,7 +400,7 @@ export default function TeamPage() {
   ) {
     return (
       <div style={styles.moduleChecks}>
-        {moduleOptions.map((item) => (
+        {subscribedModuleOptions.map((item) => (
           <label key={item.key} style={styles.moduleCheck}>
             <input
               type="checkbox"
@@ -448,78 +464,89 @@ export default function TeamPage() {
             <div>
               <h2 style={styles.panelTitle}>Module licences</h2>
               <p style={styles.panelSubtitle}>
-                The Practice Owner can increase or reduce licence quantities as the practice changes.
+                Only modules currently subscribed by this practice are shown here.
               </p>
             </div>
           </div>
 
-          <div style={styles.licenceTableHeader}>
-            <span>Module</span>
-            <span>Used</span>
-            <span>Licence quantity</span>
-            <span>Available</span>
-            <span />
-          </div>
-
-          {moduleOptions.map((item) => {
-            const licence = licences.find(
-              (row) => row.module_key === item.key
-            );
-
-            const used = Number(licence?.used || 0);
-            const limit = Number(licenceDrafts[item.key] || 0);
-            const available = Math.max(limit - used, 0);
-            const ownerCanChange = Boolean(currentProfile?.is_practice_owner);
-
-            return (
-              <div key={item.key} style={styles.licenceTableRow}>
-                <div>
-                  <strong style={styles.licenceName}>{item.label}</strong>
-                  <div style={styles.smallMuted}>
-                    {limit > 0 ? "Enabled" : "Not subscribed"}
-                  </div>
-                </div>
-
-                <strong>{used}</strong>
-
-                <input
-                  type="number"
-                  min={used}
-                  step="1"
-                  style={styles.licenceInput}
-                  value={limit}
-                  onChange={(event) =>
-                    setLicenceDrafts((current) => ({
-                      ...current,
-                      [item.key]: Math.max(
-                        used,
-                        Number(event.target.value || 0)
-                      ),
-                    }))
-                  }
-                  disabled={!ownerCanChange}
-                />
-
-                <strong>{available}</strong>
-
-                <button
-                  type="button"
-                  style={styles.secondaryButton}
-                  onClick={() => saveLicence(item.key)}
-                  disabled={
-                    !ownerCanChange ||
-                    savingLicenceKey === item.key
-                  }
-                >
-                  {savingLicenceKey === item.key ? "Saving..." : "Update"}
-                </button>
+          {licences.length ? (
+            <>
+              <div style={styles.licenceTableHeader}>
+                <span>Module</span>
+                <span>Used</span>
+                <span>Licence quantity</span>
+                <span>Available</span>
+                <span />
               </div>
-            );
-          })}
+
+              {licences.map((licence) => {
+                const item = moduleOptions.find(
+                  (module) => module.key === licence.module_key
+                );
+
+                const moduleKey = licence.module_key as ModuleKey;
+                const used = Number(licence.used || 0);
+                const limit = Number(
+                  licenceDrafts[moduleKey] ?? licence.licence_limit ?? 1
+                );
+                const available = Math.max(limit - used, 0);
+                const ownerCanChange = Boolean(currentProfile?.is_practice_owner);
+
+                return (
+                  <div key={licence.module_key} style={styles.licenceTableRow}>
+                    <div>
+                      <strong style={styles.licenceName}>
+                        {item?.label || licence.module_key}
+                      </strong>
+                      <div style={styles.smallMuted}>Subscribed</div>
+                    </div>
+
+                    <strong>{used}</strong>
+
+                    <input
+                      type="number"
+                      min={Math.max(used, 1)}
+                      step="1"
+                      style={styles.licenceInput}
+                      value={limit}
+                      onChange={(event) =>
+                        setLicenceDrafts((current) => ({
+                          ...current,
+                          [moduleKey]: Math.max(
+                            Math.max(used, 1),
+                            Number(event.target.value || 1)
+                          ),
+                        }))
+                      }
+                      disabled={!ownerCanChange}
+                    />
+
+                    <strong>{available}</strong>
+
+                    <button
+                      type="button"
+                      style={styles.secondaryButton}
+                      onClick={() => saveLicence(moduleKey)}
+                      disabled={
+                        !ownerCanChange ||
+                        savingLicenceKey === moduleKey
+                      }
+                    >
+                      {savingLicenceKey === moduleKey ? "Saving..." : "Update"}
+                    </button>
+                  </div>
+                );
+              })}
+            </>
+          ) : (
+            <div style={styles.empty}>
+              No subscribed modules are configured for this practice yet.
+            </div>
+          )}
 
           {!currentProfile?.is_practice_owner ? (
             <div style={styles.empty}>
-              Only the Practice Owner can change purchased licence quantities.
+              Only the Practice Owner can change licence quantities.
             </div>
           ) : null}
         </section>
