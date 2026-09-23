@@ -83,8 +83,7 @@ export default function SettingsPage() {
           <p style={styles.eyebrow}>PracticePilot</p>
           <h1 style={styles.title}>Settings</h1>
           <p style={styles.subtitle}>
-            Manage shared practice settings and only the module settings
-            available to your practice.
+            Manage the settings available for your PracticePilot access.
           </p>
         </div>
 
@@ -97,13 +96,15 @@ export default function SettingsPage() {
         <section style={styles.loading}>Loading settings...</section>
       ) : (
         <section style={styles.grid}>
-          <Link href="/settings/practice" style={styles.card}>
-            <h2 style={styles.cardTitle}>Practice Details & Letterhead</h2>
-            <p style={styles.cardText}>
-              Practice identity, letterhead, authorised signatory and
-              professional-body details used across PracticePilot.
-            </p>
-          </Link>
+          {globalAdmin ? (
+            <Link href="/settings/practice" style={styles.card}>
+              <h2 style={styles.cardTitle}>Practice Details & Letterhead</h2>
+              <p style={styles.cardText}>
+                Practice identity, letterhead, authorised signatory and
+                professional-body details used across PracticePilot.
+              </p>
+            </Link>
+          ) : null}
 
           {canManageUsers ? (
             <Link href="/settings/team" style={styles.card}>
@@ -111,6 +112,16 @@ export default function SettingsPage() {
               <p style={styles.cardText}>
                 Manage staff, roles, module access, delegated team permissions
                 and licence quantities.
+              </p>
+            </Link>
+          ) : null}
+
+          {hasAfs ? (
+            <Link href="/afs/settings" style={styles.card}>
+              <h2 style={styles.cardTitle}>AFS Settings</h2>
+              <p style={styles.cardText}>
+                AFS defaults, workflow, notifications, templates and entity
+                types.
               </p>
             </Link>
           ) : null}
@@ -132,26 +143,6 @@ export default function SettingsPage() {
                 submission controls your practice wants to use.
               </p>
             </Link>
-          ) : null}
-
-          {hasAfs ? (
-            <Link href="/afs/settings" style={styles.card}>
-              <h2 style={styles.cardTitle}>AFS Settings</h2>
-              <p style={styles.cardText}>
-                AFS defaults, workflow, notifications, templates and entity
-                types.
-              </p>
-            </Link>
-          ) : null}
-
-          {hasCrm ? (
-            <div style={styles.cardMuted}>
-              <h2 style={styles.cardTitle}>Task Rules</h2>
-              <p style={styles.cardText}>
-                VAT categories, payroll frequency, EMP501, provisional tax and
-                annual CRM task rules.
-              </p>
-            </div>
           ) : null}
 
           {hasCrm ? (
@@ -184,38 +175,52 @@ export default function SettingsPage() {
             </Link>
           ) : null}
 
-          {canManageUsers ? (
+          {hasCrm && canManageUsers ? (
             <Link href="/settings/email-sending" style={styles.card}>
               <h2 style={styles.cardTitle}>Email Sending</h2>
               <p style={styles.cardText}>
-                Configure the practice mailbox PracticePilot uses for mandates,
-                progress updates and other client emails.
+                Configure the practice mailbox PracticePilot uses for client
+                communication.
               </p>
             </Link>
           ) : null}
 
-          <div style={styles.cardMuted}>
-            <h2 style={styles.cardTitle}>Feature Toggles</h2>
-            <p style={styles.cardText}>
-              Practice-wide feature controls will live here as shared settings
-              are consolidated.
-            </p>
-          </div>
+          {globalAdmin ? (
+            <div style={styles.cardMuted}>
+              <h2 style={styles.cardTitle}>Task Rules</h2>
+              <p style={styles.cardText}>
+                VAT categories, payroll frequency, EMP501, provisional tax and
+                annual CRM task rules.
+              </p>
+            </div>
+          ) : null}
 
-          <div style={styles.cardMuted}>
-            <h2 style={styles.cardTitle}>Document Providers</h2>
-            <p style={styles.cardText}>
-              Configure Egnyte, Google Drive, Dropbox, OneDrive or manual
-              document links.
-            </p>
-          </div>
+          {globalAdmin ? (
+            <div style={styles.cardMuted}>
+              <h2 style={styles.cardTitle}>Feature Toggles</h2>
+              <p style={styles.cardText}>
+                Practice-wide feature controls will live here as shared settings
+                are consolidated.
+              </p>
+            </div>
+          ) : null}
 
-          {canManageUsers ? (
+          {globalAdmin ? (
+            <div style={styles.cardMuted}>
+              <h2 style={styles.cardTitle}>Document Providers</h2>
+              <p style={styles.cardText}>
+                Configure Egnyte, Google Drive, Dropbox, OneDrive or manual
+                document links.
+              </p>
+            </div>
+          ) : null}
+
+          {globalAdmin ? (
             <div style={styles.cardMuted}>
               <h2 style={styles.cardTitle}>Billing & Profitability</h2>
               <p style={styles.cardText}>
-                Owner/admin-only area for retainers, employee cost rates and
-                profitability reports.
+                PracticePilot administration area for commercial and
+                profitability controls.
               </p>
             </div>
           ) : null}
