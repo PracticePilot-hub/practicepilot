@@ -185,6 +185,16 @@ export default function SettingsPage() {
             </Link>
           ) : null}
 
+          {hasCrm && canManageUsers ? (
+            <Link href="/settings/crm-import" style={styles.card}>
+              <h2 style={styles.cardTitle}>CRM Data Import</h2>
+              <p style={styles.cardText}>
+                Upload a PracticePilot CRM Master Import workbook to bulk add or
+                update clients, groups, people and registrations.
+              </p>
+            </Link>
+          ) : null}
+
           {globalAdmin ? (
             <div style={styles.cardMuted}>
               <h2 style={styles.cardTitle}>Task Rules</h2>
