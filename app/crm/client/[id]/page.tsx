@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import WorkFilters from "./WorkFilters";
 import ClientLifecycleAction from "./ClientLifecycleAction";
+import DocumentBrowser from "./DocumentBrowser";
 
 export const dynamic = "force-dynamic";
 
@@ -1124,13 +1125,15 @@ export default async function ClientWorkingFilePage({
             Edit
           </Link>
 
-          <Link
-            href={`/crm/client/${client.id}/print`}
-            style={compactPrimaryLink}
-            target="_blank"
-          >
-            PDF / Sign-off
-          </Link>
+          {activeTab !== "documents" ? (
+            <Link
+              href={`/crm/client/${client.id}/print`}
+              style={compactPrimaryLink}
+              target="_blank"
+            >
+              PDF / Sign-off
+            </Link>
+          ) : null}
 
           <ClientLifecycleAction
             clientId={client.id}
@@ -1519,9 +1522,26 @@ export default async function ClientWorkingFilePage({
                   <section style={profileSection}>
                     <div style={profileSectionHeader}>Practice responsibility</div>
                     <div style={profileFieldsGrid}>
-                      <ProfileField label="Client lead" value={responsibilityName(client.client_lead_user_id)} />
-                      <ProfileField label="Default work owner" value={responsibilityName(client.manager_user_id)} />
-                      <ProfileField label="Reviewer" value={responsibilityName(client.partner_user_id)} />
+                      <ProfileField
+                        label="Client lead"
+                        value={responsibilityName(client.client_lead_user_id)}
+                      />
+                      <ProfileField
+                        label="Manager"
+                        value={responsibilityName(client.manager_user_id)}
+                      />
+                      <ProfileField
+                        label="Reviewer / Partner"
+                        value={responsibilityName(client.partner_user_id)}
+                      />
+                      <ProfileField
+                        label="Default task owner"
+                        value={responsibilityName(
+                          client.client_lead_user_id ||
+                            client.manager_user_id ||
+                            client.partner_user_id
+                        )}
+                      />
                     </div>
                   </section>
 
@@ -3306,344 +3326,7 @@ export default async function ClientWorkingFilePage({
 
             {activeTab === "documents" ? (
 <section id="documents" style={documentsWorkspace}>
-  <div style={documentsHeader}>
-    <div>
-      <div style={clientHomeEyebrow}>Documents</div>
-      <h2 style={documentsTitle}>Client Document Workspace</h2>
-      <p style={documentsSubtitle}>
-        A single index of the client&apos;s important documents, whether they live in Egnyte,
-        Google Drive, Dropbox, OneDrive, a server folder or PracticePilot.
-      </p>
-    </div>
-
-    <form
-      method="post"
-      action={`/api/crm/clients/${client.id}/documents`}
-      style={documentsQuickAdd}
-    >
-      <input type="hidden" name="action" value="create" />
-
-      <input
-        name="document_name"
-        required
-        placeholder="Document name"
-        style={documentsInput}
-      />
-
-      <select name="category" defaultValue="General" style={documentsInput}>
-        <option value="General">General</option>
-        <option value="Tax">Tax</option>
-        <option value="Payroll">Payroll</option>
-        <option value="Accounting">Accounting</option>
-        <option value="AFS">AFS</option>
-        <option value="Secretarial">Secretarial</option>
-        <option value="Registrations">Registrations</option>
-        <option value="Engagement">Engagement</option>
-        <option value="Client supplied">Client supplied</option>
-      </select>
-
-      <select name="provider" defaultValue="egnyte" style={documentsInput}>
-        <option value="egnyte">Egnyte</option>
-        <option value="google_drive">Google Drive</option>
-        <option value="dropbox">Dropbox</option>
-        <option value="onedrive">OneDrive</option>
-        <option value="server">Server / network folder</option>
-        <option value="manual">Manual / other</option>
-      </select>
-
-      <input
-        name="external_url"
-        placeholder="Document link"
-        style={documentsInput}
-      />
-
-      <button type="submit" style={primaryButton}>
-        Add Document
-      </button>
-    </form>
-  </div>
-
-  <div style={documentsSummary}>
-    <div style={documentsSummaryCell}>
-      <span style={summarySmallLabel}>Indexed documents</span>
-      <strong style={summaryBigValue}>{documents.length}</strong>
-    </div>
-    <div style={documentsSummaryCell}>
-      <span style={summarySmallLabel}>Linked to work</span>
-      <strong style={summaryBigValue}>
-        {documents.filter((doc: any) => Boolean(doc.linked_work_item_id)).length}
-      </strong>
-    </div>
-    <div style={documentsSummaryCell}>
-      <span style={summarySmallLabel}>External links</span>
-      <strong style={summaryBigValue}>
-        {documents.filter((doc: any) => Boolean(doc.external_url)).length}
-      </strong>
-    </div>
-    <div style={documentsSummaryCellLast}>
-      <span style={summarySmallLabel}>Providers</span>
-      <strong style={summaryBigValue}>
-        {new Set(documents.map((doc: any) => String(doc.provider || "manual"))).size}
-      </strong>
-    </div>
-  </div>
-
-  <div style={documentsTableHeader}>
-    <span>Document</span>
-    <span>Category</span>
-    <span>Provider</span>
-    <span>Document date</span>
-    <span>Linked work</span>
-    <span />
-  </div>
-
-  {documents.length ? (
-    documents.map((document: any) => {
-      const linkedTask = document.linked_work_item_id
-        ? tasks.find((task: any) => task.id === document.linked_work_item_id)
-        : null;
-
-      return (
-        <div key={document.id} style={documentsTableRow}>
-          <div>
-            <strong style={documentsName}>
-              {document.document_name}
-            </strong>
-
-            <div style={documentsMeta}>
-              {document.description ||
-                document.file_name ||
-                formatStatus(document.source_type || "external")}
-            </div>
-          </div>
-
-          <div style={documentsCell}>
-            {document.category || "General"}
-          </div>
-
-          <div style={documentsCell}>
-            {formatStatus(document.provider || "manual")}
-          </div>
-
-          <div style={documentsCell}>
-            {formatDate(document.document_date || document.received_date)}
-          </div>
-
-          <div style={documentsCell}>
-            {linkedTask ? linkedTask.title : "—"}
-          </div>
-
-          <div style={documentsActions}>
-            {document.external_url ? (
-              <a
-                href={document.external_url}
-                target="_blank"
-                rel="noreferrer"
-                style={textLink}
-              >
-                Open
-              </a>
-            ) : null}
-
-            <form
-              method="post"
-              action={`/api/crm/clients/${client.id}/documents`}
-            >
-              <input type="hidden" name="action" value="archive" />
-              <input type="hidden" name="document_id" value={document.id} />
-              <button type="submit" style={dangerTextButton}>
-                Archive
-              </button>
-            </form>
-          </div>
-        </div>
-      );
-    })
-  ) : (
-    <div style={documentsEmpty}>
-      No client documents have been indexed yet.
-    </div>
-  )}
-
-  <section style={requestTemplatesSection}>
-    <div style={requestTemplatesHeader}>
-      <div>
-        <h3 style={requestTemplatesTitle}>Recurring document request templates</h3>
-        <p style={requestTemplatesSubtitle}>
-          Maintain the standard checklist PP should ask this client for each cycle.
-        </p>
-      </div>
-    </div>
-
-    <form
-      method="post"
-      action={`/api/crm/clients/${client.id}/document-request-templates`}
-      style={requestTemplateCreate}
-    >
-      <input type="hidden" name="action" value="create_template" />
-
-      <input
-        name="template_name"
-        required
-        placeholder="e.g. Monthly Accounting Request"
-        style={documentsInput}
-      />
-
-      <select
-        name="service_code"
-        defaultValue=""
-        style={documentsInput}
-      >
-        <option value="">No linked service</option>
-        {taskServiceOptions.map((serviceName) => (
-          <option key={serviceName} value={serviceName}>
-            {serviceName}
-          </option>
-        ))}
-      </select>
-
-      <select
-        name="frequency"
-        defaultValue="monthly"
-        style={documentsInput}
-      >
-        <option value="weekly">Weekly</option>
-        <option value="monthly">Monthly</option>
-        <option value="bi_monthly">Bi-monthly</option>
-        <option value="quarterly">Quarterly</option>
-        <option value="six_monthly">Six-monthly</option>
-        <option value="annual">Annual</option>
-        <option value="ad_hoc">Ad hoc</option>
-      </select>
-
-      <input
-        type="number"
-        min="1"
-        name="reminder_interval_days"
-        defaultValue="7"
-        style={documentsInput}
-        title="Reminder interval in days"
-      />
-
-      <button type="submit" style={primaryButton}>
-        Add Template
-      </button>
-    </form>
-
-    {documentRequestTemplates.length ? (
-      <div style={requestTemplateList}>
-        {documentRequestTemplates.map((template: any) => {
-          const templateItems = documentRequestTemplateItems.filter(
-            (item: any) => item.template_id === template.id
-          );
-
-          return (
-            <div key={template.id} style={requestTemplateCard}>
-              <div style={requestTemplateTop}>
-                <div>
-                  <strong style={requestTemplateName}>
-                    {template.template_name}
-                  </strong>
-                  <div style={requestTemplateMeta}>
-                    {formatStatus(template.frequency)}
-                    {template.service_code ? ` · ${template.service_code}` : ""}
-                    {template.reminder_enabled
-                      ? ` · Reminder every ${template.reminder_interval_days} days`
-                      : " · Reminders off"}
-                  </div>
-                </div>
-
-                <form
-                  method="post"
-                  action={`/api/crm/clients/${client.id}/document-request-templates`}
-                >
-                  <input type="hidden" name="action" value="archive_template" />
-                  <input type="hidden" name="template_id" value={template.id} />
-                  <button type="submit" style={dangerTextButton}>
-                    Archive
-                  </button>
-                </form>
-              </div>
-
-              <div style={requestItemsHeader}>
-                <span>Requested item</span>
-                <span>Required</span>
-                <span />
-              </div>
-
-              {templateItems.length ? (
-                templateItems.map((item: any) => (
-                  <div key={item.id} style={requestItemRow}>
-                    <span style={documentsCell}>{item.item_name}</span>
-                    <span style={documentsCell}>
-                      {item.is_required ? "Yes" : "Optional"}
-                    </span>
-
-                    <form
-                      method="post"
-                      action={`/api/crm/clients/${client.id}/document-request-templates`}
-                    >
-                      <input type="hidden" name="action" value="archive_item" />
-                      <input type="hidden" name="item_id" value={item.id} />
-                      <button type="submit" style={dangerTextButton}>
-                        Remove
-                      </button>
-                    </form>
-                  </div>
-                ))
-              ) : (
-                <div style={requestTemplateEmpty}>
-                  No request items yet.
-                </div>
-              )}
-
-              <form
-                method="post"
-                action={`/api/crm/clients/${client.id}/document-request-templates`}
-                style={requestItemCreate}
-              >
-                <input type="hidden" name="action" value="add_item" />
-                <input type="hidden" name="template_id" value={template.id} />
-
-                <input
-                  name="item_name"
-                  required
-                  placeholder="e.g. Bank statements"
-                  style={documentsInput}
-                />
-
-                <select
-                  name="is_required"
-                  defaultValue="yes"
-                  style={documentsInput}
-                >
-                  <option value="yes">Required</option>
-                  <option value="no">Optional</option>
-                </select>
-
-                <button type="submit" style={secondaryButton}>
-                  Add Item
-                </button>
-              </form>
-            </div>
-          );
-        })}
-      </div>
-    ) : (
-      <div style={documentsEmpty}>
-        No recurring document request templates have been created for this client.
-      </div>
-    )}
-  </section>
-
-  <div style={documentsFooter}>
-    <span>
-      This is the document index. Physical files can remain in the practice&apos;s selected storage provider.
-    </span>
-    <strong>
-      Next step: issue request cycles from these templates.
-    </strong>
-  </div>
+  <DocumentBrowser clientId={client.id} />
 </section>
       ) : null}
 

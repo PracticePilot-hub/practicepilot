@@ -29,7 +29,15 @@ type CRMClient = {
     | "on_radar"
     | "former_client";
   closed_at: string | null;
+  client_lead_user_id: string | null;
   crm_client_contacts: CRMContact[] | null;
+};
+
+type TeamMember = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  access_enabled: boolean | null;
 };
 
 type RelationshipFilter =
@@ -45,6 +53,8 @@ type AirspaceFilter =
   | "on_radar"
   | "former_client"
   | "all";
+
+type SortMode = "client_asc" | "client_desc" | "lead_asc" | "lead_desc";
 
 const relationshipLabels: Record<string, string> = {
   ongoing_monthly: "Ongoing monthly",
@@ -71,6 +81,7 @@ function normaliseStatus(value: string | null | undefined) {
 
 export default function CRMClientsPage() {
   const [clients, setClients] = useState<CRMClient[]>([]);
+  const [team, setTeam] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
@@ -80,6 +91,8 @@ export default function CRMClientsPage() {
     useState<CategoryFilter>("all");
   const [airspaceFilter, setAirspaceFilter] =
     useState<AirspaceFilter>("flying_client");
+  const [clientLeadFilter, setClientLeadFilter] = useState("all");
+  const [sortMode, setSortMode] = useState<SortMode>("client_asc");
 
   useEffect(() => {
     async function loadClients() {
@@ -122,6 +135,7 @@ export default function CRMClientsPage() {
             status,
             relationship_status,
             closed_at,
+            client_lead_user_id,
             crm_client_contacts (
               contact_name,
               is_primary
@@ -137,12 +151,38 @@ export default function CRMClientsPage() {
             client.client_name?.trim()
           )
         );
+
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabaseAny.auth.getSession();
+
+        if (sessionError || !session?.access_token) {
+          throw new Error("Your PracticePilot login session could not be confirmed.");
+        }
+
+        const teamResponse = await fetch("/api/crm/team-directory", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          cache: "no-store",
+        });
+
+        const teamResult = await teamResponse.json();
+
+        if (!teamResponse.ok || !teamResult?.success) {
+          throw new Error(teamResult?.error || "Could not load the practice team.");
+        }
+
+        setTeam((teamResult.team || []) as TeamMember[]);
       } catch (error) {
         console.error("Could not load CRM clients:", error);
         setLoadError(
           error instanceof Error ? error.message : "Could not load CRM clients."
         );
         setClients([]);
+        setTeam([]);
       } finally {
         setLoading(false);
       }
@@ -168,10 +208,14 @@ export default function CRMClientsPage() {
     };
   }, [clients]);
 
+  const teamMap = useMemo(() => {
+    return new Map(team.map((member) => [member.id, member]));
+  }, [team]);
+
   const filteredClients = useMemo(() => {
     const searchValue = search.trim().toLowerCase();
 
-    return clients.filter((client) => {
+    const rows = clients.filter((client) => {
       if (
         airspaceFilter !== "all" &&
         client.relationship_status !== airspaceFilter
@@ -193,6 +237,15 @@ export default function CRMClientsPage() {
         return false;
       }
 
+      if (
+        clientLeadFilter !== "all" &&
+        (clientLeadFilter === "unassigned"
+          ? Boolean(client.client_lead_user_id)
+          : client.client_lead_user_id !== clientLeadFilter)
+      ) {
+        return false;
+      }
+
       if (searchValue) {
         const primaryContact =
           client.crm_client_contacts?.find((contact) => contact.is_primary) ||
@@ -204,6 +257,8 @@ export default function CRMClientsPage() {
           client.registration_number,
           client.id_passport_number,
           primaryContact?.contact_name,
+          teamMap.get(client.client_lead_user_id || "")?.full_name,
+          teamMap.get(client.client_lead_user_id || "")?.email,
           relationshipLabels[client.engagement_type || ""],
           categoryLabels[client.client_category || ""],
         ]
@@ -216,7 +271,41 @@ export default function CRMClientsPage() {
 
       return true;
     });
-  }, [clients, search, relationshipFilter, categoryFilter, airspaceFilter]);
+
+    return [...rows].sort((a, b) => {
+      const aLead =
+        teamMap.get(a.client_lead_user_id || "")?.full_name ||
+        teamMap.get(a.client_lead_user_id || "")?.email ||
+        "ZZZZZZ";
+      const bLead =
+        teamMap.get(b.client_lead_user_id || "")?.full_name ||
+        teamMap.get(b.client_lead_user_id || "")?.email ||
+        "ZZZZZZ";
+
+      if (sortMode === "client_desc") {
+        return b.client_name.localeCompare(a.client_name);
+      }
+
+      if (sortMode === "lead_asc") {
+        return aLead.localeCompare(bLead) || a.client_name.localeCompare(b.client_name);
+      }
+
+      if (sortMode === "lead_desc") {
+        return bLead.localeCompare(aLead) || a.client_name.localeCompare(b.client_name);
+      }
+
+      return a.client_name.localeCompare(b.client_name);
+    });
+  }, [
+    clients,
+    search,
+    relationshipFilter,
+    categoryFilter,
+    airspaceFilter,
+    clientLeadFilter,
+    sortMode,
+    teamMap,
+  ]);
 
   return (
     <div style={page}>
@@ -228,9 +317,15 @@ export default function CRMClientsPage() {
           </div>
         </div>
 
-        <Link href="/crm/new-client" style={primaryButton}>
-          Add New Client
-        </Link>
+        <div style={headerActions}>
+          <Link href="/crm/clients/bulk-edit" style={secondaryButton}>
+            Bulk Edit Clients
+          </Link>
+
+          <Link href="/crm/new-client" style={primaryButton}>
+            Add New Client
+          </Link>
+        </div>
       </div>
 
       <section style={summaryStrip}>
@@ -305,6 +400,32 @@ export default function CRMClientsPage() {
           <option value="all">All Practice Airspace</option>
         </select>
 
+        <select
+          style={filterSelect}
+          value={clientLeadFilter}
+          onChange={(event) => setClientLeadFilter(event.target.value)}
+        >
+          <option value="all">All client leads</option>
+          <option value="unassigned">Unassigned</option>
+          {team.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.full_name || member.email || "Team member"}
+              {member.access_enabled === false ? " · Former staff" : ""}
+            </option>
+          ))}
+        </select>
+
+        <select
+          style={filterSelect}
+          value={sortMode}
+          onChange={(event) => setSortMode(event.target.value as SortMode)}
+        >
+          <option value="client_asc">Client name A–Z</option>
+          <option value="client_desc">Client name Z–A</option>
+          <option value="lead_asc">Client lead A–Z</option>
+          <option value="lead_desc">Client lead Z–A</option>
+        </select>
+
         <button
           type="button"
           style={resetButton}
@@ -313,6 +434,8 @@ export default function CRMClientsPage() {
             setRelationshipFilter("all");
             setCategoryFilter("all");
             setAirspaceFilter("flying_client");
+            setClientLeadFilter("all");
+            setSortMode("client_asc");
           }}
         >
           Reset
@@ -332,6 +455,7 @@ export default function CRMClientsPage() {
                   <th style={th}>Service Relationship</th>
                   <th style={th}>Registration / ID Number</th>
                   <th style={th}>Primary Contact</th>
+                  <th style={th}>Client Lead</th>
                   <th style={th}>PracticePilot Relationship</th>
                   <th style={thAction}></th>
                 </tr>
@@ -340,7 +464,7 @@ export default function CRMClientsPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td style={emptyCell} colSpan={7}>
+                    <td style={emptyCell} colSpan={8}>
                       Loading clients...
                     </td>
                   </tr>
@@ -394,6 +518,12 @@ export default function CRMClientsPage() {
                         </td>
 
                         <td style={td}>
+                          {teamMap.get(client.client_lead_user_id || "")?.full_name ||
+                            teamMap.get(client.client_lead_user_id || "")?.email ||
+                            "Unassigned"}
+                        </td>
+
+                        <td style={td}>
                           <span
                             style={{
                               ...statusPill,
@@ -425,7 +555,7 @@ export default function CRMClientsPage() {
 
                 {!loading && filteredClients.length === 0 && (
                   <tr>
-                    <td style={emptyCell} colSpan={7}>
+                    <td style={emptyCell} colSpan={8}>
                       No clients match these filters.
                     </td>
                   </tr>
@@ -474,6 +604,23 @@ const sectionSubtitle: React.CSSProperties = {
   marginTop: "4px",
   fontSize: "12px",
   color: "#596574",
+};
+
+const headerActions: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+};
+
+const secondaryButton: React.CSSProperties = {
+  display: "inline-block",
+  padding: "7px 11px",
+  border: "1px solid #cfd8d7",
+  background: "#ffffff",
+  color: "#10233a",
+  textDecoration: "none",
+  fontSize: "10px",
+  fontWeight: 800,
 };
 
 const primaryButton: React.CSSProperties = {
@@ -527,7 +674,8 @@ const summaryValue: React.CSSProperties = {
 
 const filterBar: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(260px, 1.3fr) 230px 180px 170px 70px",
+  gridTemplateColumns:
+    "minmax(250px, 1.3fr) 210px 160px 155px 190px 170px 70px",
   gap: "8px",
   alignItems: "center",
   marginBottom: "10px",

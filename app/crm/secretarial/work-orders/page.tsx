@@ -16,8 +16,6 @@ type WorkOrderRow = {
   id: string;
   work_order_number: string;
   relationship_name: string;
-  client_id?: string | null;
-  client_group_id?: string | null;
   work_order_type: string;
   title: string;
   proposed_entity_name: string | null;
@@ -126,7 +124,6 @@ export default function SecretarialWorkOrdersPage() {
   }
 
   useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     void load();
   }, []);
 
@@ -283,187 +280,137 @@ export default function SecretarialWorkOrdersPage() {
 
   return (
     <main style={page}>
-      <header style={secretarialHeader}>
+      <section style={crumbBar}>
+        <Link href="/crm/secretarial" style={crumbLink}>
+          Secretarial
+        </Link>
+        <span style={crumbDivider}>›</span>
+        <strong>Work Orders</strong>
+        <span style={crumbDivider}>|</span>
+        <span style={crumbMuted}>
+          Registrations, changes, mandates, progress and billing
+        </span>
+      </section>
+
+      <section style={header}>
         <div>
-          <h1 style={secretarialTitle}>Secretarial</h1>
-          <p style={secretarialSubtitle}>
-            Manage live work orders, client files and statutory records.
+          <h1 style={title}>Secretarial Work Orders</h1>
+          <p style={subtitle}>
+            Manage secretarial jobs from client instruction through mandate,
+            progress updates, payment controls and billing.
           </p>
         </div>
-      </header>
 
-      <nav style={workspaceTabs}>
-        <Link href="/crm/secretarial/client-files" style={workspaceTab}>
-          <span style={tabIcon}>▤</span>
-          Client Files
-        </Link>
-        <Link href="/crm/secretarial/work-orders" style={workspaceTabActive}>
-          <span style={tabIcon}>▣</span>
-          Work Orders
-        </Link>
-      </nav>
-
-      <section style={statusStrip}>
-        <button type="button" onClick={() => setStatusFilter("active")} style={statusTile}>
-          <span style={statusIconBlue}>▣</span>
-          <div>
-            <strong style={statusNumber}>{counts.active}</strong>
-            <span style={statusLabel}>Active Work Orders</span>
-          </div>
-        </button>
-
-        <button type="button" onClick={() => setStatusFilter("waiting")} style={statusTile}>
-          <span style={statusIconAmber}>◷</span>
-          <div>
-            <strong style={statusNumber}>
-              {rows.filter((r) => r.mandate_status === "sent").length}
-            </strong>
-            <span style={statusLabel}>Awaiting Client</span>
-          </div>
-        </button>
-
-        <button type="button" onClick={() => setStatusFilter("waiting")} style={statusTile}>
-          <span style={statusIconPurple}>◉</span>
-          <div>
-            <strong style={statusNumber}>{counts.waiting}</strong>
-            <span style={statusLabel}>Waiting External</span>
-          </div>
-        </button>
-
-        <button type="button" onClick={() => setStatusFilter("ready_to_bill")} style={statusTile}>
-          <span style={statusIconGreen}>↥</span>
-          <div>
-            <strong style={statusNumber}>{counts.ready_to_bill}</strong>
-            <span style={statusLabel}>Ready to Bill</span>
-          </div>
-        </button>
-
-        <button type="button" style={newWorkOrderButton} onClick={() => setShowCreate(true)}>
+        <button
+          type="button"
+          style={primaryButton}
+          onClick={() => setShowCreate(true)}
+        >
           + New Work Order
         </button>
       </section>
 
       {error ? <div style={errorBar}>{error}</div> : null}
 
-      <section style={workPanel}>
-        <div style={workPanelHeader}>
-          <div>
-            <h2 style={workPanelTitle}>Work Orders</h2>
-            <p style={workPanelSubtitle}>
-              Showing {filtered.length} of {rows.length} work orders
-            </p>
-          </div>
+      <section style={toolbar}>
+        <div style={statusTabs}>
+          {[
+            ["all", `All (${counts.all})`],
+            ["active", `In Progress (${counts.active})`],
+            ["waiting", `Waiting (${counts.waiting})`],
+            ["ready_to_bill", `Ready to Bill (${counts.ready_to_bill})`],
+            ["completed", `Completed (${counts.completed})`],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setStatusFilter(key as StatusFilter)}
+              style={{
+                ...tab,
+                ...(statusFilter === key ? activeTab : {}),
+              }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
-        <div style={filterBar}>
-          <div style={searchBox}>
-            <span style={searchIcon}>⌕</span>
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by client, entity, reference or contact..."
-              style={searchInput}
-            />
-          </div>
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search work orders..."
+          style={searchInput}
+        />
+      </section>
 
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-            style={filterSelect}
-          >
-            <option value="all">All statuses</option>
-            <option value="active">Active</option>
-            <option value="waiting">Waiting</option>
-            <option value="ready_to_bill">Ready to Bill</option>
-            <option value="completed">Completed</option>
-          </select>
-
-          <button
-            type="button"
-            style={clearButton}
-            onClick={() => {
-              setSearch("");
-              setStatusFilter("all");
-            }}
-          >
-            Clear
-          </button>
-        </div>
-
+      <section style={panel}>
         <div style={tableHeader}>
-          <span>Ref #</span>
+          <span>#</span>
           <span>Client / Group</span>
-          <span>Entity / Proposed Name</span>
           <span>Work Type</span>
           <span>Status</span>
           <span>Progress</span>
-          <span>Fee (Inc VAT)</span>
-          <span>Billing</span>
           <span>Next Action</span>
+          <span>Billing</span>
           <span>Created</span>
-          <span>Actions</span>
+          <span />
         </div>
 
         {loading ? <div style={empty}>Loading work orders...</div> : null}
+
         {!loading && filtered.length === 0 ? (
-          <div style={empty}>No Secretarial Work Orders match this view.</div>
+          <div style={empty}>
+            No Secretarial Work Orders match this view.
+          </div>
         ) : null}
 
         {filtered.map((row) => {
           const progress =
             row.progress_total > 0
-              ? Math.round((row.progress_completed / row.progress_total) * 100)
+              ? Math.round(
+                  (row.progress_completed / row.progress_total) * 100
+                )
               : 0;
 
           const nextAction =
             row.mandate_status === "not_sent"
               ? "Send mandate"
               : row.mandate_status === "sent"
-              ? "Awaiting mandate"
+              ? "Await client"
               : row.status === "awaiting_payment"
               ? "Await payment"
               : row.status === "waiting_external"
-              ? "Await external"
+              ? "Follow up"
               : row.status === "ready_to_bill"
               ? "Bill client"
               : "Continue work";
 
-          const feeInc =
-            row.fee_ex_vat == null ? null : Number(row.fee_ex_vat) * 1.15;
-
           return (
-            <Link key={row.id} href={`/crm/secretarial/work-orders/${row.id}`} style={tableRow}>
+            <Link
+              key={row.id}
+              href={`/crm/secretarial/work-orders/${row.id}`}
+              style={tableRow}
+            >
               <strong>{row.work_order_number}</strong>
 
               <div>
-                <strong style={{ ...relationshipName, ...tableCellClip }}>{row.relationship_name}</strong>
-                <span style={rowMeta}>
-                  {row.client_group_id ? "Client Group" : row.client_id ? "Existing Client" : "New / Not yet in PP"}
-                </span>
+                <strong style={relationshipName}>
+                  {row.relationship_name}
+                </strong>
+                {row.proposed_entity_name ? (
+                  <span style={rowMeta}>{row.proposed_entity_name}</span>
+                ) : null}
               </div>
-
-              <span style={{ ...cellText, ...tableCellClip }}>{row.proposed_entity_name || "—"}</span>
 
               <span style={cellText}>
                 {row.work_order_type === "new_entity_registration"
                   ? "New Entity Registration"
                   : row.work_order_type === "company_name_change"
-                  ? "Company Name Change"
+                  ? "Name Change"
                   : "Secretarial"}
               </span>
 
-              <span
-                style={{
-                  ...statusBadge,
-                  ...(row.status === "ready_to_bill"
-                    ? statusReady
-                    : row.status === "waiting_external"
-                    ? statusWaiting
-                    : row.mandate_status === "sent"
-                    ? statusAwaiting
-                    : statusActive),
-                }}
-              >
+              <span style={statusBadge}>
                 {row.status.replaceAll("_", " ")}
               </span>
 
@@ -472,33 +419,33 @@ export default function SecretarialWorkOrdersPage() {
                   {row.progress_completed}/{row.progress_total}
                 </div>
                 <div style={progressTrack}>
-                  <span style={{ ...progressFill, width: `${progress}%` }} />
+                  <span
+                    style={{
+                      ...progressFill,
+                      width: `${progress}%`,
+                    }}
+                  />
                 </div>
               </div>
 
-              <span style={cellText}>
-                {feeInc == null
-                  ? "—"
-                  : new Intl.NumberFormat("en-ZA", {
-                      style: "currency",
-                      currency: "ZAR",
-                      maximumFractionDigits: 2,
-                    }).format(feeInc)}
-              </span>
+              <span style={cellText}>{nextAction}</span>
 
-              <span style={billingBadge}>
+              <span style={cellText}>
                 {row.payment_status === "not_invoiced"
-                  ? "Not invoiced"
+                  ? "Not billed"
                   : row.payment_status.replaceAll("_", " ")}
               </span>
 
-              <span style={{ ...nextActionCell, ...tableCellClip }}>{nextAction}</span>
-              <span style={cellText}>{new Date(row.created_at).toLocaleDateString("en-ZA")}</span>
-              <span style={actionsDots}>•••</span>
+              <span style={cellText}>
+                {new Date(row.created_at).toLocaleDateString("en-ZA")}
+              </span>
+
+              <span style={openArrow}>→</span>
             </Link>
           );
         })}
       </section>
+
       {showCreate ? (
         <div style={modalBackdrop}>
           <section style={modal}>
@@ -708,7 +655,7 @@ export default function SecretarialWorkOrdersPage() {
                     <h3 style={serviceTitle}>Included Services</h3>
                     {[
                       "Name reservation",
-                      "Actual registration",
+                      "Company registration",
                       "1st Beneficial Ownership filing",
                       "PAIA Manual",
                     ].map((item) => (
@@ -844,215 +791,54 @@ export default function SecretarialWorkOrdersPage() {
 
 const page: React.CSSProperties = {
   minHeight: "100%",
-  padding: "18px 22px 32px",
-  background: "#f4f7fb",
+  padding: "10px 12px 28px",
+  background: "#eef2f5",
   color: "#10233a",
 };
 
-const secretarialHeader: React.CSSProperties = {
-  padding: "2px 0 14px",
-  borderBottom: "1px solid #dbe3ec",
-};
-
-const secretarialTitle: React.CSSProperties = {
-  margin: 0,
-  fontSize: "24px",
-  lineHeight: 1,
-  fontWeight: 950,
-};
-
-const secretarialSubtitle: React.CSSProperties = {
-  margin: "7px 0 0",
-  color: "#64748b",
-  fontSize: "11px",
-};
-
-const workspaceTabs: React.CSSProperties = {
-  marginTop: "16px",
+const crumbBar: React.CSSProperties = {
+  minHeight: "38px",
+  padding: "0 10px",
   display: "flex",
-  gap: "10px",
-};
-
-const workspaceTab: React.CSSProperties = {
-  width: "250px",
-  height: "48px",
-  display: "inline-flex",
   alignItems: "center",
-  justifyContent: "center",
   gap: "8px",
-  border: "1px solid #cad5e2",
   background: "#ffffff",
-  color: "#10233a",
+  border: "1px solid #d8dee7",
+  fontSize: "10px",
+};
+
+const crumbLink: React.CSSProperties = {
+  color: "#1758d5",
   textDecoration: "none",
-  fontSize: "11px",
   fontWeight: 900,
 };
 
-const workspaceTabActive: React.CSSProperties = {
-  ...workspaceTab,
-  borderColor: "#1758d5",
-  background: "#1758d5",
-  color: "#ffffff",
-  boxShadow: "0 4px 12px rgba(23,88,213,.14)",
-};
+const crumbDivider: React.CSSProperties = { color: "#94a3b8" };
+const crumbMuted: React.CSSProperties = { color: "#64748b" };
 
-const tabIcon: React.CSSProperties = { fontSize: "15px", fontWeight: 900 };
-
-const statusStrip: React.CSSProperties = {
-  marginTop: "16px",
-  minHeight: "92px",
-  padding: "12px 14px",
-  display: "grid",
-  gridTemplateColumns: "repeat(4, minmax(0,1fr)) 200px",
-  alignItems: "center",
-  background: "#ffffff",
-  border: "1px solid #d6dee8",
-  boxShadow: "0 2px 8px rgba(15,35,58,.04)",
-};
-
-const statusTile: React.CSSProperties = {
-  minHeight: "62px",
-  padding: "0 18px",
-  display: "grid",
-  gridTemplateColumns: "42px minmax(0,1fr)",
-  gap: "10px",
-  alignItems: "center",
-  border: "none",
-  borderRight: "1px solid #e5eaf0",
-  background: "#ffffff",
-  color: "#10233a",
-  textAlign: "left",
-  cursor: "pointer",
-};
-
-const statusIconBlue: React.CSSProperties = {
-  width: "38px", height: "38px", display: "grid", placeItems: "center",
-  borderRadius: "50%", background: "#dbeafe", color: "#1758d5", fontWeight: 950,
-};
-const statusIconAmber: React.CSSProperties = { ...statusIconBlue, background: "#fff7df", color: "#d97706" };
-const statusIconPurple: React.CSSProperties = { ...statusIconBlue, background: "#f3e8ff", color: "#7c3aed" };
-const statusIconGreen: React.CSSProperties = { ...statusIconBlue, background: "#dcfce7", color: "#166534" };
-
-const statusNumber: React.CSSProperties = { display: "block", fontSize: "22px", lineHeight: 1, fontWeight: 950 };
-const statusLabel: React.CSSProperties = { display: "block", marginTop: "6px", color: "#64748b", fontSize: "9px", fontWeight: 850 };
-
-const newWorkOrderButton: React.CSSProperties = {
-  height: "42px",
-  marginLeft: "16px",
-  border: "1px solid #1758d5",
-  background: "#1758d5",
-  color: "#ffffff",
-  fontSize: "9px",
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const workPanel: React.CSSProperties = {
-  marginTop: "16px",
-  background: "#ffffff",
-  border: "1px solid #d6dee8",
-  boxShadow: "0 2px 8px rgba(15,35,58,.04)",
-};
-
-const workPanelHeader: React.CSSProperties = {
-  minHeight: "62px",
-  padding: "12px 14px",
+const header: React.CSSProperties = {
+  marginTop: "8px",
+  minHeight: "78px",
+  padding: "12px",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  borderBottom: "1px solid #e0e6ed",
-};
-
-const workPanelTitle: React.CSSProperties = { margin: 0, fontSize: "16px", fontWeight: 950 };
-const workPanelSubtitle: React.CSSProperties = { margin: "4px 0 0", color: "#64748b", fontSize: "9px" };
-
-const filterBar: React.CSSProperties = {
-  minHeight: "68px",
-  padding: "12px 14px",
-  display: "grid",
-  gridTemplateColumns: "minmax(400px,1fr) 220px 90px",
-  gap: "10px",
-  alignItems: "center",
-  borderBottom: "1px solid #e0e6ed",
-};
-
-const searchBox: React.CSSProperties = {
-  height: "36px",
-  display: "grid",
-  gridTemplateColumns: "32px minmax(0,1fr)",
-  alignItems: "center",
-  border: "1px solid #cbd5e1",
+  gap: "12px",
   background: "#ffffff",
+  border: "1px solid #d8dee7",
 };
 
-const searchIcon: React.CSSProperties = { textAlign: "center", color: "#64748b", fontSize: "15px" };
-const searchInput: React.CSSProperties = { width: "100%", height: "34px", boxSizing: "border-box", border: "none", outline: "none", color: "#10233a", fontSize: "9px" };
-const filterSelect: React.CSSProperties = { height: "36px", padding: "0 9px", border: "1px solid #cbd5e1", background: "#ffffff", color: "#10233a", fontSize: "9px" };
-const clearButton: React.CSSProperties = { height: "36px", border: "1px solid #cbd5e1", background: "#ffffff", color: "#526174", fontSize: "9px", fontWeight: 850, cursor: "pointer" };
-
-const tableHeader: React.CSSProperties = {
-  minHeight: "42px",
-  padding: "0 10px",
-  display: "grid",
-  gridTemplateColumns:
-    "72px minmax(120px,1.15fr) minmax(135px,1.2fr) minmax(120px,1.05fr) 90px 95px 95px 88px minmax(105px,.95fr) 80px 42px",
-  gap: "8px",
-  alignItems: "center",
-  background: "#f4f7fa",
-  borderBottom: "1px solid #d8e0e8",
-  color: "#526174",
-  fontSize: "8px",
-  fontWeight: 900,
+const title: React.CSSProperties = {
+  margin: 0,
+  fontSize: "20px",
+  fontWeight: 950,
 };
 
-const tableRow: React.CSSProperties = {
-  minHeight: "58px",
-  padding: "8px 10px",
-  display: "grid",
-  gridTemplateColumns:
-    "72px minmax(120px,1.15fr) minmax(135px,1.2fr) minmax(120px,1.05fr) 90px 95px 95px 88px minmax(105px,.95fr) 80px 42px",
-  gap: "8px",
-  alignItems: "center",
-  borderBottom: "1px solid #e5eaf0",
-  color: "#10233a",
-  textDecoration: "none",
-  fontSize: "8.5px",
+const subtitle: React.CSSProperties = {
+  margin: "4px 0 0",
+  color: "#64748b",
+  fontSize: "10px",
 };
-
-const tableCellClip: React.CSSProperties = {
-  minWidth: 0,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-};
-
-const relationshipName: React.CSSProperties = { display: "block", fontSize: "9.5px", fontWeight: 900 };
-const rowMeta: React.CSSProperties = { display: "block", marginTop: "3px", color: "#94a3b8", fontSize: "7.5px" };
-const cellText: React.CSSProperties = { color: "#475569", fontSize: "8.5px" };
-
-const statusBadge: React.CSSProperties = {
-  minHeight: "22px", padding: "0 7px", display: "inline-flex", alignItems: "center",
-  justifyContent: "center", borderRadius: "11px", fontSize: "7.5px", fontWeight: 850, textTransform: "capitalize",
-};
-const statusActive: React.CSSProperties = { background: "#ecfdf3", color: "#166534" };
-const statusAwaiting: React.CSSProperties = { background: "#fff7df", color: "#9a6700" };
-const statusWaiting: React.CSSProperties = { background: "#eef2ff", color: "#4338ca" };
-const statusReady: React.CSSProperties = { background: "#dcfce7", color: "#166534" };
-
-const progressText: React.CSSProperties = { fontSize: "8px", fontWeight: 850 };
-const progressTrack: React.CSSProperties = { height: "5px", marginTop: "5px", background: "#e5eaf0", overflow: "hidden" };
-const progressFill: React.CSSProperties = { display: "block", height: "100%", background: "#1758d5" };
-
-const billingBadge: React.CSSProperties = {
-  minHeight: "22px", padding: "0 7px", display: "inline-flex", alignItems: "center",
-  justifyContent: "center", borderRadius: "11px", background: "#f1f5f9",
-  color: "#475569", fontSize: "7.5px", fontWeight: 850, textTransform: "capitalize",
-};
-
-const nextActionCell: React.CSSProperties = { color: "#10233a", fontSize: "8.5px", fontWeight: 850 };
-const actionsDots: React.CSSProperties = { color: "#1758d5", fontSize: "14px", fontWeight: 900, textAlign: "center" };
-const empty: React.CSSProperties = { padding: "20px 14px", color: "#64748b", fontSize: "9px" };
-const errorBar: React.CSSProperties = { marginTop: "12px", padding: "9px 12px", border: "1px solid #fecaca", background: "#fff1f2", color: "#991b1b", fontSize: "9px", fontWeight: 800 };
 
 const primaryButton: React.CSSProperties = {
   height: "30px",
@@ -1074,6 +860,158 @@ const secondaryButton: React.CSSProperties = {
   fontSize: "9px",
   fontWeight: 900,
   cursor: "pointer",
+};
+
+const toolbar: React.CSSProperties = {
+  marginTop: "8px",
+  minHeight: "42px",
+  padding: "6px 8px",
+  display: "grid",
+  gridTemplateColumns: "auto minmax(260px, 1fr)",
+  gap: "8px",
+  alignItems: "center",
+  background: "#ffffff",
+  border: "1px solid #d8dee7",
+};
+
+const statusTabs: React.CSSProperties = {
+  display: "flex",
+  gap: "4px",
+};
+
+const tab: React.CSSProperties = {
+  height: "28px",
+  padding: "0 9px",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#526174",
+  fontSize: "8px",
+  fontWeight: 850,
+  cursor: "pointer",
+};
+
+const activeTab: React.CSSProperties = {
+  background: "#10233a",
+  borderColor: "#10233a",
+  color: "#ffffff",
+};
+
+const searchInput: React.CSSProperties = {
+  width: "100%",
+  height: "28px",
+  padding: "0 8px",
+  boxSizing: "border-box",
+  border: "1px solid #cbd5e1",
+  fontSize: "8px",
+};
+
+const panel: React.CSSProperties = {
+  marginTop: "8px",
+  background: "#ffffff",
+  border: "1px solid #d8dee7",
+};
+
+const tableHeader: React.CSSProperties = {
+  minHeight: "34px",
+  padding: "0 9px",
+  display: "grid",
+  gridTemplateColumns:
+    "100px minmax(180px,1.2fr) minmax(170px,1.1fr) 115px 120px 125px 100px 95px 40px",
+  gap: "7px",
+  alignItems: "center",
+  background: "#f7f9fb",
+  borderBottom: "1px solid #d8dee7",
+  color: "#526174",
+  fontSize: "7.5px",
+  fontWeight: 900,
+};
+
+const tableRow: React.CSSProperties = {
+  minHeight: "46px",
+  padding: "5px 9px",
+  display: "grid",
+  gridTemplateColumns:
+    "100px minmax(180px,1.2fr) minmax(170px,1.1fr) 115px 120px 125px 100px 95px 40px",
+  gap: "7px",
+  alignItems: "center",
+  borderBottom: "1px solid #e5eaf0",
+  color: "#10233a",
+  textDecoration: "none",
+  fontSize: "8px",
+};
+
+const relationshipName: React.CSSProperties = {
+  display: "block",
+  fontSize: "8.5px",
+  fontWeight: 900,
+};
+
+const rowMeta: React.CSSProperties = {
+  display: "block",
+  marginTop: "2px",
+  color: "#64748b",
+  fontSize: "7px",
+};
+
+const cellText: React.CSSProperties = {
+  color: "#526174",
+  fontSize: "8px",
+  textTransform: "capitalize",
+};
+
+const statusBadge: React.CSSProperties = {
+  minHeight: "20px",
+  padding: "0 6px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "#eef5ff",
+  color: "#1758d5",
+  border: "1px solid #dbeafe",
+  fontSize: "7px",
+  fontWeight: 850,
+  textTransform: "capitalize",
+};
+
+const progressText: React.CSSProperties = {
+  fontSize: "7.5px",
+  fontWeight: 850,
+};
+
+const progressTrack: React.CSSProperties = {
+  height: "4px",
+  marginTop: "4px",
+  background: "#e5eaf0",
+  overflow: "hidden",
+};
+
+const progressFill: React.CSSProperties = {
+  display: "block",
+  height: "100%",
+  background: "#1758d5",
+};
+
+const openArrow: React.CSSProperties = {
+  color: "#1758d5",
+  fontSize: "20px",
+  fontWeight: 900,
+  textAlign: "right",
+};
+
+const empty: React.CSSProperties = {
+  padding: "18px 10px",
+  color: "#64748b",
+  fontSize: "9px",
+};
+
+const errorBar: React.CSSProperties = {
+  marginTop: "8px",
+  padding: "8px 10px",
+  border: "1px solid #fecaca",
+  background: "#fff1f2",
+  color: "#991b1b",
+  fontSize: "9px",
+  fontWeight: 800,
 };
 
 const modalBackdrop: React.CSSProperties = {

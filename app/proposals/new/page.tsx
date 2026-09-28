@@ -336,6 +336,34 @@ const initialServices: ServiceLine[] = [
     scopeUnit: "",
     clientFacingNote: "",
   },
+  {
+    id: "training",
+    category: "Advisory Services",
+    name: "Training",
+    description:
+      "Training and implementation support on agreed accounting systems, record keeping, document management and administrative processes.",
+    includedInPackage: true,
+    feeType: "Monthly",
+    amount: 0,
+    scopeQuantity: 12,
+    scopeUnit: "billing periods",
+    clientFacingNote:
+      "Although the majority of the training may be provided during the initial implementation phase, the agreed training fee is recovered in equal monthly instalments over 12 billing periods.",
+  },
+  {
+    id: "consulting",
+    category: "Advisory Services",
+    name: "Consulting",
+    description:
+      "Dedicated business process consulting and implementation support to improve accounting, administrative and compliance processes, including the transition from manual and paper-based processes.",
+    includedInPackage: true,
+    feeType: "Monthly",
+    amount: 0,
+    scopeQuantity: 3,
+    scopeUnit: "hours per month",
+    clientFacingNote:
+      "These consulting hours are additional to the time required to perform bookkeeping, VAT, payroll, tax, compliance and other recurring services included in the engagement. Unused consulting hours do not accumulate unless otherwise agreed.",
+  },
 ];
 
 export default function NewProposalPage() {

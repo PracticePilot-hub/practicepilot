@@ -67,7 +67,7 @@ const registrationItems = [
   },
   {
     item_code: "company_registration",
-    item_label: "Actual registration",
+    item_label: "Company registration",
     sort_order: 20,
     is_required: true,
     is_selected: true,

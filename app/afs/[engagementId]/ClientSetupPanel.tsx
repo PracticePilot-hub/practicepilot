@@ -385,6 +385,7 @@ export default function ClientSetupPanel({
   });
 
   const [people, setPeople] = useState<ClientPerson[]>([]);
+  const [savingPersonId, setSavingPersonId] = useState<string | null>(null);
   const [newPerson, setNewPerson] = useState<NewPerson>(() => defaultPersonForEntity(entityType));
 
   const [loading, setLoading] = useState(true);
@@ -614,6 +615,86 @@ export default function ClientSetupPanel({
       }
     } catch (error: any) {
       alert(error.message || "Failed to add person.");
+    }
+  }
+
+  function updateExistingPerson(
+    personId: string,
+    field: keyof ClientPerson,
+    value: string,
+  ) {
+    setPeople((current) =>
+      current.map((person) =>
+        person.id === personId ? { ...person, [field]: value } : person,
+      ),
+    );
+  }
+
+  async function saveExistingPerson(person: ClientPerson) {
+    if (!String(person.full_name || "").trim()) {
+      alert("Full name is required.");
+      return;
+    }
+
+    setSavingPersonId(person.id);
+
+    try {
+      const res = await fetch(`/api/afs/engagements/${engagementId}/client-people`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          personId: person.id,
+          person_type: person.person_type,
+          full_name: person.full_name,
+          nationality: person.nationality || "",
+          id_number: person.id_number || "",
+          income_tax_number: person.income_tax_number || "",
+          appointment_date: person.appointment_date || "",
+          resignation_date: person.resignation_date || "",
+          email: person.email || "",
+          cell: person.cell || "",
+        }),
+      });
+
+      const responseText = await res.text();
+      let data: any = null;
+
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          throw new Error(
+            `Client people API returned an invalid response (HTTP ${res.status}).`,
+          );
+        }
+      }
+
+      if (!res.ok) {
+        throw new Error(
+          data?.error ||
+            `Failed to update person (HTTP ${res.status}). Check that the client-people route exports PATCH.`,
+        );
+      }
+
+      if (!data?.person) {
+        throw new Error(
+          "Client people API returned no updated person. Check the client-people PATCH route.",
+        );
+      }
+
+      setPeople((current) =>
+        current.map((row) => (row.id === person.id ? data.person : row)),
+      );
+
+      if (data.signoffInvalidated) {
+        notifyClientSetupSignoffRefresh();
+      }
+    } catch (error: any) {
+      alert(error.message || "Failed to update person.");
+    } finally {
+      setSavingPersonId(null);
     }
   }
 
@@ -1303,20 +1384,114 @@ export default function ClientSetupPanel({
               <tbody>
                 {people.map((person) => (
                   <tr key={person.id}>
-                    <td style={styles.td}>{person.person_type}</td>
-                    <td style={styles.td}>{person.full_name}</td>
-                    <td style={styles.td}>{person.nationality || ""}</td>
-                    <td style={styles.td}>{person.id_number || ""}</td>
-                    <td style={styles.td}>{person.income_tax_number || ""}</td>
-                    <td style={styles.td}>{person.appointment_date || ""}</td>
-                    <td style={styles.tdRight}>
-                      <button
-                        type="button"
-                        style={styles.deleteButton}
-                        onClick={() => deletePerson(person.id)}
+                    <td style={styles.td}>
+                      <select
+                        style={styles.input}
+                        value={person.person_type || ""}
+                        onChange={(e) =>
+                          updateExistingPerson(person.id, "person_type", e.target.value)
+                        }
                       >
-                        Delete
-                      </button>
+                        {isTrustEntity(setup.entity_type) ? (
+                          <>
+                            <option value="Trustee">Trustee</option>
+                            <option value="Beneficiary">Beneficiary</option>
+                            <option value="Other">Other</option>
+                          </>
+                        ) : isCloseCorporationEntity(setup.entity_type) ? (
+                          <>
+                            <option value="Member">Member</option>
+                            <option value="Other">Other</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="Director">Director</option>
+                            <option value="Member">Member</option>
+                            <option value="Trustee">Trustee</option>
+                            <option value="Shareholder">Shareholder</option>
+                            <option value="Other">Other</option>
+                          </>
+                        )}
+                      </select>
+                    </td>
+
+                    <td style={styles.td}>
+                      <input
+                        style={styles.input}
+                        value={person.full_name || ""}
+                        onChange={(e) =>
+                          updateExistingPerson(person.id, "full_name", e.target.value)
+                        }
+                      />
+                    </td>
+
+                    <td style={styles.td}>
+                      <input
+                        style={styles.input}
+                        value={person.nationality || ""}
+                        onChange={(e) =>
+                          updateExistingPerson(person.id, "nationality", e.target.value)
+                        }
+                      />
+                    </td>
+
+                    <td style={styles.td}>
+                      <input
+                        style={styles.input}
+                        value={person.id_number || ""}
+                        onChange={(e) =>
+                          updateExistingPerson(person.id, "id_number", e.target.value)
+                        }
+                      />
+                    </td>
+
+                    <td style={styles.td}>
+                      <input
+                        style={styles.input}
+                        value={person.income_tax_number || ""}
+                        onChange={(e) =>
+                          updateExistingPerson(
+                            person.id,
+                            "income_tax_number",
+                            e.target.value,
+                          )
+                        }
+                      />
+                    </td>
+
+                    <td style={styles.td}>
+                      <input
+                        style={styles.input}
+                        type="date"
+                        value={person.appointment_date || ""}
+                        onChange={(e) =>
+                          updateExistingPerson(
+                            person.id,
+                            "appointment_date",
+                            e.target.value,
+                          )
+                        }
+                      />
+                    </td>
+
+                    <td style={styles.tdRight}>
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                        <button
+                          type="button"
+                          style={styles.primaryButton}
+                          disabled={savingPersonId === person.id}
+                          onClick={() => saveExistingPerson(person)}
+                        >
+                          {savingPersonId === person.id ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          style={styles.deleteButton}
+                          onClick={() => deletePerson(person.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

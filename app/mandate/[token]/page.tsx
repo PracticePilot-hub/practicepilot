@@ -169,13 +169,13 @@ async function requestMandateChanges(formData: FormData) {
   await admin.from("crm_secretarial_work_order_updates").insert({
     organisation_id: order.organisation_id,
     work_order_id: order.id,
-    update_type: "manual_update",
+    update_type: "changes_requested",
     subject: "Client requested mandate changes",
     message: `${name} (${email}) requested changes: ${message}`,
-    delivery_channel: "portal",
+    delivery_channel: "email_and_portal",
     recipient_name: name,
     recipient_email: email,
-    delivery_status: "not_sent",
+    delivery_status: "queued",
   });
 
   revalidatePath(`/mandate/${token}`);
@@ -223,19 +223,34 @@ async function declineMandate(formData: FormData) {
   await admin.from("crm_secretarial_work_order_updates").insert({
     organisation_id: order.organisation_id,
     work_order_id: order.id,
-    update_type: "manual_update",
+    update_type: "mandate_declined",
     subject: "Mandate declined",
     message: `${name} (${email}) declined the mandate.${
       reason ? ` Reason: ${reason}` : ""
     }`,
-    delivery_channel: "portal",
+    delivery_channel: "email_and_portal",
     recipient_name: name,
     recipient_email: email,
-    delivery_status: "not_sent",
+    delivery_status: "queued",
   });
 
   revalidatePath(`/mandate/${token}`);
   redirect(`/mandate/${token}?declined=1`);
+}
+
+function displayMandateItemLabel(item: {
+  item_code?: string | null;
+  item_label?: string | null;
+}) {
+  if (
+    item.item_code === "company_registration" ||
+    item.item_code === "actual_registration" ||
+    String(item.item_label || "").toLowerCase() === "actual registration"
+  ) {
+    return "Company registration";
+  }
+
+  return item.item_label || "Work item";
 }
 
 export default async function MandatePage({
@@ -457,7 +472,7 @@ export default async function MandatePage({
                   <div key={item.id} style={serviceRow}>
                     <span style={tick}>✓</span>
                     <div>
-                      <strong>{item.item_label}</strong>
+                      <strong>{displayMandateItemLabel(item)}</strong>
                       <span style={serviceMeta}>
                         {item.is_required ? "Included" : "Optional selected"}
                       </span>
@@ -686,7 +701,7 @@ export default async function MandatePage({
                         {done ? "✓" : "○"}
                       </span>
                       <div>
-                        <strong>{item.item_label}</strong>
+                        <strong>{displayMandateItemLabel(item)}</strong>
                         <span style={progressMeta}>
                           {item.status.replaceAll("_", " ")}
                         </span>

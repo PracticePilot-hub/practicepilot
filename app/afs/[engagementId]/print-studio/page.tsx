@@ -1349,17 +1349,30 @@ function CcMembersResponsibilitiesBlock({
   reportingPeriodLabel,
   approvalDate,
   members,
+  numberOfMembersToSign,
 }: {
   clientName: string;
   yearEnd: string;
   reportingPeriodLabel?: string;
   approvalDate: string;
   members: PersonData[];
+  numberOfMembersToSign?: number;
 }) {
   const memberCount = Math.max(1, members.length);
   const memberWord = ccMemberCollective(memberCount);
   const memberWordCapitalised =
     memberWord.charAt(0).toUpperCase() + memberWord.slice(1);
+
+  const requestedSignatureCount = Math.max(
+    0,
+    Math.floor(Number(numberOfMembersToSign || 0)),
+  );
+
+  const signatureMembers = members.length
+    ? requestedSignatureCount > 0
+      ? members.slice(0, requestedSignatureCount)
+      : members
+    : [{ full_name: memberWordCapitalised }];
 
   return (
     <div>
@@ -1401,12 +1414,12 @@ function CcMembersResponsibilitiesBlock({
         style={{
           display: "grid",
           gridTemplateColumns:
-            members.length > 1 ? "repeat(2, minmax(0, 1fr))" : "minmax(0, 280px)",
+            signatureMembers.length > 1 ? "repeat(2, minmax(0, 1fr))" : "minmax(0, 280px)",
           gap: "28px 44px",
           marginTop: 30,
         }}
       >
-        {(members.length ? members : [{ full_name: memberWordCapitalised }]).map(
+        {signatureMembers.map(
           (member: PersonData, index: number) => (
             <div key={member.id || `${getPersonName(member)}-${index}`}>
               <div
@@ -1517,7 +1530,8 @@ function TrustTrusteesResponsibilitiesBlock({
   numberOfTrusteesToSign?: number;
 }) {
   const trusteeCount = Math.max(1, trustees.length);
-  const trusteeWord = trusteeCount === 1 ? "trustee" : "trustees";
+  const singular = trusteeCount === 1;
+  const trusteeWord = singular ? "trustee" : "trustees";
   const trusteeWordCapitalised =
     trusteeWord.charAt(0).toUpperCase() + trusteeWord.slice(1);
 
@@ -1532,59 +1546,38 @@ function TrustTrusteesResponsibilitiesBlock({
       : trustees
     : [{ full_name: trusteeWordCapitalised }];
 
+  const paragraphOne = singular
+    ? `The trustee is required to maintain adequate accounting records and is responsible for the content and integrity of the annual financial statements and related financial information included in this report. It is the trustee's responsibility to ensure that the annual financial statements fairly present the financial position of ${clientName} as at the end of the financial year and the results of its operations and cash flows for the period then ended.`
+    : `The trustees are required to maintain adequate accounting records and are responsible for the content and integrity of the annual financial statements and related financial information included in this report. It is their responsibility to ensure that the annual financial statements fairly present the financial position of ${clientName} as at the end of the financial year and the results of its operations and cash flows for the period then ended.`;
+
+  const paragraphTwo = singular
+    ? "The trustee acknowledges ultimate responsibility for the trust's system of internal financial control and places considerable importance on maintaining an appropriate control environment. The controls are designed to reduce the risk of error, loss or material misstatement in a cost-effective manner and include appropriate delegation of responsibilities, accounting procedures and, where practicable, segregation of duties."
+    : "The trustees acknowledge ultimate responsibility for the trust's system of internal financial control and place considerable importance on maintaining an appropriate control environment. The controls are designed to reduce the risk of error, loss or material misstatement in a cost-effective manner and include appropriate delegation of responsibilities, accounting procedures and, where practicable, segregation of duties.";
+
+  const paragraphThree = singular
+    ? "The trustee is responsible for ensuring that the trust's assets are safeguarded, that transactions are properly authorised and recorded, and that the accounting records provide a reliable basis for the preparation of the annual financial statements. The controls and procedures are intended to ensure that the affairs of the trust are conducted in an appropriate and responsible manner and that known risks are identified, assessed and managed."
+    : "The trustees are responsible for ensuring that the trust's assets are safeguarded, that transactions are properly authorised and recorded, and that the accounting records provide a reliable basis for the preparation of the annual financial statements. The controls and procedures are intended to ensure that the affairs of the trust are conducted in an appropriate and responsible manner and that known risks are identified, assessed and managed.";
+
+  const paragraphFour = singular
+    ? "Based on the information and explanations available to the trustee, the trustee is of the opinion that the system of internal financial control provides reasonable assurance that the financial records may be relied upon for the preparation of the annual financial statements. Any system of internal financial control can, however, provide only reasonable and not absolute assurance against material misstatement or loss."
+    : "Based on the information and explanations available to them, the trustees are of the opinion that the system of internal financial control provides reasonable assurance that the financial records may be relied upon for the preparation of the annual financial statements. Any system of internal financial control can, however, provide only reasonable and not absolute assurance against material misstatement or loss.";
+
+  const paragraphFive = singular
+    ? `The trustee has reviewed the trust's financial position and is satisfied that ${clientName} has adequate resources to continue in operation for the foreseeable future. The annual financial statements have therefore been prepared on the going concern basis.`
+    : `The trustees have reviewed the trust's financial position and are satisfied that ${clientName} has adequate resources to continue in operation for the foreseeable future. The annual financial statements have therefore been prepared on the going concern basis.`;
+
   return (
     <div>
-      <p style={paragraphStyle()}>
-        The {trusteeWord} {trusteeCount === 1 ? "is" : "are"} required to maintain
-        adequate accounting records and {trusteeCount === 1 ? "is" : "are"} responsible
-        for the content and integrity of the annual financial statements and related
-        financial information. It is {trusteeCount === 1 ? "the trustee's" : "their"}{" "}
-        responsibility to ensure that the annual financial statements fairly present
-        the financial position of {clientName} as at the end of the financial year and
-        the results of its operations and cash flows for the period then ended.
-      </p>
+      <p style={paragraphStyle()}>{paragraphOne}</p>
+      <p style={paragraphStyle()}>{paragraphTwo}</p>
+      <p style={paragraphStyle()}>{paragraphThree}</p>
+      <p style={paragraphStyle()}>{paragraphFour}</p>
+      <p style={paragraphStyle()}>{paragraphFive}</p>
 
       <p style={paragraphStyle()}>
-        The {trusteeWord} acknowledge{trusteeCount === 1 ? "s" : ""} ultimate
-        responsibility for the trust&apos;s system of internal financial control and
-        place{trusteeCount === 1 ? "s" : ""} considerable importance on maintaining
-        an appropriate control environment. The controls are designed to reduce the
-        risk of error, loss or material misstatement in a cost-effective manner and
-        include appropriate delegation of responsibilities, accounting procedures and,
-        where practicable, segregation of duties.
-      </p>
-
-      <p style={paragraphStyle()}>
-        The {trusteeWord} {trusteeCount === 1 ? "is" : "are"} responsible for ensuring
-        that the trust&apos;s assets are safeguarded, that transactions are properly
-        authorised and recorded, and that the accounting records provide a reliable
-        basis for the preparation of the annual financial statements. The controls and
-        procedures are intended to ensure that the affairs of the trust are conducted
-        in an appropriate and responsible manner and that known risks are identified,
-        assessed and managed.
-      </p>
-
-      <p style={paragraphStyle()}>
-        Based on the information and explanations available to {trusteeCount === 1 ? "the trustee" : "them"},
-        the {trusteeWord} {trusteeCount === 1 ? "is" : "are"} of the opinion that the
-        system of internal financial control provides reasonable assurance that the
-        financial records may be relied upon for the preparation of the annual
-        financial statements. Any system of internal financial control can, however,
-        provide only reasonable and not absolute assurance against material
-        misstatement or loss.
-      </p>
-
-      <p style={paragraphStyle()}>
-        The {trusteeWord} {trusteeCount === 1 ? "has" : "have"} reviewed the
-        trust&apos;s financial position and {trusteeCount === 1 ? "is" : "are"} satisfied
-        that {clientName} has adequate resources to continue in operation for the
-        foreseeable future. The annual financial statements have therefore been
-        prepared on the going concern basis.
-      </p>
-
-      <p style={paragraphStyle()}>
-        The annual financial statements for the {reportingPeriodLabel || `year ended ${yearEnd}`} were approved by
-        the {trusteeWord} on {approvalDate || "________________"} and are signed below
+        The annual financial statements for the{" "}
+        {reportingPeriodLabel || `year ended ${yearEnd}`} were approved by the{" "}
+        {trusteeWord} on {approvalDate || "________________"} and are signed below
         by the {trusteeWord} or on their behalf.
       </p>
 
@@ -2893,6 +2886,24 @@ const clientLogoUrl = cleanString(
       ? clientPeople
       : peopleFromSetup;
 
+  const requestedSignatureCount = Math.max(
+    0,
+    Math.floor(
+      Number(
+        getSetupValue(clientSetup, [
+          "number_of_directors",
+          "number_of_members",
+          "number_of_trustees",
+        ]) || 0,
+      ),
+    ),
+  );
+
+  const signingDirectorsForDisplay =
+    requestedSignatureCount > 0
+      ? directorsForDisplay.slice(0, requestedSignatureCount)
+      : directorsForDisplay;
+
   const beneficiariesForDisplay = isTrust
     ? clientPeople.filter(isBeneficiaryLike)
     : [];
@@ -3676,7 +3687,12 @@ useEffect(() => {
       ? assetCurrent >= liabilityCurrent
       : assetPrior >= liabilityPrior;
 
-    return noteSections.map((section: any) => {
+    return noteSections
+      .filter(
+        (section: any) =>
+          !(entityPresentation.isNpc && isShareCapitalNoteSection(section)),
+      )
+      .map((section: any) => {
       if (isShareCapitalNoteSection(section) && isCloseCorporation) {
         return {
           ...section,
@@ -9402,6 +9418,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       reportingPeriodLabel={reportingPeriodLabel}
                       approvalDate={String(approvalDate)}
                       members={directorsForDisplay}
+                      numberOfMembersToSign={requestedSignatureCount}
                     />
                   ) : isTrust ? (
                     <TrustTrusteesResponsibilitiesBlock
@@ -9410,15 +9427,15 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       reportingPeriodLabel={reportingPeriodLabel}
                       approvalDate={String(approvalDate)}
                       trustees={directorsForDisplay}
-                      numberOfTrusteesToSign={Number(
-                        getSetupValue(clientSetup, [
-                          "number_of_directors",
-                          "number_of_trustees",
-                        ]) || 0,
-                      )}
+                      numberOfTrusteesToSign={requestedSignatureCount}
                     />
                   ) : (
-                    <DirectorsResponsibilitiesBlock context={narrativeContext} />
+                    <DirectorsResponsibilitiesBlock
+                      context={{
+                        ...narrativeContext,
+                        directors: signingDirectorsForDisplay,
+                      }}
+                    />
                   )}
                 </section>
               </AfsA4Page>

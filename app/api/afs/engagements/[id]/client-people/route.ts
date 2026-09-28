@@ -112,6 +112,73 @@ export async function POST(req: NextRequest, context: any) {
   }
 }
 
+
+export async function PATCH(req: NextRequest, context: any) {
+  try {
+    const engagementId = await getIdFromContext(context);
+    const body = await req.json();
+
+    const personId = String(body.personId || "").trim();
+    const fullName = String(body.full_name || "").trim();
+
+    if (!personId) {
+      return NextResponse.json(
+        { error: "Person id is required." },
+        { status: 400 },
+      );
+    }
+
+    if (!fullName) {
+      return NextResponse.json(
+        { error: "Full name is required." },
+        { status: 400 },
+      );
+    }
+
+    const supabase = getSupabaseServer();
+
+    const updatePayload = {
+      person_type: String(body.person_type || "").trim() || "Director",
+      full_name: fullName,
+      nationality: String(body.nationality || "").trim() || null,
+      id_number: String(body.id_number || "").trim() || null,
+      income_tax_number: String(body.income_tax_number || "").trim() || null,
+      appointment_date: String(body.appointment_date || "").trim() || null,
+      resignation_date: String(body.resignation_date || "").trim() || null,
+      email: String(body.email || "").trim() || null,
+      cell: String(body.cell || "").trim() || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from("afs_client_people")
+      .update(updatePayload)
+      .eq("id", personId)
+      .eq("engagement_id", engagementId)
+      .select("*")
+      .single();
+
+    if (error) throw error;
+
+    const signoffInvalidated = await invalidateClientSetupSignoff(
+      supabase,
+      engagementId,
+      `Client Setup changed after sign-off: ${String(data.person_type || "person")} ${fullName} was updated.`,
+    );
+
+    return NextResponse.json({
+      success: true,
+      person: data,
+      signoffInvalidated,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Failed to update person." },
+      { status: 500 },
+    );
+  }
+}
+
 export async function DELETE(req: NextRequest, context: any) {
   try {
     const engagementId = await getIdFromContext(context);
