@@ -111,6 +111,20 @@ function fileType(name: string) {
   return ext ? ext.toUpperCase() : "FILE";
 }
 
+function canPreviewDocument(name: string) {
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+
+  return [
+    "pdf",
+    "png",
+    "jpg",
+    "jpeg",
+    "webp",
+    "gif",
+    "txt",
+  ].includes(ext);
+}
+
 function requestTypeLabel(value: string) {
   const labels: Record<string, string> = {
     document_request: "Document request",
@@ -133,7 +147,6 @@ function requestStatusLabel(value: string) {
 
   return labels[value] || value;
 }
-
 
 function PortalIcon({
   name,
@@ -245,6 +258,7 @@ export default function ClientPortalPage() {
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
   const [downloading, setDownloading] = useState("");
+  const [previewing, setPreviewing] = useState("");
 
   useEffect(() => {
     void load();
@@ -313,6 +327,71 @@ export default function ClientPortalPage() {
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function preview(portalDocument: PortalDocument) {
+    if (!canPreviewDocument(portalDocument.document_name)) return;
+
+    setPreviewing(portalDocument.id);
+
+    const previewWindow = window.open("", "_blank");
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error(
+          "Your PracticePilot login session could not be confirmed."
+        );
+      }
+
+      const query = new URLSearchParams({
+        document: portalDocument.id,
+      });
+
+      const response = await fetch(
+        `/api/client-portal/download?${query.toString()}`,
+        {
+          cache: "no-store",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+
+        throw new Error(
+          result?.error || "Could not preview the document."
+        );
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+
+      if (previewWindow) {
+        previewWindow.location.href = objectUrl;
+      } else {
+        window.open(objectUrl, "_blank", "noopener,noreferrer");
+      }
+
+      window.setTimeout(() => {
+        URL.revokeObjectURL(objectUrl);
+      }, 60000);
+    } catch (caught) {
+      previewWindow?.close();
+
+      alert(
+        caught instanceof Error
+          ? caught.message
+          : "Could not preview the document."
+      );
+    } finally {
+      setPreviewing("");
     }
   }
 
@@ -529,6 +608,8 @@ export default function ClientPortalPage() {
           portalUserName={portalUserName}
           recentDocuments={recentDocuments}
           downloading={downloading}
+          previewing={previewing}
+          onPreview={preview}
           onDownload={download}
           onViewDocuments={() =>
             window.location.assign(portalHref("documents"))
@@ -545,8 +626,10 @@ export default function ClientPortalPage() {
           visibleDocuments={visibleDocuments}
           selectedCategoryLabel={selectedCategoryLabel}
           downloading={downloading}
+          previewing={previewing}
           onCategoryChange={setCategory}
           onSearchChange={setSearch}
+          onPreview={preview}
           onDownload={download}
           onClientChange={(clientId) =>
             window.location.assign(
@@ -575,6 +658,8 @@ function HomeView({
   portalUserName,
   recentDocuments,
   downloading,
+  previewing,
+  onPreview,
   onDownload,
   onViewDocuments,
   onClientChange,
@@ -584,6 +669,8 @@ function HomeView({
   portalUserName: string;
   recentDocuments: PortalDocument[];
   downloading: string;
+  previewing: string;
+  onPreview: (document: PortalDocument) => Promise<void>;
   onDownload: (document: PortalDocument) => Promise<void>;
   onViewDocuments: () => void;
   onClientChange: (clientId: string) => void;
@@ -839,14 +926,27 @@ function HomeView({
                     <span style={styles.cellText}>{formatDate(document.released_at)}</span>
                     <span style={styles.recordPill}>For your records</span>
 
-                    <button
-                      type="button"
-                      onClick={() => void onDownload(document)}
-                      disabled={downloading === document.id}
-                      style={styles.downloadButton}
-                    >
-                      {downloading === document.id ? "..." : "Download"}
-                    </button>
+                    <div style={styles.documentActions}>
+                      {canPreviewDocument(document.document_name) ? (
+                        <button
+                          type="button"
+                          onClick={() => void onPreview(document)}
+                          disabled={previewing === document.id}
+                          style={styles.previewButton}
+                        >
+                          {previewing === document.id ? "Opening..." : "Preview"}
+                        </button>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => void onDownload(document)}
+                        disabled={downloading === document.id}
+                        style={styles.downloadSecondaryButton}
+                      >
+                        {downloading === document.id ? "..." : "Download"}
+                      </button>
+                    </div>
                   </div>
                 ))
               ) : (
@@ -917,8 +1017,10 @@ function DocumentsView({
   visibleDocuments,
   selectedCategoryLabel,
   downloading,
+  previewing,
   onCategoryChange,
   onSearchChange,
+  onPreview,
   onDownload,
   onClientChange,
 }: {
@@ -928,8 +1030,10 @@ function DocumentsView({
   visibleDocuments: PortalDocument[];
   selectedCategoryLabel: string;
   downloading: string;
+  previewing: string;
   onCategoryChange: (value: string) => void;
   onSearchChange: (value: string) => void;
+  onPreview: (document: PortalDocument) => Promise<void>;
   onDownload: (document: PortalDocument) => Promise<void>;
   onClientChange: (clientId: string) => void;
 }) {
@@ -1137,15 +1241,28 @@ function DocumentsView({
                   <span style={styles.cellText}>{formatDate(document.released_at)}</span>
                   <span style={styles.recordPill}>For your records</span>
 
-                  <button
-                    type="button"
-                    onClick={() => void onDownload(document)}
-                    disabled={downloading === document.id}
-                    style={styles.downloadButton}
-                  >
-                    <PortalIcon name="download" size={15} />
-                    {downloading === document.id ? "..." : "Download"}
-                  </button>
+                  <div style={styles.documentActions}>
+                    {canPreviewDocument(document.document_name) ? (
+                      <button
+                        type="button"
+                        onClick={() => void onPreview(document)}
+                        disabled={previewing === document.id}
+                        style={styles.previewButton}
+                      >
+                        {previewing === document.id ? "Opening..." : "Preview"}
+                      </button>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={() => void onDownload(document)}
+                      disabled={downloading === document.id}
+                      style={styles.downloadSecondaryButton}
+                    >
+                      <PortalIcon name="download" size={14} />
+                      {downloading === document.id ? "..." : "Download"}
+                    </button>
+                  </div>
                 </div>
               ))
             ) : (
@@ -1503,7 +1620,6 @@ function RequestsView({
     </div>
   );
 }
-
 
 function Metric({
   value,
@@ -1899,7 +2015,7 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 42,
     padding: "0 16px",
     display: "grid",
-    gridTemplateColumns: "minmax(270px, 1.7fr) 1fr 120px 130px 96px",
+    gridTemplateColumns: "minmax(270px, 1.7fr) 1fr 120px 130px 188px",
     alignItems: "center",
     gap: 12,
     background: "#f6f8fa",
@@ -1912,7 +2028,7 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 72,
     padding: "10px 16px",
     display: "grid",
-    gridTemplateColumns: "minmax(270px, 1.7fr) 1fr 120px 130px 96px",
+    gridTemplateColumns: "minmax(270px, 1.7fr) 1fr 120px 130px 188px",
     alignItems: "center",
     gap: 12,
     borderBottom: "1px solid #e6ebf0",
@@ -2186,7 +2302,7 @@ const styles: Record<string, CSSProperties> = {
     padding: "0 14px",
     display: "grid",
     gridTemplateColumns:
-      "minmax(320px, 1.7fr) 1fr 120px 135px 96px",
+      "minmax(320px, 1.7fr) 1fr 120px 135px 188px",
     alignItems: "center",
     gap: 12,
     background: "#f3f6f9",
@@ -2200,7 +2316,7 @@ const styles: Record<string, CSSProperties> = {
     padding: "9px 14px",
     display: "grid",
     gridTemplateColumns:
-      "minmax(320px, 1.7fr) 1fr 120px 135px 96px",
+      "minmax(320px, 1.7fr) 1fr 120px 135px 188px",
     alignItems: "center",
     gap: 12,
     borderBottom: "1px solid #e6ebf0",
@@ -2254,18 +2370,36 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 9,
     fontWeight: 900,
   },
-  downloadButton: {
-    minWidth: 108,
+  documentActions: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 7,
+  },
+  previewButton: {
+    minWidth: 82,
+    height: 34,
+    padding: "0 10px",
+    border: "1px solid #1768d2",
+    borderRadius: 5,
+    background: "#1768d2",
+    color: "#ffffff",
+    fontSize: 9,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  downloadSecondaryButton: {
+    minWidth: 92,
     height: 34,
     padding: "0 10px",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    border: "1px solid #1768d2",
+    gap: 5,
+    border: "1px solid #bfd0e4",
     borderRadius: 5,
-    background: "#1768d2",
-    color: "#ffffff",
+    background: "#ffffff",
+    color: "#1768d2",
     fontSize: 9,
     fontWeight: 900,
     cursor: "pointer",
@@ -2499,7 +2633,6 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 10,
   },
 
-
   requestList: {
     display: "grid",
   },
@@ -2628,7 +2761,6 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 10,
     fontWeight: 800,
   },
-
 
   requestDetailPanel: {
     marginTop: 16,

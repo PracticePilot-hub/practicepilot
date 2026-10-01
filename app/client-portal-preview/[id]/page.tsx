@@ -4,36 +4,35 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/app/lib/supabase";
 
-type PortalDocument = {
+type PreviewDocument = {
   id: string;
-  provider_path: string;
   document_name: string;
-  portal_category: string;
-  portal_category_label: string;
-  workflow_status: string;
-  client_visible: boolean;
-  released_at: string | null;
-  approved_at: string | null;
-  updated_at: string | null;
+  provider_path: string;
+  portal_category: string | null;
+  portal_category_label?: string | null;
+  released_at?: string | null;
+  approved_at?: string | null;
+  updated_at?: string | null;
 };
 
-type PortalResponse = {
-  success: boolean;
-  client: {
-    id: string;
-    client_name: string;
-    trading_name?: string | null;
-    registration_number?: string | null;
-    client_code?: string | null;
+type ClientInfo = {
+  id: string;
+  client_name: string;
+  trading_name?: string | null;
+};
+
+type PreviewResponse = {
+  success?: boolean;
+  client?: ClientInfo;
+  documents?: PreviewDocument[];
+  counts?: {
+    total?: number;
+    needs_action?: number;
+    awaiting_our_work?: number;
+    for_your_records?: number;
   };
-  documents: PortalDocument[];
-  counts: {
-    total: number;
-    needs_action: number;
-    awaiting_our_work: number;
-    for_your_records: number;
-  };
-  category_counts: Record<string, number>;
+  category_counts?: Record<string, number>;
+  error?: string;
 };
 
 const CATEGORIES = [
@@ -51,7 +50,7 @@ const CATEGORIES = [
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
+  if (Number.isNaN(date.getTime())) return value;
 
   return new Intl.DateTimeFormat("en-ZA", {
     day: "2-digit",
@@ -60,36 +59,55 @@ function formatDate(value: string | null | undefined) {
   }).format(date);
 }
 
-function initials(name: string) {
-  const parts = name.split(/\s+/).filter(Boolean);
+function categoryLabel(value: string | null | undefined) {
   return (
-    (parts[0]?.[0] || "") + (parts[1]?.[0] || parts[0]?.[1] || "")
-  ).toUpperCase();
+    CATEGORIES.find(([key]) => key === String(value || ""))?.[1] ||
+    "General"
+  );
 }
 
-function fileType(name: string) {
+function initials(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("");
+}
+
+function canPreview(name: string) {
   const ext = name.split(".").pop()?.toLowerCase() || "";
-  if (ext === "pdf") return "PDF";
-  if (["xls", "xlsx"].includes(ext)) return "XLS";
-  if (["doc", "docx"].includes(ext)) return "DOC";
-  return ext ? ext.toUpperCase() : "FILE";
+  return ["pdf", "png", "jpg", "jpeg", "webp", "gif", "txt"].includes(ext);
 }
 
-export default function ClientPortalPreviewPage() {
+export default function ClientPortalStaffPreviewPage() {
   const params = useParams<{ id: string }>();
   const clientId = String(params?.id || "");
 
-  const [data, setData] = useState<PortalResponse | null>(null);
+  const [data, setData] = useState<PreviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
   const [downloading, setDownloading] = useState("");
+  const [previewing, setPreviewing] = useState("");
 
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
+
+  async function authToken() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      throw new Error("Your PracticePilot login session could not be confirmed.");
+    }
+
+    return session.access_token;
+  }
 
   async function load() {
     if (!clientId) return;
@@ -98,35 +116,33 @@ export default function ClientPortalPreviewPage() {
     setError("");
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.access_token) {
-        throw new Error(
-          "Your PracticePilot login session could not be confirmed."
-        );
-      }
+      const token = await authToken();
 
       const response = await fetch(
         `/api/crm/clients/${clientId}/documents/portal-preview`,
         {
           cache: "no-store",
           headers: {
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${token}`,
           },
         }
       );
 
-      const result = await response.json();
+      const result = (await response.json()) as PreviewResponse;
 
-      if (!response.ok || !result?.success) {
-        throw new Error(
-          result?.error || "Could not load the client portal preview."
-        );
+      if (!response.ok || result?.success === false) {
+        throw new Error(result?.error || "Could not load the client portal preview.");
       }
 
-      setData(result as PortalResponse);
+      setData({
+        ...result,
+        client: result.client || {
+          id: clientId,
+          client_name: "Client",
+        },
+        documents: result.documents || [],
+        category_counts: result.category_counts || {},
+      });
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -138,275 +154,342 @@ export default function ClientPortalPreviewPage() {
     }
   }
 
-  async function download(portalDocument: PortalDocument) {
-    setDownloading(portalDocument.id);
+  async function documentBlob(document: PreviewDocument) {
+    const token = await authToken();
+
+    const query = new URLSearchParams({
+      path: document.provider_path,
+    });
+
+    const response = await fetch(
+      `/api/crm/clients/${clientId}/documents/download?${query.toString()}`,
+      {
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.error || "Could not load the document.");
+    }
+
+    return response.blob();
+  }
+
+  async function preview(document: PreviewDocument) {
+    if (!canPreview(document.document_name)) return;
+
+    setPreviewing(document.id);
+    const popup = window.open("", "_blank");
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const blob = await documentBlob(document);
+      const url = URL.createObjectURL(blob);
 
-      if (!session?.access_token) {
-        throw new Error(
-          "Your PracticePilot login session could not be confirmed."
-        );
+      if (popup) {
+        popup.location.href = url;
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
       }
 
-      const query = new URLSearchParams({
-        path: portalDocument.provider_path,
-        disposition: "attachment",
-      });
-
-      const response = await fetch(
-        `/api/crm/clients/${clientId}/documents/download?${query.toString()}`,
-        {
-          cache: "no-store",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        }
-      );
-
-      if (!response.ok) {
-        const result = await response.json().catch(() => null);
-        throw new Error(result?.error || "Could not download the document.");
-      }
-
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const anchor = window.document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = portalDocument.document_name;
-      window.document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(objectUrl);
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (caught) {
-      alert(
-        caught instanceof Error
-          ? caught.message
-          : "Could not download the document."
+      popup?.close();
+      window.alert(
+        caught instanceof Error ? caught.message : "Could not preview document."
+      );
+    } finally {
+      setPreviewing("");
+    }
+  }
+
+  async function download(document: PreviewDocument) {
+    setDownloading(document.id);
+
+    try {
+      const blob = await documentBlob(document);
+      const url = URL.createObjectURL(blob);
+      const link = window.document.createElement("a");
+
+      link.href = url;
+      link.download = document.document_name;
+      window.document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (caught) {
+      window.alert(
+        caught instanceof Error ? caught.message : "Could not download document."
       );
     } finally {
       setDownloading("");
     }
   }
 
+  const documents = data?.documents || [];
+
+  const categoryCounts = useMemo(() => {
+    const base: Record<string, number> = {
+      all: documents.length,
+      ...(data?.category_counts || {}),
+    };
+
+    for (const document of documents) {
+      const key = document.portal_category || "general";
+      if (!(key in base)) {
+        base[key] = documents.filter(
+          (item) => (item.portal_category || "general") === key
+        ).length;
+      }
+    }
+
+    return base;
+  }, [data?.category_counts, documents]);
+
   const visibleDocuments = useMemo(() => {
     const term = search.trim().toLowerCase();
 
-    return (data?.documents || []).filter((document) => {
-      if (
-        category !== "all" &&
-        document.portal_category !== category
-      ) {
-        return false;
-      }
+    return documents.filter((document) => {
+      const categoryMatch =
+        category === "all" ||
+        (document.portal_category || "general") === category;
 
-      if (
-        term &&
-        ![
+      const searchMatch =
+        !term ||
+        [
           document.document_name,
-          document.portal_category_label,
+          categoryLabel(document.portal_category),
         ]
           .join(" ")
           .toLowerCase()
-          .includes(term)
-      ) {
-        return false;
-      }
+          .includes(term);
 
-      return true;
+      return categoryMatch && searchMatch;
     });
-  }, [data, category, search]);
-
-  const clientName = data?.client?.client_name || "Client";
-  const selectedCategoryLabel =
-    CATEGORIES.find(([value]) => value === category)?.[1] ||
-    "All Documents";
+  }, [documents, category, search]);
 
   if (loading) {
     return <main style={styles.loading}>Loading client portal preview...</main>;
   }
 
-  if (error || !data) {
+  if (error || !data?.client) {
     return (
       <main style={styles.loading}>
-        {error || "Client portal preview could not be loaded."}
+        {error || "Could not load client portal preview."}
       </main>
     );
   }
+
+  const client = data.client;
+  const total = data.counts?.total ?? documents.length;
+  const needsAction = data.counts?.needs_action ?? 0;
+  const awaitingOurWork = data.counts?.awaiting_our_work ?? 0;
+  const records = data.counts?.for_your_records ?? documents.length;
 
   return (
     <main style={styles.page}>
       <header style={styles.topbar}>
         <div style={styles.brand}>PracticePilot</div>
 
-        <nav style={styles.nav}>
-          <span style={styles.navItem}>Home</span>
-          <span style={{ ...styles.navItem, ...styles.navActive }}>
-            Documents
-          </span>
-          <span style={styles.navItem}>Tasks</span>
-          <span style={styles.navItem}>Messages</span>
-        </nav>
-
-        <div style={styles.clientIdentity}>
-          <span style={styles.avatar}>{initials(clientName)}</span>
-          <span style={styles.clientIdentityCopy}>
-            <strong style={styles.clientIdentityName}>{clientName}</strong>
-            <small style={styles.clientIdentitySub}>Client Portal</small>
-          </span>
+        <div style={styles.clientBlock}>
+          <div style={styles.avatar}>{initials(client.client_name) || "PP"}</div>
+          <div>
+            <strong style={styles.clientName}>{client.client_name}</strong>
+            <span style={styles.clientSub}>Client Portal · Staff Preview</span>
+          </div>
         </div>
       </header>
 
-      <section style={styles.hero}>
-        <div>
-          <h1 style={styles.heroTitle}>Your Documents</h1>
-          <p style={styles.heroText}>
-            Everything in one place. Clear, current and ready when you need it.
-          </p>
-        </div>
-        <div style={styles.previewBadge}>Staff Preview</div>
-      </section>
+      <div style={styles.portalShell}>
+        <aside style={styles.sideNav}>
+          <div style={styles.sideBrand}>
+            <div style={styles.sideBrandMark}>PP</div>
+            <div>
+              <strong style={styles.sideBrandName}>PracticePilot</strong>
+              <span style={styles.sideBrandSub}>Client Portal</span>
+            </div>
+          </div>
 
-      <section style={styles.metrics}>
-        <Metric
-          value={data.counts.total}
-          label="Latest documents"
-          note="Released to the client"
-        />
-        <Metric
-          value={data.counts.needs_action}
-          label="Needs your action"
-          note="Items requiring attention"
-        />
-        <Metric
-          value={data.counts.awaiting_our_work}
-          label="Awaiting our work"
-          note="Currently in progress"
-        />
-        <Metric
-          value={data.counts.for_your_records}
-          label="For your records"
-          note="Available anytime"
-        />
-      </section>
+          <div style={styles.sideNavItems}>
+            <span style={styles.sideNavMuted}>
+              <span style={styles.sideIcon}>⌂</span>
+              Dashboard
+            </span>
 
-      <section style={styles.workspace}>
-        <aside style={styles.categories}>
-          {CATEGORIES.map(([value, label]) => {
-            const count =
-              value === "all"
-                ? data.counts.total
-                : data.category_counts[value] || 0;
+            <span style={styles.sideNavActive}>
+              <span style={styles.sideIcon}>▣</span>
+              Documents
+            </span>
 
-            return (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setCategory(value)}
-                style={{
-                  ...styles.categoryButton,
-                  ...(category === value
-                    ? styles.categoryButtonActive
-                    : {}),
-                }}
-              >
-                <span>{label}</span>
-                <strong>{count}</strong>
-              </button>
-            );
-          })}
+            <span style={styles.sideNavMuted}>
+              <span style={styles.sideIcon}>□</span>
+              Messages
+            </span>
+
+            <span style={styles.sideNavMuted}>
+              <span style={styles.sideIcon}>⊕</span>
+              Requests
+            </span>
+
+            <span style={styles.sideNavMuted}>
+              <span style={styles.sideIcon}>○</span>
+              My Profile
+            </span>
+          </div>
+
+          <div style={styles.staffPreviewBox}>
+            <strong>Staff Preview</strong>
+            <span>
+              This mirrors the client-facing portal. No client actions are performed here.
+            </span>
+          </div>
         </aside>
 
-        <section style={styles.documentsPanel}>
-          <div style={styles.toolbar}>
+        <section style={styles.documentsMain}>
+          <section style={styles.hero}>
             <div>
-              <strong style={styles.sectionTitle}>
-                {selectedCategoryLabel}
-              </strong>
-              <span style={styles.sectionMeta}>
-                {visibleDocuments.length} document
-                {visibleDocuments.length === 1 ? "" : "s"}
-              </span>
+              <div style={styles.eyebrow}>CLIENT DOCUMENTS</div>
+              <h1 style={styles.heroTitle}>Your Documents</h1>
+              <p style={styles.heroSub}>
+                Everything shared with you, organised and ready when you need it.
+              </p>
             </div>
 
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search documents..."
-              style={styles.search}
-            />
-          </div>
+            <span style={styles.previewBadge}>STAFF PREVIEW</span>
+          </section>
 
-          <div style={styles.tableHeader}>
-            <span>Name</span>
-            <span>Category</span>
-            <span>Date</span>
-            <span>Status</span>
-            <span />
-          </div>
+          <section style={styles.metrics}>
+            <Metric value={total} label="Latest documents" note="Released to the client" />
+            <Metric value={needsAction} label="Needs your action" note="Items requiring attention" />
+            <Metric value={awaitingOurWork} label="Awaiting our work" note="Currently in progress" />
+            <Metric value={records} label="For your records" note="Available anytime" />
+          </section>
 
-          {visibleDocuments.length ? (
-            visibleDocuments.map((document) => (
-              <div key={document.id} style={styles.documentRow}>
-                <div style={styles.documentNameCell}>
-                  <span style={styles.fileBadge}>
-                    {fileType(document.document_name)}
+          <section style={styles.documentPanel}>
+            <aside style={styles.categories}>
+              <div style={styles.categoriesHeader}>
+                <strong>Document Categories</strong>
+                <span>Browse what has been shared with you.</span>
+              </div>
+
+              {CATEGORIES.map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setCategory(key)}
+                  style={{
+                    ...styles.categoryButton,
+                    ...(category === key ? styles.categoryButtonActive : {}),
+                  }}
+                >
+                  <span>{label}</span>
+                  <strong>{categoryCounts[key] || 0}</strong>
+                </button>
+              ))}
+            </aside>
+
+            <div style={styles.documentListWrap}>
+              <div style={styles.listHeader}>
+                <div>
+                  <strong style={styles.listTitle}>
+                    {category === "all"
+                      ? "All Documents"
+                      : categoryLabel(category)}
+                  </strong>
+                  <span style={styles.listSub}>
+                    {visibleDocuments.length} document
+                    {visibleDocuments.length === 1 ? "" : "s"}
                   </span>
-                  <div>
-                    <strong style={styles.documentName}>
-                      {document.document_name}
-                    </strong>
-                    <span style={styles.documentSub}>
-                      Available in your portal
-                    </span>
-                  </div>
                 </div>
 
-                <span style={styles.cellText}>
-                  {document.portal_category_label}
-                </span>
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search documents..."
+                  style={styles.search}
+                />
+              </div>
 
-                <span style={styles.cellText}>
-                  {formatDate(document.released_at)}
-                </span>
+              <div style={styles.tableHeader}>
+                <span>Name</span>
+                <span>Category</span>
+                <span>Date</span>
+                <span>Status</span>
+                <span />
+              </div>
 
-                <span style={styles.recordPill}>For your records</span>
+              {visibleDocuments.length ? (
+                visibleDocuments.map((document) => (
+                  <div key={document.id} style={styles.tableRow}>
+                    <div style={styles.nameCell}>
+                      <span style={styles.pdfBadge}>PDF</span>
+                      <div>
+                        <strong>{document.document_name}</strong>
+                        <span>Available in your portal</span>
+                      </div>
+                    </div>
 
-                <button
-                  type="button"
-                  onClick={() => void download(document)}
-                  disabled={downloading === document.id}
-                  style={styles.downloadButton}
-                >
-                  {downloading === document.id ? "..." : "Download"}
+                    <span style={styles.tableText}>
+                      {document.portal_category_label ||
+                        categoryLabel(document.portal_category)}
+                    </span>
+
+                    <span style={styles.tableText}>
+                      {formatDate(
+                        document.released_at ||
+                          document.approved_at ||
+                          document.updated_at
+                      )}
+                    </span>
+
+                    <span style={styles.statusBadge}>For your records</span>
+
+                    <div style={styles.actions}>
+                      {canPreview(document.document_name) ? (
+                        <button
+                          type="button"
+                          onClick={() => void preview(document)}
+                          disabled={previewing === document.id}
+                          style={styles.previewButton}
+                        >
+                          {previewing === document.id ? "Opening..." : "Preview"}
+                        </button>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => void download(document)}
+                        disabled={downloading === document.id}
+                        style={styles.downloadButton}
+                      >
+                        {downloading === document.id ? "..." : "Download"}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={styles.empty}>No documents match this view.</div>
+              )}
+
+              <div style={styles.helpStrip}>
+                <div>
+                  <strong>Can&apos;t find something?</strong>
+                  <span>
+                    Document requests and secure messages are coming next.
+                  </span>
+                </div>
+                <button type="button" disabled style={styles.disabledButton}>
+                  New Message
                 </button>
               </div>
-            ))
-          ) : (
-            <div style={styles.empty}>
-              No released documents match this view.
             </div>
-          )}
-
-          <div style={styles.actionStrip}>
-            <div style={styles.actionStripCopy}>
-              <strong style={styles.actionStripTitle}>
-                Can&apos;t find something?
-              </strong>
-              <span style={styles.actionStripText}>
-                This will later connect directly to Messages and document
-                requests.
-              </span>
-            </div>
-            <button type="button" disabled style={styles.messageButton}>
-              New Message
-            </button>
-          </div>
+          </section>
         </section>
-      </section>
+      </div>
     </main>
   );
 }
@@ -421,7 +504,7 @@ function Metric({
   note: string;
 }) {
   return (
-    <div style={styles.metric}>
+    <div style={styles.metricCard}>
       <strong style={styles.metricValue}>{value}</strong>
       <span style={styles.metricLabel}>{label}</span>
       <small style={styles.metricNote}>{note}</small>
@@ -432,183 +515,246 @@ function Metric({
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "100vh",
-    background: "#f3f6f9",
+    margin: 0,
+    background: "#f4f7fa",
     color: "#10233a",
-    fontFamily:
-      'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
   loading: {
     minHeight: "100vh",
     display: "grid",
     placeItems: "center",
-    background: "#f3f6f9",
-    color: "#10233a",
-    fontFamily:
-      'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    background: "#f4f7fa",
+    color: "#526577",
+    fontSize: 14,
     fontWeight: 800,
   },
   topbar: {
-    minHeight: 66,
+    height: 64,
     padding: "0 28px",
-    display: "grid",
-    gridTemplateColumns: "210px minmax(0, 1fr) auto",
-    alignItems: "stretch",
-    gap: 16,
-    background: "#ffffff",
-    borderBottom: "1px solid #d9e1e9",
-  },
-  brand: {
     display: "flex",
     alignItems: "center",
-    fontSize: 21,
+    justifyContent: "space-between",
+    borderBottom: "1px solid #dce4ec",
+    background: "#ffffff",
+  },
+  brand: {
+    fontSize: 22,
     fontWeight: 950,
     letterSpacing: "-0.04em",
   },
-  nav: {
-    display: "flex",
-    alignItems: "stretch",
-    gap: 6,
-  },
-  navItem: {
-    minWidth: 90,
-    padding: "0 14px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    borderBottom: "3px solid transparent",
-    color: "#56677a",
-    fontSize: 12,
-    fontWeight: 800,
-  },
-  navActive: {
-    color: "#1768d2",
-    borderBottomColor: "#1768d2",
-    background: "#f5f9ff",
-  },
-  clientIdentity: {
+  clientBlock: {
     display: "flex",
     alignItems: "center",
     gap: 10,
   },
-  clientIdentityCopy: {
-    minWidth: 0,
-    display: "grid",
-    gap: 2,
-  },
-  clientIdentityName: {
-    display: "block",
-    maxWidth: 280,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    fontSize: 12,
-    fontWeight: 950,
-    lineHeight: 1.1,
-  },
-  clientIdentitySub: {
-    display: "block",
-    color: "#718096",
-    fontSize: 9,
-    fontWeight: 700,
-    lineHeight: 1.1,
-  },
   avatar: {
-    width: 36,
-    height: 36,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
+    width: 38,
+    height: 38,
+    display: "grid",
+    placeItems: "center",
     borderRadius: "50%",
-    background: "#164b9b",
+    background: "#1768d2",
     color: "#ffffff",
     fontSize: 12,
     fontWeight: 950,
   },
-  hero: {
+  clientName: {
+    display: "block",
+    fontSize: 12,
+  },
+  clientSub: {
+    display: "block",
+    marginTop: 2,
+    color: "#748191",
+    fontSize: 9,
+  },
+  portalShell: {
+    maxWidth: 1500,
     margin: "0 auto",
-    maxWidth: 1250,
-    minHeight: 135,
-    padding: "28px 34px",
+    display: "grid",
+    gridTemplateColumns: "255px minmax(0, 1fr)",
+    minHeight: "calc(100vh - 64px)",
+  },
+  sideNav: {
+    position: "relative",
+    padding: "22px 14px 20px",
+    borderRight: "1px solid #dce4ec",
+    background: "#ffffff",
+  },
+  sideBrand: {
+    padding: "8px 12px 22px",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+  },
+  sideBrandMark: {
+    width: 38,
+    height: 38,
+    display: "grid",
+    placeItems: "center",
+    borderRadius: 6,
+    background: "#1768d2",
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: 950,
+  },
+  sideBrandName: {
+    display: "block",
+    fontSize: 16,
+    fontWeight: 950,
+  },
+  sideBrandSub: {
+    display: "block",
+    marginTop: 2,
+    color: "#7a8796",
+    fontSize: 10,
+  },
+  sideNavItems: {
+    display: "grid",
+    gap: 4,
+  },
+  sideNavActive: {
+    minHeight: 44,
+    padding: "0 14px",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    borderLeft: "3px solid #1768d2",
+    background: "#eaf3ff",
+    color: "#1768d2",
+    fontSize: 11,
+    fontWeight: 900,
+  },
+  sideNavMuted: {
+    minHeight: 44,
+    padding: "0 14px",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    color: "#8a97a6",
+    fontSize: 11,
+    fontWeight: 800,
+  },
+  sideIcon: {
+    width: 18,
+    textAlign: "center",
+  },
+  staffPreviewBox: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    bottom: 20,
+    padding: 12,
+    display: "grid",
+    gap: 5,
+    border: "1px solid #cfe0f5",
+    background: "#eef6ff",
+    color: "#375a7a",
+    fontSize: 9,
+    lineHeight: 1.45,
+  },
+  documentsMain: {
+    padding: "24px 26px 34px",
+    minWidth: 0,
+  },
+  hero: {
+    minHeight: 120,
+    padding: "24px 28px",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 20,
+    borderRadius: 10,
     background:
       "linear-gradient(115deg, #102f50 0%, #174e79 55%, #1d6b88 100%)",
     color: "#ffffff",
   },
+  eyebrow: {
+    marginBottom: 5,
+    fontSize: 8,
+    fontWeight: 950,
+    letterSpacing: "0.11em",
+    opacity: 0.78,
+  },
   heroTitle: {
     margin: 0,
-    fontSize: 27,
+    fontSize: 32,
     fontWeight: 950,
     letterSpacing: "-0.035em",
   },
-  heroText: {
+  heroSub: {
     margin: "7px 0 0",
     fontSize: 12,
     opacity: 0.9,
   },
   previewBadge: {
-    padding: "8px 12px",
-    border: "1px solid rgba(255,255,255,0.35)",
-    background: "rgba(255,255,255,0.10)",
-    fontSize: 10,
-    fontWeight: 900,
+    padding: "8px 11px",
+    border: "1px solid rgba(255,255,255,0.45)",
+    background: "rgba(255,255,255,0.08)",
+    color: "#ffffff",
+    fontSize: 8,
+    fontWeight: 950,
+    letterSpacing: "0.06em",
   },
   metrics: {
-    maxWidth: 1210,
-    margin: "-18px auto 0",
+    marginTop: 18,
     display: "grid",
     gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    border: "1px solid #d9e1e9",
-    background: "#ffffff",
-    position: "relative",
+    gap: 12,
   },
-  metric: {
-    minHeight: 86,
-    padding: "15px 18px",
+  metricCard: {
+    minHeight: 112,
+    padding: "16px 18px",
     display: "grid",
     alignContent: "center",
-    gap: 3,
-    borderRight: "1px solid #e3e8ee",
+    gap: 4,
+    border: "1px solid #d9e2ec",
+    borderRadius: 10,
+    background: "#ffffff",
   },
   metricValue: {
-    fontSize: 21,
-    fontWeight: 950,
+    fontSize: 28,
+    lineHeight: 1,
   },
   metricLabel: {
-    fontSize: 11,
-    fontWeight: 900,
+    fontSize: 12,
+    fontWeight: 950,
   },
   metricNote: {
-    color: "#7a8794",
+    color: "#84909d",
     fontSize: 9,
   },
-  workspace: {
-    maxWidth: 1210,
-    margin: "14px auto 30px",
+  documentPanel: {
+    marginTop: 18,
     display: "grid",
-    gridTemplateColumns: "235px minmax(0, 1fr)",
-    border: "1px solid #d9e1e9",
+    gridTemplateColumns: "260px minmax(0, 1fr)",
+    border: "1px solid #d9e2ec",
+    borderRadius: 10,
+    overflow: "hidden",
     background: "#ffffff",
   },
   categories: {
-    padding: "10px 0",
-    borderRight: "1px solid #d9e1e9",
-    background: "#f8fafc",
+    borderRight: "1px solid #d9e2ec",
+    background: "#fbfcfd",
+  },
+  categoriesHeader: {
+    padding: "16px",
+    display: "grid",
+    gap: 4,
+    borderBottom: "1px solid #e4eaf0",
+    fontSize: 11,
   },
   categoryButton: {
     width: "100%",
-    minHeight: 43,
+    minHeight: 44,
     padding: "0 14px",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
     border: "none",
     borderLeft: "3px solid transparent",
     background: "transparent",
-    color: "#33485f",
+    color: "#34495e",
     fontSize: 10,
     fontWeight: 800,
     textAlign: "left",
@@ -619,114 +765,116 @@ const styles: Record<string, CSSProperties> = {
     background: "#eaf3ff",
     color: "#1768d2",
   },
-  documentsPanel: {
+  documentListWrap: {
     minWidth: 0,
   },
-  toolbar: {
+  listHeader: {
     minHeight: 66,
     padding: "12px 14px",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 14,
-    borderBottom: "1px solid #d9e1e9",
+    gap: 16,
+    borderBottom: "1px solid #d9e2ec",
   },
-  sectionTitle: {
+  listTitle: {
     display: "block",
-    fontSize: 15,
-    fontWeight: 950,
+    fontSize: 14,
   },
-  sectionMeta: {
+  listSub: {
     display: "block",
     marginTop: 3,
-    color: "#7a8794",
+    color: "#84909d",
     fontSize: 9,
   },
   search: {
-    width: 280,
-    height: 36,
-    padding: "0 10px",
+    width: 300,
+    height: 38,
+    padding: "0 11px",
     border: "1px solid #cbd5e1",
     background: "#ffffff",
     color: "#10233a",
+    fontSize: 11,
     outline: "none",
   },
   tableHeader: {
-    minHeight: 36,
-    padding: "0 12px",
+    minHeight: 38,
+    padding: "0 14px",
     display: "grid",
-    gridTemplateColumns: "minmax(280px, 1.7fr) 1fr 120px 130px 90px",
+    gridTemplateColumns: "minmax(310px, 1.8fr) 1fr 120px 135px 188px",
+    gap: 12,
     alignItems: "center",
-    gap: 10,
-    background: "#f3f6f9",
-    borderBottom: "1px solid #d9e1e9",
-    color: "#617184",
-    fontSize: 8.5,
+    background: "#f4f7fa",
+    borderBottom: "1px solid #d9e2ec",
+    color: "#607083",
+    fontSize: 8,
     fontWeight: 900,
   },
-  documentRow: {
-    minHeight: 62,
-    padding: "8px 12px",
+  tableRow: {
+    minHeight: 70,
+    padding: "9px 14px",
     display: "grid",
-    gridTemplateColumns: "minmax(280px, 1.7fr) 1fr 120px 130px 90px",
+    gridTemplateColumns: "minmax(310px, 1.8fr) 1fr 120px 135px 188px",
+    gap: 12,
     alignItems: "center",
-    gap: 10,
-    borderBottom: "1px solid #e6ebf0",
+    borderBottom: "1px solid #e8edf2",
   },
-  documentNameCell: {
+  nameCell: {
     minWidth: 0,
     display: "flex",
     alignItems: "center",
     gap: 10,
   },
-  fileBadge: {
-    width: 36,
-    height: 34,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    background: "#e63e42",
-    color: "#ffffff",
-    fontSize: 8,
-    fontWeight: 950,
+  pdfBadge: {
+    width: 40,
+    height: 40,
+    display: "grid",
+    placeItems: "center",
     flex: "0 0 auto",
+    borderRadius: 4,
+    background: "#ef4444",
+    color: "#ffffff",
+    fontSize: 9,
+    fontWeight: 950,
   },
-  documentName: {
-    display: "block",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    fontSize: 10,
-    fontWeight: 900,
-  },
-  documentSub: {
-    display: "block",
-    marginTop: 3,
-    color: "#84909d",
-    fontSize: 8,
-  },
-  cellText: {
-    color: "#526577",
+  tableText: {
+    color: "#667789",
     fontSize: 9,
   },
-  recordPill: {
+  statusBadge: {
     justifySelf: "start",
-    minHeight: 24,
-    padding: "0 9px",
-    display: "inline-flex",
-    alignItems: "center",
-    background: "#e9f8ef",
-    color: "#16834f",
+    padding: "5px 9px",
     borderRadius: 999,
+    background: "#e9f8ef",
+    color: "#218653",
     fontSize: 8,
     fontWeight: 900,
   },
-  downloadButton: {
-    height: 30,
+  actions: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 7,
+  },
+  previewButton: {
+    minWidth: 82,
+    height: 34,
     border: "1px solid #1768d2",
+    borderRadius: 5,
     background: "#1768d2",
     color: "#ffffff",
-    fontSize: 8,
+    fontSize: 9,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  downloadButton: {
+    minWidth: 92,
+    height: 34,
+    border: "1px solid #bfd0e4",
+    borderRadius: 5,
+    background: "#ffffff",
+    color: "#1768d2",
+    fontSize: 9,
     fontWeight: 900,
     cursor: "pointer",
   },
@@ -734,43 +882,29 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 180,
     display: "grid",
     placeItems: "center",
-    color: "#7a8794",
+    color: "#84909d",
     fontSize: 10,
   },
-  actionStripCopy: {
-    minWidth: 0,
-    display: "grid",
-    gap: 3,
-  },
-  actionStripTitle: {
-    color: "#285c42",
-    fontSize: 9.2,
-    fontWeight: 950,
-  },
-  actionStripText: {
-    color: "#557262",
-    fontSize: 8.6,
-    lineHeight: 1.35,
-  },
-  actionStrip: {
+  helpStrip: {
     margin: 14,
     padding: "12px 14px",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 14,
-    border: "1px solid #cfe1d7",
-    background: "#f2fbf6",
-    color: "#285c42",
+    gap: 16,
+    border: "1px solid #cde6d6",
+    background: "#effaf3",
+    color: "#3f6f54",
     fontSize: 9,
   },
-  messageButton: {
-    minWidth: 108,
+  disabledButton: {
     height: 32,
-    padding: "0 12px",
-    border: "1px solid #a8c8b5",
+    padding: "0 14px",
+    border: "1px solid #bcd8c5",
     background: "#ffffff",
-    color: "#789384",
+    color: "#6f8e7b",
+    fontSize: 8.5,
     fontWeight: 900,
+    cursor: "not-allowed",
   },
 };
