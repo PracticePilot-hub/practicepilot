@@ -8,25 +8,16 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
 const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SECRET_KEY ||
   process.env.SUPABASE_SERVICE_KEY;
 
-if (!supabaseUrl) {
-  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-}
-
-if (!supabaseServiceKey) {
-  throw new Error("Missing Supabase server key");
-}
+if (!supabaseUrl) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+if (!supabaseServiceKey) throw new Error("Missing Supabase server key");
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
+  auth: { persistSession: false, autoRefreshToken: false },
 });
 
 function getSmtpConfig() {
@@ -41,121 +32,107 @@ function getSmtpConfig() {
     throw new Error("Missing SMTP configuration");
   }
 
-  return {
-    host,
-    port,
-    user,
-    pass,
-    fromName,
-    fromEmail,
-  };
+  return { host, port, user, pass, fromName, fromEmail };
 }
 
-async function sendResetEmail({
-  email,
-  resetLink,
-}: {
-  email: string;
-  resetLink: string;
-}) {
-  const smtp = getSmtpConfig();
-
-  const transporter = nodemailer.createTransport({
-    host: smtp.host,
-    port: smtp.port,
-    secure: smtp.port === 465,
-    auth: {
-      user: smtp.user,
-      pass: smtp.pass,
-    },
-  });
-
-  await transporter.sendMail({
-    from: `"${smtp.fromName}" <${smtp.fromEmail}>`,
-    to: email,
-    subject: "Reset your PracticePilot password",
-    html: `
-      <div style="font-family: Arial, sans-serif; color: #0B2F4F; line-height: 1.6;">
-        <h2>Reset your PracticePilot password</h2>
-
-        <p>Hi,</p>
-
-        <p>We received a request to reset the password for your PracticePilot account.</p>
-
-        <p>
-          Click the button below to set a new password:
-        </p>
-
-        <p style="margin: 24px 0;">
-          <a href="${resetLink}" style="background:#0B5CAB;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold;display:inline-block;">
-            Reset password
-          </a>
-        </p>
-
-        <p>If the button does not work, copy and paste this link into your browser:</p>
-
-        <p style="word-break: break-all;">
-          <a href="${resetLink}">${resetLink}</a>
-        </p>
-
-        <p>If you did not request this, you can ignore this email.</p>
-
-        <p>Kind regards,<br />The PracticePilot Team</p>
-      </div>
-    `,
-  });
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const email = String(body.email || "").trim().toLowerCase();
+    const body = await request.json().catch(() => ({}));
+    const email = String(body?.email || "").trim().toLowerCase();
 
-    if (!email) {
+    if (!email || !email.includes("@")) {
       return NextResponse.json(
-        { error: "Email is required." },
+        { error: "Enter a valid email address." },
         { status: 400 }
       );
     }
 
-    const siteUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      process.env.NEXT_PUBLIC_APP_URL ||
-      "https://practicepilot.co.za";
-
     const { data, error } = await supabase.auth.admin.generateLink({
       type: "recovery",
       email,
-      options: {
-        redirectTo: `${siteUrl}/reset-password`,
-      },
     });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error || !data?.properties?.hashed_token) {
+      return NextResponse.json({
+        success: true,
+        message:
+          "If that email address has a PracticePilot login, a password reset email has been sent.",
+      });
     }
+
+    const origin = new URL(request.url).origin.replace(/\/+$/, "");
+    const tokenHash = String(data.properties.hashed_token).trim();
 
     const resetLink =
-      data.properties?.action_link ||
-      data.properties?.email_otp ||
-      "";
+      `${origin}/portal-auth?token_hash=${encodeURIComponent(tokenHash)}` +
+      `&type=recovery&next=${encodeURIComponent(
+        "/reset-password?mode=update"
+      )}`;
 
-    if (!resetLink || !resetLink.startsWith("http")) {
-      return NextResponse.json(
-        { error: "Could not generate password reset link." },
-        { status: 500 }
-      );
-    }
+    const smtp = getSmtpConfig();
 
-    await sendResetEmail({
-      email,
-      resetLink,
+    const transporter = nodemailer.createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.port === 465,
+      auth: { user: smtp.user, pass: smtp.pass },
     });
 
-    return NextResponse.json({ ok: true });
-  } catch (error: any) {
+    await transporter.sendMail({
+      from: `"${smtp.fromName}" <${smtp.fromEmail}>`,
+      to: email,
+      subject: "Reset your PracticePilot password",
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0B2F4F;max-width:620px;margin:0 auto;">
+          <div style="padding:22px 0;border-bottom:1px solid #D5DDE6;">
+            <div style="font-size:22px;font-weight:800;">PracticePilot</div>
+          </div>
+          <div style="padding:26px 0;">
+            <p>Hi,</p>
+            <p>
+              A password reset was requested for
+              <strong>${escapeHtml(email)}</strong>.
+            </p>
+            <p style="margin:28px 0;">
+              <a
+                href="${resetLink}"
+                style="display:inline-block;background:#0B5CAB;color:#ffffff;text-decoration:none;padding:12px 18px;font-weight:700;border-radius:8px;"
+              >
+                Reset Password
+              </a>
+            </p>
+            <p style="font-size:13px;color:#64748b;">
+              If you did not request this reset, you can ignore this email.
+            </p>
+          </div>
+        </div>
+      `,
+    });
+
+    return NextResponse.json({
+      success: true,
+      message:
+        "If that email address has a PracticePilot login, a password reset email has been sent.",
+    });
+  } catch (error) {
+    console.error("RESET PASSWORD REQUEST ERROR:", error);
+
     return NextResponse.json(
-      { error: error?.message ?? "Failed to send reset email." },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not send the password reset email.",
+      },
       { status: 500 }
     );
   }

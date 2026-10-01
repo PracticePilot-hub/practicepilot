@@ -1,10 +1,24 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 import TopNav from "./TopNav";
-import { supabase } from "@/app/lib/supabase";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+const supabase =
+  supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey)
+    : null;
 
 export default function AppShell({
   children,
@@ -17,9 +31,14 @@ export default function AppShell({
   const [authResolved, setAuthResolved] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  const [billingCheckLoading, setBillingCheckLoading] = useState(true);
   const [billingSuspended, setBillingSuspended] = useState(false);
   const [billingSuspensionReason, setBillingSuspensionReason] =
     useState<string | null>(null);
+
+  const initialBillingCheckComplete = useRef(false);
+  const billingCheckInFlight = useRef(false);
+  const authRunId = useRef(0);
 
   const publicPages = [
     "/",
@@ -29,13 +48,26 @@ export default function AppShell({
   ];
 
   const isPublicMandate = pathname.startsWith("/mandate/");
+  const isPortalAuth = pathname === "/portal-auth";
   const isPublicPage =
-    publicPages.includes(pathname) || isPublicMandate;
+    publicPages.includes(pathname) ||
+    isPublicMandate ||
+    isPortalAuth;
 
   const isDocumentExport =
     /^\/proposals\/[^/]+\/export\/?$/.test(pathname) ||
     pathname.includes("/print-studio/export") ||
     pathname.includes("/reference");
+
+  const isClientPortalPreview =
+    pathname.startsWith("/client-portal-preview/");
+
+  const isPortalWelcome =
+    pathname === "/portal-welcome";
+
+  const isClientPortal =
+    pathname === "/client-portal" ||
+    pathname.startsWith("/client-portal/");
 
   const isBillingAllowedPath =
     pathname === "/billing" ||
@@ -45,120 +77,130 @@ export default function AppShell({
   /*
    * AUTH RESOLUTION
    *
-   * Important:
-   * - app/lib/supabase.ts owns the single browser Supabase client.
-   * - AppShell does not subscribe to auth events.
-   * - We resolve once per route change.
-   * - One short second read protects hard refreshes while browser storage restores.
-   *
-   * This avoids overlapping auth callbacks/state updates during React rendering.
+   * Do not redirect on the first transient "no session" read during a hard
+   * refresh. Give Supabase one short second read so browser session restoration
+   * can complete. This prevents intermittent refresh failures / redirect races.
    */
   useEffect(() => {
+    const runId = ++authRunId.current;
     let cancelled = false;
 
     if (isPublicPage || isDocumentExport) {
+      setIsAuthenticated(false);
       setAuthResolved(true);
       return;
     }
 
-    // AppShell persists across client-side navigation.
-    // Once the browser session is confirmed, do not put the whole app
-    // back into a loading state every time pathname changes.
-    if (authResolved && isAuthenticated) {
+    if (!supabase) {
+      setIsAuthenticated(false);
+      setAuthResolved(true);
+      router.replace("/login");
       return;
     }
 
+    setAuthResolved(false);
+
     async function resolveSession() {
-      try {
-        const first = await supabase.auth.getSession();
+      const first = await supabase!.auth.getSession();
 
-        if (cancelled) return;
+      if (cancelled || runId !== authRunId.current) return;
 
-        if (first.data.session?.access_token) {
-          setIsAuthenticated(true);
-          setAuthResolved(true);
-          return;
-        }
-
-        await new Promise((resolve) => {
-          window.setTimeout(resolve, 250);
-        });
-
-        if (cancelled) return;
-
-        const second = await supabase.auth.getSession();
-
-        if (cancelled) return;
-
-        if (second.data.session?.access_token) {
-          setIsAuthenticated(true);
-          setAuthResolved(true);
-          return;
-        }
-
-        setIsAuthenticated(false);
+      if (first.data.session?.access_token) {
+        setIsAuthenticated(true);
         setAuthResolved(true);
-
-        const next =
-          pathname && pathname !== "/login"
-            ? `?next=${encodeURIComponent(pathname)}`
-            : "";
-
-        router.replace(`/login${next}`);
-      } catch (error) {
-        console.error("APP SHELL AUTH CHECK ERROR:", error);
-
-        if (!cancelled) {
-          setIsAuthenticated(false);
-          setAuthResolved(true);
-          router.replace("/login");
-        }
+        return;
       }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+
+      if (cancelled || runId !== authRunId.current) return;
+
+      const second = await supabase!.auth.getSession();
+
+      if (cancelled || runId !== authRunId.current) return;
+
+      if (second.data.session?.access_token) {
+        setIsAuthenticated(true);
+        setAuthResolved(true);
+        return;
+      }
+
+      setIsAuthenticated(false);
+      setAuthResolved(true);
+
+      const next =
+        pathname && pathname !== "/login"
+          ? `?next=${encodeURIComponent(pathname)}`
+          : "";
+
+      router.replace(`/login${next}`);
     }
 
     void resolveSession();
 
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled || runId !== authRunId.current) return;
+
+      if (
+        event === "INITIAL_SESSION" ||
+        event === "SIGNED_IN" ||
+        event === "TOKEN_REFRESHED" ||
+        event === "USER_UPDATED"
+      ) {
+        if (session?.access_token) {
+          setIsAuthenticated(true);
+          setAuthResolved(true);
+        }
+      }
+
+      if (event === "SIGNED_OUT") {
+        setIsAuthenticated(false);
+        setAuthResolved(true);
+
+        if (!isPublicPage && !isDocumentExport) {
+          router.replace("/login");
+        }
+      }
+    });
+
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
     };
-  }, [
-    pathname,
-    isPublicPage,
-    isDocumentExport,
-    router,
-    authResolved,
-    isAuthenticated,
-  ]);
+  }, [pathname, isPublicPage, isDocumentExport, router]);
 
-  /*
-   * BILLING ACCESS
-   *
-   * Billing is deliberately non-blocking while the check runs.
-   * If the check fails temporarily, the app remains usable.
-   */
-  useEffect(() => {
-    let cancelled = false;
+  const loadBillingState = useCallback(
+    async (showFullPageLoader: boolean) => {
+      if (billingCheckInFlight.current) return;
 
-    if (
-      !authResolved ||
-      !isAuthenticated ||
-      isPublicPage ||
-      isDocumentExport
-    ) {
-      setBillingSuspended(false);
-      setBillingSuspensionReason(null);
-      return;
-    }
+      if (
+        !supabase ||
+        isPublicPage ||
+        isDocumentExport ||
+        isClientPortal ||
+        isPortalWelcome ||
+        !isAuthenticated
+      ) {
+        setBillingSuspended(false);
+        setBillingSuspensionReason(null);
+        setBillingCheckLoading(false);
+        initialBillingCheckComplete.current = true;
+        return;
+      }
 
-    async function loadBillingState() {
+      billingCheckInFlight.current = true;
+
+      if (showFullPageLoader && !initialBillingCheckComplete.current) {
+        setBillingCheckLoading(true);
+      }
+
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token || "";
 
-        const token = session?.access_token || "";
-
-        if (cancelled || !token) return;
+        if (!token) return;
 
         const response = await fetch("/api/billing/access", {
           cache: "no-store",
@@ -167,9 +209,7 @@ export default function AppShell({
           },
         });
 
-        const contentType =
-          response.headers.get("content-type") || "";
-
+        const contentType = response.headers.get("content-type") || "";
         const json = contentType.includes("application/json")
           ? await response.json()
           : null;
@@ -180,38 +220,53 @@ export default function AppShell({
           );
         }
 
-        if (cancelled) return;
-
-        setBillingSuspended(
-          Boolean(json?.billing_access_suspended)
-        );
-
+        setBillingSuspended(Boolean(json?.billing_access_suspended));
         setBillingSuspensionReason(
           json?.billing_suspension_reason || null
         );
       } catch (error) {
-        console.error(
-          "APP SHELL BILLING CHECK ERROR:",
-          error
-        );
-
-        if (!cancelled) {
-          setBillingSuspended(false);
-          setBillingSuspensionReason(null);
-        }
+        console.error("APP SHELL BILLING CHECK ERROR:", error);
+      } finally {
+        initialBillingCheckComplete.current = true;
+        billingCheckInFlight.current = false;
+        setBillingCheckLoading(false);
       }
+    },
+    [
+      isPublicPage,
+      isDocumentExport,
+      isClientPortal,
+      isPortalWelcome,
+      isAuthenticated,
+    ]
+  );
+
+  useEffect(() => {
+    if (!authResolved || !isAuthenticated) return;
+
+    void loadBillingState(!initialBillingCheckComplete.current);
+  }, [authResolved, isAuthenticated, loadBillingState]);
+
+  useEffect(() => {
+    if (
+      !supabase ||
+      !authResolved ||
+      !isAuthenticated ||
+      isPublicPage ||
+      isDocumentExport ||
+      isClientPortal ||
+      isPortalWelcome
+    ) {
+      return;
     }
 
-    void loadBillingState();
-
     const handleFocus = () => {
-      void loadBillingState();
+      void loadBillingState(false);
     };
 
     window.addEventListener("focus", handleFocus);
 
     return () => {
-      cancelled = true;
       window.removeEventListener("focus", handleFocus);
     };
   }, [
@@ -219,58 +274,57 @@ export default function AppShell({
     isAuthenticated,
     isPublicPage,
     isDocumentExport,
+    isClientPortal,
+    isPortalWelcome,
+    loadBillingState,
   ]);
 
   const shouldBlockPaidModules =
     billingSuspended &&
     !isBillingAllowedPath &&
     !isPublicPage &&
-    !isDocumentExport;
+    !isDocumentExport &&
+    !isClientPortal &&
+    !isPortalWelcome;
 
   if (isPublicPage || isDocumentExport) {
     return <>{children}</>;
   }
 
-  if (!authResolved) {
+  if (!authResolved || !isAuthenticated) {
     return (
       <main style={s.loadingPage}>
-        <div style={s.loadingText}>
-          Loading PracticePilot...
-        </div>
-      </main>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <main style={s.loadingPage}>
-        <div style={s.loadingText}>
-          Redirecting to login...
-        </div>
+        <div style={s.loadingText}>Loading PracticePilot...</div>
       </main>
     );
   }
 
   return (
     <>
-      <TopNav />
+      {!isClientPortalPreview &&
+      !isPortalWelcome &&
+      !isClientPortal ? (
+        <TopNav />
+      ) : null}
 
-      {shouldBlockPaidModules ? (
+      {billingCheckLoading &&
+      !initialBillingCheckComplete.current ? (
+        <main style={s.loadingPage}>
+          <div style={s.loadingText}>Loading PracticePilot...</div>
+        </main>
+      ) : shouldBlockPaidModules ? (
         <main style={s.blockedPage}>
           <section style={s.blockedPanel}>
-            <div style={s.blockedEyebrow}>
-              Account billing
-            </div>
+            <div style={s.blockedEyebrow}>Account billing</div>
 
             <h1 style={s.blockedTitle}>
               PracticePilot access temporarily suspended
             </h1>
 
             <p style={s.blockedText}>
-              Your organisation has an overdue PracticePilot
-              invoice. Access to paid PracticePilot modules has
-              been temporarily suspended until the outstanding
-              billing is resolved.
+              Your organisation has an overdue PracticePilot invoice.
+              Access to paid PracticePilot modules has been temporarily
+              suspended until the outstanding billing is resolved.
             </p>
 
             {billingSuspensionReason ? (
@@ -283,15 +337,12 @@ export default function AppShell({
             ) : null}
 
             <p style={s.blockedText}>
-              You can still open Billing to review your account
-              and invoice information.
+              You can still open Billing to review your account and invoice
+              information.
             </p>
 
             <div style={s.actions}>
-              <Link
-                href="/billing"
-                style={s.primaryAction}
-              >
+              <Link href="/billing" style={s.primaryAction}>
                 Open Billing
               </Link>
 
@@ -320,7 +371,6 @@ const s: Record<string, CSSProperties> = {
     background: "#f3f7fb",
     padding: 24,
   },
-
   loadingText: {
     fontSize: 13,
     fontWeight: 800,
@@ -328,7 +378,6 @@ const s: Record<string, CSSProperties> = {
     fontFamily:
       "'Aptos', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif",
   },
-
   blockedPage: {
     minHeight: "calc(100vh - 54px)",
     display: "flex",
@@ -340,7 +389,6 @@ const s: Record<string, CSSProperties> = {
     fontFamily:
       "'Aptos', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif",
   },
-
   blockedPanel: {
     width: "100%",
     maxWidth: 760,
@@ -349,13 +397,11 @@ const s: Record<string, CSSProperties> = {
     borderLeft: "6px solid #b42318",
     padding: "28px 30px",
   },
-
   blockedEyebrow: {
     fontSize: 14,
     fontWeight: 700,
     color: "#b42318",
   },
-
   blockedTitle: {
     margin: "8px 0 12px",
     fontSize: 28,
@@ -363,14 +409,12 @@ const s: Record<string, CSSProperties> = {
     fontWeight: 900,
     color: "#0f172a",
   },
-
   blockedText: {
     margin: "0 0 16px",
     fontSize: 14,
     lineHeight: 1.65,
     color: "#475569",
   },
-
   reasonBox: {
     margin: "18px 0",
     border: "1px solid #fecaca",
@@ -379,19 +423,16 @@ const s: Record<string, CSSProperties> = {
     color: "#991b1b",
     fontSize: 13,
   },
-
   reasonText: {
     marginTop: 4,
     lineHeight: 1.5,
   },
-
   actions: {
     display: "flex",
     gap: 10,
     flexWrap: "wrap",
     marginTop: 22,
   },
-
   primaryAction: {
     display: "inline-flex",
     alignItems: "center",
@@ -404,7 +445,6 @@ const s: Record<string, CSSProperties> = {
     fontSize: 12,
     fontWeight: 850,
   },
-
   secondaryAction: {
     display: "inline-flex",
     alignItems: "center",
