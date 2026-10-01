@@ -34,6 +34,7 @@ type WorkItem = {
   waiting_on: string | null;
   waiting_since: string | null;
   workflow_type: string | null;
+  workflow_id?: string | null;
   workflow_stage: string | null;
   service_code: string | null;
   source_module: string | null;
@@ -284,6 +285,7 @@ export default function CRMMyDayPage() {
             waiting_on,
             waiting_since,
             workflow_type,
+            workflow_id,
             workflow_stage,
             service_code,
             source_module,
@@ -583,7 +585,25 @@ export default function CRMMyDayPage() {
     setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
   }
 
+  function documentReviewPath(item: WorkItem) {
+    if (item.workflow_type !== "document_review") return "";
+    const match = String(item.description || "").match(
+      /^PP_DOCUMENT_REVIEW_PATH:(.+)$/m
+    );
+    return match?.[1]?.trim() || "";
+  }
+
   function openWorkItem(item: WorkItem) {
+    const reviewPath = documentReviewPath(item);
+
+    if (item.client_id && reviewPath) {
+      window.location.href =
+        `/crm/client/${item.client_id}?tab=documents&documentPath=${encodeURIComponent(
+          reviewPath
+        )}`;
+      return;
+    }
+
     setSelectedWorkItem(item);
     setEditTitle(item.title || "");
     const itemDate = item.start_at

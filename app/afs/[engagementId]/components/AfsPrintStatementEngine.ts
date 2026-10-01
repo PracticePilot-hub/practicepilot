@@ -468,23 +468,61 @@ function canonicalFromMapping(line: AfsEngineTrialBalanceLine): CanonicalBucket 
   if (mappingStartsWith(line, ["548"])) return { statement: "nonCurrentLiability", noteKey: "shareholdersLoans" };
 
   /*
-    550 and 551 are separate mapping families in the AFS mapping library:
+    550 = Borrowings and other financial liabilities.
 
-    - 550 = Financial liabilities
-    - 551 = Borrowings
+    Classification is mapping-code-only and follows the actual mapping library:
 
-    Keep the existing asset-finance subtypes ahead of the broad 550 fallback.
-    Classification remains mapping-code-only.
+      550.10 = general financial liability          -> Other financial liabilities
+      550.20 = bank loan                           -> Borrowings
+      550.30 = mortgage bond                       -> Borrowings
+      550.40 = asset / vehicle finance             -> Asset finance
+      550.50 = instalment sale liability           -> Asset finance
+      550.60 = debenture / bond liability          -> Borrowings
+      550.70 = preference shares as liability      -> Borrowings
+      550.80 = private lender borrowing            -> Borrowings
+      550.91 = other secured borrowing             -> Borrowings
+      550.92 = other unsecured borrowing           -> Borrowings
+      550.99 = other non-current borrowing         -> Borrowings
+
+    551 remains the legacy Borrowings family.
   */
   if (mappingStartsWith(line, ["550.40", "550.50"])) {
     return { statement: "nonCurrentLiability", noteKey: "assetFinance" };
   }
+
+  if (
+    mappingStartsWith(line, [
+      "550.20",
+      "550.30",
+      "550.60",
+      "550.70",
+      "550.80",
+      "550.91",
+      "550.92",
+      "550.99",
+    ])
+  ) {
+    return { statement: "nonCurrentLiability", noteKey: "borrowings" };
+  }
+
+  if (mappingStartsWith(line, ["550.10"])) {
+    return {
+      statement: "nonCurrentLiability",
+      noteKey: "otherFinancialLiabilities",
+    };
+  }
+
+  /*
+    Unknown future 550 subcodes stay in Other financial liabilities until they
+    are explicitly classified in the mapping library.
+  */
   if (mappingStartsWith(line, ["550"])) {
     return {
       statement: "nonCurrentLiability",
       noteKey: "otherFinancialLiabilities",
     };
   }
+
   if (mappingStartsWith(line, ["551"])) {
     return { statement: "nonCurrentLiability", noteKey: "borrowings" };
   }
@@ -584,8 +622,41 @@ function addToBucket(
   const bucket = buckets.get(key);
   if (!bucket) return;
 
-  bucket.current += normaliseAmount(line, rawCurrent(line), canonical);
-  bucket.prior += normaliseAmount(line, rawPrior(line), canonical);
+  const currentAmount = normaliseAmount(line, rawCurrent(line), canonical);
+  const priorAmount = normaliseAmount(line, rawPrior(line), canonical);
+
+  /*
+    P&L DISPLAY MATH
+
+    The SOCI is presented in whole Rand. Each underlying mapped P&L line must
+    therefore contribute its individually rounded displayed amount to the
+    statement totals.
+
+    Example:
+      6 669.96 -> 6 670
+      2 352.50 -> 2 353
+      5 634.96 -> 5 635
+      4 889.52 -> 4 890
+      displayed operating expenses = 19 548
+
+    Summing the cents first and only then rounding produces 19 547, which makes
+    the visible statement fail basic arithmetic even though every displayed
+    line is correct.
+
+    Balance-sheet buckets retain exact cents internally; only P&L / OCI buckets
+    use the displayed-Rand basis.
+  */
+  const useDisplayedRandBasis =
+    canonical.statement === "profitLoss" ||
+    canonical.statement === "otherComprehensiveIncome";
+
+  bucket.current += useDisplayedRandBasis
+    ? Math.round(currentAmount)
+    : currentAmount;
+
+  bucket.prior += useDisplayedRandBasis
+    ? Math.round(priorAmount)
+    : priorAmount;
 }
 
 function addBalanceSheetLineByPeriod(
@@ -871,23 +942,23 @@ function detailedRowsFromLines(
       groupBuckets.set(key, {
         key,
         label: preferredDetailedLabel(undefined, line),
-        current: normaliseAmount(line, rawCurrent(line), canonical),
-        prior: normaliseAmount(line, rawPrior(line), canonical),
+        current: Math.round(
+          normaliseAmount(line, rawCurrent(line), canonical),
+        ),
+        prior: Math.round(
+          normaliseAmount(line, rawPrior(line), canonical),
+        ),
         isDefaultRoundingTarget: isDefaultBankChargesLine(line),
       });
       return;
     }
 
     existing.label = preferredDetailedLabel(existing.label, line);
-    existing.current += normaliseAmount(
-      line,
-      rawCurrent(line),
-      canonical,
+    existing.current += Math.round(
+      normaliseAmount(line, rawCurrent(line), canonical),
     );
-    existing.prior += normaliseAmount(
-      line,
-      rawPrior(line),
-      canonical,
+    existing.prior += Math.round(
+      normaliseAmount(line, rawPrior(line), canonical),
     );
     existing.isDefaultRoundingTarget =
       existing.isDefaultRoundingTarget || isDefaultBankChargesLine(line);
@@ -930,61 +1001,17 @@ function detailedRowsFromLines(
         type: "line" as const,
       }));
 
-    const roundedRawCurrent = Math.round(
-      rawBuckets.reduce((sum, bucket) => sum + bucket.current, 0),
-    );
-    const roundedRawPrior = Math.round(
-      rawBuckets.reduce((sum, bucket) => sum + bucket.prior, 0),
-    );
+    /*
+      DISPLAY ROUNDING RULE
 
-    const displayedCurrent = rows.reduce(
-      (sum, row) => sum + Number(row.current || 0),
-      0,
-    );
-    const displayedPrior = rows.reduce(
-      (sum, row) => sum + Number(row.prior || 0),
-      0,
-    );
+      Each detailed income-statement line is rounded independently to the
+      displayed Rand amount. Do not alter a real mapped account (for example
+      Bank Charges) merely to force the rounded raw group total to agree with
+      the sum of individually rounded lines.
 
-    const roundingCurrent = roundedRawCurrent - displayedCurrent;
-    const roundingPrior = roundedRawPrior - displayedPrior;
-
-    if (roundingCurrent !== 0 || roundingPrior !== 0) {
-      const withinTolerance =
-        Math.abs(roundingCurrent) <= roundingTolerance &&
-        Math.abs(roundingPrior) <= roundingTolerance;
-
-      const defaultTargetBucket = rawBuckets.find(
-        (bucket) => bucket.isDefaultRoundingTarget,
-      );
-      const targetRow = roundingAccountMappingCode
-        ? rows.find(
-            (row) =>
-              row.id === `${group}:${roundingAccountMappingCode}`,
-          )
-        : defaultTargetBucket
-        ? rows.find(
-            (row) => row.id === `${group}:${defaultTargetBucket.key}`,
-          )
-        : undefined;
-
-      if (withinTolerance && targetRow) {
-        targetRow.current =
-          Number(targetRow.current || 0) + roundingCurrent;
-        targetRow.prior =
-          Number(targetRow.prior || 0) + roundingPrior;
-        targetRow.label = roundingAccountLabel;
-      } else {
-        rows.push({
-          id: `${group}:rounding-adjustment`,
-          label: "Rounding adjustment",
-          current: roundingCurrent,
-          prior: roundingPrior,
-          type: "line",
-        });
-      }
-    }
-
+      The statement totals are built from those displayed rounded lines below,
+      so the Detailed IS, SOCI and notes all remain aligned with the TB.
+    */
     return rows;
   }
 
@@ -1254,17 +1281,17 @@ export function buildAfsPrintStatementEngine(
   const discontinuedOperations = visibleBuckets(buckets.discontinuedOperations);
   const otherComprehensiveIncome = visibleBuckets(buckets.otherComprehensiveIncome);
 
-  const revenueTotal = sumBuckets(revenue);
-  const cosTotal = sumBuckets(costOfSales);
+  const revenueTotal = sumRoundedBuckets(revenue);
+  const cosTotal = sumRoundedBuckets(costOfSales);
   const gross = {
     current: revenueTotal.current + cosTotal.current,
     prior: revenueTotal.prior + cosTotal.prior,
   };
 
-  const otherOperatingIncomeTotal = sumBuckets(otherOperatingIncome);
-  const investmentIncomeTotal = sumBuckets(investmentIncome);
-  const otherGainsLossesTotal = sumBuckets(otherGainsLosses);
-  let opexTotal = sumBuckets(operatingExpenses);
+  const otherOperatingIncomeTotal = sumRoundedBuckets(otherOperatingIncome);
+  const investmentIncomeTotal = sumRoundedBuckets(investmentIncome);
+  const otherGainsLossesTotal = sumRoundedBuckets(otherGainsLosses);
+  let opexTotal = sumRoundedBuckets(operatingExpenses);
   let operatingProfit = {
     current:
       gross.current +
@@ -1280,15 +1307,15 @@ export function buildAfsPrintStatementEngine(
       opexTotal.prior,
   };
 
-  const financeCostsTotal = sumBuckets(financeCosts);
+  const financeCostsTotal = sumRoundedBuckets(financeCosts);
   let beforeTax = {
     current: operatingProfit.current + financeCostsTotal.current,
     prior: operatingProfit.prior + financeCostsTotal.prior,
   };
 
-  const taxationTotal = sumBuckets(taxation);
-  const discontinuedOperationsTotal = sumBuckets(discontinuedOperations);
-  const otherComprehensiveIncomeTotal = sumBuckets(otherComprehensiveIncome);
+  const taxationTotal = sumRoundedBuckets(taxation);
+  const discontinuedOperationsTotal = sumRoundedBuckets(discontinuedOperations);
+  const otherComprehensiveIncomeTotal = sumRoundedBuckets(otherComprehensiveIncome);
 
   let profitForYear = {
     current:
@@ -1433,7 +1460,7 @@ export function buildAfsPrintStatementEngine(
       ? -Math.abs(rawOpeningRetainedInput)
       : rawOpeningRetainedInput;
 
-  const priorClosingRetainedIncome = hasMappedPriorRetainedIncome
+  let priorClosingRetainedIncome = hasMappedPriorRetainedIncome
     ? mappedPriorIsOpeningBalance
       ? openingRetainedIncome +
         profitForYear.prior +
@@ -1442,6 +1469,8 @@ export function buildAfsPrintStatementEngine(
     : openingRetainedIncome +
       profitForYear.prior +
       priorOtherMovements;
+
+  let priorEquityRoundingAdjustment = 0;
 
   const roundingTolerance = Math.max(
     0,
@@ -1466,7 +1495,7 @@ export function buildAfsPrintStatementEngine(
   ) {
     operatingExpenses[0].current += automaticProfitRoundingAdjustment;
 
-    opexTotal = sumBuckets(operatingExpenses);
+    opexTotal = sumRoundedBuckets(operatingExpenses);
     operatingProfit = {
       current: gross.current + otherOperatingIncomeTotal.current + investmentIncomeTotal.current + otherGainsLossesTotal.current + opexTotal.current,
       prior: gross.prior + otherOperatingIncomeTotal.prior + investmentIncomeTotal.prior + otherGainsLossesTotal.prior + opexTotal.prior,
@@ -1640,6 +1669,17 @@ export function buildAfsPrintStatementEngine(
     Math.abs(sfpRetainedRoundingPrior) <= sfpRoundingTolerance
   ) {
     retainedIncome[0].prior += sfpRetainedRoundingPrior;
+
+    /*
+      Keep the Statement of Changes in Equity / Funds aligned to the SFP.
+
+      If the prior-year SFP needs a small presentation-rounding adjustment in
+      retained income, the SCE must show the same adjustment explicitly.
+      Otherwise the SFP closing retained balance and the SCE prior-year closing
+      balance differ even though both pages are internally "balanced".
+    */
+    priorEquityRoundingAdjustment = sfpRetainedRoundingPrior;
+    priorClosingRetainedIncome += sfpRetainedRoundingPrior;
   }
 
   /*
@@ -1664,7 +1704,7 @@ export function buildAfsPrintStatementEngine(
     operatingExpenses[0].current += finalProfitRoundingAdjustment;
     automaticProfitRoundingAdjustment += finalProfitRoundingAdjustment;
 
-    opexTotal = sumBuckets(operatingExpenses);
+    opexTotal = sumRoundedBuckets(operatingExpenses);
     operatingProfit = {
       current: gross.current + otherOperatingIncomeTotal.current + investmentIncomeTotal.current + otherGainsLossesTotal.current + opexTotal.current,
       prior: gross.prior + otherOperatingIncomeTotal.prior + investmentIncomeTotal.prior + otherGainsLossesTotal.prior + opexTotal.prior,
@@ -1853,6 +1893,7 @@ export function buildAfsPrintStatementEngine(
     { id: "sce-retained-opening", label: "Opening retained income", current: Math.round(openingRetainedIncome), prior: null, type: "line" },
     { id: "sce-prior-profit", label: "Prior year profit / (loss)", current: Math.round(profitForYear.prior), prior: null, type: "line" },
     { id: "sce-prior-other-movement", label: "Prior year other movements / distributions", current: Math.round(priorOtherMovements), prior: null, type: "line" },
+    { id: "sce-prior-rounding-adjustment", label: "Rounding adjustment - prior year", current: Math.round(priorEquityRoundingAdjustment), prior: null, type: "line" },
     { id: "sce-prior-closing-retained", label: "Prior year closing retained income", current: Math.round(priorClosingRetainedIncome), prior: null, type: "subtotal" },
     { id: "sce-current-profit", label: "Current year profit / (loss)", current: Math.round(profitForYear.current), prior: null, type: "line" },
     { id: "sce-current-other-movement", label: "Current year other movements / distributions", current: Math.round(currentOtherMovements), prior: null, type: "line" },

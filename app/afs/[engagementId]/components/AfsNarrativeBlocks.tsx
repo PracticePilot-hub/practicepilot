@@ -768,7 +768,7 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
       </p>
 
       <p style={styles.paragraph}>
-        We performed this compilation engagement in accordance with International Standard on Related Services 4410 (Revised), Compilation Engagements. We have applied our expertise in accounting and financial reporting to assist management in the preparation and presentation of these annual financial statements using {framework} as the applicable financial reporting framework.
+        We performed this compilation engagement in accordance with International Standard on Related Services 4410 (Revised), Compilation Engagements. We applied our expertise in accounting and financial reporting to assist management in compiling and presenting the annual financial statements based on the accounting policies and financial reporting framework selected by management.
       </p>
 
       <p style={styles.paragraph}>
@@ -780,7 +780,7 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
       </p>
 
       <p style={styles.paragraph}>
-        Since a compilation engagement is not an assurance engagement, we are not required to verify the accuracy or completeness of the information provided to us to compile these annual financial statements. Accordingly, we do not express an audit opinion, review conclusion or any other form of assurance on these annual financial statements, including whether they comply in all respects with {framework}.
+        Since a compilation engagement is not an assurance engagement, we are not required to verify the accuracy or completeness of the information provided to us. Accordingly, we do not express an audit opinion, review conclusion or any other form of assurance on these annual financial statements.
       </p>
 
       <p style={styles.paragraph}>

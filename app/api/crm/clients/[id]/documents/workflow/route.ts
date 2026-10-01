@@ -173,6 +173,116 @@ function cleanStatus(value: unknown): WorkflowStatus {
   return status;
 }
 
+const PORTAL_CATEGORIES = [
+  "financial_statements",
+  "tax",
+  "management_accounts",
+  "payroll",
+  "secretarial",
+  "company_documents",
+  "agreements_contracts",
+  "general",
+] as const;
+
+type PortalCategory = (typeof PORTAL_CATEGORIES)[number];
+
+function cleanPortalCategory(value: unknown): PortalCategory {
+  const category = String(value || "")
+    .trim()
+    .toLowerCase() as PortalCategory;
+
+  if (!PORTAL_CATEGORIES.includes(category)) {
+    throw new Error("Invalid client portal category.");
+  }
+
+  return category;
+}
+
+function suggestPortalCategory(
+  providerPath: string,
+  documentName: string
+): PortalCategory {
+  const text = `${providerPath} ${documentName}`.toLowerCase();
+
+  if (
+    text.includes("afs") ||
+    text.includes("financial statement") ||
+    text.includes("annual financial")
+  ) {
+    return "financial_statements";
+  }
+
+  if (
+    text.includes("management account") ||
+    text.includes("management report")
+  ) {
+    return "management_accounts";
+  }
+
+  if (
+    text.includes("payroll") ||
+    text.includes("payslip") ||
+    text.includes("emp201") ||
+    text.includes("emp501") ||
+    text.includes("irp5")
+  ) {
+    return "payroll";
+  }
+
+  if (
+    text.includes("secretarial") ||
+    text.includes("share certificate") ||
+    text.includes("securities register") ||
+    text.includes("beneficial ownership") ||
+    text.includes("cipc")
+  ) {
+    return "secretarial";
+  }
+
+  if (
+    text.includes("engagement") ||
+    text.includes("agreement") ||
+    text.includes("contract") ||
+    text.includes("mandate")
+  ) {
+    return "agreements_contracts";
+  }
+
+  if (
+    text.includes("income tax") ||
+    text.includes("provisional") ||
+    text.includes("itr") ||
+    text.includes("sars") ||
+    text.includes("tax")
+  ) {
+    return "tax";
+  }
+
+  if (
+    text.includes("company document") ||
+    text.includes("company documents") ||
+    text.includes("incorporation") ||
+    text.includes("cor14") ||
+    text.includes("coreg")
+  ) {
+    return "company_documents";
+  }
+
+  return "general";
+}
+
+function withSuggestedPortalCategory(row: any) {
+  return {
+    ...row,
+    portal_category:
+      row?.portal_category ||
+      suggestPortalCategory(
+        String(row?.provider_path || ""),
+        String(row?.document_name || "")
+      ),
+  };
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> }
@@ -203,12 +313,15 @@ export async function GET(
           provider_item_id,
           provider_path,
           document_name,
+          portal_category,
           workflow_status,
           client_visible,
           owner_user_id,
           created_by_user_id,
           review_requested_by_user_id,
           review_requested_at,
+          review_assigned_user_id,
+          review_work_item_id,
           reviewed_by_user_id,
           reviewed_at,
           approved_by_user_id,
@@ -242,9 +355,20 @@ export async function GET(
 
     if (error) throw error;
 
+    const { data: reviewers, error: reviewersError } = await admin
+      .from("user_profiles")
+      .select("user_id,full_name,email,role")
+      .eq("organisation_id", organisationId)
+      .eq("access_enabled", true)
+      .eq("can_access_crm", true)
+      .order("full_name", { ascending: true });
+
+    if (reviewersError) throw reviewersError;
+
     return NextResponse.json({
       success: true,
-      workflow: data || [],
+      workflow: (data || []).map(withSuggestedPortalCategory),
+      reviewers: reviewers || [],
     });
   } catch (error) {
     console.error("CLIENT DOCUMENT WORKFLOW GET ERROR:", error);
@@ -317,6 +441,10 @@ export async function POST(
           provider_item_id: providerItemId,
           provider_path: providerPath,
           document_name: documentName,
+          portal_category: suggestPortalCategory(
+            providerPath,
+            documentName
+          ),
           workflow_status: "stored",
           client_visible: false,
           created_by_user_id: user.id,
@@ -334,7 +462,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      workflow: data,
+      workflow: withSuggestedPortalCategory(data),
     });
   } catch (error) {
     console.error("CLIENT DOCUMENT WORKFLOW POST ERROR:", error);
@@ -349,6 +477,114 @@ export async function POST(
       { status: 500 }
     );
   }
+}
+
+function localDateInJohannesburg() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+async function validReviewer(
+  organisationId: string,
+  reviewerUserId: string
+) {
+  const { data, error } = await admin
+    .from("user_profiles")
+    .select("user_id,full_name,email,access_enabled,can_access_crm")
+    .eq("organisation_id", organisationId)
+    .eq("user_id", reviewerUserId)
+    .eq("access_enabled", true)
+    .eq("can_access_crm", true)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+async function createOrRefreshReviewWorkItem(args: {
+  organisationId: string;
+  clientId: string;
+  workflow: any;
+  reviewerUserId: string;
+  requestedByUserId: string;
+  dueDate: string;
+}) {
+  const {
+    organisationId,
+    clientId,
+    workflow,
+    reviewerUserId,
+    requestedByUserId,
+    dueDate,
+  } = args;
+
+  const payload = {
+    organisation_id: organisationId,
+    client_id: clientId,
+    title: `Review document — ${workflow.document_name}`,
+    description:
+      `PP_DOCUMENT_REVIEW_PATH:${workflow.provider_path}\n\n` +
+      `Review ${workflow.document_name} in the PracticePilot Documents workspace.`,
+    work_type: "workflow_action",
+    status: "not_started",
+    priority: "normal",
+    assigned_user_id: reviewerUserId,
+    created_by_user_id: requestedByUserId,
+    due_date: dueDate,
+    start_at: null,
+    end_at: null,
+    is_all_day: true,
+    is_personal: false,
+    waiting_on: null,
+    waiting_since: null,
+    workflow_type: "document_review",
+    workflow_id: workflow.id,
+    workflow_stage: "awaiting_review",
+    service_code: "Document Review",
+    source_module: "documents",
+    completed_at: null,
+    cancelled_at: null,
+  };
+
+  if (workflow.review_work_item_id) {
+    const { data, error } = await admin
+      .from("crm_work_items")
+      .update(payload)
+      .eq("id", workflow.review_work_item_id)
+      .select("id")
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data?.id) return data.id;
+  }
+
+  const { data, error } = await admin
+    .from("crm_work_items")
+    .insert(payload)
+    .select("id")
+    .single();
+
+  if (error) throw error;
+  return data.id as string;
+}
+
+async function completeReviewWorkItem(workItemId: string | null | undefined) {
+  if (!workItemId) return;
+
+  const { error } = await admin
+    .from("crm_work_items")
+    .update({
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      workflow_stage: "review_completed",
+    })
+    .eq("id", workItemId);
+
+  if (error) throw error;
 }
 
 export async function PATCH(
@@ -387,63 +623,9 @@ export async function PATCH(
       );
     }
 
-    const nextStatus = cleanStatus(body?.workflow_status);
-    const now = new Date().toISOString();
-
-    const update: Record<string, unknown> = {
-      workflow_status: nextStatus,
-      last_activity_text: `Workflow changed to ${nextStatus.replaceAll(
-        "_",
-        " "
-      )}.`,
-    };
-
-    if (nextStatus === "awaiting_review") {
-      update.review_requested_by_user_id = user.id;
-      update.review_requested_at = now;
-      update.reviewed_by_user_id = null;
-      update.reviewed_at = null;
-      update.approved_by_user_id = null;
-      update.approved_at = null;
-      update.client_visible = false;
-      update.released_by_user_id = null;
-      update.released_at = null;
-    }
-
-    if (nextStatus === "reviewed") {
-      update.reviewed_by_user_id = user.id;
-      update.reviewed_at = now;
-      update.client_visible = false;
-      update.released_by_user_id = null;
-      update.released_at = null;
-    }
-
-    if (nextStatus === "approved") {
-      update.approved_by_user_id = user.id;
-      update.approved_at = now;
-    }
-
-    if (nextStatus === "rejected") {
-      update.client_visible = false;
-      update.released_by_user_id = null;
-      update.released_at = null;
-    }
-
-    if (nextStatus === "stored") {
-      update.client_visible = false;
-      update.review_requested_by_user_id = null;
-      update.review_requested_at = null;
-      update.reviewed_by_user_id = null;
-      update.reviewed_at = null;
-      update.approved_by_user_id = null;
-      update.approved_at = null;
-      update.released_by_user_id = null;
-      update.released_at = null;
-    }
-
     const { data: existing, error: existingError } = await admin
       .from("crm_document_workflow")
-      .select("id")
+      .select("*")
       .eq("organisation_id", organisationId)
       .eq("client_id", clientId)
       .eq("provider_id", mapping.provider_id)
@@ -460,6 +642,195 @@ export async function PATCH(
         },
         { status: 404 }
       );
+    }
+
+    const action = String(body?.action || "").trim().toLowerCase();
+    const now = new Date().toISOString();
+
+    if (action === "set_portal_category") {
+      const portalCategory = cleanPortalCategory(body?.portal_category);
+
+      const { data, error } = await admin
+        .from("crm_document_workflow")
+        .update({
+          portal_category: portalCategory,
+          last_activity_text: `Client portal category changed to ${portalCategory.replaceAll(
+            "_",
+            " "
+          )}.`,
+        })
+        .eq("id", existing.id)
+        .select("*")
+        .single();
+
+      if (error) throw error;
+
+      return NextResponse.json({
+        success: true,
+        workflow: withSuggestedPortalCategory(data),
+      });
+    }
+
+    if (action === "release") {
+      if (existing.workflow_status !== "approved") {
+        return NextResponse.json(
+          {
+            error:
+              "Only an approved document can be released to the client.",
+          },
+          { status: 409 }
+        );
+      }
+
+      const portalCategory = existing.portal_category
+        ? cleanPortalCategory(existing.portal_category)
+        : suggestPortalCategory(
+            String(existing.provider_path || ""),
+            String(existing.document_name || "")
+          );
+
+      const { data, error } = await admin
+        .from("crm_document_workflow")
+        .update({
+          portal_category: portalCategory,
+          client_visible: true,
+          released_by_user_id: user.id,
+          released_at: now,
+          last_activity_text: "Approved document released to the client.",
+        })
+        .eq("id", existing.id)
+        .select("*")
+        .single();
+
+      if (error) throw error;
+
+      return NextResponse.json({
+        success: true,
+        workflow: withSuggestedPortalCategory(data),
+      });
+    }
+
+    if (action === "unrelease") {
+      const { data, error } = await admin
+        .from("crm_document_workflow")
+        .update({
+          client_visible: false,
+          released_by_user_id: null,
+          released_at: null,
+          last_activity_text: "Client access removed from the document.",
+        })
+        .eq("id", existing.id)
+        .select("*")
+        .single();
+
+      if (error) throw error;
+
+      return NextResponse.json({
+        success: true,
+        workflow: withSuggestedPortalCategory(data),
+      });
+    }
+
+    const nextStatus = cleanStatus(body?.workflow_status);
+
+    const update: Record<string, unknown> = {
+      workflow_status: nextStatus,
+      last_activity_text: `Workflow changed to ${nextStatus.replaceAll(
+        "_",
+        " "
+      )}.`,
+    };
+
+    if (nextStatus === "awaiting_review") {
+      const reviewerUserId = String(
+        body?.reviewer_user_id ||
+          existing.review_assigned_user_id ||
+          ""
+      ).trim();
+
+      if (!reviewerUserId) {
+        return NextResponse.json(
+          { error: "Choose a reviewer before requesting review." },
+          { status: 400 }
+        );
+      }
+
+      const reviewer = await validReviewer(
+        organisationId,
+        reviewerUserId
+      );
+
+      if (!reviewer) {
+        return NextResponse.json(
+          { error: "The selected reviewer is not an active CRM user in this practice." },
+          { status: 400 }
+        );
+      }
+
+      const dueDate = String(
+        body?.review_due_date || localDateInJohannesburg()
+      ).trim();
+
+      const workItemId = await createOrRefreshReviewWorkItem({
+        organisationId,
+        clientId,
+        workflow: existing,
+        reviewerUserId,
+        requestedByUserId: user.id,
+        dueDate,
+      });
+
+      update.review_requested_by_user_id = user.id;
+      update.review_requested_at = now;
+      update.review_assigned_user_id = reviewerUserId;
+      update.review_work_item_id = workItemId;
+      update.reviewed_by_user_id = null;
+      update.reviewed_at = null;
+      update.approved_by_user_id = null;
+      update.approved_at = null;
+      update.client_visible = false;
+      update.released_by_user_id = null;
+      update.released_at = null;
+      update.last_activity_text = `Review requested from ${
+        reviewer.full_name || reviewer.email || "reviewer"
+      }.`;
+    }
+
+    if (nextStatus === "reviewed") {
+      await completeReviewWorkItem(existing.review_work_item_id);
+      update.reviewed_by_user_id = user.id;
+      update.reviewed_at = now;
+      update.client_visible = false;
+      update.released_by_user_id = null;
+      update.released_at = null;
+      update.last_activity_text = "Document review completed.";
+    }
+
+    if (nextStatus === "approved") {
+      update.approved_by_user_id = user.id;
+      update.approved_at = now;
+    }
+
+    if (nextStatus === "rejected") {
+      await completeReviewWorkItem(existing.review_work_item_id);
+      update.client_visible = false;
+      update.released_by_user_id = null;
+      update.released_at = null;
+      update.last_activity_text = "Document review rejected.";
+    }
+
+    if (nextStatus === "stored") {
+      update.client_visible = false;
+      update.review_requested_by_user_id = null;
+      update.review_requested_at = null;
+      update.review_assigned_user_id = null;
+      update.review_work_item_id = null;
+      update.reviewed_by_user_id = null;
+      update.reviewed_at = null;
+      update.approved_by_user_id = null;
+      update.approved_at = null;
+      update.released_by_user_id = null;
+      update.released_at = null;
     }
 
     const { data, error } = await admin

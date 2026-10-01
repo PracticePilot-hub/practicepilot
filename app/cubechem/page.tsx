@@ -1327,21 +1327,44 @@ export default function CubeChemPage() {
     change markup percentages, and export the selected month to Excel or PDF.
   </p>
 
-  <button
-    onClick={() => router.push("/cubechem/hq-order")}
+  <div
     style={{
+      display: "flex",
+      gap: "10px",
+      flexWrap: "wrap",
       marginTop: "14px",
-      border: "none",
-      borderRadius: "12px",
-      padding: "12px 18px",
-      background: "#2563eb",
-      color: "#ffffff",
-      fontWeight: 900,
-      cursor: "pointer",
     }}
   >
-    Open HQ Supplier Order Calculator
-  </button>
+    <button
+      onClick={() => router.push("/cubechem/hq-order")}
+      style={{
+        border: "none",
+        borderRadius: "12px",
+        padding: "12px 18px",
+        background: "#2563eb",
+        color: "#ffffff",
+        fontWeight: 900,
+        cursor: "pointer",
+      }}
+    >
+      Open HQ Supplier Order Calculator
+    </button>
+
+    <button
+      onClick={() => router.push("/cubechem/client-pricing")}
+      style={{
+        border: "none",
+        borderRadius: "12px",
+        padding: "12px 18px",
+        background: "#0f766e",
+        color: "#ffffff",
+        fontWeight: 900,
+        cursor: "pointer",
+      }}
+    >
+      Open Client Price Calculator
+    </button>
+  </div>
 </div>
 
         <section style={topGridStyle}>

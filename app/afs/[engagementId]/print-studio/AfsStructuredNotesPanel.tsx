@@ -139,6 +139,7 @@ const NOTE_KEY_MAP: Record<string, string> = {
   notesShareCapital: "shareCapital",
   notesRetainedIncome: "retainedIncome",
   notesShareholdersLoans: "shareholdersLoans",
+  notesBorrowings: "borrowings",
   notesOtherFinancialLiabilities: "otherFinancialLiabilities",
   notesDeferredTaxLiability: "deferredTax",
   notesAssetFinance: "assetFinance",
@@ -3185,7 +3186,18 @@ const terms =
                         {relationship ? (
                           <p style={styles.paragraph}>Relationship / lender type: {relationship}</p>
                         ) : null}
-                        {terms ? <p style={styles.paragraph}>{terms}</p> : null}
+                        {terms ? (
+                          <p
+                            style={{
+                              ...styles.paragraph,
+                              maxWidth: "72%",
+                              whiteSpace: "normal",
+                              overflowWrap: "break-word",
+                            }}
+                          >
+                            {terms}
+                          </p>
+                        ) : null}
                         {interest ? (
                           <p style={styles.paragraph}>Interest: {interest}</p>
                         ) : null}
@@ -3465,6 +3477,143 @@ function MappedBorrowingNote({
         <p style={styles.paragraph}>{state[stateKey].extraText}</p>
       ) : null}
     </>
+  );
+}
+
+
+function isBorrowingLine(line: any) {
+  /*
+    BORROWINGS NOTE — MAPPING CODE ONLY
+
+    550.20 = Bank loan
+    550.30 = Mortgage bond
+    550.60 = Debenture / bond liability
+    550.70 = Preference shares classified as liability
+    550.80 = Private lender borrowing
+    550.91 = Other secured borrowing
+    550.92 = Other unsecured borrowing
+    550.99 = Other non-current borrowing
+    551    = Legacy borrowings
+    610    = Current borrowings
+
+    Asset-finance current portions remain in the dedicated Asset Finance note.
+  */
+  const code = clean(line?.mapping_code);
+
+  if (!code) return false;
+
+  const exactOrChild = (prefix: string) =>
+    code === prefix ||
+    code.startsWith(`${prefix}.`) ||
+    code.startsWith(`${prefix}-`) ||
+    code.startsWith(`${prefix} `);
+
+  if (
+    exactOrChild("550.40") ||
+    exactOrChild("550.50") ||
+    exactOrChild("610.30") ||
+    exactOrChild("610.40")
+  ) {
+    return false;
+  }
+
+  return [
+    "550.20",
+    "550.30",
+    "550.60",
+    "550.70",
+    "550.80",
+    "550.91",
+    "550.92",
+    "550.99",
+    "551",
+    "610",
+  ].some(exactOrChild);
+}
+
+function borrowingLabel(line: any) {
+  return (
+    clean(line?.account_name) ||
+    clean(line?.description) ||
+    clean(line?.mapping_label) ||
+    "Borrowing"
+  );
+}
+
+function borrowingLineKey(line: any, index: number) {
+  return String(
+    line?.id ||
+      line?.account_code ||
+      line?.mapping_code ||
+      `borrowing-${index}`,
+  );
+}
+
+function buildBorrowingDetailRows(
+  trialBalanceLines: any[],
+  fallbackRows: AmountLine[] = [],
+): AmountLine[] {
+  const grouped = new Map<string, AmountLine>();
+
+  (trialBalanceLines || [])
+    .filter(isBorrowingLine)
+    .forEach((line, index) => {
+      const current = normaliseLoanAmount(lineAmount(line, "current"));
+      const prior = normaliseLoanAmount(lineAmount(line, "prior"));
+
+      if (current === 0 && prior === 0) return;
+
+      const key = borrowingLineKey(line, index);
+      const label = borrowingLabel(line);
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          id: key,
+          label,
+          current: 0,
+          prior: 0,
+          meta: {
+            source: "trialBalanceLine",
+            noteFamily: "borrowings",
+            mappingCode: clean(line?.mapping_code),
+            accountCode: clean(line?.account_code),
+          },
+        });
+      }
+
+      const row = grouped.get(key);
+      if (!row) return;
+
+      row.current += current;
+      row.prior += prior;
+    });
+
+  const detailRows = Array.from(grouped.values())
+    .filter(
+      (row) =>
+        roundAmount(row.current) !== 0 ||
+        roundAmount(row.prior) !== 0,
+    )
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return detailRows.length > 0 ? detailRows : fallbackRows;
+}
+
+function BorrowingsNote(props: {
+  rows: AmountLine[];
+  trialBalanceLines: any[];
+  edit: boolean;
+  state: StructuredState;
+  update: (path: string[], value: any) => void;
+}) {
+  return (
+    <MappedBorrowingNote
+      {...props}
+      stateKey="borrowings"
+      buildRows={buildBorrowingDetailRows}
+      defaultTerms="The borrowing is recognised in accordance with the underlying financing agreement."
+      relationshipLabel="Lender / facility type"
+    />
   );
 }
 
@@ -5474,6 +5623,14 @@ export default function AfsStructuredNotesPanel({
                     edit={isEditing}
                     stateKey="payables"
                     defaultText="Trade and other payables are payable within normal credit terms unless otherwise disclosed."
+                    state={state}
+                    update={update}
+                  />
+                ) : section.key === "notesBorrowings" ? (
+                  <BorrowingsNote
+                    rows={rows}
+                    trialBalanceLines={trialBalanceLines}
+                    edit={isEditing}
                     state={state}
                     update={update}
                   />

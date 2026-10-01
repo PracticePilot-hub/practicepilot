@@ -39,6 +39,7 @@ type WorkItem = {
   waiting_on: string | null;
   waiting_since: string | null;
   workflow_type: string | null;
+  workflow_id?: string | null;
   workflow_stage: string | null;
   service_code: string | null;
   source_module: string | null;
@@ -202,6 +203,7 @@ export default function CRMMyWorkPage() {
             waiting_on,
             waiting_since,
             workflow_type,
+            workflow_id,
             workflow_stage,
             service_code,
             source_module,
@@ -483,7 +485,25 @@ export default function CRMMyWorkPage() {
     };
   }
 
+  function documentReviewPath(item: WorkItem) {
+    if (item.workflow_type !== "document_review") return "";
+    const match = String(item.description || "").match(
+      /^PP_DOCUMENT_REVIEW_PATH:(.+)$/m
+    );
+    return match?.[1]?.trim() || "";
+  }
+
   function openWorkItem(item: WorkItem) {
+    const reviewPath = documentReviewPath(item);
+
+    if (item.client_id && reviewPath) {
+      window.location.href =
+        `/crm/client/${item.client_id}?tab=documents&documentPath=${encodeURIComponent(
+          reviewPath
+        )}`;
+      return;
+    }
+
     // Client work must open the full client work page so the real workflow,
     // checklist, dependencies, activity and work-owner controls are shown.
     if (item.client_id && !item.is_personal) {
@@ -1125,49 +1145,49 @@ function SummaryCell({
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "100vh",
-    background: "#eef2f5",
-    padding: "10px 12px 28px",
+    background: "#f4f6f5",
+    padding: "24px 24px 40px",
     color: "#10233a",
   },
 
   header: {
     display: "flex",
     justifyContent: "space-between",
-    alignItems: "center",
-    gap: "12px",
-    marginBottom: "8px",
+    alignItems: "flex-start",
+    gap: "20px",
+    marginBottom: "18px",
   },
 
   eyebrow: {
     color: "#54766f",
-    fontSize: "9px",
+    fontSize: "13px",
     fontWeight: 850,
   },
 
   title: {
-    margin: "2px 0 0",
-    fontSize: "20px",
-    lineHeight: 1.1,
-    letterSpacing: "-0.02em",
+    margin: "4px 0 0",
+    fontSize: "32px",
+    lineHeight: 1.05,
+    letterSpacing: "-0.035em",
   },
 
   subtitle: {
-    margin: "3px 0 0",
+    margin: "7px 0 0",
     color: "#65717d",
-    fontSize: "8px",
+    fontSize: "14px",
   },
 
   backButton: {
-    minHeight: "30px",
+    minHeight: "38px",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: "0 10px",
+    padding: "0 14px",
     border: "1px solid #cfd8d7",
     background: "#ffffff",
     color: "#10233a",
     textDecoration: "none",
-    fontSize: "9px",
+    fontSize: "12px",
     fontWeight: 850,
   },
 
@@ -1176,16 +1196,16 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
     border: "1px solid #d7dfde",
     background: "#ffffff",
-    marginBottom: "8px",
+    marginBottom: "14px",
   },
 
   summaryCell: {
-    minHeight: "46px",
+    minHeight: "68px",
     display: "flex",
     flexDirection: "column",
     alignItems: "flex-start",
     justifyContent: "center",
-    padding: "6px 10px",
+    padding: "10px 16px",
     border: "none",
     borderRight: "1px solid #e6ebea",
     background: "#ffffff",
@@ -1201,13 +1221,13 @@ const styles: Record<string, CSSProperties> = {
 
   summaryLabel: {
     color: "#53616d",
-    fontSize: "9px",
+    fontSize: "12px",
     fontWeight: 800,
   },
 
   summaryValue: {
-    marginTop: "1px",
-    fontSize: "17px",
+    marginTop: "2px",
+    fontSize: "23px",
     lineHeight: 1,
   },
 
@@ -1215,9 +1235,9 @@ const styles: Record<string, CSSProperties> = {
     display: "grid",
     gridTemplateColumns:
       "minmax(260px, 1.6fr) minmax(180px, 0.9fr) minmax(180px, 0.9fr) minmax(190px, 0.9fr) auto",
-    gap: "7px",
+    gap: "10px",
     alignItems: "end",
-    padding: "8px 10px",
+    padding: "13px",
     border: "1px solid #d7dfde",
     background: "#ffffff",
     marginBottom: "14px",
@@ -1229,43 +1249,43 @@ const styles: Record<string, CSSProperties> = {
 
   filterLabel: {
     display: "block",
-    marginBottom: "3px",
+    marginBottom: "5px",
     color: "#53616d",
-    fontSize: "8px",
+    fontSize: "11px",
     fontWeight: 800,
   },
 
   searchInput: {
     width: "100%",
-    height: "30px",
+    height: "38px",
     boxSizing: "border-box",
     border: "1px solid #ccd6d5",
     background: "#ffffff",
     color: "#10233a",
-    padding: "0 6px",
-    fontSize: "10px",
+    padding: "0 10px",
+    fontSize: "13px",
     outline: "none",
   },
 
   select: {
     width: "100%",
-    height: "30px",
+    height: "38px",
     border: "1px solid #ccd6d5",
     background: "#ffffff",
     color: "#10233a",
-    padding: "0 7px",
-    fontSize: "10px",
+    padding: "0 9px",
+    fontSize: "12px",
     fontWeight: 700,
     outline: "none",
   },
 
   clearButton: {
-    height: "30px",
-    padding: "0 9px",
+    height: "38px",
+    padding: "0 12px",
     border: "1px solid #ccd6d5",
     background: "#f8faf9",
     color: "#41515c",
-    fontSize: "9px",
+    fontSize: "12px",
     fontWeight: 800,
     cursor: "pointer",
   },
@@ -1276,41 +1296,41 @@ const styles: Record<string, CSSProperties> = {
   },
 
   workPanelHeader: {
-    minHeight: "48px",
+    minHeight: "68px",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: "12px",
-    padding: "8px 10px",
+    gap: "20px",
+    padding: "12px 16px",
     borderBottom: "1px solid #e3e8e7",
   },
 
   queueHint: {
     maxWidth: "360px",
     color: "#65717d",
-    fontSize: "9px",
+    fontSize: "11px",
     textAlign: "right",
   },
 
   workPanelTitle: {
     margin: 0,
-    fontSize: "10px",
+    fontSize: "18px",
     lineHeight: 1.2,
   },
 
   workPanelSubtitle: {
-    margin: "2px 0 0",
+    margin: "3px 0 0",
     color: "#6a7580",
-    fontSize: "9px",
+    fontSize: "11px",
   },
 
   tableHeader: {
     display: "grid",
     gridTemplateColumns:
       "minmax(300px, 2.2fr) minmax(180px, 1.1fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) 56px",
-    gap: "8px",
+    gap: "10px",
     alignItems: "center",
-    padding: "7px 10px",
+    padding: "9px 14px",
     background: "#f5f7f7",
     borderBottom: "1px solid #dfe5e4",
     color: "#53616d",
@@ -1323,10 +1343,10 @@ const styles: Record<string, CSSProperties> = {
     display: "grid",
     gridTemplateColumns:
       "minmax(300px, 2.2fr) minmax(180px, 1.1fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) 68px",
-    gap: "8px",
+    gap: "10px",
     alignItems: "center",
-    minHeight: "30px",
-    padding: "6px 10px",
+    minHeight: "70px",
+    padding: "10px 14px",
     border: "none",
     borderBottom: "1px solid #e7eceb",
     background: "#ffffff",
@@ -1366,7 +1386,7 @@ const styles: Record<string, CSSProperties> = {
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-    fontSize: "10px",
+    fontSize: "13px",
     fontWeight: 900,
   },
 
@@ -1382,7 +1402,7 @@ const styles: Record<string, CSSProperties> = {
 
   workContextLine: {
     display: "block",
-    marginTop: "2px",
+    marginTop: "4px",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -1420,7 +1440,7 @@ const styles: Record<string, CSSProperties> = {
   serviceTag: {
     display: "inline-flex",
     alignItems: "center",
-    minHeight: "20px",
+    minHeight: "25px",
     padding: "0 8px",
     fontSize: "10px",
     fontWeight: 850,
@@ -1498,7 +1518,7 @@ const styles: Record<string, CSSProperties> = {
   },
 
   emptyState: {
-    padding: "20px 12px",
+    padding: "42px 20px",
     color: "#72808a",
     textAlign: "center",
     fontSize: "13px",

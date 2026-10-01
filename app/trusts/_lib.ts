@@ -30,6 +30,23 @@ export type TrustRecord = {
   urn_number: string | null;
   is_trading_trust: boolean | null;
   deed_revision: number | null;
+
+  is_family_business_trust: boolean | null;
+  probable_trust_duration: string | null;
+
+  j401_doc_application_form: boolean | null;
+  j401_doc_trust_deed: boolean | null;
+  j401_doc_proof_of_payment: boolean | null;
+  j401_doc_acceptance_of_trusteeship: boolean | null;
+  j401_doc_trustee_identification: boolean | null;
+  j401_doc_trustee_representative_identification: boolean | null;
+  j401_doc_beneficiaries_declaration: boolean | null;
+  j401_doc_beneficiary_identification: boolean | null;
+  j401_doc_guardian_identification: boolean | null;
+  j401_doc_bond_security_exemption: boolean | null;
+  j401_doc_accountant_undertaking: boolean | null;
+  j401_doc_court_order: boolean | null;
+
   document_signatory_count: number | null;
   bank_signatory_count: number | null;
   mandatory_signatory_party_id: string | null;
@@ -138,7 +155,9 @@ export async function getTrustContext(): Promise<TrustContext> {
 
   if (profileError) throw profileError;
   if (!profile?.access_enabled) throw new Error("Your PracticePilot access is disabled.");
-  const trustOrganisationId = profile?.trusts_organisation_id || profile?.organisation_id || null;
+
+  const trustOrganisationId =
+    profile?.trusts_organisation_id || profile?.organisation_id || null;
 
   if (!profile?.can_access_trusts || !trustOrganisationId) {
     throw new Error("Trusts has not been enabled for this login.");
@@ -160,8 +179,10 @@ export async function loadTrust(trustId: string) {
     .eq("id", trustId)
     .eq("organisation_id", context.organisationId)
     .maybeSingle();
+
   if (error) throw error;
   if (!data) throw new Error("Trust not found or you do not have access to it.");
+
   return { context, trust: data as TrustRecord };
 }
 
@@ -172,6 +193,7 @@ export async function loadTrustParties(trustId: string, organisationId: string) 
     .eq("trust_id", trustId)
     .eq("organisation_id", organisationId)
     .order("created_at", { ascending: true });
+
   if (error) throw error;
   return (data || []) as TrustParty[];
 }

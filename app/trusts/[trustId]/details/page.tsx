@@ -21,6 +21,33 @@ const postalFields: Array<{ key: keyof TrustRecord; label: string }> = [
   { key: "postal_postal_code", label: "Postal code" },
 ];
 
+const j401Docs: Array<{ key: keyof TrustRecord; label: string }> = [
+  { key: "j401_doc_application_form", label: "Application Form" },
+  { key: "j401_doc_trust_deed", label: "Original / Certified Trust Deed" },
+  { key: "j401_doc_proof_of_payment", label: "Proof of Payment" },
+  { key: "j401_doc_acceptance_of_trusteeship", label: "Acceptance of Trusteeship" },
+  { key: "j401_doc_trustee_identification", label: "Trustee Identification" },
+  { key: "j401_doc_trustee_representative_identification", label: "Trustee Representative Identification" },
+  { key: "j401_doc_beneficiaries_declaration", label: "Beneficiaries Declaration Form" },
+  { key: "j401_doc_beneficiary_identification", label: "Beneficiary Identification" },
+  { key: "j401_doc_guardian_identification", label: "Beneficiary Guardian Identification" },
+  { key: "j401_doc_bond_security_exemption", label: "Bond of Security / Proof of Exemption" },
+  { key: "j401_doc_accountant_undertaking", label: "Undertaking by Auditor / Accountant" },
+  { key: "j401_doc_court_order", label: "Final Certified Court Order" },
+];
+
+function boolValue(value: boolean | null | undefined): "" | "yes" | "no" {
+  if (value === true) return "yes";
+  if (value === false) return "no";
+  return "";
+}
+
+function fromBoolSelect(value: string): boolean | null {
+  if (value === "yes") return true;
+  if (value === "no") return false;
+  return null;
+}
+
 export default function DetailsPage() {
   const params = useParams<{ trustId: string }>();
   const trustId = String(params.trustId);
@@ -38,11 +65,7 @@ export default function DetailsPage() {
   }, [trustId]);
 
   if (!trust) {
-    return (
-      <div style={ui.page}>
-        {error ? <div style={ui.error}>{error}</div> : "Loading…"}
-      </div>
-    );
+    return <div style={ui.page}>{error ? <div style={ui.error}>{error}</div> : "Loading…"}</div>;
   }
 
   const currentTrust = trust;
@@ -81,16 +104,34 @@ export default function DetailsPage() {
       tax_number: currentTrust.tax_number || null,
       tax_residency_country: currentTrust.tax_residency_country || "South Africa",
       it3t_trust_type: currentTrust.it3t_trust_type || "inter_vivos",
-      tax_return_trust_type:
-        currentTrust.tax_return_trust_type || "inter_vivos_trust",
+      tax_return_trust_type: currentTrust.tax_return_trust_type || "inter_vivos_trust",
       urn_number: currentTrust.urn_number || null,
       is_trading_trust: Boolean(currentTrust.is_trading_trust),
       deed_revision: Number(currentTrust.deed_revision || 0),
+
+      is_family_business_trust:
+        typeof currentTrust.is_family_business_trust === "boolean"
+          ? currentTrust.is_family_business_trust
+          : null,
+      probable_trust_duration: currentTrust.probable_trust_duration || null,
+
+      j401_doc_application_form: Boolean(currentTrust.j401_doc_application_form),
+      j401_doc_trust_deed: Boolean(currentTrust.j401_doc_trust_deed),
+      j401_doc_proof_of_payment: Boolean(currentTrust.j401_doc_proof_of_payment),
+      j401_doc_acceptance_of_trusteeship: Boolean(currentTrust.j401_doc_acceptance_of_trusteeship),
+      j401_doc_trustee_identification: Boolean(currentTrust.j401_doc_trustee_identification),
+      j401_doc_trustee_representative_identification: Boolean(currentTrust.j401_doc_trustee_representative_identification),
+      j401_doc_beneficiaries_declaration: Boolean(currentTrust.j401_doc_beneficiaries_declaration),
+      j401_doc_beneficiary_identification: Boolean(currentTrust.j401_doc_beneficiary_identification),
+      j401_doc_guardian_identification: Boolean(currentTrust.j401_doc_guardian_identification),
+      j401_doc_bond_security_exemption: Boolean(currentTrust.j401_doc_bond_security_exemption),
+      j401_doc_accountant_undertaking: Boolean(currentTrust.j401_doc_accountant_undertaking),
+      j401_doc_court_order: Boolean(currentTrust.j401_doc_court_order),
+
       initial_donation: Number(currentTrust.initial_donation || 100),
       donation_form: currentTrust.donation_form || "cash",
       initial_donation_received: Boolean(currentTrust.initial_donation_received),
-      bank_account_status:
-        currentTrust.bank_account_status || "to_open_after_registration",
+      bank_account_status: currentTrust.bank_account_status || "to_open_after_registration",
       bank_name: currentTrust.bank_name || null,
       bank_branch_name: currentTrust.bank_branch_name || null,
       bank_branch_code: currentTrust.bank_branch_code || null,
@@ -125,8 +166,7 @@ export default function DetailsPage() {
     setMsg("Trust details saved.");
   }
 
-  const bankStatus =
-    currentTrust.bank_account_status || "to_open_after_registration";
+  const bankStatus = currentTrust.bank_account_status || "to_open_after_registration";
 
   return (
     <TrustShell trustId={trustId} trustName={currentTrust.name}>
@@ -139,6 +179,23 @@ export default function DetailsPage() {
           <div style={ui.grid3}>
             <label style={ui.label}>Trust name<input style={ui.input} value={currentTrust.name || ""} onChange={(e) => setField("name", e.target.value)} /></label>
             <label style={ui.label}>Trust type<input style={ui.input} value={currentTrust.trust_type || "Inter Vivos Family Trust"} onChange={(e) => setField("trust_type", e.target.value)} /></label>
+            <label style={ui.label}>
+              Family business trust?
+              <select style={ui.input} value={boolValue(currentTrust.is_family_business_trust)} onChange={(e) => setField("is_family_business_trust", fromBoolSelect(e.target.value))}>
+                <option value="">Not answered</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+            <label style={ui.label}>
+              Probable trust duration
+              <input
+                style={ui.input}
+                value={currentTrust.probable_trust_duration || ""}
+                onChange={(e) => setField("probable_trust_duration", e.target.value)}
+                placeholder="e.g. Indefinite"
+              />
+            </label>
             <label style={ui.label}>Master's office<input style={ui.input} value={currentTrust.masters_office || ""} onChange={(e) => setField("masters_office", e.target.value)} /></label>
             <label style={ui.label}>Registration number<input style={ui.input} value={currentTrust.registration_number || ""} onChange={(e) => setField("registration_number", e.target.value)} /></label>
             <label style={ui.label}>Registration date<input style={ui.input} type="date" value={currentTrust.registration_date || ""} onChange={(e) => setField("registration_date", e.target.value)} /></label>
@@ -149,6 +206,30 @@ export default function DetailsPage() {
             <label style={ui.label}>URN number<input style={ui.input} value={currentTrust.urn_number || ""} onChange={(e) => setField("urn_number", e.target.value)} placeholder="If available" /></label>
             <label style={ui.label}>Deed revision<input style={ui.input} type="number" min={0} value={Number(currentTrust.deed_revision || 0)} onChange={(e) => setField("deed_revision", Number(e.target.value || 0))} /></label>
             <label style={{ ...ui.label, alignContent: "end" }}><span>Trading trust for SARS?</span><span><input type="checkbox" checked={Boolean(currentTrust.is_trading_trust)} onChange={(e) => setField("is_trading_trust", e.target.checked)} /> Yes</span></label>
+          </div>
+
+          {currentTrust.is_family_business_trust === true ? (
+            <div style={{ ...ui.error, marginTop: 14, marginBottom: 0 }}>
+              Family business trust selected. PracticePilot should require / warn for an independent trustee unless a specific exception or motivation applies.
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section style={ui.panel}>
+        <div style={ui.panelHeader}>J401 supporting documents</div>
+        <div style={ui.panelBody}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: "8px 18px" }}>
+            {j401Docs.map((item) => (
+              <label key={String(item.key)} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: "#334a58" }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(currentTrust[item.key])}
+                  onChange={(e) => setField(item.key, e.target.checked)}
+                />
+                {item.label}
+              </label>
+            ))}
           </div>
         </div>
       </section>

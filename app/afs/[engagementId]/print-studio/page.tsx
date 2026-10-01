@@ -7003,6 +7003,93 @@ const flightDeckIssues = useMemo(() => {
       );
   }, [trialBalanceLines]);
 
+  /*
+    BORROWINGS NOTE DETAIL
+
+    The mapping library classifies the following 550.xx codes as borrowings.
+    Build the note directly from the mapped TB lines so the Borrowings note
+    cannot be empty merely because an internal note-family bucket missed them.
+
+    Classification remains mapping-code-only.
+  */
+  const borrowingsDetailRows = useMemo(() => {
+    const borrowingPrefixes = [
+      "550.20",
+      "550.30",
+      "550.60",
+      "550.70",
+      "550.80",
+      "550.91",
+      "550.92",
+      "550.99",
+      "551",
+      "610",
+    ];
+
+    const excludedPrefixes = [
+      "550.40",
+      "550.50",
+      "610.30",
+      "610.40",
+    ];
+
+    const startsWithCode = (code: string, prefix: string) =>
+      code === prefix || code.startsWith(`${prefix}.`);
+
+    const grouped = new Map<
+      string,
+      { id: string; label: string; current: number; prior: number }
+    >();
+
+    (trialBalanceLines || [])
+      .filter((line: any) => {
+        const code = String(line?.mapping_code || "").trim();
+        if (!code) return false;
+
+        if (excludedPrefixes.some((prefix) => startsWithCode(code, prefix))) {
+          return false;
+        }
+
+        return borrowingPrefixes.some((prefix) => startsWithCode(code, prefix));
+      })
+      .forEach((line: any, index: number) => {
+        const code = String(line?.mapping_code || "").trim();
+        const id = String(
+          line?.id ||
+            line?.account_code ||
+            `${code}-${index}`,
+        );
+
+        const label =
+          cleanString(line?.account_name) ||
+          cleanString(line?.mapping_label) ||
+          "Borrowing";
+
+        /*
+          Borrowings are liabilities. TB credit balances are normally negative;
+          notes present the liability as a positive amount.
+        */
+        const current = Math.abs(Number(rawCurrent(line) || 0));
+        const prior = Math.abs(Number(rawPrior(line) || 0));
+
+        if (
+          Math.round(current) === 0 &&
+          Math.round(prior) === 0
+        ) {
+          return;
+        }
+
+        grouped.set(id, {
+          id,
+          label,
+          current,
+          prior,
+        });
+      });
+
+    return Array.from(grouped.values());
+  }, [trialBalanceLines]);
+
   const noteDataForDisplay = useMemo(
     () => ({
       ...noteData,
@@ -7014,8 +7101,17 @@ const flightDeckIssues = useMemo(() => {
         investmentDetailRows.length > 0
           ? investmentDetailRows
           : noteData.otherInvestments,
+      borrowings:
+        borrowingsDetailRows.length > 0
+          ? borrowingsDetailRows
+          : noteData.borrowings,
     }),
-    [noteData, investmentDetailRows, revenueDetailRows],
+    [
+      noteData,
+      investmentDetailRows,
+      revenueDetailRows,
+      borrowingsDetailRows,
+    ],
   );
 
   const engineChecks = statementEngine.checks;
@@ -7396,6 +7492,7 @@ const flightDeckIssues = useMemo(() => {
     const openingRetained = sceValue("sce-retained-opening");
     const priorProfit = sceValue("sce-prior-profit");
     const priorOther = sceValue("sce-prior-other-movement");
+    const priorRounding = sceValue("sce-prior-rounding-adjustment");
     const priorClosingRetained = sceValue("sce-prior-closing-retained");
 
     const currentClosingRetained = sceValue("sce-retained-closing");
@@ -7440,6 +7537,15 @@ const flightDeckIssues = useMemo(() => {
           accumulated: priorOther,
           total: priorOther,
         },
+        ...(priorRounding !== 0
+          ? [
+              {
+                label: "Rounding adjustment - prior year",
+                accumulated: priorRounding,
+                total: priorRounding,
+              },
+            ]
+          : []),
         {
           label: "Balance at end of prior year",
           accumulated: priorClosingRetained,
@@ -7592,6 +7698,16 @@ const flightDeckIssues = useMemo(() => {
         retained: priorOther,
         total: priorOther,
       },
+      ...(priorRounding !== 0
+        ? [
+            {
+              label: "Rounding adjustment - prior year",
+              share: 0,
+              retained: priorRounding,
+              total: priorRounding,
+            },
+          ]
+        : []),
       {
         label: "Balance at end of prior year",
         share: priorClosingShare,

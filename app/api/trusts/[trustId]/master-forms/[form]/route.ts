@@ -36,7 +36,7 @@ function cap(value: unknown) {
 function safeFilename(value: unknown) {
   return (
     clean(value)
-      .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "")
+      .replace(/[<>:"/\\\\|?*\u0000-\u001F]/g, "")
       .replace(/\s+/g, " ")
       .trim() || "Trust"
   );
@@ -273,6 +273,149 @@ async function finishForm(pdf: PDFDocument) {
   return pdf.save();
 }
 
+type BoxRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+function samePdfRef(a: any, b: any) {
+  if (!a || !b) return false;
+  return String(a) === String(b);
+}
+
+function j417Page2CheckboxRects(pdf: PDFDocument): BoxRect[] {
+  const form = pdf.getForm();
+  const pages = pdf.getPages();
+  const page2: any = pages[1];
+
+  if (!page2) return [];
+
+  const page2Ref = page2.ref;
+  const rects: BoxRect[] = [];
+
+  for (const field of form.getFields() as any[]) {
+    if (
+      typeof field?.check !== "function" ||
+      typeof field?.uncheck !== "function"
+    ) {
+      continue;
+    }
+
+    const widgets =
+      typeof field?.acroField?.getWidgets === "function"
+        ? field.acroField.getWidgets()
+        : [];
+
+    for (const widget of widgets) {
+      const widgetPage =
+        typeof widget?.P === "function" ? widget.P() : undefined;
+
+      if (widgetPage && !samePdfRef(widgetPage, page2Ref)) {
+        continue;
+      }
+
+      if (!widgetPage) {
+        continue;
+      }
+
+      const rect =
+        typeof widget?.getRectangle === "function"
+          ? widget.getRectangle()
+          : null;
+
+      if (!rect) continue;
+
+      rects.push({
+        x: Number(rect.x),
+        y: Number(rect.y),
+        width: Number(rect.width),
+        height: Number(rect.height),
+      });
+    }
+  }
+
+  // Visual order on page 2: top to bottom, Yes then No.
+  rects.sort((a, b) => {
+    const yDiff = b.y - a.y;
+    if (Math.abs(yDiff) > 2) return yDiff;
+    return a.x - b.x;
+  });
+
+  return rects;
+}
+
+function drawTick(page: any, rect: BoxRect) {
+  const w = rect.width;
+  const h = rect.height;
+
+  page.drawLine({
+    start: {
+      x: rect.x + w * 0.22,
+      y: rect.y + h * 0.48,
+    },
+    end: {
+      x: rect.x + w * 0.42,
+      y: rect.y + h * 0.25,
+    },
+    thickness: 1.5,
+  });
+
+  page.drawLine({
+    start: {
+      x: rect.x + w * 0.42,
+      y: rect.y + h * 0.25,
+    },
+    end: {
+      x: rect.x + w * 0.78,
+      y: rect.y + h * 0.78,
+    },
+    thickness: 1.5,
+  });
+}
+
+async function finishJ417(
+  pdf: PDFDocument,
+  answers: Array<boolean | null | undefined>
+) {
+  const form = pdf.getForm();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+
+  // Capture the actual page-2 checkbox rectangles BEFORE flattening.
+  const page2Rects = j417Page2CheckboxRects(pdf);
+
+  form.updateFieldAppearances(font);
+  form.flatten();
+
+  const page2 = pdf.getPages()[1];
+
+  if (!page2) {
+    console.warn("J417 page 2 was not found.");
+    return pdf.save();
+  }
+
+  if (page2Rects.length < 18) {
+    console.warn(
+      `J417 page 2: expected at least 18 checkbox widgets, found ${page2Rects.length}.`
+    );
+    return pdf.save();
+  }
+
+  // Nine questions, each with [Yes, No].
+  answers.forEach((answer, rowIndex) => {
+    if (answer === undefined || answer === null) return;
+
+    const pairStart = rowIndex * 2;
+    const targetIndex = pairStart + (answer === true ? 0 : 1);
+    const rect = page2Rects[targetIndex];
+
+    if (rect) drawTick(page2, rect);
+  });
+
+  return pdf.save();
+}
+
 async function fillJ405(template: Uint8Array, trust: any, parties: any[]) {
   const pdf = await PDFDocument.load(template, { ignoreEncryption: true });
   const form = pdf.getForm();
@@ -399,7 +542,7 @@ async function fillJ417(template: Uint8Array, trust: any, trustee: any) {
   const familyBusiness =
     typeof trust.is_family_business_trust === "boolean"
       ? trust.is_family_business_trust
-      : clean(trust.trust_type).toLowerCase().includes("family");
+      : null;
   setYesNo(form, "Check Box1.0.0", "Check Box1.0.1", familyBusiness);
   setYesNo(
     form,
@@ -445,10 +588,19 @@ async function fillJ417(template: Uint8Array, trust: any, trustee: any) {
     8
   );
 
-  // The remaining relationship, fiduciary and statutory declarations are deliberately
-  // left for the trustee to confirm personally before signature / commissioner of oaths.
-
-  return finishForm(pdf);
+  // Page 2 is filled by position rather than by AcroForm field name.
+  // The DOJ template groups widgets in a way that can otherwise tick both Yes and No.
+  return finishJ417(pdf, [
+    trustee.j417_convicted_dishonesty,
+    trustee.j417_insolvent,
+    trustee.j417_removed_as_trustee,
+    trustee.j417_incapacitated,
+    trustee.j417_understands_trust_law,
+    trustee.j417_aware_fiduciary_duties,
+    trustee.j417_accepts_civil_criminal_exposure,
+    trustee.j417_accepts_master_removal,
+    trustee.j417_direct_control,
+  ]);
 }
 
 async function fillJ450(template: Uint8Array, parties: any[]) {
@@ -549,6 +701,7 @@ async function fillJ401(template: Uint8Array, trust: any, parties: any[]) {
   checkField(form, "Check Box1.0.0", true); // Trust Registration
   textField(form, "Text2.0", cap(trust.name), 9);
   textField(form, "Text2.2", trust.registration_number, 8);
+  textField(form, "Text2.4", trust.probable_trust_duration, 8);
   textField(
     form,
     "Text2.3",
@@ -566,6 +719,31 @@ async function fillJ401(template: Uint8Array, trust: any, parties: any[]) {
     Boolean(trust.annual_audit_required)
   );
   setYesNo(form, "Check Box4.3.0", "Check Box4.3.1", false);
+
+  // PAGE 3 / SECTION 2 — supporting documents.
+  const supportingDocuments = [
+    trust.j401_doc_application_form,
+    trust.j401_doc_trust_deed,
+    trust.j401_doc_proof_of_payment,
+    trust.j401_doc_acceptance_of_trusteeship,
+    trust.j401_doc_trustee_identification,
+    trust.j401_doc_trustee_representative_identification,
+    trust.j401_doc_beneficiaries_declaration,
+    trust.j401_doc_beneficiary_identification,
+    trust.j401_doc_guardian_identification,
+    trust.j401_doc_bond_security_exemption,
+    trust.j401_doc_accountant_undertaking,
+    trust.j401_doc_court_order,
+  ];
+
+  supportingDocuments.forEach((submitted, index) => {
+    setYesNo(
+      form,
+      `Check Box3.${index}.0`,
+      `Check Box3.${index}.1`,
+      Boolean(submitted)
+    );
+  });
 
   // PAGE 2 — Applicant / Agent: the appointed accountant organisation / representative
   if (accountant) {
@@ -880,7 +1058,7 @@ export async function GET(
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename=\"${filename}\"`,
+        "Content-Disposition": `attachment; filename=\\"${filename}\\"`,
         "Cache-Control": "no-store",
       },
     });

@@ -32,19 +32,53 @@ type WorkflowStatus =
   | "approved"
   | "rejected";
 
+type PortalCategory =
+  | "financial_statements"
+  | "tax"
+  | "management_accounts"
+  | "payroll"
+  | "secretarial"
+  | "company_documents"
+  | "agreements_contracts"
+  | "general";
+
+const PORTAL_CATEGORY_OPTIONS: Array<{
+  value: PortalCategory;
+  label: string;
+}> = [
+  { value: "financial_statements", label: "Financial Statements" },
+  { value: "tax", label: "Tax" },
+  { value: "management_accounts", label: "Management Accounts" },
+  { value: "payroll", label: "Payroll" },
+  { value: "secretarial", label: "Secretarial" },
+  { value: "company_documents", label: "Company Documents" },
+  { value: "agreements_contracts", label: "Agreements & Contracts" },
+  { value: "general", label: "General" },
+];
+
 type WorkflowRecord = {
   id: string;
   provider_item_id?: string | null;
   provider_path: string;
   document_name: string;
+  portal_category?: PortalCategory | null;
   workflow_status: WorkflowStatus;
   client_visible: boolean;
   last_activity_text?: string | null;
   review_requested_at?: string | null;
+  review_assigned_user_id?: string | null;
+  review_work_item_id?: string | null;
   reviewed_at?: string | null;
   approved_at?: string | null;
   released_at?: string | null;
   updated_at?: string | null;
+};
+
+type ReviewerOption = {
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+  role?: string | null;
 };
 function providerLabel(value: string | null) {
   if (value === "egnyte") return "Egnyte";
@@ -251,7 +285,23 @@ export default function DocumentBrowser({
   const [workflowByPath, setWorkflowByPath] = useState<
     Record<string, WorkflowRecord>
   >({});
+  const workflowByPathRef = useRef<Record<string, WorkflowRecord>>({});
+  const [workflowReady, setWorkflowReady] = useState(false);
   const [workflowBusyPath, setWorkflowBusyPath] = useState("");
+  const [showDocumentActions, setShowDocumentActions] = useState(false);
+  const [showPortalMenu, setShowPortalMenu] = useState(false);
+  const [reviewers, setReviewers] = useState<ReviewerOption[]>([]);
+  const [showReviewRequest, setShowReviewRequest] = useState(false);
+  const [reviewRequestItem, setReviewRequestItem] = useState<BrowseItem | null>(null);
+  const [selectedReviewerId, setSelectedReviewerId] = useState("");
+  const [reviewDueDate, setReviewDueDate] = useState(() => {
+    const now = new Date();
+    return [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+    ].join("-");
+  });
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const folderCacheRef = useRef<Map<string, BrowseResponse>>(new Map());
   const inFlightFolderRef = useRef<Map<string, Promise<BrowseResponse>>>(new Map());
@@ -287,7 +337,7 @@ export default function DocumentBrowser({
 
   function applyWorkflowToBrowseResponse(
     response: BrowseResponse,
-    workflowMap: Record<string, WorkflowRecord> = workflowByPath
+    workflowMap: Record<string, WorkflowRecord> = workflowByPathRef.current
   ) {
     return {
       ...response,
@@ -322,6 +372,8 @@ export default function DocumentBrowser({
         );
       }
 
+      setReviewers((result.reviewers || []) as ReviewerOption[]);
+
       const nextMap: Record<string, WorkflowRecord> = {};
 
       for (const row of result.workflow || []) {
@@ -330,7 +382,9 @@ export default function DocumentBrowser({
         }
       }
 
+      workflowByPathRef.current = nextMap;
       setWorkflowByPath(nextMap);
+      setWorkflowReady(true);
 
       setData((current) =>
         current ? applyWorkflowToBrowseResponse(current, nextMap) : current
@@ -368,6 +422,7 @@ export default function DocumentBrowser({
       });
     } catch (caught) {
       console.error("Could not load document workflow", caught);
+      setWorkflowReady(true);
     }
   }
 
@@ -412,12 +467,158 @@ export default function DocumentBrowser({
 
     const workflow = result.workflow as WorkflowRecord;
 
-    setWorkflowByPath((current) => ({
-      ...current,
+    workflowByPathRef.current = {
+      ...workflowByPathRef.current,
       [workflow.provider_path]: workflow,
-    }));
+    };
+    setWorkflowByPath(workflowByPathRef.current);
 
     return workflow;
+  }
+
+  function reviewerName(userId: string | null | undefined) {
+    if (!userId) return "";
+    const reviewer = reviewers.find((item) => item.user_id === userId);
+    return reviewer?.full_name || reviewer?.email || "Reviewer";
+  }
+
+  function openReviewRequest(item: BrowseItem) {
+    setReviewRequestItem(item);
+
+    const existingReviewer =
+      workflowByPath[item.path]?.review_assigned_user_id || "";
+
+    setSelectedReviewerId(
+      existingReviewer ||
+        (reviewers.length === 1 ? reviewers[0].user_id : "")
+    );
+
+    const now = new Date();
+    setReviewDueDate(
+      [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, "0"),
+        String(now.getDate()).padStart(2, "0"),
+      ].join("-")
+    );
+
+    setShowReviewRequest(true);
+    setError("");
+    setNotice("");
+  }
+
+  async function submitReviewRequest() {
+    const item = reviewRequestItem;
+    if (!item) return;
+
+    if (!selectedReviewerId) {
+      setError("Choose the person who must review this document.");
+      return;
+    }
+
+    setWorkflowBusyPath(item.path);
+    setError("");
+    setNotice("");
+
+    try {
+      await ensureWorkflowRecord(item);
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error(
+          "Your PracticePilot login session could not be confirmed."
+        );
+      }
+
+      const response = await fetch(
+        `/api/crm/clients/${clientId}/documents/workflow`,
+        {
+          method: "PATCH",
+          cache: "no-store",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            provider_path: item.path,
+            workflow_status: "awaiting_review",
+            reviewer_user_id: selectedReviewerId,
+            review_due_date: reviewDueDate,
+          }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result?.success || !result?.workflow) {
+        throw new Error(
+          result?.error || "Could not request document review."
+        );
+      }
+
+      const workflow = result.workflow as WorkflowRecord;
+
+      workflowByPathRef.current = {
+        ...workflowByPathRef.current,
+        [workflow.provider_path]: workflow,
+      };
+      setWorkflowByPath(workflowByPathRef.current);
+
+      const applyOne = (candidate: BrowseItem) =>
+        candidate.path === workflow.provider_path
+          ? {
+              ...candidate,
+              workflow_status: workflow.workflow_status,
+              client_visible: workflow.client_visible,
+              recent_activity: workflow.last_activity_text || null,
+            }
+          : candidate;
+
+      setData((current) =>
+        current
+          ? { ...current, items: current.items.map(applyOne) }
+          : current
+      );
+
+      setRootData((current) =>
+        current
+          ? { ...current, items: current.items.map(applyOne) }
+          : current
+      );
+
+      folderCacheRef.current.forEach((cached, key) => {
+        folderCacheRef.current.set(key, {
+          ...cached,
+          items: cached.items.map(applyOne),
+        });
+      });
+
+      setFocusedItem((current) =>
+        current && current.path === workflow.provider_path
+          ? applyOne(current)
+          : current
+      );
+
+      setShowReviewRequest(false);
+      setReviewRequestItem(null);
+
+      setNotice(
+        `${item.name} sent to ${reviewerName(
+          selectedReviewerId
+        )} for review.`
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not request document review."
+      );
+    } finally {
+      setWorkflowBusyPath("");
+    }
   }
 
   async function updateWorkflowStatus(
@@ -469,10 +670,11 @@ export default function DocumentBrowser({
 
       const workflow = result.workflow as WorkflowRecord;
 
-      setWorkflowByPath((current) => ({
-        ...current,
+      workflowByPathRef.current = {
+        ...workflowByPathRef.current,
         [workflow.provider_path]: workflow,
-      }));
+      };
+      setWorkflowByPath(workflowByPathRef.current);
 
       const applyOne = (candidate: BrowseItem) =>
         candidate.path === workflow.provider_path
@@ -537,6 +739,224 @@ export default function DocumentBrowser({
       setWorkflowBusyPath("");
     }
   }
+  function portalCategoryLabel(
+    value: PortalCategory | null | undefined
+  ) {
+    return (
+      PORTAL_CATEGORY_OPTIONS.find((item) => item.value === value)?.label ||
+      "General"
+    );
+  }
+
+  async function updatePortalCategory(
+    item: BrowseItem,
+    nextCategory: PortalCategory
+  ) {
+    if (item.type !== "file") return;
+
+    setWorkflowBusyPath(item.path);
+    setError("");
+    setNotice("");
+
+    try {
+      await ensureWorkflowRecord(item);
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error(
+          "Your PracticePilot login session could not be confirmed."
+        );
+      }
+
+      const response = await fetch(
+        `/api/crm/clients/${clientId}/documents/workflow`,
+        {
+          method: "PATCH",
+          cache: "no-store",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            provider_path: item.path,
+            action: "set_portal_category",
+            portal_category: nextCategory,
+          }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result?.success || !result?.workflow) {
+        throw new Error(
+          result?.error || "Could not update the client portal category."
+        );
+      }
+
+      const nextWorkflow = result.workflow as WorkflowRecord;
+
+      workflowByPathRef.current = {
+        ...workflowByPathRef.current,
+        [nextWorkflow.provider_path]: nextWorkflow,
+      };
+      setWorkflowByPath(workflowByPathRef.current);
+
+      setNotice(
+        `${item.name} will appear under ${portalCategoryLabel(
+          nextWorkflow.portal_category
+        )} in the Client Portal.`
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not update the client portal category."
+      );
+    } finally {
+      setWorkflowBusyPath("");
+    }
+  }
+
+  async function updateClientRelease(
+    item: BrowseItem,
+    makeVisible: boolean
+  ) {
+    if (item.type !== "file") return;
+
+    if (makeVisible && workflowLabel(item) !== "Approved") {
+      setError("Only an approved document can be released to the client.");
+      return;
+    }
+
+    if (
+      !makeVisible &&
+      !window.confirm(
+        `Remove client access to ${item.name}? The document will remain approved but will no longer be visible to the client.`
+      )
+    ) {
+      return;
+    }
+
+    setWorkflowBusyPath(item.path);
+    setError("");
+    setNotice("");
+
+    try {
+      const workflow = await ensureWorkflowRecord(item);
+
+      if (makeVisible && workflow.workflow_status !== "approved") {
+        throw new Error(
+          "Only an approved document can be released to the client."
+        );
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error(
+          "Your PracticePilot login session could not be confirmed."
+        );
+      }
+
+      const response = await fetch(
+        `/api/crm/clients/${clientId}/documents/workflow`,
+        {
+          method: "PATCH",
+          cache: "no-store",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            provider_path: item.path,
+            action: makeVisible ? "release" : "unrelease",
+          }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result?.success || !result?.workflow) {
+        throw new Error(
+          result?.error ||
+            (makeVisible
+              ? "Could not release the document to the client."
+              : "Could not remove client access.")
+        );
+      }
+
+      const nextWorkflow = result.workflow as WorkflowRecord;
+
+      workflowByPathRef.current = {
+        ...workflowByPathRef.current,
+        [nextWorkflow.provider_path]: nextWorkflow,
+      };
+      setWorkflowByPath(workflowByPathRef.current);
+
+      const applyOne = (candidate: BrowseItem) =>
+        candidate.path === nextWorkflow.provider_path
+          ? {
+              ...candidate,
+              workflow_status: nextWorkflow.workflow_status,
+              client_visible: nextWorkflow.client_visible,
+              recent_activity: nextWorkflow.last_activity_text || null,
+            }
+          : candidate;
+
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map(applyOne),
+            }
+          : current
+      );
+
+      setRootData((current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map(applyOne),
+            }
+          : current
+      );
+
+      folderCacheRef.current.forEach((cached, key) => {
+        folderCacheRef.current.set(key, {
+          ...cached,
+          items: cached.items.map(applyOne),
+        });
+      });
+
+      setFocusedItem((current) =>
+        current && current.path === nextWorkflow.provider_path
+          ? applyOne(current)
+          : current
+      );
+
+      setNotice(
+        makeVisible
+          ? `${item.name} released to the client.`
+          : `Client access removed from ${item.name}.`
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : makeVisible
+            ? "Could not release the document to the client."
+            : "Could not remove client access."
+      );
+    } finally {
+      setWorkflowBusyPath("");
+    }
+  }
+
   async function fetchFolder(targetPath?: string, force = false) {
     const key = folderCacheKey(targetPath);
     if (!force) {
@@ -677,9 +1097,15 @@ export default function DocumentBrowser({
     setSearch("");
     setSelected(new Set());
     setExpandedFolders(new Set());
+    workflowByPathRef.current = {};
     setWorkflowByPath({});
-    void loadWorkflow();
-    void load();
+    setWorkflowReady(false);
+
+    void (async () => {
+      await loadWorkflow();
+      await load();
+    })();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
@@ -689,12 +1115,60 @@ export default function DocumentBrowser({
     setRightTab("preview");
     setPreviewUrl("");
   }, [data?.current_path]);
+  useEffect(() => {
+    setShowDocumentActions(false);
+  }, [focusedItem?.path]);
+
+
+  useEffect(() => {
+    if (
+      !workflowReady ||
+      !data?.linked ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const documentPath = params.get("documentPath");
+    if (!documentPath) return;
+
+    const normalisedDocumentPath = documentPath.startsWith("/")
+      ? documentPath
+      : `/${documentPath}`;
+
+    const slash = normalisedDocumentPath.lastIndexOf("/");
+    const parentPath =
+      slash > 0 ? normalisedDocumentPath.slice(0, slash) : data.root_path || "";
+
+    if (data.current_path !== parentPath) {
+      void load(parentPath);
+      return;
+    }
+
+    const matchingFile = (data.items || []).find(
+      (item) =>
+        item.type === "file" &&
+        item.path === normalisedDocumentPath
+    );
+
+    if (matchingFile) {
+      setFocusedItem(matchingFile);
+      setSelected(new Set([itemKey(matchingFile)]));
+      setRightTab("preview");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflowReady, data?.current_path, data?.items]);
 
   useEffect(() => {
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
+  const hasDeepLinkedDocument =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("documentPath");
+
   const breadcrumbs = useMemo(() => {
     const root = String(data?.root_path || "");
     const current = String(data?.current_path || "");
@@ -1264,10 +1738,50 @@ export default function DocumentBrowser({
             New Folder
           </button>
 
-          <button type="button" disabled style={styles.actionButtonDisabled}>
-            <Icon name="users" size={16} />
-            Client Portal
-          </button>
+          <div style={styles.portalToolbarMenuWrap}>
+            <button
+              type="button"
+              onClick={() => setShowPortalMenu((current) => !current)}
+              style={styles.secondaryAction}
+            >
+              <Icon name="users" size={16} />
+              Client Portal
+              <span style={styles.portalToolbarChevron}>
+                {showPortalMenu ? "⌃" : "⌄"}
+              </span>
+            </button>
+
+            {showPortalMenu ? (
+              <div style={styles.portalToolbarMenu}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPortalMenu(false);
+                    window.open(
+                      `/client-portal-preview/${clientId}`,
+                      "_blank",
+                      "noopener,noreferrer"
+                    );
+                  }}
+                  style={styles.portalToolbarMenuItem}
+                >
+                  Preview Portal
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPortalMenu(false);
+                    window.location.href =
+                      `/crm/client/${clientId}/portal-access`;
+                  }}
+                  style={styles.portalToolbarMenuItem}
+                >
+                  Manage Access
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -1657,43 +2171,101 @@ export default function DocumentBrowser({
 
               <div style={styles.workflowControlBar}>
                 <div style={styles.workflowStatusSummary}>
-                  <span
-                    style={{
-                      ...styles.statusPill,
-                      ...workflowTone(focusedItem),
-                    }}
+                  <div style={styles.workflowPills}>
+                    <span
+                      style={{
+                        ...styles.statusPill,
+                        ...workflowTone(focusedItem),
+                      }}
+                    >
+                      {workflowLabel(focusedItem)}
+                    </span>
+
+                    <span
+                      style={
+                        focusedItem.client_visible === true
+                          ? styles.workflowReleasePillVisible
+                          : styles.workflowReleasePill
+                      }
+                    >
+                      {focusedItem.client_visible === true
+                        ? "● Client Visible"
+                        : "Internal"}
+                    </span>
+                  </div>
+
+                  {workflowByPath[focusedItem.path]?.review_assigned_user_id ? (
+                    <div style={styles.workflowReviewerLine}>
+                      <span style={styles.workflowReviewerIcon}>○</span>
+                      <span>
+                        Reviewer:{" "}
+                        <strong>
+                          {reviewerName(
+                            workflowByPath[focusedItem.path]
+                              ?.review_assigned_user_id
+                          )}
+                        </strong>
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div style={styles.portalCard}>
+                  <div style={styles.portalCardHeading}>
+                    <span style={styles.portalCardIcon}>▣</span>
+                    <strong>Client Portal</strong>
+                  </div>
+
+                  <select
+                    value={
+                      workflowByPath[focusedItem.path]?.portal_category ||
+                      "general"
+                    }
+                    onChange={(event) =>
+                      void updatePortalCategory(
+                        focusedItem,
+                        event.target.value as PortalCategory
+                      )
+                    }
+                    disabled={workflowBusyPath === focusedItem.path}
+                    style={styles.portalCategorySelect}
                   >
-                    {workflowLabel(focusedItem)}
-                  </span>
-                  <span style={styles.workflowReleaseState}>
+                    {PORTAL_CATEGORY_OPTIONS.map((category) => (
+                      <option
+                        key={category.value}
+                        value={category.value}
+                      >
+                        {category.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <span style={styles.portalCategoryHint}>
                     {focusedItem.client_visible === true
-                      ? "Client Visible"
-                      : "Internal"}
+                      ? "Visible in this section"
+                      : "Section used when released"}
                   </span>
                 </div>
 
-                <div style={styles.workflowButtons}>
-                  {workflowLabel(focusedItem) === "Stored" ||
-                  workflowLabel(focusedItem) === "Rejected" ? (
-                    <button
-                      type="button"
-                      disabled={workflowBusyPath === focusedItem.path}
-                      onClick={() =>
-                        void updateWorkflowStatus(
-                          focusedItem,
-                          "awaiting_review"
-                        )
-                      }
-                      style={styles.workflowButtonBlue}
-                    >
-                      {workflowBusyPath === focusedItem.path
-                        ? "Updating..."
-                        : "Request Review"}
-                    </button>
-                  ) : null}
+                <div style={styles.actionCard}>
+                  <div style={styles.actionCardHeading}>Actions</div>
 
-                  {workflowLabel(focusedItem) === "Awaiting Review" ? (
-                    <>
+                  <div style={styles.actionPrimaryRow}>
+                    {workflowLabel(focusedItem) === "Stored" ||
+                    workflowLabel(focusedItem) === "Rejected" ? (
+                      <button
+                        type="button"
+                        disabled={workflowBusyPath === focusedItem.path}
+                        onClick={() => openReviewRequest(focusedItem)}
+                        style={styles.workflowPrimaryAction}
+                      >
+                        {workflowBusyPath === focusedItem.path
+                          ? "Updating..."
+                          : "Request Review"}
+                      </button>
+                    ) : null}
+
+                    {workflowLabel(focusedItem) === "Awaiting Review" ? (
                       <button
                         type="button"
                         disabled={workflowBusyPath === focusedItem.path}
@@ -1703,29 +2275,15 @@ export default function DocumentBrowser({
                             "reviewed"
                           )
                         }
-                        style={styles.workflowButtonGreen}
+                        style={styles.workflowPrimaryAction}
                       >
-                        Mark Reviewed
+                        {workflowBusyPath === focusedItem.path
+                          ? "Updating..."
+                          : "Mark Reviewed"}
                       </button>
+                    ) : null}
 
-                      <button
-                        type="button"
-                        disabled={workflowBusyPath === focusedItem.path}
-                        onClick={() =>
-                          void updateWorkflowStatus(
-                            focusedItem,
-                            "rejected"
-                          )
-                        }
-                        style={styles.workflowButtonRed}
-                      >
-                        Reject
-                      </button>
-                    </>
-                  ) : null}
-
-                  {workflowLabel(focusedItem) === "Reviewed" ? (
-                    <>
+                    {workflowLabel(focusedItem) === "Reviewed" ? (
                       <button
                         type="button"
                         disabled={workflowBusyPath === focusedItem.path}
@@ -1735,47 +2293,143 @@ export default function DocumentBrowser({
                             "approved"
                           )
                         }
-                        style={styles.workflowButtonGreen}
+                        style={styles.workflowPrimaryAction}
                       >
-                        Approve
+                        {workflowBusyPath === focusedItem.path
+                          ? "Updating..."
+                          : "Approve"}
                       </button>
+                    ) : null}
 
+                    {workflowLabel(focusedItem) === "Approved" &&
+                    focusedItem.client_visible !== true ? (
                       <button
                         type="button"
                         disabled={workflowBusyPath === focusedItem.path}
                         onClick={() =>
-                          void updateWorkflowStatus(
-                            focusedItem,
-                            "awaiting_review"
-                          )
+                          void updateClientRelease(focusedItem, true)
                         }
-                        style={styles.workflowButtonNeutral}
+                        style={styles.workflowPrimaryAction}
                       >
-                        Return to Review
+                        {workflowBusyPath === focusedItem.path
+                          ? "Releasing..."
+                          : "Release to Client"}
                       </button>
-                    </>
-                  ) : null}
+                    ) : null}
 
-                  {workflowLabel(focusedItem) === "Approved" ? (
-                    <button
-                      type="button"
-                      disabled={workflowBusyPath === focusedItem.path}
-                      onClick={() =>
-                        void updateWorkflowStatus(
-                          focusedItem,
-                          "awaiting_review"
-                        )
-                      }
-                      style={styles.workflowButtonNeutral}
-                    >
-                      Re-open Review
-                    </button>
-                  ) : null}
+                    {workflowLabel(focusedItem) === "Approved" &&
+                    focusedItem.client_visible === true ? (
+                      <button
+                        type="button"
+                        disabled={workflowBusyPath === focusedItem.path}
+                        onClick={() =>
+                          void updateClientRelease(focusedItem, false)
+                        }
+                        style={styles.workflowPrimaryAction}
+                      >
+                        {workflowBusyPath === focusedItem.path
+                          ? "Updating..."
+                          : "Remove Client Access"}
+                      </button>
+                    ) : null}
+
+                    <div style={styles.documentActionsWrap}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShowDocumentActions((current) => !current)
+                        }
+                        style={styles.documentActionsButton}
+                      >
+                        Actions
+                        <span style={styles.documentActionsChevron}>
+                          {showDocumentActions ? "⌃" : "⌄"}
+                        </span>
+                      </button>
+
+                      {showDocumentActions ? (
+                        <div style={styles.documentActionsMenu}>
+                          {workflowLabel(focusedItem) === "Awaiting Review" ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowDocumentActions(false);
+                                void updateWorkflowStatus(
+                                  focusedItem,
+                                  "rejected"
+                                );
+                              }}
+                              style={styles.documentActionMenuDanger}
+                            >
+                              Reject Review
+                            </button>
+                          ) : null}
+
+                          {workflowLabel(focusedItem) === "Reviewed" ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowDocumentActions(false);
+                                openReviewRequest(focusedItem);
+                              }}
+                              style={styles.documentActionMenuItem}
+                            >
+                              Return to Review
+                            </button>
+                          ) : null}
+
+                          {workflowLabel(focusedItem) === "Approved" ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowDocumentActions(false);
+                                openReviewRequest(focusedItem);
+                              }}
+                              style={styles.documentActionMenuItem}
+                            >
+                              Re-open Review
+                            </button>
+                          ) : null}
+
+                          {workflowLabel(focusedItem) === "Rejected" ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowDocumentActions(false);
+                                openReviewRequest(focusedItem);
+                              }}
+                              style={styles.documentActionMenuItem}
+                            >
+                              Request Review Again
+                            </button>
+                          ) : null}
+
+                          {!workflowByPath[focusedItem.path]
+                            ?.review_assigned_user_id &&
+                          workflowLabel(focusedItem) === "Awaiting Review" ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowDocumentActions(false);
+                                openReviewRequest(focusedItem);
+                              }}
+                              style={styles.documentActionMenuItem}
+                            >
+                              Assign Reviewer
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
               </div>
 
               {rightTab === "preview" ? (
                 <div style={styles.previewSection}>
+                  <div style={styles.previewSectionHeading}>
+                    Document Preview
+                  </div>
                   {focusedCanPreview ? (
                     previewUrl ? (
                       fileExtension(focusedItem.name) === "pdf" ? (
@@ -1886,9 +2540,39 @@ export default function DocumentBrowser({
                       <strong>{workflowLabel(focusedItem)}</strong>
                     </div>
                     <div style={styles.detailRow}>
+                      <span>Reviewer</span>
+                      <strong>
+                        {reviewerName(
+                          workflowByPath[focusedItem.path]
+                            ?.review_assigned_user_id
+                        ) || "—"}
+                      </strong>
+                    </div>
+                    <div style={styles.detailRow}>
+                      <span>Client Portal category</span>
+                      <strong>
+                        {portalCategoryLabel(
+                          workflowByPath[focusedItem.path]?.portal_category
+                        )}
+                      </strong>
+                    </div>
+                    <div style={styles.detailRow}>
                       <span>Client release</span>
                       <strong>
-                        {focusedItem.client_visible === true ? "Client Visible" : "Internal"}
+                        {focusedItem.client_visible === true
+                          ? "Client Visible"
+                          : "Internal"}
+                      </strong>
+                    </div>
+                    <div style={styles.detailRow}>
+                      <span>Released</span>
+                      <strong>
+                        {workflowByPath[focusedItem.path]?.released_at
+                          ? formatDate(
+                              workflowByPath[focusedItem.path].released_at ||
+                                null
+                            )
+                          : "—"}
                       </strong>
                     </div>
                   </div>
@@ -1922,6 +2606,7 @@ export default function DocumentBrowser({
               {rightTab === "insights" ? (
                 <div style={styles.rightPanelBody}>
                   <h3 style={styles.panelHeading}>Document Intelligence</h3>
+
                   <div style={styles.insightGrid}>
                     <div style={styles.insightCard}>
                       <strong>{fileCount}</strong>
@@ -1939,6 +2624,80 @@ export default function DocumentBrowser({
                       <strong>{needsActionCount}</strong>
                       <span>Needs action</span>
                     </div>
+                  </div>
+
+                  <div style={styles.insightCompactSection}>
+                    <div style={styles.sectionTitleRow}>
+                      <strong>Workflow Queue</strong>
+                      <span>{workflowQueue.length}</span>
+                    </div>
+
+                    {workflowQueue.length ? (
+                      <div style={styles.miniList}>
+                        {workflowQueue.map((item) => (
+                          <button
+                            type="button"
+                            key={itemKey(item)}
+                            onClick={() => {
+                              setFocusedItem(item);
+                              setRightTab("details");
+                            }}
+                            style={styles.miniListRow}
+                          >
+                            <span style={styles.queueDot} />
+                            <span style={styles.miniListRowText}>
+                              <strong style={styles.miniListRowName}>
+                                {item.name}
+                              </strong>
+                              <small style={styles.miniListRowMeta}>
+                                {workflowLabel(item)}
+                              </small>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={styles.emptyMini}>
+                        No documents currently need workflow attention.
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={styles.insightCompactSection}>
+                    <div style={styles.sectionTitleRow}>
+                      <strong>Recent Uploads</strong>
+                      <span>{recentFiles.length}</span>
+                    </div>
+
+                    {recentFiles.length ? (
+                      <div style={styles.miniList}>
+                        {recentFiles.map((item) => (
+                          <button
+                            type="button"
+                            key={itemKey(item)}
+                            onClick={() => {
+                              setFocusedItem(item);
+                              setRightTab("preview");
+                            }}
+                            style={styles.miniListRow}
+                          >
+                            <FileTypeBadge name={item.name} />
+                            <span style={styles.miniListRowText}>
+                              <strong style={styles.miniListRowName}>
+                                {item.name}
+                              </strong>
+                              <small style={styles.miniListRowMeta}>
+                                {formatShortDate(item.modified_at)}
+                              </small>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={styles.emptyMini}>
+                        No recent files in this folder.
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -1983,103 +2742,234 @@ export default function DocumentBrowser({
             </div>
           )}
 
-          <div style={styles.insightDivider} />
+          {!focusedIsFile ? (
+            <>
+              <div style={styles.insightDivider} />
 
-          <div style={styles.insightSection}>
-            <div style={styles.sectionTitleRow}>
-              <strong>Insights Snapshot</strong>
-              <span>Current folder</span>
-            </div>
-
-            <div style={styles.insightGrid}>
-              <div style={styles.insightCard}>
-                <strong>{fileCount}</strong>
-                <span>Total Documents</span>
-              </div>
-              <div style={styles.insightCard}>
-                <strong>{awaitingReviewCount}</strong>
-                <span>Needs Review</span>
-              </div>
-              <div style={styles.insightCard}>
-                <strong>{clientVisibleCount}</strong>
-                <span>Client Visible</span>
-              </div>
-              <div style={styles.insightCard}>
-                <strong>{currentPreviewable.length}</strong>
-                <span>Preview-ready</span>
-              </div>
-            </div>
-          </div>
-
-          <div style={styles.rightBottomGrid}>
-            <div style={styles.insightSection}>
-              <div style={styles.sectionTitleRow}>
-                <strong>Workflow Queue</strong>
-                <span>{workflowQueue.length}</span>
-              </div>
-
-              {workflowQueue.length ? (
-                <div style={styles.miniList}>
-                  {workflowQueue.map((item) => (
-                    <button
-                      type="button"
-                      key={itemKey(item)}
-                      onClick={() => {
-                        setFocusedItem(item);
-                        setRightTab("details");
-                      }}
-                      style={styles.miniListRow}
-                    >
-                      <span style={styles.queueDot} />
-                      <span style={styles.miniListRowText}>
-                        <strong style={styles.miniListRowName}>{item.name}</strong>
-                        <small style={styles.miniListRowMeta}>{workflowLabel(item)}</small>
-                      </span>
-                    </button>
-                  ))}
+              <div style={styles.insightSection}>
+                <div style={styles.sectionTitleRow}>
+                  <strong>Insights Snapshot</strong>
+                  <span>Current folder</span>
                 </div>
-              ) : (
-                <div style={styles.emptyMini}>
-                  No documents currently need workflow attention.
-                </div>
-              )}
-            </div>
 
-            <div style={styles.insightSection}>
-              <div style={styles.sectionTitleRow}>
-                <strong>Recent Uploads</strong>
-                <span>{recentFiles.length}</span>
+                <div style={styles.insightGrid}>
+                  <div style={styles.insightCard}>
+                    <strong>{fileCount}</strong>
+                    <span>Total Documents</span>
+                  </div>
+                  <div style={styles.insightCard}>
+                    <strong>{awaitingReviewCount}</strong>
+                    <span>Needs Review</span>
+                  </div>
+                  <div style={styles.insightCard}>
+                    <strong>{clientVisibleCount}</strong>
+                    <span>Client Visible</span>
+                  </div>
+                  <div style={styles.insightCard}>
+                    <strong>{currentPreviewable.length}</strong>
+                    <span>Preview-ready</span>
+                  </div>
+                </div>
               </div>
 
-              {recentFiles.length ? (
-                <div style={styles.miniList}>
-                  {recentFiles.map((item) => (
-                    <button
-                      type="button"
-                      key={itemKey(item)}
-                      onClick={() => {
-                        setFocusedItem(item);
-                        setRightTab("preview");
-                      }}
-                      style={styles.miniListRow}
-                    >
-                      <FileTypeBadge name={item.name} />
-                      <span style={styles.miniListRowText}>
-                        <strong style={styles.miniListRowName}>{item.name}</strong>
-                        <small style={styles.miniListRowMeta}>
-                          {formatShortDate(item.modified_at)}
-                        </small>
-                      </span>
-                    </button>
-                  ))}
+              <div style={styles.rightBottomGrid}>
+                <div style={styles.insightSection}>
+                  <div style={styles.sectionTitleRow}>
+                    <strong>Workflow Queue</strong>
+                    <span>{workflowQueue.length}</span>
+                  </div>
+
+                  {workflowQueue.length ? (
+                    <div style={styles.miniList}>
+                      {workflowQueue.map((item) => (
+                        <button
+                          type="button"
+                          key={itemKey(item)}
+                          onClick={() => {
+                            setFocusedItem(item);
+                            setRightTab("details");
+                          }}
+                          style={styles.miniListRow}
+                        >
+                          <span style={styles.queueDot} />
+                          <span style={styles.miniListRowText}>
+                            <strong style={styles.miniListRowName}>
+                              {item.name}
+                            </strong>
+                            <small style={styles.miniListRowMeta}>
+                              {workflowLabel(item)}
+                            </small>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={styles.emptyMini}>
+                      No documents currently need workflow attention.
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div style={styles.emptyMini}>No recent files in this folder.</div>
-              )}
-            </div>
-          </div>
+
+                <div style={styles.insightSection}>
+                  <div style={styles.sectionTitleRow}>
+                    <strong>Recent Uploads</strong>
+                    <span>{recentFiles.length}</span>
+                  </div>
+
+                  {recentFiles.length ? (
+                    <div style={styles.miniList}>
+                      {recentFiles.map((item) => (
+                        <button
+                          type="button"
+                          key={itemKey(item)}
+                          onClick={() => {
+                            setFocusedItem(item);
+                            setRightTab("preview");
+                          }}
+                          style={styles.miniListRow}
+                        >
+                          <FileTypeBadge name={item.name} />
+                          <span style={styles.miniListRowText}>
+                            <strong style={styles.miniListRowName}>
+                              {item.name}
+                            </strong>
+                            <small style={styles.miniListRowMeta}>
+                              {formatShortDate(item.modified_at)}
+                            </small>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={styles.emptyMini}>
+                      No recent files in this folder.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : null}
         </aside>
       </div>
+
+      {showReviewRequest && reviewRequestItem ? (
+        <div
+          style={styles.modalBackdrop}
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              !workflowBusyPath
+            ) {
+              setShowReviewRequest(false);
+              setReviewRequestItem(null);
+            }
+          }}
+        >
+          <div style={styles.modalCard}>
+            <div style={styles.modalHeader}>
+              <div style={styles.modalTitleWrap}>
+                <span style={styles.reviewModalIcon}>✓</span>
+                <div>
+                  <strong style={styles.modalTitle}>Request Review</strong>
+                  <span style={styles.modalSubtitle}>
+                    {reviewRequestItem.name}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!workflowBusyPath) {
+                    setShowReviewRequest(false);
+                    setReviewRequestItem(null);
+                  }
+                }}
+                style={styles.modalClose}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <label style={styles.modalLabel}>
+                Reviewer
+                <select
+                  autoFocus
+                  value={selectedReviewerId}
+                  onChange={(event) =>
+                    setSelectedReviewerId(event.target.value)
+                  }
+                  style={styles.modalInput}
+                  disabled={Boolean(workflowBusyPath)}
+                >
+                  <option value="">Select reviewer...</option>
+                  {reviewers.map((reviewer) => (
+                    <option
+                      key={reviewer.user_id}
+                      value={reviewer.user_id}
+                    >
+                      {reviewer.full_name ||
+                        reviewer.email ||
+                        "Team member"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={styles.modalLabel}>
+                Review due date
+                <input
+                  type="date"
+                  value={reviewDueDate}
+                  onChange={(event) =>
+                    setReviewDueDate(event.target.value)
+                  }
+                  style={styles.modalInput}
+                  disabled={Boolean(workflowBusyPath)}
+                />
+              </label>
+
+              <div style={styles.reviewInfoBox}>
+                PracticePilot will create a Document Review item in the
+                reviewer&apos;s My Work and My Day. Opening that item takes
+                them straight back to this document.
+              </div>
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReviewRequest(false);
+                  setReviewRequestItem(null);
+                }}
+                disabled={Boolean(workflowBusyPath)}
+                style={styles.modalCancel}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void submitReviewRequest()}
+                disabled={
+                  Boolean(workflowBusyPath) || !selectedReviewerId
+                }
+                style={
+                  workflowBusyPath || !selectedReviewerId
+                    ? styles.modalCreateDisabled
+                    : styles.modalCreate
+                }
+              >
+                {workflowBusyPath
+                  ? "Assigning..."
+                  : "Assign Review"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showNewFolder ? (
         <div
@@ -2275,29 +3165,29 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: "wrap",
   },
   connectionCard: {
-    minHeight: 42,
-    padding: "0 12px",
+    minHeight: 34,
+    padding: "0 9px",
     display: "flex",
     alignItems: "center",
-    gap: 9,
+    gap: 7,
     border: "1px solid #d6e2ef",
     background: "#fbfdff",
   },
   connectionTitle: {
     display: "block",
     color: "#10233a",
-    fontSize: 9.5,
+    fontSize: 8.6,
     fontWeight: 950,
   },
   connectionSub: {
     display: "block",
-    marginTop: 2,
+    marginTop: 1,
     color: "#728091",
-    fontSize: 8.2,
+    fontSize: 7.2,
   },
   statusDot: {
-    width: 9,
-    height: 9,
+    width: 7,
+    height: 7,
     borderRadius: "50%",
     background: "#2fbd73",
     boxShadow: "0 0 0 3px rgba(47,189,115,0.10)",
@@ -2328,6 +3218,48 @@ const styles: Record<string, CSSProperties> = {
     background: "#ffffff",
     color: "#10233a",
     fontSize: 9.5,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  portalToolbarMenuWrap: {
+    position: "relative",
+    flex: "0 0 auto",
+  },
+  portalToolbarChevron: {
+    marginLeft: 6,
+    minWidth: 16,
+    height: 16,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderLeft: "1px solid #d7dee7",
+    paddingLeft: 7,
+    fontSize: 15,
+    lineHeight: 1,
+    color: "#10233a",
+    fontWeight: 950,
+  },
+  portalToolbarMenu: {
+    position: "absolute",
+    top: 38,
+    right: 0,
+    zIndex: 60,
+    minWidth: 150,
+    padding: 4,
+    display: "grid",
+    gap: 2,
+    border: "1px solid #d3dce6",
+    background: "#ffffff",
+    boxShadow: "0 10px 24px rgba(15,35,58,0.14)",
+  },
+  portalToolbarMenuItem: {
+    minHeight: 32,
+    padding: "0 10px",
+    border: "none",
+    background: "#ffffff",
+    color: "#10233a",
+    textAlign: "left",
+    fontSize: 8.5,
     fontWeight: 900,
     cursor: "pointer",
   },
@@ -2948,66 +3880,183 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: "inset 0 -3px 0 #1768d2",
   },
   workflowControlBar: {
-    padding: "8px 10px",
+    padding: 8,
     display: "grid",
     gap: 7,
-    background: "#fbfcfe",
+    background: "#ffffff",
     borderBottom: "1px solid #e3e8ee",
   },
   workflowStatusSummary: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
+    display: "grid",
     gap: 8,
   },
-  workflowReleaseState: {
-    color: "#69788a",
-    fontSize: 8,
-    fontWeight: 850,
+  workflowPills: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    flexWrap: "wrap",
   },
-  workflowButtons: {
+  workflowReleasePill: {
+    minHeight: 24,
+    padding: "0 9px",
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 999,
+    background: "#f2f5f8",
+    color: "#667789",
+    fontSize: 7.8,
+    fontWeight: 900,
+  },
+  workflowReleasePillVisible: {
+    minHeight: 24,
+    padding: "0 9px",
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 999,
+    background: "#e9f8ef",
+    color: "#16834f",
+    fontSize: 7.8,
+    fontWeight: 950,
+  },
+  workflowReviewerLine: {
     display: "flex",
     alignItems: "center",
     gap: 6,
-    flexWrap: "wrap",
+    color: "#526577",
+    fontSize: 8,
   },
-  workflowButtonBlue: {
-    height: 30,
-    padding: "0 9px",
+  workflowReviewerIcon: {
+    width: 15,
+    height: 15,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#1768d2",
+    fontSize: 12,
+    flex: "0 0 auto",
+  },
+  portalCard: {
+    padding: 7,
+    display: "grid",
+    gap: 7,
+    border: "1px solid #dbe3eb",
+    background: "#fbfcfe",
+  },
+  portalCardHeading: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    color: "#10233a",
+    fontSize: 8.4,
+  },
+  portalCardIcon: {
+    width: 22,
+    height: 22,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#eaf3ff",
+    color: "#1768d2",
+    fontSize: 11,
+  },
+  portalCategorySelect: {
+    width: "100%",
+    height: 32,
+    padding: "0 8px",
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#10233a",
+    fontSize: 8.3,
+    fontWeight: 850,
+    outline: "none",
+  },
+  portalCategoryHint: {
+    color: "#8996a4",
+    fontSize: 7.2,
+  },
+  actionCard: {
+    padding: 7,
+    display: "grid",
+    gap: 7,
+    border: "1px solid #dbe3eb",
+    background: "#fbfcfe",
+  },
+  actionCardHeading: {
+    color: "#10233a",
+    fontSize: 8.4,
+    fontWeight: 950,
+  },
+  actionPrimaryRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) 88px",
+    gap: 7,
+    alignItems: "stretch",
+  },
+  workflowPrimaryAction: {
+    minWidth: 0,
+    height: 32,
+    padding: "0 10px",
     border: "1px solid #1768d2",
     background: "#1768d2",
     color: "#ffffff",
-    fontSize: 8,
-    fontWeight: 900,
+    fontSize: 8.2,
+    fontWeight: 950,
     cursor: "pointer",
   },
-  workflowButtonGreen: {
-    height: 30,
-    padding: "0 9px",
-    border: "1px solid #16834f",
-    background: "#16834f",
-    color: "#ffffff",
-    fontSize: 8,
-    fontWeight: 900,
-    cursor: "pointer",
+  documentActionsWrap: {
+    position: "relative",
   },
-  workflowButtonRed: {
-    height: 30,
+  documentActionsButton: {
+    width: "100%",
+    height: 32,
     padding: "0 9px",
-    border: "1px solid #c93636",
-    background: "#ffffff",
-    color: "#c93636",
-    fontSize: 8,
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  workflowButtonNeutral: {
-    height: 30,
-    padding: "0 9px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
     border: "1px solid #cbd5e1",
     background: "#ffffff",
     color: "#10233a",
     fontSize: 8,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  documentActionsChevron: {
+    color: "#64748b",
+    fontSize: 10,
+  },
+  documentActionsMenu: {
+    position: "absolute",
+    top: 36,
+    right: 0,
+    zIndex: 40,
+    minWidth: 132,
+    padding: 4,
+    display: "grid",
+    gap: 2,
+    border: "1px solid #d3dce6",
+    background: "#ffffff",
+    boxShadow: "0 10px 24px rgba(15,35,58,0.14)",
+  },
+  documentActionMenuItem: {
+    minHeight: 30,
+    padding: "0 9px",
+    border: "none",
+    background: "#ffffff",
+    color: "#10233a",
+    textAlign: "left",
+    fontSize: 7.8,
+    fontWeight: 850,
+    cursor: "pointer",
+  },
+  documentActionMenuDanger: {
+    minHeight: 30,
+    padding: "0 9px",
+    border: "none",
+    background: "#ffffff",
+    color: "#c93636",
+    textAlign: "left",
+    fontSize: 7.8,
     fontWeight: 900,
     cursor: "pointer",
   },
@@ -3040,6 +4089,12 @@ const styles: Record<string, CSSProperties> = {
     color: "#728091",
     fontSize: 7.8,
   },
+  previewSectionHeading: {
+    marginBottom: 7,
+    color: "#10233a",
+    fontSize: 8.5,
+    fontWeight: 950,
+  },
   previewSection: {
     padding: 8,
     background: "#fbfcfe",
@@ -3047,20 +4102,20 @@ const styles: Record<string, CSSProperties> = {
   },
   previewFrame: {
     width: "100%",
-    height: 190,
+    height: 150,
     border: "1px solid #cfd8e3",
     background: "#ffffff",
   },
   previewImage: {
     width: "100%",
-    maxHeight: 190,
+    maxHeight: 150,
     objectFit: "contain",
     border: "1px solid #cfd8e3",
     background: "#ffffff",
   },
   previewPlaceholder: {
-    minHeight: 190,
-    padding: 18,
+    minHeight: 145,
+    padding: 12,
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -3249,6 +4304,11 @@ const styles: Record<string, CSSProperties> = {
     height: 1,
     background: "#e3e8ee",
   },
+  insightCompactSection: {
+    marginTop: 10,
+    paddingTop: 9,
+    borderTop: "1px solid #e3e8ee",
+  },
   insightSection: {
     padding: 7,
     background: "#ffffff",
@@ -3367,6 +4427,26 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     gap: 10,
+  },
+  reviewModalIcon: {
+    width: 34,
+    height: 30,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#1768d2",
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: 950,
+    flex: "0 0 auto",
+  },
+  reviewInfoBox: {
+    padding: 10,
+    border: "1px solid #d8e2ec",
+    background: "#f7f9fc",
+    color: "#526577",
+    fontSize: 8.4,
+    lineHeight: 1.4,
   },
   modalFolderIcon: {
     width: 34,
