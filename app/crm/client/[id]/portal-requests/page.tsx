@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabase";
 
@@ -121,6 +121,40 @@ function formatDate(value: string | null | undefined) {
   }).format(date);
 }
 
+function responseSummary(item: PortalRequest) {
+  if (!item.response_text) return "";
+
+  if (item.request_type === "question") {
+    return item.response_text;
+  }
+
+  try {
+    const parsed = JSON.parse(item.response_text);
+
+    if (item.request_type === "approval") {
+      const decision = String(parsed?.decision || "").replaceAll("_", " ");
+      const comment = String(parsed?.comment || "").trim();
+      return comment ? `${decision} — ${comment}` : decision;
+    }
+
+    if (item.request_type === "confirmation") {
+      const confirmation = String(parsed?.confirmation || "").replaceAll("_", " ");
+      const comment = String(parsed?.comment || "").trim();
+      return comment ? `${confirmation} — ${comment}` : confirmation;
+    }
+
+    if (item.request_type === "document_request") {
+      const fileName = String(parsed?.file_name || "").trim();
+      const providerPath = String(parsed?.provider_path || "").trim();
+      return fileName || providerPath;
+    }
+  } catch {
+    return item.response_text;
+  }
+
+  return item.response_text;
+}
+
 export default function ClientPortalRequestsPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -142,7 +176,6 @@ export default function ClientPortalRequestsPage() {
   const [requiresUpload, setRequiresUpload] = useState(true);
   const [requiresResponse, setRequiresResponse] = useState(false);
   const [requiresApproval, setRequiresApproval] = useState(false);
-  const [notifyClient, setNotifyClient] = useState(true);
 
   const [uploadFolderPath, setUploadFolderPath] = useState("");
   const [uploadFolderName, setUploadFolderName] = useState("");
@@ -161,6 +194,7 @@ export default function ClientPortalRequestsPage() {
   const [updatingId, setUpdatingId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [selectedRequestId, setSelectedRequestId] = useState("");
 
   useEffect(() => {
     void load();
@@ -228,6 +262,50 @@ export default function ClientPortalRequestsPage() {
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function resendRequestEmail(item: PortalRequest) {
+    setUpdatingId(item.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const token = await authToken();
+
+      const response = await fetch(
+        `/api/crm/clients/${clientId}/portal-requests`,
+        {
+          method: "PATCH",
+          cache: "no-store",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            request_id: item.id,
+            action: "resend_email",
+          }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result?.success) {
+        throw new Error(
+          result?.error || "Could not resend the client email."
+        );
+      }
+
+      setNotice("Request email resent to the client.");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not resend the client email."
+      );
+    } finally {
+      setUpdatingId("");
     }
   }
 
@@ -485,7 +563,7 @@ export default function ClientPortalRequestsPage() {
             upload_provider_id: null,
             upload_folder_path: uploadFolderPath || null,
             upload_folder_name: uploadFolderName || null,
-            notify_client: notifyClient,
+            notify_client: true,
           }),
         }
       );
@@ -928,22 +1006,6 @@ export default function ClientPortalRequestsPage() {
                 </label>
               ) : null}
 
-              <label
-                style={{
-                  ...styles.requirementPill,
-                  ...(notifyClient ? styles.requirementPillEmail : {}),
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={notifyClient}
-                  onChange={(event) =>
-                    setNotifyClient(event.target.checked)
-                  }
-                  style={styles.hiddenCheck}
-                />
-                Email client
-              </label>
             </div>
 
             <button
@@ -1006,6 +1068,7 @@ export default function ClientPortalRequestsPage() {
           <span>Priority</span>
           <span>Requirements</span>
           <span>Status</span>
+          <span>Actions</span>
         </div>
 
         {filteredRequests.length ? (
@@ -1022,7 +1085,8 @@ export default function ClientPortalRequestsPage() {
             ].filter(Boolean);
 
             return (
-              <div key={item.id} style={styles.tableRow}>
+              <Fragment key={item.id}>
+              <div style={styles.tableRow}>
                 <div style={styles.requestCell}>
                   <div style={styles.requestTopline}>
                     <span style={styles.typePill}>
@@ -1102,7 +1166,71 @@ export default function ClientPortalRequestsPage() {
                     </option>
                   ))}
                 </select>
+
+                <div style={styles.rowActions}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedRequestId(
+                        selectedRequestId === item.id ? "" : item.id
+                      )
+                    }
+                    style={styles.rowActionButton}
+                  >
+                    {selectedRequestId === item.id ? "Close" : "View"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void resendRequestEmail(item)}
+                    disabled={updatingId === item.id}
+                    style={styles.rowActionButtonSecondary}
+                  >
+                    Resend email
+                  </button>
+                </div>
               </div>
+
+              {selectedRequestId === item.id ? (
+                <div style={styles.requestDetailRow}>
+                  <div style={styles.requestDetailGrid}>
+                    <div>
+                      <span style={styles.detailLabel}>Request</span>
+                      <strong style={styles.detailValue}>{item.title}</strong>
+                      {item.description ? (
+                        <span style={styles.detailText}>{item.description}</span>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <span style={styles.detailLabel}>Client response</span>
+                      <strong style={styles.detailValue}>
+                        {item.response_text
+                          ? responseSummary(item)
+                          : "No response received yet"}
+                      </strong>
+                      {item.submitted_at ? (
+                        <span style={styles.detailText}>
+                          Submitted {formatDate(item.submitted_at)}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {item.requires_upload && item.upload_folder_path ? (
+                      <div>
+                        <span style={styles.detailLabel}>Upload destination</span>
+                        <strong style={styles.detailValue}>
+                          {item.upload_folder_name || item.upload_folder_path}
+                        </strong>
+                        <span style={styles.detailText}>
+                          {item.upload_folder_path}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              </Fragment>
             );
           })
         ) : (
@@ -1526,7 +1654,7 @@ const styles: Record<string, CSSProperties> = {
     padding: "0 12px",
     display: "grid",
     gridTemplateColumns:
-      "minmax(280px, 1.7fr) 180px 105px 90px 170px 135px",
+      "minmax(260px, 1.7fr) 165px 95px 80px 120px 115px 175px",
     gap: 10,
     alignItems: "center",
     background: "#f4f7fa",
@@ -1540,7 +1668,7 @@ const styles: Record<string, CSSProperties> = {
     padding: "8px 12px",
     display: "grid",
     gridTemplateColumns:
-      "minmax(280px, 1.7fr) 180px 105px 90px 170px 135px",
+      "minmax(260px, 1.7fr) 165px 95px 80px 120px 115px 175px",
     gap: 10,
     alignItems: "center",
     borderBottom: "1px solid #e6ebf0",
@@ -2007,6 +2135,69 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 9.5,
     fontWeight: 950,
     cursor: "not-allowed",
+  },
+
+  rowActions: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
+  },
+  rowActionButton: {
+    height: 30,
+    padding: "0 10px",
+    border: "1px solid #1768d2",
+    borderRadius: 5,
+    background: "#1768d2",
+    color: "#ffffff",
+    fontSize: 8.5,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  rowActionButtonSecondary: {
+    height: 30,
+    padding: "0 10px",
+    border: "1px solid #b9c8d8",
+    borderRadius: 5,
+    background: "#ffffff",
+    color: "#1768d2",
+    fontSize: 8.5,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  requestDetailRow: {
+    padding: "12px 14px 14px",
+    borderBottom: "1px solid #dfe6ed",
+    background: "#f8fbfe",
+  },
+  requestDetailGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 14,
+  },
+  detailLabel: {
+    display: "block",
+    marginBottom: 5,
+    color: "#708093",
+    fontSize: 8,
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+  },
+  detailValue: {
+    display: "block",
+    color: "#10233a",
+    fontSize: 10.5,
+    fontWeight: 900,
+    overflowWrap: "anywhere",
+  },
+  detailText: {
+    display: "block",
+    marginTop: 5,
+    color: "#667789",
+    fontSize: 8.5,
+    lineHeight: 1.45,
+    overflowWrap: "anywhere",
   },
 
 };

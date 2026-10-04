@@ -56,6 +56,60 @@ function requestTypeLabel(value: string) {
   return labels[value] || "Request";
 }
 
+function submittedResponse(request: PortalRequest) {
+  if (!request.response_text) return null;
+
+  if (request.request_type === "question") {
+    return {
+      heading: "Your response",
+      main: request.response_text,
+      detail: null as string | null,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(request.response_text);
+
+    if (request.request_type === "approval") {
+      return {
+        heading: "Your decision",
+        main:
+          String(parsed?.decision || "Submitted")
+            .replaceAll("_", " ")
+            .replace(/^./, (value) => value.toUpperCase()),
+        detail: String(parsed?.comment || "").trim() || null,
+      };
+    }
+
+    if (request.request_type === "confirmation") {
+      return {
+        heading: "Your confirmation",
+        main:
+          String(parsed?.confirmation || "Submitted")
+            .replaceAll("_", " ")
+            .replace(/^./, (value) => value.toUpperCase()),
+        detail: String(parsed?.comment || "").trim() || null,
+      };
+    }
+
+    if (request.request_type === "document_request") {
+      return {
+        heading: "Document submitted",
+        main: String(parsed?.file_name || "File uploaded"),
+        detail: String(parsed?.folder_name || "").trim() || null,
+      };
+    }
+  } catch {
+    return {
+      heading: "Submitted response",
+      main: request.response_text,
+      detail: null as string | null,
+    };
+  }
+
+  return null;
+}
+
 export default function ClientPortalRequestActionPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -235,8 +289,8 @@ export default function ClientPortalRequestActionPage() {
           <div style={styles.sideBrand}>
             <span style={styles.logoMark}>PP</span>
             <div>
-              <strong>PracticePilot</strong>
-              <span>Client Portal</span>
+              <strong style={styles.sideBrandTitle}>PracticePilot</strong>
+              <span style={styles.sideBrandSub}>Client Portal</span>
             </div>
           </div>
 
@@ -284,19 +338,31 @@ export default function ClientPortalRequestActionPage() {
             </div>
 
             <div style={styles.heroMeta}>
-              <div>
-                <span>Due</span>
-                <strong>{formatDate(request.due_date)}</strong>
+              <div style={styles.heroMetaItem}>
+                <span style={styles.heroMetaLabel}>Due</span>
+                <strong style={styles.heroMetaValue}>
+                  {formatDate(request.due_date)}
+                </strong>
               </div>
-              <div>
-                <span>Priority</span>
-                <strong style={{ textTransform: "capitalize" }}>
+              <div style={styles.heroMetaItem}>
+                <span style={styles.heroMetaLabel}>Priority</span>
+                <strong
+                  style={{
+                    ...styles.heroMetaValue,
+                    textTransform: "capitalize",
+                  }}
+                >
                   {request.priority}
                 </strong>
               </div>
-              <div>
-                <span>Status</span>
-                <strong style={{ textTransform: "capitalize" }}>
+              <div style={styles.heroMetaItem}>
+                <span style={styles.heroMetaLabel}>Status</span>
+                <strong
+                  style={{
+                    ...styles.heroMetaValue,
+                    textTransform: "capitalize",
+                  }}
+                >
                   {request.status.replaceAll("_", " ")}
                 </strong>
               </div>
@@ -308,10 +374,26 @@ export default function ClientPortalRequestActionPage() {
 
           {closed ? (
             <section style={styles.card}>
-              <h2 style={styles.cardTitle}>Request already submitted</h2>
+              <h2 style={styles.cardTitle}>Request submitted</h2>
               <p style={styles.cardText}>
                 No further action is required from you at this stage.
               </p>
+
+              {submittedResponse(request) ? (
+                <div style={styles.submittedResponse}>
+                  <span style={styles.submittedLabel}>
+                    {submittedResponse(request)?.heading}
+                  </span>
+                  <strong style={styles.submittedMain}>
+                    {submittedResponse(request)?.main}
+                  </strong>
+                  {submittedResponse(request)?.detail ? (
+                    <span style={styles.submittedDetail}>
+                      {submittedResponse(request)?.detail}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </section>
           ) : null}
 
@@ -787,4 +869,62 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 9,
     fontWeight: 800,
   },
+
+  sideBrandTitle: {
+    display: "block",
+    fontSize: 16,
+    fontWeight: 950,
+  },
+  sideBrandSub: {
+    display: "block",
+    marginTop: 2,
+    color: "#7a8796",
+    fontSize: 10,
+  },
+  heroMetaItem: {
+    display: "grid",
+    gap: 3,
+    minWidth: 95,
+  },
+  heroMetaLabel: {
+    fontSize: 8,
+    fontWeight: 800,
+    opacity: 0.75,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  },
+  heroMetaValue: {
+    fontSize: 11,
+    fontWeight: 950,
+    color: "#ffffff",
+  },
+  submittedResponse: {
+    marginTop: 16,
+    padding: 14,
+    display: "grid",
+    gap: 5,
+    border: "1px solid #c9d9eb",
+    borderRadius: 7,
+    background: "#f6faff",
+  },
+  submittedLabel: {
+    color: "#64748b",
+    fontSize: 8.5,
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+  },
+  submittedMain: {
+    color: "#10233a",
+    fontSize: 13,
+    fontWeight: 950,
+    whiteSpace: "pre-wrap",
+  },
+  submittedDetail: {
+    color: "#667789",
+    fontSize: 10,
+    lineHeight: 1.5,
+    whiteSpace: "pre-wrap",
+  },
+
 };
