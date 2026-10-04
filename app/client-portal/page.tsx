@@ -526,54 +526,6 @@ export default function ClientPortalPage() {
           PracticePilot
         </button>
 
-        <nav style={styles.nav}>
-          <button
-            type="button"
-            onClick={() =>
-              window.location.assign(portalHref("home"))
-            }
-            style={{
-              ...styles.navItem,
-              ...(currentView === "home" ? styles.navActive : {}),
-            }}
-          >
-            Home
-          </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              window.location.assign(portalHref("documents"))
-            }
-            style={{
-              ...styles.navItem,
-              ...(currentView === "documents"
-                ? styles.navActive
-                : {}),
-            }}
-          >
-            Documents
-          </button>
-
-          <button
-            type="button"
-            disabled
-            style={styles.navItemDisabled}
-            title="Coming soon"
-          >
-            Tasks
-          </button>
-
-          <button
-            type="button"
-            disabled
-            style={styles.navItemDisabled}
-            title="Coming soon"
-          >
-            Messages
-          </button>
-        </nav>
-
         <div style={styles.clientIdentity}>
           <span style={styles.avatar}>
             {initials(clientName)}
@@ -1416,26 +1368,47 @@ function RequestsView({
         </div>
 
         <section style={styles.requestSummaryGrid}>
-          <div style={styles.requestSummaryCard}>
+          <button
+            type="button"
+            onClick={() => setStatus("open")}
+            style={{
+              ...styles.requestSummaryCard,
+              ...(status === "open" ? styles.requestSummaryCardActive : {}),
+            }}
+          >
             <span style={{ ...styles.metricIconCircle, ...styles.metricOrange }}>
-              <PortalIcon name="requests" size={24} />
+              <PortalIcon name="requests" size={22} />
             </span>
             <Metric value={summary.open} label="Needs your action" note="Still outstanding" />
-          </div>
+          </button>
 
-          <div style={styles.requestSummaryCard}>
+          <button
+            type="button"
+            onClick={() => setStatus("submitted")}
+            style={{
+              ...styles.requestSummaryCard,
+              ...(status === "submitted" ? styles.requestSummaryCardActive : {}),
+            }}
+          >
             <span style={{ ...styles.metricIconCircle, ...styles.metricPurple }}>
-              <PortalIcon name="clock" size={24} />
+              <PortalIcon name="clock" size={22} />
             </span>
             <Metric value={summary.submitted} label="Submitted" note="Waiting for your practice" />
-          </div>
+          </button>
 
-          <div style={styles.requestSummaryCard}>
+          <button
+            type="button"
+            onClick={() => setStatus("completed")}
+            style={{
+              ...styles.requestSummaryCard,
+              ...(status === "completed" ? styles.requestSummaryCardActive : {}),
+            }}
+          >
             <span style={{ ...styles.metricIconCircle, ...styles.metricGreen }}>
-              <PortalIcon name="check" size={24} />
+              <PortalIcon name="check" size={22} />
             </span>
             <Metric value={summary.completed} label="Completed" note="Nothing more required" />
-          </div>
+          </button>
         </section>
 
         <section style={styles.requestsPanel}>
@@ -1567,11 +1540,11 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
   },
   topbar: {
-    minHeight: 78,
-    padding: "0 30px",
+    minHeight: 64,
+    padding: "0 24px",
     display: "grid",
-    gridTemplateColumns: "235px minmax(0, 1fr) auto",
-    alignItems: "stretch",
+    gridTemplateColumns: "1fr auto",
+    alignItems: "center",
     gap: 18,
     background: "#ffffff",
     borderBottom: "1px solid #dbe3ec",
@@ -1665,15 +1638,16 @@ const styles: Record<string, CSSProperties> = {
   },
 
   portalShell: {
-    maxWidth: 1500,
-    margin: "0 auto",
+    width: "100%",
+    maxWidth: "none",
+    margin: 0,
     display: "grid",
-    gridTemplateColumns: "255px minmax(0, 1fr)",
-    minHeight: "calc(100vh - 78px)",
+    gridTemplateColumns: "220px minmax(0, 1fr)",
+    minHeight: "calc(100vh - 64px)",
     background: "#f7f9fb",
   },
   sideNav: {
-    padding: "22px 14px 20px",
+    padding: "18px 12px 18px",
     display: "flex",
     flexDirection: "column",
     borderRight: "1px solid #dbe3ec",
@@ -2613,12 +2587,16 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   requestsMain: {
-    padding: "24px 26px 34px",
+    width: "100%",
+    maxWidth: 1120,
+    boxSizing: "border-box",
+    margin: "0 auto",
+    padding: "18px 20px 30px",
     minWidth: 0,
   },
   requestsHeader: {
-    minHeight: 120,
-    padding: "28px 30px",
+    minHeight: 96,
+    padding: "20px 24px",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
@@ -2629,24 +2607,31 @@ const styles: Record<string, CSSProperties> = {
     color: "#ffffff",
   },
   requestSummaryGrid: {
-    marginTop: 18,
+    marginTop: 14,
     display: "grid",
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 14,
+    gap: 10,
   },
   requestSummaryCard: {
-    minHeight: 124,
-    padding: "18px 20px",
+    minHeight: 96,
+    padding: "13px 15px",
     display: "grid",
     alignContent: "center",
-    gap: 10,
+    gap: 7,
     border: "1px solid #d9e2ec",
-    borderRadius: 10,
+    borderRadius: 8,
     background: "#ffffff",
-    boxShadow: "0 4px 14px rgba(15,35,58,0.04)",
+    boxShadow: "0 3px 10px rgba(15,35,58,0.035)",
+    textAlign: "left",
+    cursor: "pointer",
+  },
+  requestSummaryCardActive: {
+    borderColor: "#1768d2",
+    boxShadow: "0 0 0 2px rgba(23,104,210,0.08)",
+    background: "#f7fbff",
   },
   requestsPanel: {
-    marginTop: 18,
+    marginTop: 14,
     border: "1px solid #d9e2ec",
     borderRadius: 10,
     overflow: "hidden",
