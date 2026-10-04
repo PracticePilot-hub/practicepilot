@@ -2,6 +2,7 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import nodemailer from "nodemailer";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,125 @@ function bearerToken(request: Request) {
   return (request.headers.get("authorization") || "")
     .replace(/^Bearer\s+/i, "")
     .trim();
+}
+
+function getSmtpConfig() {
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || 587);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const fromName = process.env.SMTP_FROM_NAME || "PracticePilot";
+  const fromEmail = process.env.SMTP_FROM_EMAIL || user;
+
+  if (!host || !user || !pass || !fromEmail) {
+    throw new Error("Missing SMTP configuration.");
+  }
+
+  return { host, port, user, pass, fromName, fromEmail };
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+async function practiceRecipient(createdByUserId: string | null) {
+  if (!createdByUserId) return "";
+
+  const { data, error } = await admin.auth.admin.getUserById(
+    createdByUserId
+  );
+
+  if (error) {
+    console.error("PORTAL RESPONSE PRACTICE USER LOOKUP ERROR:", error);
+    return "";
+  }
+
+  return String(data?.user?.email || "").trim().toLowerCase();
+}
+
+async function clientName(clientId: string) {
+  const { data, error } = await admin
+    .from("crm_clients")
+    .select("client_name")
+    .eq("id", clientId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("PORTAL RESPONSE CLIENT LOOKUP ERROR:", error);
+    return "Client";
+  }
+
+  return String(data?.client_name || "Client").trim() || "Client";
+}
+
+async function sendPracticeResponseEmail(args: {
+  to: string;
+  clientName: string;
+  requestTitle: string;
+  responseLabel: string;
+  responseDetail: string | null;
+  practiceUrl: string;
+}) {
+  if (!args.to) return false;
+
+  const smtp = getSmtpConfig();
+  const transporter = nodemailer.createTransport({
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.port === 465,
+    auth: {
+      user: smtp.user,
+      pass: smtp.pass,
+    },
+  });
+
+  const detail = args.responseDetail
+    ? `<div style="margin-top:8px;color:#526577;">${escapeHtml(
+        args.responseDetail
+      )}</div>`
+    : "";
+
+  await transporter.sendMail({
+    from: `"${smtp.fromName}" <${smtp.fromEmail}>`,
+    to: args.to,
+    subject: `${args.clientName} — client responded in PracticePilot`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#10233A;max-width:620px;margin:0 auto;">
+        <div style="padding:22px 0;border-bottom:1px solid #D5DDE6;">
+          <div style="font-size:22px;font-weight:800;">PracticePilot</div>
+        </div>
+        <div style="padding:24px 0;">
+          <p>A client has responded to a portal request for <strong>${escapeHtml(
+            args.clientName
+          )}</strong>.</p>
+          <div style="margin:18px 0;padding:16px;border:1px solid #DCE4EC;background:#F7FAFC;">
+            <div style="font-size:16px;font-weight:800;margin-bottom:8px;">
+              ${escapeHtml(args.requestTitle)}
+            </div>
+            <div><strong>Client response:</strong> ${escapeHtml(
+              args.responseLabel
+            )}</div>
+            ${detail}
+          </div>
+          <p style="margin:24px 0;">
+            <a
+              href="${args.practiceUrl}"
+              style="display:inline-block;background:#1768D2;color:#FFFFFF;text-decoration:none;padding:12px 18px;font-weight:700;"
+            >
+              Open Requests & Actions
+            </a>
+          </p>
+        </div>
+      </div>
+    `,
+  });
+
+  return true;
 }
 
 async function portalContext(request: Request) {
@@ -88,7 +208,7 @@ export async function PATCH(
     const { data: portalRequest, error: loadError } = await admin
       .from("crm_client_portal_requests")
       .select(
-        "id,organisation_id,client_id,request_type,status,assigned_portal_user_id,requires_response,requires_approval"
+        "id,organisation_id,client_id,request_type,title,status,assigned_portal_user_id,requires_response,requires_approval,created_by_user_id"
       )
       .eq("id", requestId)
       .maybeSingle();
@@ -138,6 +258,9 @@ export async function PATCH(
       updated_at: new Date().toISOString(),
     };
 
+    let responseLabel = "Submitted";
+    let responseDetail: string | null = responseText;
+
     if (portalRequest.request_type === "question") {
       if (action !== "respond" || !responseText) {
         return NextResponse.json(
@@ -147,6 +270,8 @@ export async function PATCH(
       }
 
       update.response_text = responseText;
+      responseLabel = "Written response submitted";
+      responseDetail = responseText;
     } else if (portalRequest.request_type === "approval") {
       const choice = String(body?.approval_choice || "");
 
@@ -161,6 +286,8 @@ export async function PATCH(
         decision: choice,
         comment: responseText,
       });
+      responseLabel = choice === "approved" ? "Approved" : "Declined";
+      responseDetail = responseText;
     } else if (portalRequest.request_type === "confirmation") {
       const choice = String(body?.confirmation_choice || "");
 
@@ -175,6 +302,9 @@ export async function PATCH(
         confirmation: choice,
         comment: responseText,
       });
+      responseLabel =
+        choice === "confirmed" ? "Confirmed" : "Cannot confirm";
+      responseDetail = responseText;
     } else {
       return NextResponse.json(
         {
@@ -201,9 +331,35 @@ export async function PATCH(
 
     if (error) throw error;
 
+    let notificationSent = false;
+
+    try {
+      const to = await practiceRecipient(
+        portalRequest.created_by_user_id
+      );
+      const name = await clientName(portalRequest.client_id);
+      const origin = new URL(request.url).origin.replace(/\/+$/, "");
+
+      notificationSent = await sendPracticeResponseEmail({
+        to,
+        clientName: name,
+        requestTitle: portalRequest.title,
+        responseLabel,
+        responseDetail,
+        practiceUrl:
+          `${origin}/crm/client/${portalRequest.client_id}/portal-requests`,
+      });
+    } catch (mailError) {
+      console.error(
+        "CLIENT PORTAL RESPONSE PRACTICE EMAIL ERROR:",
+        mailError
+      );
+    }
+
     return NextResponse.json({
       success: true,
       request: data,
+      notification_sent: notificationSent,
     });
   } catch (error) {
     console.error("CLIENT PORTAL REQUEST ACTION ERROR:", error);

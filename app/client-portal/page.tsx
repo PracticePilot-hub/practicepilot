@@ -719,33 +719,57 @@ function HomeView({
         </div>
 
         <section style={styles.homeMetrics}>
-          <div style={styles.homeMetricCard}>
+          <button
+            type="button"
+            onClick={() =>
+              window.location.assign("/client-portal?view=documents")
+            }
+            style={styles.homeMetricCard}
+          >
             <span style={{ ...styles.metricIconCircle, ...styles.metricBlue }}>
               <PortalIcon name="documents" size={24} />
             </span>
             <Metric value={data.counts.total} label="Latest documents" note="Released to you" />
-          </div>
+          </button>
 
-          <div style={styles.homeMetricCard}>
+          <button
+            type="button"
+            onClick={() =>
+              window.location.assign("/client-portal?view=requests&status=open")
+            }
+            style={styles.homeMetricCard}
+          >
             <span style={{ ...styles.metricIconCircle, ...styles.metricOrange }}>
               <PortalIcon name="clock" size={24} />
             </span>
             <Metric value={data.counts.needs_action} label="Needs your action" note="Items requiring attention" />
-          </div>
+          </button>
 
-          <div style={styles.homeMetricCard}>
+          <button
+            type="button"
+            onClick={() =>
+              window.location.assign("/client-portal?view=requests&status=submitted")
+            }
+            style={styles.homeMetricCard}
+          >
             <span style={{ ...styles.metricIconCircle, ...styles.metricPurple }}>
               <PortalIcon name="requests" size={24} />
             </span>
             <Metric value={data.counts.awaiting_our_work} label="Awaiting our work" note="Currently in progress" />
-          </div>
+          </button>
 
-          <div style={styles.homeMetricCard}>
+          <button
+            type="button"
+            onClick={() =>
+              window.location.assign("/client-portal?view=documents")
+            }
+            style={styles.homeMetricCard}
+          >
             <span style={{ ...styles.metricIconCircle, ...styles.metricGreen }}>
               <PortalIcon name="check" size={24} />
             </span>
             <Metric value={data.counts.for_your_records} label="For your records" note="Available anytime" />
-          </div>
+          </button>
         </section>
 
         <div style={styles.homeGrid}>
@@ -762,13 +786,13 @@ function HomeView({
               </div>
 
               {data.requests?.filter(
-                (item) => !["completed", "cancelled"].includes(item.status)
+                (item) => ["new", "in_progress"].includes(item.status)
               ).length ? (
                 <div style={styles.requestList}>
                   {data.requests
                     .filter(
                       (item) =>
-                        !["completed", "cancelled"].includes(item.status)
+                        ["new", "in_progress"].includes(item.status)
                     )
                     .slice(0, 5)
                     .map((item) => (
@@ -1253,7 +1277,20 @@ function RequestsView({
   selectedRequestId: string;
   onClientChange: (clientId: string) => void;
 }) {
-  const [status, setStatus] = useState("all");
+  const searchParams = useSearchParams();
+  const requestedStatus = String(searchParams.get("status") || "all");
+  const validStatuses = ["all", "open", "submitted", "completed"];
+  const [status, setStatus] = useState(
+    validStatuses.includes(requestedStatus) ? requestedStatus : "all"
+  );
+
+  useEffect(() => {
+    setStatus(
+      validStatuses.includes(requestedStatus)
+        ? requestedStatus
+        : "all"
+    );
+  }, [requestedStatus]);
 
   const filtered = (data.requests || []).filter((item) => {
     if (status === "open") {
@@ -2333,6 +2370,7 @@ const styles: Record<string, CSSProperties> = {
   },
 
   homeMetricCard: {
+    width: "100%",
     minHeight: 132,
     padding: "18px 20px",
     display: "grid",
@@ -2342,6 +2380,10 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 10,
     background: "#ffffff",
     boxShadow: "0 4px 14px rgba(15,35,58,0.04)",
+    color: "#10233a",
+    textAlign: "left",
+    font: "inherit",
+    cursor: "pointer",
   },
   metricIconCircle: {
     width: 46,
