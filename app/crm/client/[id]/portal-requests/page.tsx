@@ -762,6 +762,16 @@ export default function ClientPortalRequestsPage() {
           <button
             type="button"
             onClick={() =>
+              router.push(`/crm/client/${clientId}/portal-access`)
+            }
+            style={styles.secondaryButton}
+          >
+            Portal Users
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
               router.push(`/crm/client/${clientId}?tab=documents`)
             }
             style={styles.secondaryButton}
