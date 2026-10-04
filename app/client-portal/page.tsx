@@ -863,9 +863,7 @@ function HomeView({
                             type="button"
                             onClick={() =>
                               window.location.assign(
-                                `/client-portal?view=requests&request=${encodeURIComponent(
-                                  item.id
-                                )}`
+                                `/client-portal/request/${encodeURIComponent(item.id)}`
                               )
                             }
                             style={styles.requestOpenButton}
@@ -1438,96 +1436,6 @@ function RequestsView({
           </div>
         </section>
 
-        {selectedRequest ? (
-          <section style={styles.requestDetailPanel}>
-            <div style={styles.requestDetailHeader}>
-              <div>
-                <span style={styles.requestTypePill}>
-                  {requestTypeLabel(selectedRequest.request_type)}
-                </span>
-                <h2 style={styles.requestDetailTitle}>
-                  {selectedRequest.title}
-                </h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  window.location.assign("/client-portal?view=requests")
-                }
-                style={styles.requestCloseButton}
-              >
-                Close
-              </button>
-            </div>
-
-            {selectedRequest.description ? (
-              <p style={styles.requestDetailDescription}>
-                {selectedRequest.description}
-              </p>
-            ) : null}
-
-            <div style={styles.requestDetailMetaGrid}>
-              <div>
-                <span style={styles.requestDetailLabel}>Due date</span>
-                <strong>
-                  {selectedRequest.due_date
-                    ? formatDate(selectedRequest.due_date)
-                    : "No due date"}
-                </strong>
-              </div>
-              <div>
-                <span style={styles.requestDetailLabel}>Status</span>
-                <strong>{requestStatusLabel(selectedRequest.status)}</strong>
-              </div>
-              <div>
-                <span style={styles.requestDetailLabel}>Priority</span>
-                <strong style={{ textTransform: "capitalize" }}>
-                  {selectedRequest.priority}
-                </strong>
-              </div>
-            </div>
-
-            <div style={styles.requestDetailRequirements}>
-              {selectedRequest.requires_upload ? (
-                <div style={styles.requestActionCard}>
-                  <PortalIcon name="documents" size={22} />
-                  <div>
-                    <strong>Upload required</strong>
-                    <span>
-                      File upload will be connected in the next build step.
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-
-              {selectedRequest.requires_response ? (
-                <div style={styles.requestActionCard}>
-                  <PortalIcon name="messages" size={22} />
-                  <div>
-                    <strong>Written response required</strong>
-                    <span>
-                      Response capture will be connected in the next build step.
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-
-              {selectedRequest.requires_approval ? (
-                <div style={styles.requestActionCard}>
-                  <PortalIcon name="check" size={22} />
-                  <div>
-                    <strong>Approval required</strong>
-                    <span>
-                      Approval action will be connected in the next build step.
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </section>
-        ) : null}
-
         <section style={styles.requestsPanel}>
           <div style={styles.requestsToolbar}>
             <div>
@@ -1593,9 +1501,7 @@ function RequestsView({
                       type="button"
                       onClick={() =>
                         window.location.assign(
-                          `/client-portal?view=requests&request=${encodeURIComponent(
-                            item.id
-                          )}`
+                          `/client-portal/request/${encodeURIComponent(item.id)}`
                         )
                       }
                       style={styles.requestOpenButton}

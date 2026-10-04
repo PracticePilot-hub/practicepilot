@@ -417,7 +417,7 @@ export default function ClientPortalRequestsPage() {
               id: null,
               name: folderName,
               path: createdPath,
-              type: "folder" as const,
+              type: "folder",
               size_bytes: null,
               modified_at: new Date().toISOString(),
             },
@@ -957,6 +957,7 @@ export default function ClientPortalRequestsPage() {
               {saving ? "Creating..." : "Create Request"}
             </button>
           </div>
+        </div>
         </div>
       </section>
 
