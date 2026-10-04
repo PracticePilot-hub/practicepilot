@@ -186,7 +186,7 @@ export default function ClientPortalRequestsPage() {
   const [newFolderName, setNewFolderName] = useState("");
   const [creatingFolder, setCreatingFolder] = useState(false);
 
-  const [statusFilter, setStatusFilter] = useState("open");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
 
   const [loading, setLoading] = useState(true);
@@ -668,7 +668,7 @@ export default function ClientPortalRequestsPage() {
     return requests.filter((item) => {
       if (
         statusFilter === "open" &&
-        ["completed", "cancelled"].includes(item.status)
+        !["new", "in_progress"].includes(item.status)
       ) {
         return false;
       }
@@ -703,13 +703,12 @@ export default function ClientPortalRequestsPage() {
   const summary = useMemo(() => {
     return {
       open: requests.filter(
-        (item) =>
-          !["completed", "cancelled"].includes(item.status)
+        (item) => ["new", "in_progress"].includes(item.status)
       ).length,
       overdue: requests.filter((item) => {
         if (
           !item.due_date ||
-          ["completed", "cancelled"].includes(item.status)
+          !["new", "in_progress"].includes(item.status)
         ) {
           return false;
         }
@@ -1177,17 +1176,28 @@ export default function ClientPortalRequestsPage() {
                     }
                     style={styles.rowActionButton}
                   >
-                    {selectedRequestId === item.id ? "Close" : "View"}
+                    {selectedRequestId === item.id
+                      ? "Close"
+                      : item.status === "submitted"
+                        ? "View response"
+                        : "View"}
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => void resendRequestEmail(item)}
-                    disabled={updatingId === item.id}
-                    style={styles.rowActionButtonSecondary}
-                  >
-                    Resend email
-                  </button>
+                  <details style={styles.moreMenu}>
+                    <summary style={styles.moreSummary}>More ▾</summary>
+                    <div style={styles.morePopover}>
+                      <button
+                        type="button"
+                        onClick={() => void resendRequestEmail(item)}
+                        disabled={updatingId === item.id}
+                        style={styles.moreMenuButton}
+                      >
+                        {updatingId === item.id
+                          ? "Sending..."
+                          : "Resend email"}
+                      </button>
+                    </div>
+                  </details>
                 </div>
               </div>
 
@@ -2198,6 +2208,60 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 8.5,
     lineHeight: 1.45,
     overflowWrap: "anywhere",
+  },
+
+  submittedPreview: {
+    display: "-webkit-box",
+    marginTop: 5,
+    overflow: "hidden",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 1,
+    color: "#1768d2",
+    fontSize: 8.5,
+    fontWeight: 850,
+  },
+  moreMenu: {
+    position: "relative",
+  },
+  moreSummary: {
+    minWidth: 66,
+    height: 30,
+    padding: "0 9px",
+    display: "grid",
+    placeItems: "center",
+    listStyle: "none",
+    border: "1px solid #b9c8d8",
+    borderRadius: 5,
+    background: "#ffffff",
+    color: "#41566d",
+    fontSize: 8.5,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  morePopover: {
+    position: "absolute",
+    right: 0,
+    top: 34,
+    zIndex: 20,
+    minWidth: 130,
+    padding: 5,
+    border: "1px solid #cbd5e1",
+    borderRadius: 6,
+    background: "#ffffff",
+    boxShadow: "0 10px 24px rgba(15, 35, 58, 0.12)",
+  },
+  moreMenuButton: {
+    width: "100%",
+    height: 30,
+    padding: "0 9px",
+    border: "none",
+    borderRadius: 4,
+    background: "#ffffff",
+    color: "#1768d2",
+    textAlign: "left",
+    fontSize: 8.5,
+    fontWeight: 850,
+    cursor: "pointer",
   },
 
 };

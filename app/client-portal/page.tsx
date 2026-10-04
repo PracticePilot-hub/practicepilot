@@ -868,7 +868,9 @@ function HomeView({
                             }
                             style={styles.requestOpenButton}
                           >
-                            Open →
+                            {item.status === "submitted"
+                              ? "View submission"
+                              : "Open →"}
                           </button>
                         </div>
                       </div>
@@ -1299,11 +1301,11 @@ function RequestsView({
   selectedRequestId: string;
   onClientChange: (clientId: string) => void;
 }) {
-  const [status, setStatus] = useState("open");
+  const [status, setStatus] = useState("all");
 
   const filtered = (data.requests || []).filter((item) => {
     if (status === "open") {
-      return !["completed", "cancelled"].includes(item.status);
+      return ["new", "in_progress"].includes(item.status);
     }
 
     if (status === "all") return true;
@@ -1313,7 +1315,7 @@ function RequestsView({
 
   const summary = {
     open: (data.requests || []).filter(
-      (item) => !["completed", "cancelled"].includes(item.status)
+      (item) => ["new", "in_progress"].includes(item.status)
     ).length,
     submitted: (data.requests || []).filter(
       (item) => item.status === "submitted"
@@ -1448,8 +1450,8 @@ function RequestsView({
               onChange={(event) => setStatus(event.target.value)}
               style={styles.requestFilter}
             >
-              <option value="open">Open requests</option>
               <option value="all">All requests</option>
+              <option value="open">Needs your action</option>
               <option value="submitted">Submitted</option>
               <option value="completed">Completed</option>
             </select>
@@ -1506,7 +1508,9 @@ function RequestsView({
                       }
                       style={styles.requestOpenButton}
                     >
-                      Open →
+                      {item.status === "submitted"
+                        ? "View submission"
+                        : "Open →"}
                     </button>
                   </div>
                 </div>
