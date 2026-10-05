@@ -218,6 +218,7 @@ export default function AFSPage() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [sortBy, setSortBy] = useState("Entity A-Z");
   const [deletingEngagementId, setDeletingEngagementId] = useState<string | null>(null);
+  const [downloadingEngagementId, setDownloadingEngagementId] = useState<string | null>(null);
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
 
   const internalUser = isInternalRole(profile?.role || "");
@@ -765,6 +766,129 @@ export default function AFSPage() {
     }
   }
 
+  function encodeUtf8Base64(value: string) {
+    const bytes = new TextEncoder().encode(value);
+    let binary = "";
+
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+
+    return window.btoa(binary);
+  }
+
+  function getSupabaseAuthStorageHeader() {
+    const authStorage: Record<string, string> = {};
+
+    try {
+      for (let index = 0; index < window.localStorage.length; index += 1) {
+        const key = window.localStorage.key(index);
+        if (!key) continue;
+
+        const lowerKey = key.toLowerCase();
+        const isSupabaseAuthKey =
+          lowerKey.startsWith("sb-") ||
+          lowerKey.includes("supabase") ||
+          lowerKey.includes("auth-token");
+
+        if (!isSupabaseAuthKey) continue;
+
+        const value = window.localStorage.getItem(key);
+
+        if (value !== null) {
+          authStorage[key] = value;
+        }
+      }
+
+      if (Object.keys(authStorage).length === 0) {
+        return "";
+      }
+
+      return encodeUtf8Base64(JSON.stringify(authStorage));
+    } catch {
+      return "";
+    }
+  }
+
+  function getFilenameFromContentDisposition(header: string | null) {
+    if (!header) return "";
+
+    const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+
+    if (utf8Match?.[1]) {
+      try {
+        return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
+      } catch {
+        return utf8Match[1].replace(/"/g, "");
+      }
+    }
+
+    const normalMatch = header.match(/filename="?([^";]+)"?/i);
+    return normalMatch?.[1]?.trim() || "";
+  }
+
+  async function downloadFinalPdf(engagement: AFSEngagement) {
+    if (downloadingEngagementId) return;
+
+    setDownloadingEngagementId(engagement.id);
+
+    try {
+      const authStorageHeader = getSupabaseAuthStorageHeader();
+
+      const response = await fetch(
+        `/api/afs/engagements/${encodeURIComponent(engagement.id)}/export-pdf`,
+        {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+          headers: authStorageHeader
+            ? {
+                "x-afs-auth-storage": authStorageHeader,
+              }
+            : undefined,
+        },
+      );
+
+      if (!response.ok) {
+        let message = `PDF export failed with status ${response.status}.`;
+        const rawText = await response.text();
+
+        try {
+          const payload = rawText ? JSON.parse(rawText) : null;
+          if (payload?.error) message = payload.error;
+        } catch {
+          if (rawText) message = rawText.slice(0, 500);
+        }
+
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      const filename =
+        getFilenameFromContentDisposition(
+          response.headers.get("Content-Disposition"),
+        ) || `${engagement.client_name}-annual-financial-statements.pdf`;
+
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = filename;
+      link.style.display = "none";
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 2000);
+    } catch (error: any) {
+      console.error("AFS PDF export failed", error);
+      window.alert(error?.message || "AFS PDF export failed.");
+    } finally {
+      setDownloadingEngagementId(null);
+    }
+  }
+
   function clearFilters() {
     setSearchText("");
     setEntityView("All");
@@ -1218,7 +1342,9 @@ export default function AFSPage() {
                       </td>
 
                       <td style={{ ...styles.td, whiteSpace: "nowrap" }}>
-                        {normaliseStatus(engagement.status) === "Final" ||
+                        {["Final", "Archived"].includes(
+                          normaliseStatus(engagement.status),
+                        ) ||
                         (engagement.can_delete && userCanDeleteAfsDrafts) ? (
                           <span style={styles.actionMenuWrap}>
                             <button
@@ -1237,6 +1363,26 @@ export default function AFSPage() {
 
                             {openActionMenuId === engagement.id ? (
                               <span style={styles.actionMenu}>
+                                {["Final", "Archived"].includes(
+                                  normaliseStatus(engagement.status),
+                                ) ? (
+                                  <button
+                                    type="button"
+                                    style={styles.menuDownloadLink}
+                                    disabled={
+                                      downloadingEngagementId === engagement.id
+                                    }
+                                    onClick={() => {
+                                      setOpenActionMenuId(null);
+                                      void downloadFinalPdf(engagement);
+                                    }}
+                                  >
+                                    {downloadingEngagementId === engagement.id
+                                      ? "Downloading..."
+                                      : "Download Final PDF"}
+                                  </button>
+                                ) : null}
+
                                 {normaliseStatus(engagement.status) === "Final" ? (
                                   <button
                                     type="button"
@@ -1947,6 +2093,22 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#ffffff",
     boxShadow: "0 4px 12px rgba(15, 23, 42, 0.12)",
     padding: "3px",
+  },
+
+  menuDownloadLink: {
+    display: "block",
+    width: "100%",
+    boxSizing: "border-box",
+    border: 0,
+    background: "#ffffff",
+    color: "#0b5cab",
+    padding: "7px 8px",
+    textAlign: "left",
+    fontSize: "10px",
+    fontWeight: 850,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    textDecoration: "none",
   },
 
   menuActionButton: {

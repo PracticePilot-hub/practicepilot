@@ -138,6 +138,7 @@ const NOTE_KEY_MAP: Record<string, string> = {
   notesCashAndCashEquivalents: "cashAndCashEquivalents",
   notesShareCapital: "shareCapital",
   notesRetainedIncome: "retainedIncome",
+  notesGroupRelatedPartyBorrowings: "groupRelatedPartyBorrowings",
   notesShareholdersLoans: "shareholdersLoans",
   notesBorrowings: "borrowings",
   notesOtherFinancialLiabilities: "otherFinancialLiabilities",
@@ -3481,6 +3482,108 @@ function MappedBorrowingNote({
 }
 
 
+
+function isGroupRelatedPartyBorrowingLine(line: any) {
+  /*
+    GROUP / RELATED-PARTY BORROWINGS — MAPPING CODE ONLY
+
+    547 / 547.xx = group and related-party borrowings.
+
+    Account names and descriptions are used only for the printable loan
+    description. They must never decide whether a line belongs in this note.
+  */
+  return mappingStartsWith(line, ["547", "500.547"]);
+}
+
+function groupRelatedPartyBorrowingLabel(line: any) {
+  return (
+    clean(line?.account_name) ||
+    clean(line?.description) ||
+    clean(line?.mapping_label) ||
+    "Group / related-party borrowing"
+  );
+}
+
+function groupRelatedPartyBorrowingLineKey(line: any, index: number) {
+  return String(
+    line?.id ||
+      line?.account_code ||
+      line?.account_name ||
+      line?.mapping_leaf_id ||
+      line?.mapping_code ||
+      `group-related-party-borrowing-${index}`,
+  );
+}
+
+function buildGroupRelatedPartyBorrowingDetailRows(
+  trialBalanceLines: any[],
+  fallbackRows: AmountLine[] = [],
+): AmountLine[] {
+  const grouped = new Map<string, AmountLine>();
+
+  (trialBalanceLines || [])
+    .filter(isGroupRelatedPartyBorrowingLine)
+    .forEach((line, index) => {
+      const current = normaliseLoanAmount(lineAmount(line, "current"));
+      const prior = normaliseLoanAmount(lineAmount(line, "prior"));
+
+      if (current === 0 && prior === 0) return;
+
+      const key = groupRelatedPartyBorrowingLineKey(line, index);
+      const label = groupRelatedPartyBorrowingLabel(line);
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          id: key,
+          label,
+          current: 0,
+          prior: 0,
+          meta: {
+            source: "trialBalanceLine",
+            noteFamily: "groupRelatedPartyBorrowings",
+            mappingCode: clean(line?.mapping_code),
+            accountCode: clean(line?.account_code),
+          },
+        });
+      }
+
+      const row = grouped.get(key);
+      if (!row) return;
+
+      row.current += current;
+      row.prior += prior;
+    });
+
+  const detailRows = Array.from(grouped.values())
+    .filter(
+      (row) =>
+        roundAmount(row.current) !== 0 ||
+        roundAmount(row.prior) !== 0,
+    )
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return detailRows.length > 0 ? detailRows : fallbackRows;
+}
+
+function GroupRelatedPartyBorrowingsNote(props: {
+  rows: AmountLine[];
+  trialBalanceLines: any[];
+  edit: boolean;
+  state: StructuredState;
+  update: (path: string[], value: any) => void;
+}) {
+  return (
+    <MappedBorrowingNote
+      {...props}
+      stateKey="groupRelatedPartyBorrowings"
+      buildRows={buildGroupRelatedPartyBorrowingDetailRows}
+      defaultTerms="The related-party borrowing is recognised in accordance with the underlying loan arrangement."
+      relationshipLabel="Related party / lender type"
+    />
+  );
+}
+
+
 function isBorrowingLine(line: any) {
   /*
     BORROWINGS NOTE — MAPPING CODE ONLY
@@ -5556,6 +5659,14 @@ export default function AfsStructuredNotesPanel({
                 {section.key === "notesCashAndCashEquivalents" ? (
                   <CashNote
                     rows={rows}
+                    edit={isEditing}
+                    state={state}
+                    update={update}
+                  />
+                ) : section.key === "notesGroupRelatedPartyBorrowings" ? (
+                  <GroupRelatedPartyBorrowingsNote
+                    rows={rows}
+                    trialBalanceLines={trialBalanceLines}
                     edit={isEditing}
                     state={state}
                     update={update}

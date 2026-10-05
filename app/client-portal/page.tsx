@@ -326,6 +326,16 @@ export default function ClientPortalPage() {
         );
       }
 
+      const { data: aal, error: aalError } =
+        await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+      if (aalError) throw aalError;
+
+      if (aal?.currentLevel !== "aal2") {
+        window.location.href = "/client-portal-mfa";
+        return;
+      }
+
       const query = selectedClientId
         ? `?client=${encodeURIComponent(selectedClientId)}`
         : "";

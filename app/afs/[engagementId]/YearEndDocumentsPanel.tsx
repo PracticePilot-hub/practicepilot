@@ -337,6 +337,7 @@ export default function YearEndDocumentsPanel({
   const [approvalPlace, setApprovalPlace] = useState("");
   const [approvalDate, setApprovalDate] = useState("");
   const [approvalSignatories, setApprovalSignatories] = useState<string[]>([]);
+  const [approvalRepresentatives, setApprovalRepresentatives] = useState<Record<string, string>>({});
   const [approvalClauses, setApprovalClauses] =
     useState<Record<TrustApprovalClauseKey, boolean>>({
       ...DEFAULT_TRUST_APPROVAL_CLAUSES,
@@ -356,6 +357,10 @@ export default function YearEndDocumentsPanel({
   const [minutesStatus, setMinutesStatus] = useState<DocumentStatus>("draft");
   const [minutesSaving, setMinutesSaving] = useState(false);
   const [minutesMessage, setMinutesMessage] = useState("");
+  const [minutesRepresentatives, setMinutesRepresentatives] = useState<Record<string, string>>({});
+  const [minutesIncludeAccountantAppointment, setMinutesIncludeAccountantAppointment] =
+    useState(true);
+  const [minutesAdditionalItems, setMinutesAdditionalItems] = useState<string[]>([]);
 
   const [loanStatus, setLoanStatus] = useState<DocumentStatus>("draft");
   const [loanSaving, setLoanSaving] = useState(false);
@@ -502,6 +507,16 @@ export default function YearEndDocumentsPanel({
           ? payload.signatories.map(String).filter(Boolean)
           : [],
       );
+      setApprovalRepresentatives(
+        payload.representatives && typeof payload.representatives === "object"
+          ? Object.fromEntries(
+              Object.entries(payload.representatives).map(([key, value]) => [
+                String(key),
+                String(value || ""),
+              ]),
+            )
+          : {},
+      );
       const savedClauses =
         payload.enabledClauses && typeof payload.enabledClauses === "object"
           ? payload.enabledClauses
@@ -554,6 +569,7 @@ export default function YearEndDocumentsPanel({
               place: approvalPlace.trim(),
               approvalDate,
               signatories: effectiveApprovalSignatories,
+              representatives: approvalRepresentatives,
               enabledClauses: approvalClauses,
             },
           }),
@@ -634,6 +650,26 @@ export default function YearEndDocumentsPanel({
           ? payload.attendees.map(String).filter(Boolean)
           : [],
       );
+      setMinutesRepresentatives(
+        payload.representatives && typeof payload.representatives === "object"
+          ? Object.fromEntries(
+              Object.entries(payload.representatives).map(([key, value]) => [
+                String(key),
+                String(value || ""),
+              ]),
+            )
+          : {},
+      );
+      setMinutesIncludeAccountantAppointment(
+        payload.includeAccountantAppointment === undefined
+          ? true
+          : Boolean(payload.includeAccountantAppointment),
+      );
+      setMinutesAdditionalItems(
+        Array.isArray(payload.additionalItems)
+          ? payload.additionalItems.map(String)
+          : [],
+      );
 
       const savedClauses =
         payload.enabledClauses && typeof payload.enabledClauses === "object"
@@ -689,6 +725,9 @@ export default function YearEndDocumentsPanel({
               meetingDate: minutesDate,
               chairperson: effectiveMinutesChairperson,
               attendees: effectiveMinutesAttendees,
+              representatives: minutesRepresentatives,
+              includeAccountantAppointment: minutesIncludeAccountantAppointment,
+              additionalItems: minutesAdditionalItems,
               enabledClauses: minutesClauses,
             },
           }),
@@ -1226,6 +1265,7 @@ export default function YearEndDocumentsPanel({
             framework={framework}
             availableSignatories={signatories}
             selectedSignatories={effectiveApprovalSignatories}
+            representatives={approvalRepresentatives}
             approvalPlace={approvalPlace}
             approvalDate={approvalDate}
             enabledClauses={approvalClauses}
@@ -1245,6 +1285,13 @@ export default function YearEndDocumentsPanel({
             onSignatoriesChange={(value) => {
               approvalChanged();
               setApprovalSignatories(value);
+            }}
+            onRepresentativeChange={(name, value) => {
+              approvalChanged();
+              setApprovalRepresentatives((current) => ({
+                ...current,
+                [name]: value,
+              }));
             }}
             onClauseChange={(key, checked) => {
               approvalChanged();
@@ -1278,6 +1325,9 @@ export default function YearEndDocumentsPanel({
             meetingPlace={minutesPlace}
             meetingDate={minutesDate}
             enabledClauses={minutesClauses}
+            representatives={minutesRepresentatives}
+            includeAccountantAppointment={minutesIncludeAccountantAppointment}
+            additionalItems={minutesAdditionalItems}
             status={minutesStatus}
             saving={minutesSaving}
             message={minutesMessage}
@@ -1311,6 +1361,21 @@ export default function YearEndDocumentsPanel({
               setMinutesClauses({
                 ...DEFAULT_TRUST_APPROVAL_CLAUSES,
               });
+            }}
+            onRepresentativeChange={(name, value) => {
+              minutesChanged();
+              setMinutesRepresentatives((current) => ({
+                ...current,
+                [name]: value,
+              }));
+            }}
+            onIncludeAccountantAppointmentChange={(checked) => {
+              minutesChanged();
+              setMinutesIncludeAccountantAppointment(checked);
+            }}
+            onAdditionalItemsChange={(items) => {
+              minutesChanged();
+              setMinutesAdditionalItems(items);
             }}
             onSaveDraft={() => void saveMinutesDocument("draft")}
             onMarkPrepared={() => void saveMinutesDocument("prepared")}
@@ -1900,6 +1965,7 @@ function ApprovalDocument({
   framework,
   availableSignatories,
   selectedSignatories,
+  representatives,
   approvalPlace,
   approvalDate,
   enabledClauses,
@@ -1911,6 +1977,7 @@ function ApprovalDocument({
   onPlaceChange,
   onDateChange,
   onSignatoriesChange,
+  onRepresentativeChange,
   onClauseChange,
   onResetClauses,
   onSaveDraft,
@@ -1925,6 +1992,7 @@ function ApprovalDocument({
   framework: string;
   availableSignatories: string[];
   selectedSignatories: string[];
+  representatives: Record<string, string>;
   approvalPlace: string;
   approvalDate: string;
   enabledClauses: Record<TrustApprovalClauseKey, boolean>;
@@ -1936,6 +2004,7 @@ function ApprovalDocument({
   onPlaceChange: (value: string) => void;
   onDateChange: (value: string) => void;
   onSignatoriesChange: (value: string[]) => void;
+  onRepresentativeChange: (name: string, value: string) => void;
   onClauseChange: (key: TrustApprovalClauseKey, checked: boolean) => void;
   onResetClauses: () => void;
   onSaveDraft: () => void;
@@ -1943,6 +2012,18 @@ function ApprovalDocument({
   onMarkSigned: () => void;
 }) {
   const documentId = `yd01-${engagementId}`;
+
+  const corporateTrusteeSignatories =
+    entityKind === "trust"
+      ? selectedSignatories.filter((name) => isCorporateTrusteeName(name))
+      : [];
+
+  const displaySignatories =
+    entityKind === "trust"
+      ? selectedSignatories.map((name) =>
+          formatTrusteeAttendanceName(name, representatives[name]),
+        )
+      : selectedSignatories;
 
   function toggleSignatory(name: string) {
     const current = selectedSignatories.includes(name)
@@ -2234,7 +2315,7 @@ function ApprovalDocument({
                       ...(selected ? styles.signatoryChoiceSelected : {}),
                     }}
                   >
-                    {selected ? "✓ " : ""}{name}
+                    {selected ? "✓ " : ""}{entityKind === "trust" ? cleanTrusteeDisplayName(name) : name}
                   </button>
                 );
               })}
@@ -2245,6 +2326,28 @@ function ApprovalDocument({
             </span>
           )}
         </div>
+
+        {entityKind === "trust" && corporateTrusteeSignatories.length ? (
+          <div style={{ gridColumn: "1 / -1", display: "grid", gap: "7px" }}>
+            <span style={styles.controlLabel}>Corporate trustee representative</span>
+            <span style={styles.controlHelp}>
+              Enter the representative if known, or leave blank for a handwritten name on the resolution.
+            </span>
+            {corporateTrusteeSignatories.map((name) => (
+              <label key={name} style={styles.controlField}>
+                <span>{cleanTrusteeDisplayName(name)} represented by</span>
+                <input
+                  value={representatives[name] || ""}
+                  onChange={(event) =>
+                    onRepresentativeChange(name, event.target.value)
+                  }
+                  placeholder="Leave blank for ____________________"
+                  style={styles.controlInput}
+                />
+              </label>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div
@@ -2366,7 +2469,7 @@ function ApprovalDocument({
                       style={styles.previewSignatureArea}
                     >
                       <SignatureBlock
-                        names={selectedSignatories}
+                        names={displaySignatories}
                         fallbackLabel={signatureFallbackLabel(entityKind)}
                       />
                     </div>
@@ -2600,7 +2703,7 @@ function ApprovalDocument({
         )}
 
         <div className="signature-grid">
-          <SignatureBlock names={selectedSignatories} fallbackLabel={signatureFallbackLabel(entityKind)} />
+          <SignatureBlock names={displaySignatories} fallbackLabel={signatureFallbackLabel(entityKind)} />
         </div>
 
         <div className="meta" style={styles.documentFooterNote}>
@@ -2628,6 +2731,9 @@ function MinutesDocument({
   meetingPlace,
   meetingDate,
   enabledClauses,
+  representatives,
+  includeAccountantAppointment,
+  additionalItems,
   status,
   saving,
   message,
@@ -2639,6 +2745,9 @@ function MinutesDocument({
   onAttendeesChange,
   onClauseChange,
   onResetClauses,
+  onRepresentativeChange,
+  onIncludeAccountantAppointmentChange,
+  onAdditionalItemsChange,
   onSaveDraft,
   onMarkPrepared,
   onMarkSigned,
@@ -2654,6 +2763,9 @@ function MinutesDocument({
   meetingPlace: string;
   meetingDate: string;
   enabledClauses: Record<TrustApprovalClauseKey, boolean>;
+  representatives: Record<string, string>;
+  includeAccountantAppointment: boolean;
+  additionalItems: string[];
   status: DocumentStatus;
   saving: boolean;
   message: string;
@@ -2665,6 +2777,9 @@ function MinutesDocument({
   onAttendeesChange: (value: string[]) => void;
   onClauseChange: (key: TrustApprovalClauseKey, checked: boolean) => void;
   onResetClauses: () => void;
+  onRepresentativeChange: (name: string, value: string) => void;
+  onIncludeAccountantAppointmentChange: (checked: boolean) => void;
+  onAdditionalItemsChange: (items: string[]) => void;
   onSaveDraft: () => void;
   onMarkPrepared: () => void;
   onMarkSigned: () => void;
@@ -2678,6 +2793,22 @@ function MinutesDocument({
 
     onAttendeesChange(current);
   }
+
+  function updateAdditionalItem(index: number, value: string) {
+    onAdditionalItemsChange(
+      additionalItems.map((item, itemIndex) => (itemIndex === index ? value : item)),
+    );
+  }
+
+  function removeAdditionalItem(index: number) {
+    onAdditionalItemsChange(
+      additionalItems.filter((_, itemIndex) => itemIndex !== index),
+    );
+  }
+
+  const corporateTrusteeAttendees = attendees.filter((name) =>
+    isCorporateTrusteeName(name),
+  );
 
   function printDocument() {
     const node = document.getElementById(documentId);
@@ -2829,6 +2960,22 @@ function MinutesDocument({
       </li>
     ) : null,
 
+    includeAccountantAppointment ? (
+      <li key="accountant-appointment" style={styles.resolutionClause}>
+        {practiceName} be appointed as the accountant of the Trust for the ensuing year,
+        subject to the trust deed and the applicable engagement terms;
+      </li>
+    ) : null,
+
+    ...additionalItems
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item, index) => (
+        <li key={`additional-minute-${index}`} style={styles.resolutionClause}>
+          {item}
+        </li>
+      )),
+
     <li key="authority" style={styles.resolutionClause}>
       the trustees authorised the approved annual financial statements to be signed and
       issued once all required signatures and approvals have been applied.
@@ -2862,7 +3009,7 @@ function MinutesDocument({
           <ul style={styles.minutesAttendanceList}>
             {attendees.map((name) => (
               <li key={name}>
-                {name}
+                {formatTrusteeAttendanceName(name, representatives[name])}
                 {name === chairperson ? " (Chairperson)" : ""}
               </li>
             ))}
@@ -2903,7 +3050,9 @@ function MinutesDocument({
             {(attendees.length ? attendees : [""]).map((name, index) => (
               <tr key={`${name || "blank"}-${index}`}>
                 <td style={styles.minutesRegisterCell}>
-                  {name || "____________________________"}
+                  {name
+                    ? formatTrusteeAttendanceName(name, representatives[name])
+                    : "____________________________"}
                 </td>
                 <td style={styles.minutesRegisterCell}>
                   {name === chairperson ? "Chairperson / Trustee" : "Trustee"}
@@ -3081,7 +3230,7 @@ function MinutesDocument({
                 const selected = attendees.includes(name);
                 return (
                   <button key={name} type="button" onClick={() => toggleAttendee(name)} style={{ ...styles.signatoryChoice, ...(selected ? styles.signatoryChoiceSelected : {}) }}>
-                    {selected ? "✓ " : ""}{name}
+                    {selected ? "✓ " : ""}{cleanTrusteeDisplayName(name)}
                   </button>
                 );
               })}
@@ -3090,6 +3239,28 @@ function MinutesDocument({
             <span style={styles.controlHelp}>No {responsiblePlural(entityKind)} have been loaded in Client Setup.</span>
           )}
         </div>
+
+        {entityKind === "trust" && corporateTrusteeAttendees.length ? (
+          <div style={{ gridColumn: "1 / -1", display: "grid", gap: "7px" }}>
+            <span style={styles.controlLabel}>Corporate trustee representative</span>
+            <span style={styles.controlHelp}>
+              Leave the representative blank if the name will only be completed when the minutes are signed.
+            </span>
+            {corporateTrusteeAttendees.map((name) => (
+              <label key={name} style={styles.controlField}>
+                <span>{cleanTrusteeDisplayName(name)} represented by</span>
+                <input
+                  value={representatives[name] || ""}
+                  onChange={(event) =>
+                    onRepresentativeChange(name, event.target.value)
+                  }
+                  placeholder="Leave blank for ____________________"
+                  style={styles.controlInput}
+                />
+              </label>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       {entityKind === "trust" ? (
@@ -3114,6 +3285,56 @@ function MinutesDocument({
                 <span><strong>{clause.label}</strong><small>{clause.help}</small></span>
               </label>
             ))}
+
+            <label style={styles.trustChecklistRow}>
+              <input
+                type="checkbox"
+                checked={includeAccountantAppointment}
+                onChange={(event) =>
+                  onIncludeAccountantAppointmentChange(event.target.checked)
+                }
+              />
+              <span>
+                <strong>Appointment of accountant</strong>
+                <small>
+                  Records the appointment of the current practice as accountant for the ensuing year.
+                </small>
+              </span>
+            </label>
+
+            <div style={styles.additionalMinutesEditor}>
+              <div style={styles.additionalMinutesHeader}>
+                <div>
+                  <strong>Additional minute items</strong>
+                  <small>Add any extra matter that needs to appear in these minutes.</small>
+                </div>
+                <button
+                  type="button"
+                  style={styles.smallResetButton}
+                  onClick={() => onAdditionalItemsChange([...additionalItems, ""])}
+                >
+                  + Add item
+                </button>
+              </div>
+
+              {additionalItems.map((item, index) => (
+                <div key={`additional-editor-${index}`} style={styles.additionalMinutesRow}>
+                  <textarea
+                    value={item}
+                    onChange={(event) => updateAdditionalItem(index, event.target.value)}
+                    placeholder="Enter the additional minute wording"
+                    style={styles.additionalMinutesTextarea}
+                  />
+                  <button
+                    type="button"
+                    style={styles.secondaryActionButton}
+                    onClick={() => removeAdditionalItem(index)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
 
             <div style={styles.trustChecklistCore}>
               <span style={styles.trustMandatoryBadge}>Required</span>
@@ -5111,6 +5332,29 @@ function signatureFallbackLabel(kind: EntityKind) {
   return "Authorised signatory";
 }
 
+function cleanTrusteeDisplayName(value: string) {
+  return String(value || "")
+    .replace(/\s+represented\s+by\s+signatory\s+as\s+at\s+page\s+4\.?\s*$/i, "")
+    .trim();
+}
+
+function isCorporateTrusteeName(value: string) {
+  const clean = cleanTrusteeDisplayName(value);
+  return /\b(company|pty|ltd|limited|inc|incorporated|npc|close corporation|cc)\b/i.test(
+    clean,
+  );
+}
+
+function formatTrusteeAttendanceName(name: string, representative?: string) {
+  const cleanName = cleanTrusteeDisplayName(name);
+  if (!isCorporateTrusteeName(cleanName)) return cleanName;
+
+  const cleanRepresentative = String(representative || "").trim();
+  return `${cleanName} represented by ${
+    cleanRepresentative || "____________________"
+  }`;
+}
+
 function getEntitySignatories(people: ClientPerson[] | undefined, kind: EntityKind) {
   const safePeople = Array.isArray(people) ? people : [];
 
@@ -5773,6 +6017,34 @@ const styles: Record<string, CSSProperties> = {
     padding: "12px 0",
     fontSize: "11px",
     color: "#334155",
+  },
+  additionalMinutesEditor: {
+    display: "grid",
+    gap: "7px",
+    padding: "8px 6px",
+    borderTop: "1px solid #e5e7eb",
+    borderBottom: "1px solid #e5e7eb",
+  },
+  additionalMinutesHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "start",
+    gap: "8px",
+    fontSize: "10px",
+  },
+  additionalMinutesRow: {
+    display: "grid",
+    gap: "6px",
+  },
+  additionalMinutesTextarea: {
+    minHeight: "72px",
+    border: "1px solid #cbd5e1",
+    padding: "7px",
+    fontSize: "10px",
+    lineHeight: 1.4,
+    color: "#0f172a",
+    background: "#ffffff",
+    resize: "vertical",
   },
   loanStack: { display: "grid", gap: "10px" },
   emptyMessage: {

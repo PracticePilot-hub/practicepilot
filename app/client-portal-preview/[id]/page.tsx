@@ -427,9 +427,10 @@ export default function ClientPortalStaffPreviewPage() {
                   <div key={document.id} style={styles.tableRow}>
                     <div style={styles.nameCell}>
                       <span style={styles.pdfBadge}>PDF</span>
-                      <div>
-                        <strong>{document.document_name}</strong>
-                        <span>Available in your portal</span>
+                      <div style={styles.documentNameWrap}>
+                        <strong style={styles.documentName}>
+                          {document.document_name}
+                        </strong>
                       </div>
                     </div>
 
@@ -811,7 +812,7 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 900,
   },
   tableRow: {
-    minHeight: 70,
+    minHeight: 62,
     padding: "9px 14px",
     display: "grid",
     gridTemplateColumns: "minmax(310px, 1.8fr) 1fr 120px 135px 188px",
@@ -907,4 +908,20 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 900,
     cursor: "not-allowed",
   },
+
+  documentNameWrap: {
+    minWidth: 0,
+  },
+  documentName: {
+    display: "-webkit-box",
+    overflow: "hidden",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+    color: "#10233a",
+    fontSize: 10,
+    lineHeight: 1.35,
+    fontWeight: 850,
+    overflowWrap: "anywhere",
+  },
+
 };

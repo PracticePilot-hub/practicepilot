@@ -1,10 +1,6 @@
 // Path: app/login/page.tsx
 
-
-
 "use client";
-
-
 
 import Image from "next/image";
 
@@ -14,23 +10,15 @@ import { useState } from "react";
 
 import { createClient } from "@supabase/supabase-js";
 
-
-
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-
 
 if (!supabaseUrl) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
 
 if (!supabaseAnonKey) throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
-
-
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-
 
 export default function LoginPage() {
 
@@ -42,30 +30,103 @@ export default function LoginPage() {
 
   const [resetLoading, setResetLoading] = useState(false);
 
+  async function routeSignedInUser(
 
+    userId: string,
 
-  async function routeSignedInUser(accessToken: string) {
-    const response = await fetch("/api/post-login", {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
+    accessToken: string,
 
-    const contentType = response.headers.get("content-type") || "";
-    const result = contentType.includes("application/json")
-      ? await response.json()
-      : null;
+    cleanedEmail: string
 
-    if (!response.ok || !result?.success || !result?.redirect_to) {
-      throw new Error(
-        result?.error ||
-          `PracticePilot login routing failed (${response.status}).`
-      );
+  ) {
+
+    try {
+
+      const accessRes = await fetch("/api/cubechem/check-access", {
+
+        method: "POST",
+
+        headers: { "Content-Type": "application/json" },
+
+        body: JSON.stringify({ email: cleanedEmail }),
+
+      });
+
+      const accessData = await accessRes.json();
+
+      if (
+
+        accessRes.ok &&
+
+        accessData.allowed &&
+
+        cleanedEmail === "christo.botha@cubechem.co.za"
+
+      ) {
+
+        window.location.href = "/cubechem";
+
+        return;
+
+      }
+
+    } catch {
+
+      // Continue to normal PracticePilot routing.
+
     }
 
-    window.location.href = result.redirect_to;
+    const { data: profile } = await supabase
+
+      .from("user_profiles")
+
+      .select("id,access_enabled")
+
+      .eq("user_id", userId)
+
+      .maybeSingle();
+
+    if (profile?.id && profile.access_enabled !== false) {
+
+      window.location.href = "/dashboard";
+
+      return;
+
+    }
+
+    const portalRes = await fetch("/api/client-portal/me", {
+
+      cache: "no-store",
+
+      headers: { Authorization: `Bearer ${accessToken}` },
+
+    });
+
+    if (portalRes.ok) {
+
+      const { data: aal, error: aalError } =
+        await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+      if (aalError) throw aalError;
+
+      if (aal?.currentLevel === "aal2") {
+        window.location.href = "/client-portal";
+        return;
+      }
+
+      window.location.href = "/client-portal-mfa";
+      return;
+
+    }
+
+    await supabase.auth.signOut();
+
+    throw new Error(
+
+      "This login does not currently have access to PracticePilot."
+
+    );
+
   }
 
   async function handleLogin() {
@@ -78,8 +139,6 @@ export default function LoginPage() {
 
     }
 
-
-
     if (!password.trim()) {
 
       alert("Password is required.");
@@ -88,13 +147,9 @@ export default function LoginPage() {
 
     }
 
-
-
     setLoading(true);
 
     const cleanedEmail = email.trim().toLowerCase();
-
-
 
     try {
 
@@ -106,11 +161,7 @@ export default function LoginPage() {
 
       });
 
-
-
       if (error) throw error;
-
-
 
       if (!data.user || !data.session?.access_token) {
 
@@ -118,11 +169,15 @@ export default function LoginPage() {
 
       }
 
-
-
       await routeSignedInUser(
-      data.session.access_token
-    );
+
+        data.user.id,
+
+        data.session.access_token,
+
+        cleanedEmail
+
+      );
 
     } catch (error: any) {
 
@@ -134,8 +189,6 @@ export default function LoginPage() {
 
   }
 
-
-
   async function handleForgotPassword() {
 
     if (!email.trim()) {
@@ -146,11 +199,7 @@ export default function LoginPage() {
 
     }
 
-
-
     setResetLoading(true);
-
-
 
     try {
 
@@ -168,19 +217,13 @@ export default function LoginPage() {
 
       });
 
-
-
       const json = await res.json();
-
-
 
       if (!res.ok) {
 
         throw new Error(json.error || "Could not send reset email.");
 
       }
-
-
 
       alert(
 
@@ -201,8 +244,6 @@ export default function LoginPage() {
     }
 
   }
-
-
 
   return (
 
@@ -228,8 +269,6 @@ export default function LoginPage() {
 
         </div>
 
-
-
         <div style={styles.formPanel}>
 
           <Link href="/" style={styles.backLink}>
@@ -237,8 +276,6 @@ export default function LoginPage() {
             ← Back to website
 
           </Link>
-
-
 
           <form
 
@@ -270,8 +307,6 @@ export default function LoginPage() {
 
             />
 
-
-
             <h1 style={styles.title}>Welcome back</h1>
 
             <p style={styles.subtitle}>
@@ -279,8 +314,6 @@ export default function LoginPage() {
               Sign in to access your PracticePilot workspace or Client Portal.
 
             </p>
-
-
 
             <div style={styles.fieldGroup}>
 
@@ -301,8 +334,6 @@ export default function LoginPage() {
               />
 
             </div>
-
-
 
             <div style={styles.fieldGroup}>
 
@@ -326,8 +357,6 @@ export default function LoginPage() {
 
             </div>
 
-
-
             <button
 
               style={styles.primaryButton}
@@ -341,8 +370,6 @@ export default function LoginPage() {
               {loading ? "Signing in..." : "Login"}
 
             </button>
-
-
 
             <button
 
@@ -371,8 +398,6 @@ export default function LoginPage() {
   );
 
 }
-
-
 
 const styles: Record<string, React.CSSProperties> = {
 
