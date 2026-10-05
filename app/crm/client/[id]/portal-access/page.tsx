@@ -206,7 +206,11 @@ export default function ClientPortalAccessPage() {
       setPortalRole("authorised");
       setCanApproveActions(false);
 
-      setNotice("Portal access added. No invitation has been sent yet.");
+      setNotice(
+        result.reused_existing_login
+          ? "Portal access linked to the client's existing PracticePilot login. No second login or password is required."
+          : "Portal access added. Send the invitation to activate this login."
+      );
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -360,6 +364,15 @@ export default function ClientPortalAccessPage() {
 
       {error ? <div style={styles.error}>{error}</div> : null}
       {notice ? <div style={styles.notice}>{notice}</div> : null}
+
+      <div style={styles.sharedLoginInfo}>
+        <strong>One login can access multiple entities</strong>
+        <span>
+          If the same email address already has an active PracticePilot Client Portal login,
+          adding it to this client links this entity to that existing login automatically.
+          The client does not need another password.
+        </span>
+      </div>
 
       <section style={styles.panel}>
         <div style={styles.panelHeader}>
@@ -541,7 +554,8 @@ export default function ClientPortalAccessPage() {
               </span>
 
               <div style={styles.rowActions}>
-                {user.is_active ? (
+                {user.is_active &&
+                user.invitation_status !== "active" ? (
                   <button
                     type="button"
                     onClick={() => void invitePortalUser(user)}
@@ -550,11 +564,9 @@ export default function ClientPortalAccessPage() {
                   >
                     {invitingId === user.id
                       ? "Sending..."
-                      : user.invitation_status === "active"
-                        ? "Send Portal Link"
-                        : user.invitation_status === "invited"
-                          ? "Resend Invite"
-                          : "Send Invite"}
+                      : user.invitation_status === "invited"
+                        ? "Resend Invite"
+                        : "Send Invite"}
                   </button>
                 ) : null}
 
@@ -854,4 +866,17 @@ const styles: Record<string, CSSProperties> = {
     color: "#7b8794",
     fontSize: 9.5,
   },
+
+  sharedLoginInfo: {
+    marginBottom: 12,
+    padding: "10px 12px",
+    display: "grid",
+    gap: 4,
+    border: "1px solid #bfd6ef",
+    background: "#f3f8fe",
+    color: "#264e73",
+    fontSize: 9,
+    lineHeight: 1.45,
+  },
+
 };

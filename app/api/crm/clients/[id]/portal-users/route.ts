@@ -231,10 +231,29 @@ export async function POST(
       if (resetPrimaryError) throw resetPrimaryError;
     }
 
+    const { data: matchingPortalLinks, error: matchingPortalLinksError } =
+      await admin
+        .from("crm_client_portal_users")
+        .select(
+          "id,auth_user_id,invitation_status,accepted_at,last_login_at"
+        )
+        .eq("organisation_id", organisationId)
+        .ilike("email", email)
+        .eq("is_active", true)
+        .not("auth_user_id", "is", null)
+        .order("last_login_at", { ascending: false, nullsFirst: false })
+        .limit(1);
+
+    if (matchingPortalLinksError) throw matchingPortalLinksError;
+
+    const existingLoginLink = matchingPortalLinks?.[0] || null;
+    const now = new Date().toISOString();
+
     const portalPayload = {
       organisation_id: organisationId,
       client_id: clientId,
       contact_id: contactId,
+      auth_user_id: existingLoginLink?.auth_user_id || null,
       full_name: fullName,
       email,
       portal_role: portalRole,
@@ -243,9 +262,12 @@ export async function POST(
       can_approve_actions:
         body?.can_approve_actions === true,
       is_active: true,
-      invitation_status: "not_invited",
+      invitation_status: existingLoginLink ? "active" : "not_invited",
+      accepted_at:
+        existingLoginLink?.accepted_at ||
+        (existingLoginLink ? now : null),
       created_by_user_id: user.id,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     };
 
     const { data: existingPortalUser, error: existingPortalUserError } =
@@ -293,6 +315,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       portal_user: data,
+      reused_existing_login: Boolean(existingLoginLink?.auth_user_id),
     });
   } catch (error) {
     console.error("CLIENT PORTAL USERS POST ERROR:", error);
@@ -410,4 +433,3 @@ export async function PATCH(
     );
   }
 }
-    

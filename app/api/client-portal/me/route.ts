@@ -85,7 +85,7 @@ export async function GET(request: Request) {
 
     if (accessError) throw accessError;
 
-    if ((!accessRows || accessRows.length === 0) && email) {
+    if (email) {
       const { data: emailAccessRows, error: emailAccessError } = await admin
         .from("crm_client_portal_users")
         .select(
@@ -96,9 +96,28 @@ export async function GET(request: Request) {
 
       if (emailAccessError) throw emailAccessError;
 
-      accessRows = emailAccessRows || [];
+      const merged = new Map<string, any>();
 
-      if (accessRows.length) {
+      for (const row of accessRows || []) {
+        merged.set(row.id, row);
+      }
+
+      for (const row of emailAccessRows || []) {
+        merged.set(row.id, row);
+      }
+
+      accessRows = Array.from(merged.values());
+
+      const rowsToLink = (emailAccessRows || []).filter(
+        (row) =>
+          !(accessRows || []).some(
+            (linked) =>
+              linked.id === row.id &&
+              String((linked as any).auth_user_id || "") === user.id
+          )
+      );
+
+      if ((emailAccessRows || []).length) {
         const repairNow = new Date().toISOString();
 
         const { error: repairError } = await admin
@@ -112,7 +131,7 @@ export async function GET(request: Request) {
           })
           .in(
             "id",
-            accessRows.map((row) => row.id)
+            (emailAccessRows || []).map((row) => row.id)
           );
 
         if (repairError) throw repairError;
@@ -156,7 +175,9 @@ export async function GET(request: Request) {
       }
     }
 
-    const allowedClientIds = accessRows.map((row) => row.client_id);
+    const allowedClientIds = Array.from(
+      new Set(accessRows.map((row) => row.client_id))
+    );
 
     const clientId =
       requestedClientId && allowedClientIds.includes(requestedClientId)

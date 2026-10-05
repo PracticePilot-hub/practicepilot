@@ -265,6 +265,33 @@ export default function ClientPortalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClientId]);
 
+  useEffect(() => {
+    if (!data?.clients?.length) return;
+
+    const storageKey = "practicepilot-client-portal:last-client";
+
+    if (selectedClientId) {
+      window.localStorage.setItem(storageKey, selectedClientId);
+      return;
+    }
+
+    const savedClientId =
+      window.localStorage.getItem(storageKey) || "";
+
+    if (
+      savedClientId &&
+      data.clients.some((client) => client.id === savedClientId) &&
+      savedClientId !== data.client.id
+    ) {
+      window.location.replace(
+        portalHref(currentView, savedClientId)
+      );
+      return;
+    }
+
+    window.localStorage.setItem(storageKey, data.client.id);
+  }, [data, selectedClientId, currentView]);
+
   function portalHref(
     view: "home" | "documents" | "requests",
     clientId = selectedClientId
@@ -604,6 +631,36 @@ export default function ClientPortalPage() {
   );
 }
 
+function EntitySwitcher({
+  data,
+  onClientChange,
+}: {
+  data: PortalResponse;
+  onClientChange: (clientId: string) => void;
+}) {
+  if (!data.clients || data.clients.length <= 1) return null;
+
+  return (
+    <div style={styles.entitySwitcher}>
+      <span style={styles.entitySwitcherLabel}>ENTITY</span>
+      <select
+        value={data.client.id}
+        onChange={(event) => onClientChange(event.target.value)}
+        style={styles.entitySwitcherSelect}
+      >
+        {data.clients.map((client) => (
+          <option key={client.id} value={client.id}>
+            {client.client_name}
+          </option>
+        ))}
+      </select>
+      <span style={styles.entitySwitcherHelp}>
+        Switch between entities linked to this login.
+      </span>
+    </div>
+  );
+}
+
 function HomeView({
   data,
   clientName,
@@ -637,6 +694,11 @@ function HomeView({
             <span style={styles.sideBrandSub}>Client Portal</span>
           </div>
         </div>
+
+        <EntitySwitcher
+          data={data}
+          onClientChange={onClientChange}
+        />
 
         <div style={styles.sideNavItems}>
           <span style={styles.sideNavActive}>
@@ -1024,6 +1086,11 @@ function DocumentsView({
           </div>
         </div>
 
+        <EntitySwitcher
+          data={data}
+          onClientChange={onClientChange}
+        />
+
         <div style={styles.sideNavItems}>
           <button
             type="button"
@@ -1329,6 +1396,11 @@ function RequestsView({
             <span style={styles.sideBrandSub}>Client Portal</span>
           </div>
         </div>
+
+        <EntitySwitcher
+          data={data}
+          onClientChange={onClientChange}
+        />
 
         <div style={styles.sideNavItems}>
           <button
@@ -2764,6 +2836,50 @@ const styles: Record<string, CSSProperties> = {
     background: "#f8fafc",
     color: "#33485f",
     fontSize: 10,
+  },
+
+  entitySwitcher: {
+    margin: "0 8px 18px",
+    padding: "10px",
+    display: "grid",
+    gap: 5,
+    border: "1px solid #d4e0ec",
+    borderRadius: 7,
+    background: "#f7faff",
+  },
+  entitySwitcherLabel: {
+    color: "#1768d2",
+    fontSize: 7.5,
+    fontWeight: 950,
+    letterSpacing: "0.08em",
+  },
+  entitySwitcherSelect: {
+    width: "100%",
+    height: 34,
+    padding: "0 8px",
+    border: "1px solid #bfd0e3",
+    borderRadius: 5,
+    background: "#ffffff",
+    color: "#10233a",
+    fontSize: 9,
+    fontWeight: 850,
+    outline: "none",
+  },
+  entitySwitcherHelp: {
+    color: "#7b8998",
+    fontSize: 7.5,
+    lineHeight: 1.35,
+  },
+  linkedEntityBadge: {
+    display: "inline-flex",
+    marginTop: 8,
+    padding: "5px 8px",
+    border: "1px solid rgba(255,255,255,0.3)",
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.08)",
+    color: "#ffffff",
+    fontSize: 8,
+    fontWeight: 900,
   },
 
 };
