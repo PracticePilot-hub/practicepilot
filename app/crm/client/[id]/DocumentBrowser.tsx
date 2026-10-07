@@ -36,6 +36,7 @@ type PortalCategory =
   | "financial_statements"
   | "tax"
   | "management_accounts"
+  | "vat"
   | "payroll"
   | "secretarial"
   | "company_documents"
@@ -49,6 +50,7 @@ const PORTAL_CATEGORY_OPTIONS: Array<{
   { value: "financial_statements", label: "Financial Statements" },
   { value: "tax", label: "Tax" },
   { value: "management_accounts", label: "Management Accounts" },
+  { value: "vat", label: "VAT" },
   { value: "payroll", label: "Payroll" },
   { value: "secretarial", label: "Secretarial" },
   { value: "company_documents", label: "Company Documents" },
@@ -58,6 +60,7 @@ const PORTAL_CATEGORY_OPTIONS: Array<{
 
 type WorkflowRecord = {
   id: string;
+  item_type?: "file" | "folder";
   provider_item_id?: string | null;
   provider_path: string;
   document_name: string;
@@ -313,8 +316,6 @@ export default function DocumentBrowser({
     workflowMap: Record<string, WorkflowRecord> = workflowByPath
   ) {
     return items.map((item) => {
-      if (item.type !== "file") return item;
-
       const workflow = workflowMap[item.path];
 
       if (!workflow) {
@@ -427,8 +428,11 @@ export default function DocumentBrowser({
   }
 
   async function ensureWorkflowRecord(item: BrowseItem) {
-    const existing = workflowByPath[item.path];
-    if (existing) return existing;
+    const existing = workflowByPathRef.current[item.path];
+
+    if (existing && existing.item_type === item.type) {
+      return existing;
+    }
 
     const {
       data: { session },
@@ -453,6 +457,7 @@ export default function DocumentBrowser({
           provider_path: item.path,
           provider_item_id: item.id,
           document_name: item.name,
+          item_type: item.type,
         }),
       }
     );
@@ -625,8 +630,6 @@ export default function DocumentBrowser({
     item: BrowseItem,
     nextStatus: WorkflowStatus
   ) {
-    if (item.type !== "file") return;
-
     setWorkflowBusyPath(item.path);
     setError("");
     setNotice("");
@@ -752,8 +755,6 @@ export default function DocumentBrowser({
     item: BrowseItem,
     nextCategory: PortalCategory
   ) {
-    if (item.type !== "file") return;
-
     setWorkflowBusyPath(item.path);
     setError("");
     setNotice("");
@@ -782,6 +783,7 @@ export default function DocumentBrowser({
           },
           body: JSON.stringify({
             provider_path: item.path,
+            item_type: item.type,
             action: "set_portal_category",
             portal_category: nextCategory,
           }),
@@ -824,9 +826,7 @@ export default function DocumentBrowser({
     item: BrowseItem,
     makeVisible: boolean
   ) {
-    if (item.type !== "file") return;
-
-    if (makeVisible && workflowLabel(item) !== "Approved") {
+    if (item.type === "file" && makeVisible && workflowLabel(item) !== "Approved") {
       setError("Only an approved document can be released to the client.");
       return;
     }
@@ -847,7 +847,7 @@ export default function DocumentBrowser({
     try {
       const workflow = await ensureWorkflowRecord(item);
 
-      if (makeVisible && workflow.workflow_status !== "approved") {
+      if (item.type === "file" && makeVisible && workflow.workflow_status !== "approved") {
         throw new Error(
           "Only an approved document can be released to the client."
         );
@@ -951,6 +951,128 @@ export default function DocumentBrowser({
           : makeVisible
             ? "Could not release the document to the client."
             : "Could not remove client access."
+      );
+    } finally {
+      setWorkflowBusyPath("");
+    }
+  }
+
+  async function patchWorkflow(item: BrowseItem, body: Record<string, unknown>) {
+    await ensureWorkflowRecord(item);
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      throw new Error("Your PracticePilot login session could not be confirmed.");
+    }
+
+    const response = await fetch(
+      `/api/crm/clients/${clientId}/documents/workflow`,
+      {
+        method: "PATCH",
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          provider_path: item.path,
+          item_type: item.type,
+          ...body,
+        }),
+      }
+    );
+
+    const result = await response.json();
+    if (!response.ok || !result?.success || !result?.workflow) {
+      throw new Error(result?.error || "Could not update document workflow.");
+    }
+
+    const workflow = result.workflow as WorkflowRecord;
+    workflowByPathRef.current = {
+      ...workflowByPathRef.current,
+      [workflow.provider_path]: workflow,
+    };
+    setWorkflowByPath(workflowByPathRef.current);
+    return workflow;
+  }
+
+  async function releaseFolderPack(
+    folder: BrowseItem,
+    category: PortalCategory,
+    makeVisible: boolean
+  ) {
+    if (folder.type !== "folder") return;
+
+    setWorkflowBusyPath(folder.path);
+    setError("");
+    setNotice("");
+
+    try {
+      const visited = new Set<string>();
+
+      const walk = async (currentFolder: BrowseItem) => {
+        if (visited.has(currentFolder.path)) return;
+        visited.add(currentFolder.path);
+
+        await ensureWorkflowRecord(currentFolder);
+        await patchWorkflow(currentFolder, {
+          action: "set_portal_category",
+          portal_category: category,
+        });
+        await patchWorkflow(currentFolder, {
+          action: makeVisible ? "release" : "unrelease",
+        });
+
+        const response = await fetchFolder(currentFolder.path, true);
+
+        for (const child of response.items || []) {
+          await ensureWorkflowRecord(child);
+          await patchWorkflow(child, {
+            action: "set_portal_category",
+            portal_category: category,
+          });
+
+          if (child.type === "folder") {
+            await walk(child);
+            continue;
+          }
+
+          if (makeVisible) {
+            let workflow = workflowByPathRef.current[child.path];
+
+            if (workflow?.workflow_status === "awaiting_review") {
+              workflow = await patchWorkflow(child, { workflow_status: "reviewed" });
+            }
+
+            if (workflow?.workflow_status !== "approved") {
+              await patchWorkflow(child, { workflow_status: "approved" });
+            }
+          }
+
+          await patchWorkflow(child, {
+            action: makeVisible ? "release" : "unrelease",
+          });
+        }
+      };
+
+      await walk(folder);
+      await loadWorkflow();
+      await load(currentPath, { force: true });
+      setNotice(
+        makeVisible
+          ? `${folder.name} and its current contents were released to the client under ${portalCategoryLabel(category)}.`
+          : `Client access was removed from ${folder.name} and its current contents.`
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : makeVisible
+            ? "Could not release the folder pack to the client."
+            : "Could not remove client access from the folder pack."
       );
     } finally {
       setWorkflowBusyPath("");
@@ -1103,15 +1225,23 @@ export default function DocumentBrowser({
 
     void (async () => {
       await loadWorkflow();
-      await load();
+
+      const params =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search)
+          : null;
+
+      const requestedFolderPath =
+        String(params?.get("folderPath") || "").trim();
+
+      await load(requestedFolderPath || undefined);
     })();
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
   useEffect(() => {
-    const firstFile = (data?.items || []).find((item) => item.type === "file") || null;
-    setFocusedItem(firstFile);
+    setFocusedItem(null);
     setRightTab("preview");
     setPreviewUrl("");
   }, [data?.current_path]);
@@ -1249,14 +1379,29 @@ export default function DocumentBrowser({
   const allSelected =
     visibleItems.length > 0 &&
     visibleItems.every((item) => selected.has(itemKey(item)));
-  function toggleSelected(key: string) {
+  function toggleSelected(item: BrowseItem) {
+    const key = itemKey(item);
+
     setSelected((current) => {
       const next = new Set(current);
+
       if (next.has(key)) {
         next.delete(key);
+
+        if (focusedItem?.path === item.path) {
+          setFocusedItem(null);
+        }
       } else {
         next.add(key);
+        setFocusedItem(item);
+        setRightTab(item.type === "file" ? "preview" : "details");
+
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl);
+          setPreviewUrl("");
+        }
       }
+
       return next;
     });
   }
@@ -1674,6 +1819,36 @@ export default function DocumentBrowser({
   const focusedIsFile = focusedItem?.type === "file";
   const focusedCanPreview =
     focusedItem?.type === "file" && canPreviewInBrowser(focusedItem.name);
+  const currentFolderItem: BrowseItem | null =
+    focusedItem?.type === "folder"
+      ? {
+          ...focusedItem,
+          workflow_status:
+            workflowByPath[focusedItem.path]?.workflow_status || "stored",
+          client_visible:
+            workflowByPath[focusedItem.path]?.client_visible || false,
+          recent_activity:
+            workflowByPath[focusedItem.path]?.last_activity_text || null,
+        }
+      : data.current_path
+        ? {
+            id: null,
+            name:
+              data.current_name ||
+              data.current_path.split("/").filter(Boolean).pop() ||
+              "Current Folder",
+            path: data.current_path,
+            type: "folder",
+            size_bytes: null,
+            modified_at: null,
+            workflow_status:
+              workflowByPath[data.current_path]?.workflow_status || "stored",
+            client_visible:
+              workflowByPath[data.current_path]?.client_visible || false,
+            recent_activity:
+              workflowByPath[data.current_path]?.last_activity_text || null,
+          }
+        : null;
 
   return (
     <section style={styles.shell}>
@@ -2025,7 +2200,7 @@ export default function DocumentBrowser({
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        onChange={() => toggleSelected(key)}
+                        onChange={() => toggleSelected(item)}
                       />
                     </label>
 
@@ -2710,7 +2885,7 @@ export default function DocumentBrowser({
                 </span>
                 <div style={styles.folderOverviewCopy}>
                   <strong style={styles.folderOverviewTitle}>
-                    {data.current_name || "Current Folder"}
+                    {currentFolderItem?.name || data.current_name || "Current Folder"}
                   </strong>
                   <span style={styles.folderOverviewMeta}>
                     {folderCount} folder{folderCount === 1 ? "" : "s"} · {fileCount} document{fileCount === 1 ? "" : "s"}
@@ -2732,6 +2907,60 @@ export default function DocumentBrowser({
                   <span>Preview-ready</span>
                 </div>
               </div>
+
+              {currentFolderItem ? (
+                <div style={styles.portalCard}>
+                  <div style={styles.portalCardHeading}>
+                    <span style={styles.portalCardIcon}>▣</span>
+                    <strong>Client Portal Folder Pack</strong>
+                  </div>
+
+                  <select
+                    value={
+                      workflowByPath[currentFolderItem.path]?.portal_category ||
+                      "general"
+                    }
+                    onChange={(event) =>
+                      void updatePortalCategory(
+                        currentFolderItem,
+                        event.target.value as PortalCategory
+                      )
+                    }
+                    disabled={workflowBusyPath === currentFolderItem.path}
+                    style={styles.portalCategorySelect}
+                  >
+                    {PORTAL_CATEGORY_OPTIONS.map((category) => (
+                      <option key={category.value} value={category.value}>
+                        {category.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    disabled={workflowBusyPath === currentFolderItem.path}
+                    onClick={() =>
+                      void releaseFolderPack(
+                        currentFolderItem,
+                        workflowByPath[currentFolderItem.path]?.portal_category ||
+                          "general",
+                        currentFolderItem.client_visible !== true
+                      )
+                    }
+                    style={styles.workflowPrimaryAction}
+                  >
+                    {workflowBusyPath === currentFolderItem.path
+                      ? "Updating folder pack..."
+                      : currentFolderItem.client_visible === true
+                        ? "Remove Folder from Client"
+                        : "Release Folder to Client"}
+                  </button>
+
+                  <span style={styles.portalCategoryHint}>
+                    Releasing a folder publishes the folder and its current contents as one client pack.
+                  </span>
+                </div>
+              ) : null}
 
               <div style={styles.folderOverviewHint}>
                 <strong>Select a document to open the command centre.</strong>
@@ -3856,10 +4085,11 @@ const styles: Record<string, CSSProperties> = {
     minWidth: 0,
     maxWidth: "100%",
     overflow: "hidden",
-    background: "#fbfcfe",
+    background: "#ffffff",
+    borderLeft: "1px solid #dbe3eb",
   },
   rightTabs: {
-    minHeight: 40,
+    minHeight: 34,
     display: "grid",
     gridTemplateColumns: "repeat(4,1fr)",
     borderBottom: "1px solid #dbe3eb",
@@ -3867,11 +4097,13 @@ const styles: Record<string, CSSProperties> = {
   },
   rightTabButton: {
     position: "relative",
+    minHeight: 34,
+    padding: "0 6px",
     border: "none",
     borderRight: "1px solid #edf1f5",
     background: "#ffffff",
     color: "#64748b",
-    fontSize: 8.4,
+    fontSize: 7.9,
     fontWeight: 900,
     cursor: "pointer",
   },
@@ -3880,9 +4112,9 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: "inset 0 -3px 0 #1768d2",
   },
   workflowControlBar: {
-    padding: 8,
+    padding: "7px 8px",
     display: "grid",
-    gap: 7,
+    gap: 6,
     background: "#ffffff",
     borderBottom: "1px solid #e3e8ee",
   },
@@ -3938,9 +4170,9 @@ const styles: Record<string, CSSProperties> = {
   portalCard: {
     padding: 7,
     display: "grid",
-    gap: 7,
+    gap: 6,
     border: "1px solid #dbe3eb",
-    background: "#fbfcfe",
+    background: "#ffffff",
   },
   portalCardHeading: {
     display: "flex",
@@ -3961,12 +4193,12 @@ const styles: Record<string, CSSProperties> = {
   },
   portalCategorySelect: {
     width: "100%",
-    height: 32,
+    height: 30,
     padding: "0 8px",
     border: "1px solid #cbd5e1",
     background: "#ffffff",
     color: "#10233a",
-    fontSize: 8.3,
+    fontSize: 8,
     fontWeight: 850,
     outline: "none",
   },
@@ -3977,9 +4209,9 @@ const styles: Record<string, CSSProperties> = {
   actionCard: {
     padding: 7,
     display: "grid",
-    gap: 7,
+    gap: 6,
     border: "1px solid #dbe3eb",
-    background: "#fbfcfe",
+    background: "#ffffff",
   },
   actionCardHeading: {
     color: "#10233a",
@@ -3994,12 +4226,12 @@ const styles: Record<string, CSSProperties> = {
   },
   workflowPrimaryAction: {
     minWidth: 0,
-    height: 32,
-    padding: "0 10px",
+    height: 30,
+    padding: "0 9px",
     border: "1px solid #1768d2",
     background: "#1768d2",
     color: "#ffffff",
-    fontSize: 8.2,
+    fontSize: 8,
     fontWeight: 950,
     cursor: "pointer",
   },
@@ -4233,25 +4465,25 @@ const styles: Record<string, CSSProperties> = {
     flex: "0 0 auto",
   },
   folderOverviewPanel: {
-    padding: 10,
+    padding: 8,
     background: "#ffffff",
     borderBottom: "1px solid #e3e8ee",
   },
   folderOverviewHeader: {
-    minHeight: 48,
+    minHeight: 40,
     display: "flex",
     alignItems: "center",
-    gap: 9,
+    gap: 8,
   },
   folderOverviewIcon: {
-    width: 34,
-    height: 30,
+    width: 30,
+    height: 26,
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     background: "#f0b400",
     color: "#ffffff",
-    borderRadius: 4,
+    borderRadius: 3,
     boxShadow: "inset 0 -2px 0 rgba(0,0,0,0.08)",
     flex: "0 0 auto",
   },
@@ -4265,40 +4497,41 @@ const styles: Record<string, CSSProperties> = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     color: "#10233a",
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: 950,
   },
   folderOverviewMeta: {
     color: "#728091",
-    fontSize: 7.8,
+    fontSize: 7.3,
     fontWeight: 700,
   },
   folderOverviewStats: {
-    marginTop: 7,
+    marginTop: 6,
     display: "grid",
     gridTemplateColumns: "repeat(3,1fr)",
     border: "1px solid #e0e6ed",
-    background: "#fbfcfe",
+    background: "#f9fbfd",
   },
   folderOverviewStat: {
-    minHeight: 48,
-    padding: 7,
+    minHeight: 42,
+    padding: 6,
     display: "grid",
     alignContent: "center",
-    gap: 3,
+    gap: 2,
     borderRight: "1px solid #e0e6ed",
     color: "#10233a",
+    fontSize: 7.6,
   },
   folderOverviewHint: {
-    marginTop: 8,
-    padding: 9,
+    marginTop: 6,
+    padding: 8,
     display: "grid",
-    gap: 4,
-    background: "#f7f9fc",
+    gap: 3,
+    background: "#f8fafc",
     border: "1px solid #e4e9ef",
     color: "#667789",
-    fontSize: 7.8,
-    lineHeight: 1.35,
+    fontSize: 7.4,
+    lineHeight: 1.3,
   },
   insightDivider: {
     height: 1,
@@ -4310,7 +4543,7 @@ const styles: Record<string, CSSProperties> = {
     borderTop: "1px solid #e3e8ee",
   },
   insightSection: {
-    padding: 7,
+    padding: 6,
     background: "#ffffff",
     borderBottom: "1px solid #e3e8ee",
   },
@@ -4326,18 +4559,18 @@ const styles: Record<string, CSSProperties> = {
   insightGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
-    gap: 5,
+    gap: 4,
   },
   insightCard: {
-    minHeight: 42,
-    padding: "6px 7px",
+    minHeight: 38,
+    padding: "5px 6px",
     display: "grid",
     alignContent: "center",
-    gap: 2,
-    background: "#fbfcfe",
+    gap: 1,
+    background: "#f9fbfd",
     border: "1px solid #e0e6ed",
     color: "#10233a",
-    fontSize: 8,
+    fontSize: 7.5,
   },
   rightBottomGrid: {
     display: "grid",

@@ -6,6 +6,7 @@ import { supabase } from "@/app/lib/supabase";
 
 type PortalDocument = {
   id: string;
+  item_type?: "file" | "folder";
   provider_path: string;
   document_name: string;
   portal_category: string;
@@ -69,6 +70,7 @@ const CATEGORIES = [
   ["financial_statements", "Financial Statements"],
   ["tax", "Tax"],
   ["management_accounts", "Management Accounts"],
+  ["vat", "VAT"],
   ["payroll", "Payroll"],
   ["secretarial", "Secretarial"],
   ["company_documents", "Company Documents"],
@@ -123,6 +125,21 @@ function canPreviewDocument(name: string) {
     "gif",
     "txt",
   ].includes(ext);
+}
+
+function normalisePortalPath(value: string) {
+  const parts = String(value || "").split("/").filter(Boolean);
+  return `/${parts.join("/")}`;
+}
+
+function parentPortalPath(value: string) {
+  const normalised = normalisePortalPath(value);
+  const slash = normalised.lastIndexOf("/");
+  return slash > 0 ? normalised.slice(0, slash) : "/";
+}
+
+function isFolderItem(item: PortalDocument) {
+  return item.item_type === "folder";
 }
 
 function requestTypeLabel(value: string) {
@@ -259,11 +276,16 @@ export default function ClientPortalPage() {
   const [search, setSearch] = useState("");
   const [downloading, setDownloading] = useState("");
   const [previewing, setPreviewing] = useState("");
+  const [openFolderPath, setOpenFolderPath] = useState("");
 
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClientId]);
+
+  useEffect(() => {
+    setOpenFolderPath("");
+  }, [category, selectedClientId]);
 
   useEffect(() => {
     if (!data?.clients?.length) return;
@@ -493,12 +515,8 @@ export default function ClientPortalPage() {
 
   const visibleDocuments = useMemo(() => {
     const term = search.trim().toLowerCase();
-
-    return (data?.documents || []).filter((document) => {
-      if (
-        category !== "all" &&
-        document.portal_category !== category
-      ) {
+    const all = (data?.documents || []).filter((document) => {
+      if (category !== "all" && document.portal_category !== category) {
         return false;
       }
 
@@ -507,6 +525,7 @@ export default function ClientPortalPage() {
         ![
           document.document_name,
           document.portal_category_label,
+          document.provider_path,
         ]
           .join(" ")
           .toLowerCase()
@@ -517,10 +536,29 @@ export default function ClientPortalPage() {
 
       return true;
     });
-  }, [data, category, search]);
+
+    if (term) return all;
+
+    if (openFolderPath) {
+      return all.filter(
+        (document) => parentPortalPath(document.provider_path) === openFolderPath
+      );
+    }
+
+    const releasedFolders = all
+      .filter((document) => isFolderItem(document))
+      .map((document) => normalisePortalPath(document.provider_path));
+
+    return all.filter((document) => {
+      const path = normalisePortalPath(document.provider_path);
+      return !releasedFolders.some(
+        (folderPath) => path !== folderPath && path.startsWith(`${folderPath}/`)
+      );
+    });
+  }, [data, category, search, openFolderPath]);
 
   const recentDocuments = useMemo(
-    () => (data?.documents || []).slice(0, 5),
+    () => (data?.documents || []).filter((item) => item.item_type !== "folder").slice(0, 5),
     [data]
   );
 
@@ -616,7 +654,9 @@ export default function ClientPortalPage() {
           selectedCategoryLabel={selectedCategoryLabel}
           downloading={downloading}
           previewing={previewing}
+          openFolderPath={openFolderPath}
           onCategoryChange={setCategory}
+          onOpenFolder={setOpenFolderPath}
           onSearchChange={setSearch}
           onPreview={preview}
           onDownload={download}
@@ -725,10 +765,27 @@ function HomeView({
             Documents
           </button>
 
-          <span style={styles.sideNavDisabled}>
+          <button
+            type="button"
+            onClick={() =>
+              window.location.assign("/client-portal/messages")
+            }
+            style={styles.sideNavButton}
+          >
             <span style={styles.sideIcon}><PortalIcon name="messages" size={18} /></span>
             Messages
-          </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              window.location.assign("/client-portal/meetings")
+            }
+            style={styles.sideNavButton}
+          >
+            <span style={styles.sideIcon}><PortalIcon name="requests" size={18} /></span>
+            Meetings
+          </button>
 
           <button
             type="button"
@@ -972,7 +1029,7 @@ function HomeView({
 
                     <span style={styles.cellText}>{document.portal_category_label}</span>
                     <span style={styles.cellText}>{formatDate(document.released_at)}</span>
-                    <span style={styles.recordPill}>For your records</span>
+                    <span style={styles.recordPill}>{document.item_type === "folder" ? "Folder Pack" : "For your records"}</span>
 
                     <div style={styles.documentActions}>
                       {canPreviewDocument(document.document_name) ? (
@@ -1022,7 +1079,13 @@ function HomeView({
               <span>
                 You&apos;ll see important updates, requests or notes from your practice right here.
               </span>
-              <button type="button" disabled style={styles.outlineButton}>
+              <button
+                type="button"
+                style={styles.outlineButton}
+                onClick={() =>
+                  window.location.assign("/client-portal/messages")
+                }
+              >
                 View messages →
               </button>
             </section>
@@ -1033,7 +1096,13 @@ function HomeView({
               <span>
                 You can securely send documents or information directly to your practice.
               </span>
-              <button type="button" disabled style={styles.greenButton}>
+              <button
+                type="button"
+                style={styles.greenButton}
+                onClick={() =>
+                  window.location.assign("/client-portal/messages")
+                }
+              >
                 New message →
               </button>
             </section>
@@ -1066,7 +1135,9 @@ function DocumentsView({
   selectedCategoryLabel,
   downloading,
   previewing,
+  openFolderPath,
   onCategoryChange,
+  onOpenFolder,
   onSearchChange,
   onPreview,
   onDownload,
@@ -1079,7 +1150,9 @@ function DocumentsView({
   selectedCategoryLabel: string;
   downloading: string;
   previewing: string;
+  openFolderPath: string;
   onCategoryChange: (value: string) => void;
+  onOpenFolder: (value: string) => void;
   onSearchChange: (value: string) => void;
   onPreview: (document: PortalDocument) => Promise<void>;
   onDownload: (document: PortalDocument) => Promise<void>;
@@ -1116,10 +1189,27 @@ function DocumentsView({
             Documents
           </span>
 
-          <span style={styles.sideNavDisabled}>
+          <button
+            type="button"
+            onClick={() =>
+              window.location.assign("/client-portal/messages")
+            }
+            style={styles.sideNavButton}
+          >
             <span style={styles.sideIcon}><PortalIcon name="messages" size={18} /></span>
             Messages
-          </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              window.location.assign("/client-portal/meetings")
+            }
+            style={styles.sideNavButton}
+          >
+            <span style={styles.sideIcon}><PortalIcon name="requests" size={18} /></span>
+            Meetings
+          </button>
 
           <button
             type="button"
@@ -1251,10 +1341,22 @@ function DocumentsView({
           <section style={styles.documentsListPanel}>
             <div style={styles.documentsToolbar}>
               <div>
-                <strong style={styles.sectionTitle}>{selectedCategoryLabel}</strong>
+                {openFolderPath ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenFolder(parentPortalPath(openFolderPath) === "/" ? "" : parentPortalPath(openFolderPath))}
+                    style={styles.folderBackButton}
+                  >
+                    ← Back
+                  </button>
+                ) : null}
+                <strong style={styles.sectionTitle}>
+                  {openFolderPath
+                    ? openFolderPath.split("/").filter(Boolean).pop() || selectedCategoryLabel
+                    : selectedCategoryLabel}
+                </strong>
                 <span style={styles.sectionMeta}>
-                  {visibleDocuments.length} document
-                  {visibleDocuments.length === 1 ? "" : "s"}
+                  {visibleDocuments.length} item{visibleDocuments.length === 1 ? "" : "s"}
                 </span>
               </div>
 
@@ -1281,40 +1383,58 @@ function DocumentsView({
               visibleDocuments.map((document) => (
                 <div key={document.id} style={styles.documentRow}>
                   <div style={styles.documentNameCell}>
-                    <span style={styles.fileBadge}>{fileType(document.document_name)}</span>
+                    {document.item_type === "folder" ? (
+                      <span style={styles.folderPackBadge}><PortalIcon name="folder" size={20} /></span>
+                    ) : (
+                      <span style={styles.fileBadge}>{fileType(document.document_name)}</span>
+                    )}
                     <div>
                       <strong style={styles.documentName}>
                         {document.document_name}
                       </strong>
-                      <span style={styles.documentSub}>Available in your portal</span>
+                      <span style={styles.documentSub}>
+                        {document.item_type === "folder" ? "Released document pack" : "Available in your portal"}
+                      </span>
                     </div>
                   </div>
 
                   <span style={styles.cellText}>{document.portal_category_label}</span>
                   <span style={styles.cellText}>{formatDate(document.released_at)}</span>
-                  <span style={styles.recordPill}>For your records</span>
+                  <span style={styles.recordPill}>{document.item_type === "folder" ? "Folder Pack" : "For your records"}</span>
 
                   <div style={styles.documentActions}>
-                    {canPreviewDocument(document.document_name) ? (
+                    {document.item_type === "folder" ? (
                       <button
                         type="button"
-                        onClick={() => void onPreview(document)}
-                        disabled={previewing === document.id}
+                        onClick={() => onOpenFolder(normalisePortalPath(document.provider_path))}
                         style={styles.previewButton}
                       >
-                        {previewing === document.id ? "Opening..." : "Preview"}
+                        Open Pack
                       </button>
-                    ) : null}
+                    ) : (
+                      <>
+                        {canPreviewDocument(document.document_name) ? (
+                          <button
+                            type="button"
+                            onClick={() => void onPreview(document)}
+                            disabled={previewing === document.id}
+                            style={styles.previewButton}
+                          >
+                            {previewing === document.id ? "Opening..." : "Preview"}
+                          </button>
+                        ) : null}
 
-                    <button
-                      type="button"
-                      onClick={() => void onDownload(document)}
-                      disabled={downloading === document.id}
-                      style={styles.downloadSecondaryButton}
-                    >
-                      <PortalIcon name="download" size={14} />
-                      {downloading === document.id ? "..." : "Download"}
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => void onDownload(document)}
+                          disabled={downloading === document.id}
+                          style={styles.downloadSecondaryButton}
+                        >
+                          <PortalIcon name="download" size={14} />
+                          {downloading === document.id ? "..." : "Download"}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))
@@ -1433,10 +1553,27 @@ function RequestsView({
             Documents
           </button>
 
-          <span style={styles.sideNavDisabled}>
+          <button
+            type="button"
+            onClick={() =>
+              window.location.assign("/client-portal/messages")
+            }
+            style={styles.sideNavButton}
+          >
             <span style={styles.sideIcon}><PortalIcon name="messages" size={18} /></span>
             Messages
-          </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              window.location.assign("/client-portal/meetings")
+            }
+            style={styles.sideNavButton}
+          >
+            <span style={styles.sideIcon}><PortalIcon name="requests" size={18} /></span>
+            Meetings
+          </button>
 
           <span style={styles.sideNavActive}>
             <span style={styles.sideIcon}><PortalIcon name="requests" size={18} /></span>
@@ -2329,6 +2466,27 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     gap: 12,
+  },
+  folderPackBadge: {
+    width: 42,
+    height: 40,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 4,
+    background: "#f0b400",
+    color: "#ffffff",
+    flex: "0 0 auto",
+  },
+  folderBackButton: {
+    marginBottom: 5,
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    color: "#1768d2",
+    fontSize: 9,
+    fontWeight: 900,
+    cursor: "pointer",
   },
   fileBadge: {
     width: 42,
