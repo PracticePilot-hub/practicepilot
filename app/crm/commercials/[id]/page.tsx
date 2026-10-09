@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
@@ -29,6 +29,21 @@ type ServiceTerm = {
   hourly_rate: number | null;
   fee_frequency: string | null;
   scope_notes: string | null;
+  effective_from: string | null;
+  effective_to: string | null;
+};
+
+type ServiceHistory = {
+  id: string;
+  client_service_id: string | null;
+  service_name: string;
+  billing_treatment: string;
+  fee_amount: number | null;
+  hourly_rate: number | null;
+  fee_frequency: string | null;
+  scope_notes: string | null;
+  effective_from: string;
+  effective_to: string;
 };
 
 type Draft = {
@@ -37,7 +52,16 @@ type Draft = {
   hourlyRate: string;
   feeFrequency: string;
   scopeNotes: string;
+  effectiveFrom: string;
 };
+
+function localDateOnly() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 function blank(): Draft {
   return {
@@ -46,6 +70,7 @@ function blank(): Draft {
     hourlyRate: "",
     feeFrequency: "",
     scopeNotes: "",
+    effectiveFrom: localDateOnly(),
   };
 }
 
@@ -56,6 +81,7 @@ export default function CommercialDetailPage() {
   const [client, setClient] = useState<any>(null);
   const [terms, setTerms] = useState<any>(null);
   const [services, setServices] = useState<ActiveService[]>([]);
+  const [serviceHistory, setServiceHistory] = useState<ServiceHistory[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -98,6 +124,7 @@ export default function CommercialDetailPage() {
       setClient(data.client || null);
       setTerms(data.terms || null);
       setServices(data.activeServices || []);
+      setServiceHistory(data.serviceHistory || []);
 
       const termByServiceId = new Map<string, ServiceTerm>(
         (data.serviceTerms || []).map((row: ServiceTerm) => [
@@ -125,6 +152,7 @@ export default function CommercialDetailPage() {
                   : String(existing.hourly_rate),
               feeFrequency: existing.fee_frequency || "",
               scopeNotes: existing.scope_notes || "",
+              effectiveFrom: existing.effective_from || localDateOnly(),
             }
           : blank();
       }
@@ -290,7 +318,9 @@ export default function CommercialDetailPage() {
         <strong>Rule:</strong>
         <span>
           Included work becomes Delivery WIP / profitability data. Separately
-          billed, hourly or fixed-fee work can create Billable WIP.
+          billed, hourly or fixed-fee work can create Billable WIP. When a rule
+          changes from a later effective date, PracticePilot keeps the previous
+          pricing rule in history instead of overwriting it.
         </span>
       </section>
 
@@ -301,106 +331,158 @@ export default function CommercialDetailPage() {
           <span>Fee / amount</span>
           <span>Hourly rate</span>
           <span>Frequency</span>
+          <span>Effective from</span>
           <span>Scope notes</span>
         </div>
 
         {services.length ? (
           services.map((service) => {
             const draft = drafts[service.client_service_id] || blank();
+            const history = serviceHistory.filter(
+              (row) => row.client_service_id === service.client_service_id
+            );
 
             return (
-              <div key={service.client_service_id} style={tableRow}>
-                <div>
-                  <strong style={serviceName}>{service.service_name}</strong>
-                  <div style={serviceMeta}>
-                    Tasking: {service.tasking_frequency || "—"}
-                    {service.service_group
-                      ? ` · ${service.service_group}`
-                      : ""}
+              <Fragment key={service.client_service_id}>
+                <div style={tableRow}>
+                  <div>
+                    <strong style={serviceName}>{service.service_name}</strong>
+                    <div style={serviceMeta}>
+                      Tasking: {service.tasking_frequency || "—"}
+                      {service.service_group
+                        ? ` · ${service.service_group}`
+                        : ""}
+                    </div>
                   </div>
-                </div>
 
-                <select
-                  style={input}
-                  value={draft.billingTreatment}
-                  onChange={(event) =>
-                    patch(service.client_service_id, {
-                      billingTreatment: event.target.value,
-                    })
-                  }
-                >
-                  <option value="included">Included in core fee</option>
-                  <option value="separately_billed">
-                    Separately billed
-                  </option>
-                  <option value="hourly">Hourly</option>
-                  <option value="fixed_fee">Fixed fee</option>
-                  <option value="not_chargeable">Not chargeable</option>
-                </select>
-
-                <div style={moneyInput}>
-                  <span>R</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                  <select
                     style={input}
-                    value={draft.feeAmount}
+                    value={draft.billingTreatment}
                     onChange={(event) =>
                       patch(service.client_service_id, {
-                        feeAmount: event.target.value,
+                        billingTreatment: event.target.value,
                       })
                     }
-                    placeholder="Optional"
+                  >
+                    <option value="included">Included in core fee</option>
+                    <option value="separately_billed">
+                      Separately billed
+                    </option>
+                    <option value="hourly">Hourly</option>
+                    <option value="fixed_fee">Fixed fee</option>
+                    <option value="not_chargeable">Not chargeable</option>
+                  </select>
+
+                  <div style={moneyInput}>
+                    <span>R</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      style={input}
+                      value={draft.feeAmount}
+                      onChange={(event) =>
+                        patch(service.client_service_id, {
+                          feeAmount: event.target.value,
+                        })
+                      }
+                      placeholder="Optional"
+                    />
+                  </div>
+
+                  <div style={moneyInput}>
+                    <span>R</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      style={input}
+                      value={draft.hourlyRate}
+                      onChange={(event) =>
+                        patch(service.client_service_id, {
+                          hourlyRate: event.target.value,
+                        })
+                      }
+                      placeholder="Optional"
+                    />
+                  </div>
+
+                  <select
+                    style={input}
+                    value={draft.feeFrequency}
+                    onChange={(event) =>
+                      patch(service.client_service_id, {
+                        feeFrequency: event.target.value,
+                      })
+                    }
+                  >
+                    <option value="">Use client default</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="six_monthly">Six-monthly</option>
+                    <option value="annual">Annual</option>
+                    <option value="once_off">Once-off</option>
+                    <option value="as_billed">As billed</option>
+                  </select>
+
+                  <input
+                    type="date"
+                    style={input}
+                    value={draft.effectiveFrom}
+                    onChange={(event) =>
+                      patch(service.client_service_id, {
+                        effectiveFrom: event.target.value,
+                      })
+                    }
+                  />
+
+                  <input
+                    style={input}
+                    value={draft.scopeNotes}
+                    onChange={(event) =>
+                      patch(service.client_service_id, {
+                        scopeNotes: event.target.value,
+                      })
+                    }
+                    placeholder="Included / excluded scope..."
                   />
                 </div>
 
-                <div style={moneyInput}>
-                  <span>R</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    style={input}
-                    value={draft.hourlyRate}
-                    onChange={(event) =>
-                      patch(service.client_service_id, {
-                        hourlyRate: event.target.value,
-                      })
-                    }
-                    placeholder="Optional"
-                  />
-                </div>
-
-                <select
-                  style={input}
-                  value={draft.feeFrequency}
-                  onChange={(event) =>
-                    patch(service.client_service_id, {
-                      feeFrequency: event.target.value,
-                    })
-                  }
-                >
-                  <option value="">Use client default</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="quarterly">Quarterly</option>
-                  <option value="six_monthly">Six-monthly</option>
-                  <option value="annual">Annual</option>
-                  <option value="once_off">Once-off</option>
-                  <option value="as_billed">As billed</option>
-                </select>
-
-                <input
-                  style={input}
-                  value={draft.scopeNotes}
-                  onChange={(event) =>
-                    patch(service.client_service_id, {
-                      scopeNotes: event.target.value,
-                    })
-                  }
-                  placeholder="Included / excluded scope..."
-                />
-              </div>
+                {history.length ? (
+                  <div style={historyBlock}>
+                    <div style={historyTitle}>Pricing history</div>
+                    {history.map((row) => (
+                      <div key={row.id} style={historyRow}>
+                        <span>
+                          {row.effective_from} → {row.effective_to}
+                        </span>
+                        <span>
+                          {String(row.billing_treatment || "included").replaceAll(
+                            "_",
+                            " "
+                          )}
+                        </span>
+                        <span>
+                          {row.fee_amount == null
+                            ? "—"
+                            : `R ${Number(row.fee_amount).toLocaleString("en-ZA", {
+                                minimumFractionDigits: 2,
+                              })}`}
+                        </span>
+                        <span>
+                          {row.hourly_rate == null
+                            ? "—"
+                            : `R ${Number(row.hourly_rate).toLocaleString("en-ZA", {
+                                minimumFractionDigits: 2,
+                              })}/h`}
+                        </span>
+                        <span>{row.fee_frequency || "Client default"}</span>
+                        <span>{row.scope_notes || "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </Fragment>
             );
           })
         ) : (
@@ -544,7 +626,7 @@ const tableHeader: React.CSSProperties = {
   padding: "0 9px",
   display: "grid",
   gridTemplateColumns:
-    "minmax(220px,1.3fr) minmax(160px,1fr) 125px 125px 140px minmax(220px,1.4fr)",
+    "minmax(190px,1.25fr) minmax(150px,1fr) 110px 110px 125px 120px minmax(190px,1.3fr)",
   gap: "7px",
   alignItems: "center",
   background: "#10233a",
@@ -558,7 +640,7 @@ const tableRow: React.CSSProperties = {
   padding: "5px 9px",
   display: "grid",
   gridTemplateColumns:
-    "minmax(220px,1.3fr) minmax(160px,1fr) 125px 125px 140px minmax(220px,1.4fr)",
+    "minmax(190px,1.25fr) minmax(150px,1fr) 110px 110px 125px 120px minmax(190px,1.3fr)",
   gap: "7px",
   alignItems: "center",
   borderBottom: "1px solid #e5eaf0",
@@ -621,4 +703,30 @@ const messageBar: React.CSSProperties = {
   color: "#166534",
   fontSize: "9px",
   fontWeight: 800,
+};
+
+
+const historyBlock: React.CSSProperties = {
+  padding: "6px 9px 8px 18px",
+  background: "#f8fafc",
+  borderBottom: "1px solid #d8dee7",
+};
+
+const historyTitle: React.CSSProperties = {
+  marginBottom: "5px",
+  color: "#64748b",
+  fontSize: "7.5px",
+  fontWeight: 900,
+  textTransform: "uppercase",
+};
+
+const historyRow: React.CSSProperties = {
+  minHeight: "26px",
+  display: "grid",
+  gridTemplateColumns:
+    "170px 150px 105px 105px 125px minmax(200px,1fr)",
+  gap: "7px",
+  alignItems: "center",
+  color: "#526174",
+  fontSize: "7.5px",
 };

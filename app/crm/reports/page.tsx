@@ -120,7 +120,39 @@ type BillingSummary = {
   drafted_value: number;
 };
 
+type ClientCompletenessRow = {
+  client_id: string;
+  client_name: string;
+  client_code: string | null;
+  entity_type: string | null;
+  client_category: string | null;
+  client_lead_user_id: string | null;
+  client_lead_name: string | null;
+  registration_or_id: string | null;
+  primary_contact: string | null;
+  phone: string | null;
+  email: string | null;
+  missing_items: string[];
+  missing_count: number;
+};
+
+type ClientLeadOption = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+};
+
+type CompletenessSummary = {
+  total_clients: number;
+  complete_clients: number;
+  incomplete_clients: number;
+  missing_registration_or_id: number;
+  missing_contact_number: number;
+  missing_email: number;
+};
+
 type ViewKey =
+  | "my_clients"
   | "wip"
   | "billing"
   | "profitability"
@@ -180,8 +212,24 @@ export default function PracticeReportsPage() {
     unclassified_staff_cost: 0,
   });
 
-  const [view, setView] = useState<ViewKey>("wip");
+  const [view, setView] = useState<ViewKey>("my_clients");
   const [search, setSearch] = useState("");
+  const [canViewCommercialReports, setCanViewCommercialReports] =
+    useState(false);
+  const [completenessRows, setCompletenessRows] =
+    useState<ClientCompletenessRow[]>([]);
+  const [clientLeadOptions, setClientLeadOptions] =
+    useState<ClientLeadOption[]>([]);
+  const [clientLeadFilter, setClientLeadFilter] = useState("all");
+  const [completenessSummary, setCompletenessSummary] =
+    useState<CompletenessSummary>({
+      total_clients: 0,
+      complete_clients: 0,
+      incomplete_clients: 0,
+      missing_registration_or_id: 0,
+      missing_contact_number: 0,
+      missing_email: 0,
+    });
 
   const [economicsRows, setEconomicsRows] = useState<ClientEconomicsRow[]>([]);
   const [economicsSummary, setEconomicsSummary] =
@@ -233,35 +281,91 @@ export default function PracticeReportsPage() {
         throw new Error("You are not signed in.");
       }
 
-      const [wipResponse, economicsResponse, billingResponse] =
-        await Promise.all([
-          fetch("/api/crm/reports/wip", {
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            cache: "no-store",
-          }),
-          fetch("/api/crm/reports/client-economics", {
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            cache: "no-store",
-          }),
-          fetch("/api/crm/reports/revenue-planner", {
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            cache: "no-store",
-          }),
-        ]);
+      const { data: profile, error: profileError } = await supabase
+        .from("user_profiles")
+        .select("access_enabled, can_view_commercial_reports")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      const commercialReportAccess = Boolean(
+        profile?.access_enabled &&
+          profile?.can_view_commercial_reports === true
+      );
+
+      setCanViewCommercialReports(commercialReportAccess);
+
+      if (!commercialReportAccess) {
+        setView("my_clients");
+      }
+
+      const completenessResponse = await fetch(
+        "/api/crm/reports/client-completeness",
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          cache: "no-store",
+        }
+      );
+
+      const completenessResult = await readJsonResponse(
+        completenessResponse,
+        "My Clients report"
+      );
+
+      if (!completenessResponse.ok || !completenessResult?.success) {
+        throw new Error(
+          completenessResult?.error ||
+            `My Clients report failed (${completenessResponse.status}).`
+        );
+      }
+
+      setCompletenessRows(
+        (completenessResult.rows || []) as ClientCompletenessRow[]
+      );
+      setClientLeadOptions(
+        (completenessResult.client_leads || []) as ClientLeadOption[]
+      );
+      setCompletenessSummary(completenessResult.summary || {});
+
+      let wipResponse: Response | null = null;
+      let economicsResponse: Response | null = null;
+      let billingResponse: Response | null = null;
+
+      if (commercialReportAccess) {
+        [wipResponse, economicsResponse, billingResponse] =
+          await Promise.all([
+            fetch("/api/crm/reports/wip", {
+              headers: {
+                Authorization: `Bearer ${session.access_token}`,
+              },
+              cache: "no-store",
+            }),
+            fetch("/api/crm/reports/client-economics", {
+              headers: {
+                Authorization: `Bearer ${session.access_token}`,
+              },
+              cache: "no-store",
+            }),
+            fetch("/api/crm/reports/revenue-planner", {
+              headers: {
+                Authorization: `Bearer ${session.access_token}`,
+              },
+              cache: "no-store",
+            }),
+          ]);
+      }
 
       const loadErrors: string[] = [];
 
-      try {
-        const wipResult = await readJsonResponse(
-          wipResponse,
-          "WIP report"
-        );
+      if (commercialReportAccess && wipResponse) {
+        try {
+          const wipResult = await readJsonResponse(
+            wipResponse,
+            "WIP report"
+          );
 
         if (!wipResponse.ok || !wipResult?.success) {
           throw new Error(
@@ -272,14 +376,16 @@ export default function PracticeReportsPage() {
         setClients(wipResult.clients || []);
         setStaff(wipResult.staff || []);
         setTotals(wipResult.totals || {});
-      } catch (wipError: any) {
-        loadErrors.push(
-          wipError?.message || "WIP report could not load."
-        );
+        } catch (wipError: any) {
+          loadErrors.push(
+            wipError?.message || "WIP report could not load."
+          );
+        }
       }
 
-      try {
-        const economicsResult = await readJsonResponse(
+      if (commercialReportAccess && economicsResponse) {
+        try {
+          const economicsResult = await readJsonResponse(
           economicsResponse,
           "Client Economics"
         );
@@ -307,15 +413,17 @@ export default function PracticeReportsPage() {
 
           return economics[0]?.client_id || "";
         });
-      } catch (economicsError: any) {
-        loadErrors.push(
-          economicsError?.message ||
-            "Client Economics could not load."
-        );
+        } catch (economicsError: any) {
+          loadErrors.push(
+            economicsError?.message ||
+              "Client Economics could not load."
+          );
+        }
       }
 
-      try {
-        const billingResult = await readJsonResponse(
+      if (commercialReportAccess && billingResponse) {
+        try {
+          const billingResult = await readJsonResponse(
           billingResponse,
           "Revenue Planner"
         );
@@ -331,11 +439,12 @@ export default function PracticeReportsPage() {
           (billingResult.rows || []) as BillingWorkRow[]
         );
         setBillingSummary(billingResult.summary || {});
-      } catch (billingError: any) {
-        loadErrors.push(
-          billingError?.message ||
-            "Revenue Planner could not load."
-        );
+        } catch (billingError: any) {
+          loadErrors.push(
+            billingError?.message ||
+              "Revenue Planner could not load."
+          );
+        }
       }
 
       if (loadErrors.length) {
@@ -353,6 +462,36 @@ export default function PracticeReportsPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  const filteredCompletenessRows = useMemo(() => {
+    const term = search.trim().toLowerCase();
+
+    return completenessRows.filter((row) => {
+      if (
+        clientLeadFilter !== "all" &&
+        row.client_lead_user_id !== clientLeadFilter
+      ) {
+        return false;
+      }
+
+      if (!term) return true;
+
+      return [
+        row.client_name,
+        row.client_code,
+        row.entity_type,
+        row.registration_or_id,
+        row.primary_contact,
+        row.phone,
+        row.email,
+        ...(row.missing_items || []),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(term);
+    });
+  }, [completenessRows, search, clientLeadFilter]);
 
   const filteredClients = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -522,12 +661,17 @@ export default function PracticeReportsPage() {
 
       <nav style={tabBar}>
         {[
-          ["wip", "Overview"],
-          ["billing", "Billing to be done"],
-          ["profitability", "Client Economics"],
-          ["next7", "Next 7 Days"],
-          ["next30", "Next 30 Days"],
-          ["comparison", "Monthly Comparison"],
+          ["my_clients", "My Clients"],
+          ...(canViewCommercialReports
+            ? [
+                ["wip", "Overview"],
+                ["billing", "Billing to be done"],
+                ["profitability", "Client Economics"],
+                ["next7", "Next 7 Days"],
+                ["next30", "Next 30 Days"],
+                ["comparison", "Monthly Comparison"],
+              ]
+            : []),
         ].map(([key, label]) => (
           <button
             key={key}
@@ -542,6 +686,115 @@ export default function PracticeReportsPage() {
           </button>
         ))}
       </nav>
+
+      {view === "my_clients" ? (
+        <>
+          <section style={clientInfoHero}>
+            <div>
+              <div style={clientInfoEyebrow}>Operational client data</div>
+              <h2 style={clientInfoTitle}>My Clients – Missing Information</h2>
+              <p style={clientInfoSubtitle}>
+                Shows the client master information that still needs to be completed.
+                This report contains no fee, profitability or commercial data.
+              </p>
+            </div>
+          </section>
+
+          <section style={clientInfoKpiGrid}>
+            <div style={clientInfoKpi}>
+              <span>Total clients</span>
+              <strong>{completenessSummary.total_clients || 0}</strong>
+            </div>
+            <div style={clientInfoKpi}>
+              <span>Needs attention</span>
+              <strong>{completenessSummary.incomplete_clients || 0}</strong>
+            </div>
+            <div style={clientInfoKpi}>
+              <span>Missing Reg / ID</span>
+              <strong>{completenessSummary.missing_registration_or_id || 0}</strong>
+            </div>
+            <div style={clientInfoKpi}>
+              <span>Missing telephone</span>
+              <strong>{completenessSummary.missing_contact_number || 0}</strong>
+            </div>
+            <div style={clientInfoKpi}>
+              <span>Missing email</span>
+              <strong>{completenessSummary.missing_email || 0}</strong>
+            </div>
+          </section>
+
+          <section style={clientInfoToolbar}>
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search my clients..."
+              style={clientInfoSearch}
+            />
+            <select
+              value={clientLeadFilter}
+              onChange={(event) => setClientLeadFilter(event.target.value)}
+              style={clientInfoLeadSelect}
+            >
+              <option value="all">All Client Leads</option>
+              {clientLeadOptions.map((lead) => (
+                <option key={lead.id} value={lead.id}>
+                  {lead.full_name || lead.email || "Staff member"}
+                </option>
+              ))}
+            </select>
+            <span>{filteredCompletenessRows.length} clients</span>
+          </section>
+
+          <section style={clientInfoPanel}>
+            <div style={clientInfoHeader}>
+              <span>Client</span>
+              <span>Reg / ID</span>
+              <span>Primary Contact</span>
+              <span>Telephone</span>
+              <span>Email</span>
+              <span>Missing Information</span>
+              <span />
+            </div>
+
+            {filteredCompletenessRows.length ? (
+              filteredCompletenessRows.map((row) => (
+                <div key={row.client_id} style={clientInfoRow}>
+                  <div>
+                    <strong style={clientInfoName}>{row.client_name}</strong>
+                    <span style={clientInfoMeta}>
+                      {row.client_code || "No code"}
+                      {row.entity_type ? ` · ${row.entity_type}` : ""}
+                    </span>
+                  </div>
+                  <span>{row.registration_or_id || "Missing"}</span>
+                  <span>{row.primary_contact || "Missing"}</span>
+                  <span>{row.phone || "Missing"}</span>
+                  <span>{row.email || "Missing"}</span>
+                  <div style={clientInfoMissingWrap}>
+                    {row.missing_items.length ? (
+                      row.missing_items.map((item) => (
+                        <span key={item} style={clientInfoMissingPill}>
+                          {item}
+                        </span>
+                      ))
+                    ) : (
+                      <span style={clientInfoCompletePill}>Complete</span>
+                    )}
+                  </div>
+                  <a
+                    href={`/crm/edit-client?id=${row.client_id}&section=core`}
+                    style={clientInfoOpen}
+                  >
+                    Open
+                  </a>
+                </div>
+              ))
+            ) : (
+              <div style={empty}>No clients match this view.</div>
+            )}
+          </section>
+        </>
+      ) : null}
 
       {view === "wip" ? (
         <>
@@ -3400,6 +3653,176 @@ const reportPlaceholderText: React.CSSProperties = {
   color: "#64748b",
   fontSize: "10px",
   lineHeight: 1.45,
+};
+
+const clientInfoHero: React.CSSProperties = {
+  marginTop: "10px",
+  minHeight: "78px",
+  padding: "12px 14px",
+  display: "flex",
+  alignItems: "center",
+  background: "#ffffff",
+  border: "1px solid #cfd8e3",
+};
+
+const clientInfoEyebrow: React.CSSProperties = {
+  color: "#1758d5",
+  fontSize: "9px",
+  fontWeight: 900,
+};
+
+const clientInfoTitle: React.CSSProperties = {
+  margin: "2px 0 0",
+  color: "#10233a",
+  fontSize: "20px",
+  fontWeight: 950,
+};
+
+const clientInfoSubtitle: React.CSSProperties = {
+  margin: "4px 0 0",
+  color: "#64748b",
+  fontSize: "10px",
+};
+
+const clientInfoKpiGrid: React.CSSProperties = {
+  marginTop: "8px",
+  display: "grid",
+  gridTemplateColumns: "repeat(5,minmax(0,1fr))",
+  gap: "7px",
+};
+
+const clientInfoKpi: React.CSSProperties = {
+  minHeight: "70px",
+  padding: "9px 10px",
+  display: "grid",
+  alignContent: "center",
+  background: "#ffffff",
+  border: "1px solid #d8dee7",
+  color: "#526174",
+  fontSize: "8px",
+  fontWeight: 800,
+};
+
+const clientInfoToolbar: React.CSSProperties = {
+  marginTop: "8px",
+  minHeight: "42px",
+  padding: "6px 9px",
+  display: "grid",
+  gridTemplateColumns: "minmax(280px,1fr) 220px auto",
+  gap: "8px",
+  alignItems: "center",
+  background: "#ffffff",
+  border: "1px solid #d8dee7",
+  color: "#64748b",
+  fontSize: "8px",
+  fontWeight: 800,
+};
+
+const clientInfoSearch: React.CSSProperties = {
+  width: "100%",
+  height: "28px",
+  padding: "0 7px",
+  boxSizing: "border-box",
+  border: "1px solid #cbd5e1",
+  borderRadius: 0,
+  background: "#ffffff",
+  color: "#10233a",
+  fontSize: "8px",
+};
+
+const clientInfoLeadSelect: React.CSSProperties = {
+  width: "100%",
+  height: "28px",
+  padding: "0 7px",
+  boxSizing: "border-box",
+  border: "1px solid #cbd5e1",
+  borderRadius: 0,
+  background: "#ffffff",
+  color: "#10233a",
+  fontSize: "8px",
+};
+
+const clientInfoPanel: React.CSSProperties = {
+  marginTop: "8px",
+  background: "#ffffff",
+  border: "1px solid #d8dee7",
+};
+
+const clientInfoHeader: React.CSSProperties = {
+  minHeight: "32px",
+  padding: "0 9px",
+  display: "grid",
+  gridTemplateColumns:
+    "minmax(190px,1.25fr) 145px 150px 125px 180px minmax(240px,1.4fr) 55px",
+  gap: "7px",
+  alignItems: "center",
+  background: "#10233a",
+  color: "#ffffff",
+  fontSize: "7.5px",
+  fontWeight: 850,
+};
+
+const clientInfoRow: React.CSSProperties = {
+  minHeight: "48px",
+  padding: "6px 9px",
+  display: "grid",
+  gridTemplateColumns:
+    "minmax(190px,1.25fr) 145px 150px 125px 180px minmax(240px,1.4fr) 55px",
+  gap: "7px",
+  alignItems: "center",
+  borderBottom: "1px solid #e5eaf0",
+  color: "#10233a",
+  fontSize: "8px",
+};
+
+const clientInfoName: React.CSSProperties = {
+  display: "block",
+  fontSize: "9px",
+  fontWeight: 900,
+};
+
+const clientInfoMeta: React.CSSProperties = {
+  display: "block",
+  marginTop: "2px",
+  color: "#64748b",
+  fontSize: "7px",
+};
+
+const clientInfoMissingWrap: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "4px",
+};
+
+const clientInfoMissingPill: React.CSSProperties = {
+  minHeight: "20px",
+  padding: "0 6px",
+  display: "inline-flex",
+  alignItems: "center",
+  border: "1px solid #fecaca",
+  background: "#fff1f2",
+  color: "#991b1b",
+  fontSize: "7px",
+  fontWeight: 850,
+};
+
+const clientInfoCompletePill: React.CSSProperties = {
+  minHeight: "20px",
+  padding: "0 6px",
+  display: "inline-flex",
+  alignItems: "center",
+  border: "1px solid #bbf7d0",
+  background: "#ecfdf3",
+  color: "#166534",
+  fontSize: "7px",
+  fontWeight: 850,
+};
+
+const clientInfoOpen: React.CSSProperties = {
+  color: "#1758d5",
+  textDecoration: "none",
+  fontSize: "8px",
+  fontWeight: 900,
 };
 
 const errorBar: React.CSSProperties = {

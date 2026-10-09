@@ -11,11 +11,21 @@ type UserOption = {
   role: string;
 };
 
+type ClientWorkflowStep = {
+  label: string;
+  item_type?: "manual" | "dependency" | "review" | "submission";
+  dependency_service_code?: string | null;
+  dependency_rule?: string | null;
+  requires_evidence?: boolean;
+  evidence_label?: string | null;
+};
+
 type ServiceOption = {
   id: string;
   service_name: string;
   service_group: string | null;
   default_frequency: string | null;
+  workflow_steps?: ClientWorkflowStep[];
   default_due_day?: number | null;
   default_workflow_type?: string | null;
   default_service_settings?: Record<string, unknown>;
@@ -66,6 +76,8 @@ type ClientApiData = {
   wcc_reference_number: string | null;
 
   client_lead_user_id: string | null;
+  default_work_owner_user_id?: string | null;
+  reviewer_user_id?: string | null;
   manager_user_id: string | null;
   partner_user_id: string | null;
 
@@ -287,7 +299,14 @@ function calculatePeriodEnd(
     end.setDate(0);
   }
 
-  return end.toISOString().slice(0, 10);
+  return localDateOnly(end);
+}
+
+function localDateOnly(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function monthInputValue(dateValue: string) {
@@ -304,7 +323,7 @@ function monthEndFromInput(monthValue: string) {
   if (!monthValue) return "";
   const [year, month] = monthValue.split("-").map(Number);
   if (!year || !month) return "";
-  return new Date(year, month, 0).toISOString().slice(0, 10);
+  return localDateOnly(new Date(year, month, 0));
 }
 
 function parseDateParts(value: string) {
@@ -361,9 +380,9 @@ function calculateVatNextPeriod(lastCompletedEnd: string, category: string) {
   );
 
   return {
-    start: nextStart.toISOString().slice(0, 10),
-    end: nextEnd.toISOString().slice(0, 10),
-    due: due.toISOString().slice(0, 10),
+    start: localDateOnly(nextStart),
+    end: localDateOnly(nextEnd),
+    due: localDateOnly(due),
     valid,
   };
 }
@@ -410,8 +429,8 @@ function getFinancialYearDates(year: number, yearEnd: string) {
   const periodStart = new Date(year - 1, endMonth + 1, 1);
 
   return {
-    start: periodStart.toISOString().slice(0, 10),
-    end: periodEnd.toISOString().slice(0, 10),
+    start: localDateOnly(periodStart),
+    end: localDateOnly(periodEnd),
   };
 }
 
@@ -441,10 +460,10 @@ function vatPeriodOptions(category: string) {
         const end = new Date(year, month + 1, 0);
         const due = new Date(end.getFullYear(), end.getMonth() + 1, 25);
         options.push({
-          value: `${start.toISOString().slice(0, 10)}|${end.toISOString().slice(0, 10)}`,
+          value: `${localDateOnly(start)}|${localDateOnly(end)}`,
           label: `${monthName(month)} ${year} · due ${String(due.getDate()).padStart(2, "0")} ${monthName(due.getMonth())} ${due.getFullYear()}`,
-          start: start.toISOString().slice(0, 10),
-          end: end.toISOString().slice(0, 10),
+          start: localDateOnly(start),
+          end: localDateOnly(end),
         });
       }
       continue;
@@ -457,10 +476,10 @@ function vatPeriodOptions(category: string) {
       const start = new Date(year, endMonth - 1, 1);
       const due = new Date(end.getFullYear(), end.getMonth() + 1, 25);
       options.push({
-        value: `${start.toISOString().slice(0, 10)}|${end.toISOString().slice(0, 10)}`,
+        value: `${localDateOnly(start)}|${localDateOnly(end)}`,
         label: `${monthName(start.getMonth())}–${monthName(end.getMonth())} ${end.getFullYear()} · due ${String(due.getDate()).padStart(2, "0")} ${monthName(due.getMonth())} ${due.getFullYear()}`,
-        start: start.toISOString().slice(0, 10),
-        end: end.toISOString().slice(0, 10),
+        start: localDateOnly(start),
+        end: localDateOnly(end),
       });
     }
   }
@@ -511,8 +530,8 @@ function recurringPeriodFromMonth(monthValue: string, frequency: string) {
   });
 
   return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
+    start: localDateOnly(start),
+    end: localDateOnly(end),
     label:
       recurringMonths(frequency) === 1
         ? start.toLocaleDateString("en-ZA", {
@@ -542,8 +561,8 @@ function payrollPeriodFromStart(dateValue: string, frequency: string) {
   });
 
   return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
+    start: localDateOnly(start),
+    end: localDateOnly(end),
     label:
       frequency === "Fortnightly"
         ? `Fortnight commencing ${formatted}`
@@ -803,7 +822,7 @@ function getTimelinePoint(
   if (serviceName === "EMP201" && end) {
     const due = new Date(end.getFullYear(), end.getMonth() + 1, 7);
     return {
-      sortKey: due.toISOString().slice(0, 10),
+      sortKey: localDateOnly(due),
       label: formatTimelineDay(due),
     };
   }
@@ -811,7 +830,7 @@ function getTimelinePoint(
   if (serviceName === "VAT201" && end) {
     const due = new Date(end.getFullYear(), end.getMonth() + 1, 25);
     return {
-      sortKey: due.toISOString().slice(0, 10),
+      sortKey: localDateOnly(due),
       label: formatTimelineDay(due),
     };
   }
@@ -824,7 +843,7 @@ function getTimelinePoint(
         : new Date(year, 4, 31);
 
     return {
-      sortKey: due.toISOString().slice(0, 10),
+      sortKey: localDateOnly(due),
       label: formatTimelineDay(due),
     };
   }
@@ -845,14 +864,14 @@ function getTimelinePoint(
         ).getDate()
       );
       return {
-        sortKey: due.toISOString().slice(0, 10),
+        sortKey: localDateOnly(due),
         label: formatTimelineDay(due),
       };
     }
 
     if (period === 2) {
       return {
-        sortKey: yearEndDate.toISOString().slice(0, 10),
+        sortKey: localDateOnly(yearEndDate),
         label: formatTimelineDay(yearEndDate),
       };
     }
@@ -868,7 +887,7 @@ function getTimelinePoint(
     const due = new Date(year + 1, endMonth + 1, 0);
 
     return {
-      sortKey: due.toISOString().slice(0, 10),
+      sortKey: localDateOnly(due),
       label: formatTimelineMonth(due),
     };
   }
@@ -1087,9 +1106,12 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
   const [postalPostalCode, setPostalPostalCode] = useState("");
 
   const [clientLeadUserId, setClientLeadUserId] = useState("");
+  const [defaultWorkOwnerUserId, setDefaultWorkOwnerUserId] = useState("");
+  const [reviewerUserId, setReviewerUserId] = useState("");
   const [managerUserId, setManagerUserId] = useState("");
   const [partnerUserId, setPartnerUserId] = useState("");
-
+  const [editingWorkflowService, setEditingWorkflowService] = useState("");
+  const [saveAction, setSaveAction] = useState<"save" | "update_upcoming">("save");
 
   const [services, setServices] = useState<Record<string, ServiceState>>({});
 
@@ -1328,6 +1350,8 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
     setWccRefNr(client.wcc_reference_number || "");
 
     setClientLeadUserId(client.client_lead_user_id || "");
+    setDefaultWorkOwnerUserId(client.default_work_owner_user_id || client.manager_user_id || "");
+    setReviewerUserId(client.reviewer_user_id || client.partner_user_id || "");
     setManagerUserId(client.manager_user_id || "");
     setPartnerUserId(client.partner_user_id || "");
 
@@ -1604,7 +1628,7 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
     if (period === 3) start.setFullYear(start.getFullYear() + 1);
 
     updateService("Provisional Tax", {
-      firstPeriodStart: start.toISOString().slice(0, 10),
+      firstPeriodStart: localDateOnly(start),
       firstPeriodEnd: fy.end,
       settings: {
         ...(services["Provisional Tax"]?.settings || {}),
@@ -1632,6 +1656,71 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         emp501_cycle: cycleValue,
       },
     });
+  }
+
+  function workflowStepsForService(serviceName: string) {
+    const saved = services[serviceName]?.settings?.client_workflow_steps;
+    if (Array.isArray(saved)) {
+      return saved.map((step: any) => ({
+        label: String(step?.label || "").trim(),
+        item_type: step?.item_type === "dependency" || step?.item_type === "review" || step?.item_type === "submission" ? step.item_type : "manual",
+        dependency_service_code: step?.item_type === "dependency" ? String(step?.dependency_service_code || "").trim() || null : null,
+        dependency_rule: step?.item_type === "dependency" ? String(step?.dependency_rule || "").trim() || "covered_period_all_completed" : null,
+        requires_evidence: Boolean(step?.requires_evidence),
+        evidence_label: step?.requires_evidence ? String(step?.evidence_label || step?.label || "").trim() : null,
+      })).filter((step: ClientWorkflowStep) => step.label);
+    }
+    return (serviceOptionByName.get(serviceName)?.workflow_steps || []).map((step) => ({ ...step }));
+  }
+
+  function setClientWorkflowSteps(serviceName: string, nextSteps: ClientWorkflowStep[]) {
+    const current = services[serviceName];
+    updateService(serviceName, {
+      settings: { ...(current?.settings || {}), client_workflow_steps: nextSteps },
+    });
+  }
+
+  function openWorkflowEditor(serviceName: string) {
+    if (!Array.isArray(services[serviceName]?.settings?.client_workflow_steps)) {
+      setClientWorkflowSteps(serviceName, workflowStepsForService(serviceName));
+    }
+    setEditingWorkflowService(serviceName);
+  }
+
+  function resetClientWorkflow(serviceName: string) {
+    const current = services[serviceName];
+    const nextSettings = { ...(current?.settings || {}) } as Record<string, unknown>;
+    delete (nextSettings as any).client_workflow_steps;
+    updateService(serviceName, { settings: nextSettings });
+  }
+
+  function updateWorkflowStep(serviceName: string, index: number, patch: Partial<ClientWorkflowStep>) {
+    const steps = workflowStepsForService(serviceName);
+    steps[index] = { ...steps[index], ...patch };
+    if (steps[index].item_type === "review") {
+      steps[index].requires_evidence = false;
+      steps[index].evidence_label = null;
+    }
+    setClientWorkflowSteps(serviceName, steps);
+  }
+
+  function moveWorkflowStep(serviceName: string, index: number, direction: -1 | 1) {
+    const steps = workflowStepsForService(serviceName);
+    const target = index + direction;
+    if (target < 0 || target >= steps.length) return;
+    const next = [...steps];
+    [next[index], next[target]] = [next[target], next[index]];
+    setClientWorkflowSteps(serviceName, next);
+  }
+
+  function deleteWorkflowStep(serviceName: string, index: number) {
+    setClientWorkflowSteps(serviceName, workflowStepsForService(serviceName).filter((_, i) => i !== index));
+  }
+
+  function addWorkflowStep(serviceName: string) {
+    setClientWorkflowSteps(serviceName, [...workflowStepsForService(serviceName), {
+      label: "New checklist step", item_type: "manual", requires_evidence: false, evidence_label: null,
+    }]);
   }
 
   function copyPhysicalToPostal() {
@@ -1776,7 +1865,7 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
     }
   }
 
-  async function handleSave() {
+  async function handleSave(updateUpcomingTasks = false) {
     if (saving) return;
 
     const validationError = validate();
@@ -1787,6 +1876,7 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
     }
 
     try {
+      setSaveAction(updateUpcomingTasks ? "update_upcoming" : "save");
       setSaving(true);
       setErrorMessage("");
 
@@ -1833,6 +1923,8 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         postalPostalCode,
 
         clientLeadUserId,
+        defaultWorkOwnerUserId,
+        reviewerUserId,
         managerUserId,
         partnerUserId,
 
@@ -1894,7 +1986,7 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
         const taskResponse = await apiFetch("/api/crm/tasks/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientId: data.clientId }),
+          body: JSON.stringify({ clientId: data.clientId, updateUpcomingTasks }),
         });
 
         const taskData = await taskResponse.json().catch(() => ({}));
@@ -1941,24 +2033,16 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          style={{
-            ...topSaveButton,
-            opacity: saving ? 0.6 : 1,
-            cursor: saving ? "not-allowed" : "pointer",
-          }}
-        >
-          {saving
-            ? "Saving..."
-            : isTaskingWorkspace
-              ? "Save tasking"
-              : mode === "create"
-                ? "Save"
-                : "Save changes"}
-        </button>
+        <div style={topSaveActions}>
+          {isTaskingWorkspace ? (
+            <button type="button" onClick={() => void handleSave(true)} disabled={saving} style={{ ...topUpdateButton, opacity: saving ? 0.6 : 1 }}>
+              {saving && saveAction === "update_upcoming" ? "Updating..." : "Save + update upcoming tasks"}
+            </button>
+          ) : null}
+          <button type="button" onClick={() => void handleSave(false)} disabled={saving} style={{ ...topSaveButton, opacity: saving ? 0.6 : 1 }}>
+            {saving && saveAction === "save" ? "Saving..." : isTaskingWorkspace ? "Save tasking" : mode === "create" ? "Save" : "Save changes"}
+          </button>
+        </div>
       </div>
 
       {!isTaskingWorkspace ? (
@@ -2417,9 +2501,10 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
                           </div>
 
                           <div style={taskingPreviewCell}>
-                            {service.selected
-  ? getTaskPreviewLabel(serviceName, service)
-  : "Not active"}
+                            <span>{service.selected ? getTaskPreviewLabel(serviceName, service) : "Not active"}</span>
+                            {service.selected ? (
+                              <button type="button" onClick={() => openWorkflowEditor(serviceName)} style={workflowEditButton}>Edit workflow</button>
+                            ) : null}
                           </div>
                         </div>
                       );
@@ -2738,30 +2823,92 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
 
       {!isTaskingWorkspace && activeSection === "internal" && (
         <SectionBody>
-          <div style={grid3}>
+          <div style={responsibilityGrid}>
             <UserSelect
               label="Client Lead"
               value={clientLeadUserId}
               setValue={setClientLeadUserId}
               users={users}
             />
-
             <UserSelect
               label="Default Work Owner"
+              value={defaultWorkOwnerUserId}
+              setValue={setDefaultWorkOwnerUserId}
+              users={users}
+              helperLabel="Same as Client Lead"
+              helperValue={clientLeadUserId}
+            />
+            <UserSelect
+              label="Reviewer"
+              value={reviewerUserId}
+              setValue={setReviewerUserId}
+              users={users}
+            />
+            <UserSelect
+              label="Manager"
               value={managerUserId}
               setValue={setManagerUserId}
               users={users}
+              helperLabel="Same as Reviewer"
+              helperValue={reviewerUserId}
             />
-
             <UserSelect
-              label="Reviewer"
+              label="Partner"
               value={partnerUserId}
               setValue={setPartnerUserId}
               users={users}
+              helperLabel="Same as Reviewer"
+              helperValue={reviewerUserId}
             />
           </div>
+          <div style={responsibilityHint}>The same person may hold more than one role. PracticePilot keeps the responsibilities separate without duplicating the same underlying work event.</div>
         </SectionBody>
       )}
+
+      {isTaskingWorkspace && editingWorkflowService ? (
+        <div style={workflowEditorBackdrop}>
+          <div style={workflowEditorPanel}>
+            <div style={workflowEditorHeader}>
+              <div>
+                <div style={workflowEditorEyebrow}>Client-specific workflow</div>
+                <strong style={workflowEditorTitle}>{editingWorkflowService}</strong>
+                <div style={workflowEditorSub}>Changes apply only to this client. The practice master template stays unchanged.</div>
+              </div>
+              <button type="button" onClick={() => setEditingWorkflowService("")} style={workflowCloseButton}>×</button>
+            </div>
+            <div style={workflowEditorColumns}><span>Order</span><span>Checklist step</span><span>Type</span><span>Evidence required</span><span /></div>
+            <div style={workflowEditorRows}>
+              {workflowStepsForService(editingWorkflowService).map((step, index) => (
+                <div key={`${editingWorkflowService}-${index}-${step.label}`} style={workflowEditorRow}>
+                  <div style={workflowOrderButtons}>
+                    <button type="button" onClick={() => moveWorkflowStep(editingWorkflowService, index, -1)} disabled={index === 0} style={workflowMiniButton}>↑</button>
+                    <button type="button" onClick={() => moveWorkflowStep(editingWorkflowService, index, 1)} disabled={index === workflowStepsForService(editingWorkflowService).length - 1} style={workflowMiniButton}>↓</button>
+                  </div>
+                  <input value={step.label} onChange={(e) => updateWorkflowStep(editingWorkflowService, index, { label: e.target.value })} style={workflowTextInput} />
+                  {step.item_type === "dependency" ? <span style={workflowTypeLocked}>Linked dependency</span> : (
+                    <select value={step.item_type || "manual"} onChange={(e) => updateWorkflowStep(editingWorkflowService, index, { item_type: e.target.value as "manual" | "review" | "submission" })} style={workflowTypeSelect}>
+                      <option value="manual">Preparation</option><option value="review">Reviewer controlled</option><option value="submission">Submission / filing</option>
+                    </select>
+                  )}
+                  <div style={workflowEvidenceCell}>
+                    {step.item_type !== "dependency" && step.item_type !== "review" ? <>
+                      <label style={workflowEvidenceCheck}><input type="checkbox" checked={Boolean(step.requires_evidence)} onChange={(e) => updateWorkflowStep(editingWorkflowService, index, { requires_evidence: e.target.checked, evidence_label: e.target.checked ? step.evidence_label || step.label : null })} /> Required</label>
+                      {step.requires_evidence ? <input value={step.evidence_label || ""} onChange={(e) => updateWorkflowStep(editingWorkflowService, index, { evidence_label: e.target.value })} placeholder="Evidence label" style={workflowEvidenceInput} /> : null}
+                    </> : <span style={workflowMuted}>—</span>}
+                  </div>
+                  <button type="button" onClick={() => deleteWorkflowStep(editingWorkflowService, index)} style={workflowDeleteButton}>Delete</button>
+                </div>
+              ))}
+            </div>
+            <div style={workflowEditorFooter}>
+              <button type="button" onClick={() => addWorkflowStep(editingWorkflowService)} style={secondaryButton}>+ Add step</button>
+              <button type="button" onClick={() => { resetClientWorkflow(editingWorkflowService); setEditingWorkflowService(""); }} style={secondaryButton}>Use practice default</button>
+              <div style={{ flex: 1 }} />
+              <button type="button" onClick={() => setEditingWorkflowService("")} style={primaryButton}>Done</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {!isTaskingWorkspace ? (
         <div style={footerBar}>
@@ -2781,7 +2928,7 @@ export default function ClientForm({ mode, clientId }: ClientFormProps) {
 
           <button
             type="button"
-            onClick={handleSave}
+            onClick={() => void handleSave(false)}
             disabled={saving}
             style={{
               ...primaryButton,
@@ -2843,26 +2990,42 @@ function UserSelect({
   value,
   setValue,
   users,
+  helperLabel,
+  helperValue,
 }: {
   label: string;
   value: string;
   setValue: (value: string) => void;
   users: UserOption[];
+  helperLabel?: string;
+  helperValue?: string;
 }) {
   return (
     <Field label={label}>
-      <select
-        style={inputStyle}
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-      >
-        <option value="">Unassigned</option>
-        {users.map((user) => (
-          <option key={user.id} value={user.id}>
-            {user.full_name || user.email}
-          </option>
-        ))}
-      </select>
+      <div style={responsibilitySelectWrap}>
+        <select
+          style={inputStyle}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        >
+          <option value="">Unassigned</option>
+          {users.map((user) => (
+            <option key={user.id} value={user.id}>
+              {user.full_name || user.email}
+            </option>
+          ))}
+        </select>
+
+        {helperLabel && helperValue ? (
+          <button
+            type="button"
+            onClick={() => setValue(helperValue)}
+            style={responsibilityHelperButton}
+          >
+            {helperLabel}
+          </button>
+        ) : null}
+      </div>
     </Field>
   );
 }
@@ -2977,6 +3140,26 @@ const inputStyle: React.CSSProperties = {
 
 const relationshipRow: React.CSSProperties = { display: "grid", gridTemplateColumns: "minmax(220px,.9fr) minmax(250px,1fr) minmax(0,1.4fr)", gap: "7px", alignItems: "end", marginBottom: "7px" };
 const relationshipSummary: React.CSSProperties = { minHeight: "28px", padding: "4px 7px", display: "flex", flexDirection: "column", justifyContent: "center", gap: "1px", borderLeft: "2px solid #819bad", background: "#f7f9fb", color: "#526273", fontSize: "9px", lineHeight: 1.3 };
+
+const responsibilityGrid: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "7px" };
+
+const responsibilitySelectWrap: React.CSSProperties = {
+  display: "grid",
+  gap: "4px",
+};
+
+const responsibilityHelperButton: React.CSSProperties = {
+  minHeight: "22px",
+  padding: "0 6px",
+  border: "1px solid #cbd5df",
+  background: "#f7f9fb",
+  color: "#4b6174",
+  fontSize: "8px",
+  fontWeight: 800,
+  cursor: "pointer",
+  textAlign: "left",
+};
+const responsibilityHint: React.CSSProperties = { marginTop: "7px", padding: "6px 8px", borderLeft: "3px solid #819bad", background: "#f7f9fb", color: "#607385", fontSize: "9px", lineHeight: 1.4 };
 
 const grid3: React.CSSProperties = {
   display: "grid",
@@ -3210,14 +3393,8 @@ const taskingInlineControls: React.CSSProperties = {
   gap: "5px",
 };
 
-const taskingPreviewCell: React.CSSProperties = {
-  color: "#324b5d",
-  fontSize: "10px",
-  fontWeight: 750,
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-};
+const taskingPreviewCell: React.CSSProperties = { minWidth: 0, display: "grid", gap: "4px", color: "#324b5d", fontSize: "10px", fontWeight: 750 };
+const workflowEditButton: React.CSSProperties = { width: "fit-content", minHeight: "24px", padding: "0 7px", border: "1px solid #bfcbd6", background: "#ffffff", color: "#31536d", fontSize: "8px", fontWeight: 800, cursor: "pointer" };
 
 const vatGuideBar: React.CSSProperties = {
   display: "flex",
@@ -3581,6 +3758,8 @@ const pageHeadingSubtext: React.CSSProperties = {
   color: "#64748b",
 };
 
+const topSaveActions: React.CSSProperties = { display: "flex", alignItems: "center", gap: "6px" };
+const topUpdateButton: React.CSSProperties = { padding: "7px 11px", border: "1px solid #397a52", borderRadius: 0, background: "#eef8f1", color: "#245b39", fontWeight: 800, fontSize: "10px", cursor: "pointer" };
 const topSaveButton: React.CSSProperties = {
   padding: "7px 11px",
   border: "1px solid #0f172a",
@@ -3607,3 +3786,26 @@ const contentSubtitle: React.CSSProperties = {
   fontSize: "10px",
   color: "#64748b",
 };
+
+
+const workflowEditorBackdrop: React.CSSProperties = { position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: "28px", background: "rgba(15,23,42,.46)" };
+const workflowEditorPanel: React.CSSProperties = { width: "min(1180px,96vw)", maxHeight: "88vh", display: "grid", gridTemplateRows: "auto auto minmax(0,1fr) auto", border: "1px solid #9fb0be", background: "#ffffff", boxShadow: "0 20px 50px rgba(15,23,42,.22)" };
+const workflowEditorHeader: React.CSSProperties = { display: "flex", justifyContent: "space-between", gap: "16px", padding: "12px 14px", borderBottom: "1px solid #ccd7df", background: "#f5f8fa" };
+const workflowEditorEyebrow: React.CSSProperties = { color: "#0f6f86", fontSize: "9px", fontWeight: 850 };
+const workflowEditorTitle: React.CSSProperties = { display: "block", marginTop: "2px", color: "#10233a", fontSize: "15px" };
+const workflowEditorSub: React.CSSProperties = { marginTop: "3px", color: "#667887", fontSize: "9px" };
+const workflowCloseButton: React.CSSProperties = { width: "30px", height: "30px", border: "1px solid #cbd5df", background: "#ffffff", color: "#33485f", fontSize: "18px", cursor: "pointer" };
+const workflowEditorColumns: React.CSSProperties = { display: "grid", gridTemplateColumns: "86px minmax(280px,1.7fr) 180px minmax(250px,1.2fr) 64px", gap: "7px", padding: "7px 10px", background: "#10233a", color: "#ffffff", fontSize: "9px", fontWeight: 850 };
+const workflowEditorRows: React.CSSProperties = { overflowY: "auto" };
+const workflowEditorRow: React.CSSProperties = { display: "grid", gridTemplateColumns: "86px minmax(280px,1.7fr) 180px minmax(250px,1.2fr) 64px", gap: "7px", alignItems: "center", minHeight: "46px", padding: "6px 10px", borderBottom: "1px solid #e0e7ec" };
+const workflowOrderButtons: React.CSSProperties = { display: "flex", gap: "4px" };
+const workflowMiniButton: React.CSSProperties = { width: "28px", height: "26px", border: "1px solid #c7d2dc", background: "#ffffff", color: "#42586b", cursor: "pointer" };
+const workflowTextInput: React.CSSProperties = { width: "100%", minHeight: "30px", padding: "4px 7px", boxSizing: "border-box", border: "1px solid #cbd5df", background: "#ffffff", color: "#10233a", fontSize: "9.5px" };
+const workflowTypeSelect: React.CSSProperties = { ...workflowTextInput };
+const workflowTypeLocked: React.CSSProperties = { padding: "6px 7px", border: "1px solid #d4dee6", background: "#f4f7f9", color: "#667887", fontSize: "9px", fontWeight: 800 };
+const workflowEvidenceCell: React.CSSProperties = { minWidth: 0, display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: "5px", alignItems: "center" };
+const workflowEvidenceCheck: React.CSSProperties = { display: "flex", alignItems: "center", gap: "4px", color: "#42586b", fontSize: "8.5px", fontWeight: 800 };
+const workflowEvidenceInput: React.CSSProperties = { ...workflowTextInput, minHeight: "28px" };
+const workflowMuted: React.CSSProperties = { color: "#99a5ae", fontSize: "9px" };
+const workflowDeleteButton: React.CSSProperties = { minHeight: "27px", padding: "0 7px", border: "1px solid #d8b1ab", background: "#fff7f5", color: "#9b4139", fontSize: "8px", fontWeight: 800, cursor: "pointer" };
+const workflowEditorFooter: React.CSSProperties = { display: "flex", alignItems: "center", gap: "6px", padding: "9px 10px", borderTop: "1px solid #ccd7df", background: "#f8fafb" };

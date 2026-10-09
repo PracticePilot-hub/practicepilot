@@ -517,7 +517,7 @@ export default function DocumentBrowser({
     if (!item) return;
 
     if (!selectedReviewerId) {
-      setError("Choose the person who must review this document.");
+      setError(`Choose the person who must review this ${item.type === "folder" ? "folder pack" : "document"}.`);
       return;
     }
 
@@ -549,6 +549,7 @@ export default function DocumentBrowser({
           },
           body: JSON.stringify({
             provider_path: item.path,
+            item_type: item.type,
             workflow_status: "awaiting_review",
             reviewer_user_id: selectedReviewerId,
             review_due_date: reviewDueDate,
@@ -560,7 +561,7 @@ export default function DocumentBrowser({
 
       if (!response.ok || !result?.success || !result?.workflow) {
         throw new Error(
-          result?.error || "Could not request document review."
+          result?.error || `Could not request ${item.type === "folder" ? "folder pack" : "document"} review.`
         );
       }
 
@@ -619,7 +620,7 @@ export default function DocumentBrowser({
       setError(
         caught instanceof Error
           ? caught.message
-          : "Could not request document review."
+          : `Could not request ${item.type === "folder" ? "folder pack" : "document"} review.`
       );
     } finally {
       setWorkflowBusyPath("");
@@ -658,6 +659,7 @@ export default function DocumentBrowser({
           },
           body: JSON.stringify({
             provider_path: item.path,
+            item_type: item.type,
             workflow_status: nextStatus,
           }),
         }
@@ -1012,6 +1014,7 @@ export default function DocumentBrowser({
 
     try {
       const visited = new Set<string>();
+      const pendingApproval: string[] = [];
 
       const walk = async (currentFolder: BrowseItem) => {
         if (visited.has(currentFolder.path)) return;
@@ -1041,19 +1044,21 @@ export default function DocumentBrowser({
           }
 
           if (makeVisible) {
-            let workflow = workflowByPathRef.current[child.path];
+            const workflow = workflowByPathRef.current[child.path];
 
-            if (workflow?.workflow_status === "awaiting_review") {
-              workflow = await patchWorkflow(child, { workflow_status: "reviewed" });
+            if (workflow?.workflow_status === "approved") {
+              await patchWorkflow(child, {
+                action: "release",
+              });
+            } else {
+              pendingApproval.push(child.name);
             }
 
-            if (workflow?.workflow_status !== "approved") {
-              await patchWorkflow(child, { workflow_status: "approved" });
-            }
+            continue;
           }
 
           await patchWorkflow(child, {
-            action: makeVisible ? "release" : "unrelease",
+            action: "unrelease",
           });
         }
       };
@@ -1063,7 +1068,15 @@ export default function DocumentBrowser({
       await load(currentPath, { force: true });
       setNotice(
         makeVisible
-          ? `${folder.name} and its current contents were released to the client under ${portalCategoryLabel(category)}.`
+          ? pendingApproval.length
+            ? `${folder.name} was released under ${portalCategoryLabel(
+                category
+              )}. ${pendingApproval.length} document${
+                pendingApproval.length === 1 ? "" : "s"
+              } remain internal until review and approval are completed.`
+            : `${folder.name} and all approved documents were released to the client under ${portalCategoryLabel(
+                category
+              )}.`
           : `Client access was removed from ${folder.name} and its current contents.`
       );
     } catch (caught) {
@@ -1276,16 +1289,14 @@ export default function DocumentBrowser({
       return;
     }
 
-    const matchingFile = (data.items || []).find(
-      (item) =>
-        item.type === "file" &&
-        item.path === normalisedDocumentPath
+    const matchingItem = (data.items || []).find(
+      (item) => item.path === normalisedDocumentPath
     );
 
-    if (matchingFile) {
-      setFocusedItem(matchingFile);
-      setSelected(new Set([itemKey(matchingFile)]));
-      setRightTab("preview");
+    if (matchingItem) {
+      setFocusedItem(matchingItem);
+      setSelected(new Set([itemKey(matchingItem)]));
+      setRightTab(matchingItem.type === "file" ? "preview" : "details");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workflowReady, data?.current_path, data?.items]);
@@ -1551,8 +1562,48 @@ export default function DocumentBrowser({
       if (!response.ok || !result?.success) {
         throw new Error(result?.error || "Could not upload the document.");
       }
-      setNotice(`${file.name} uploaded successfully.`);
-      await load(currentPath, { force: true });
+      const uploadedPath = `${currentPath.replace(/\/+$/, "")}/${file.name}`;
+
+      const uploadedItem: BrowseItem = {
+        id: result?.file?.id || result?.document?.id || null,
+        name: file.name,
+        path:
+          String(
+            result?.file?.path ||
+              result?.document?.path ||
+              result?.path ||
+              uploadedPath
+          ).trim() || uploadedPath,
+        type: "file",
+        size_bytes:
+          typeof result?.file?.size_bytes === "number"
+            ? result.file.size_bytes
+            : file.size,
+        modified_at:
+          result?.file?.modified_at ||
+          result?.document?.modified_at ||
+          new Date().toISOString(),
+        workflow_status: "stored",
+        client_visible: false,
+        recent_activity: "Document uploaded. Review required.",
+      };
+
+      setFocusedItem(uploadedItem);
+      setSelected(new Set([itemKey(uploadedItem)]));
+      setRightTab("details");
+
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+        setPreviewUrl("");
+      }
+
+      setNotice(`${file.name} uploaded successfully. Choose a reviewer.`);
+      openReviewRequest(uploadedItem);
+
+      // Refresh the provider-backed folder after opening the review request.
+      // The review modal does not depend on Egnyte's folder listing becoming
+      // consistent immediately after upload.
+      void load(currentPath, { force: true }).catch(() => undefined);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -2909,57 +2960,175 @@ export default function DocumentBrowser({
               </div>
 
               {currentFolderItem ? (
-                <div style={styles.portalCard}>
-                  <div style={styles.portalCardHeading}>
-                    <span style={styles.portalCardIcon}>▣</span>
-                    <strong>Client Portal Folder Pack</strong>
+                <>
+                  <div style={styles.workflowStatusSummary}>
+                    <div style={styles.workflowPills}>
+                      <span
+                        style={{
+                          ...styles.statusPill,
+                          ...workflowTone(currentFolderItem),
+                        }}
+                      >
+                        {workflowLabel(currentFolderItem)}
+                      </span>
+
+                      <span
+                        style={
+                          currentFolderItem.client_visible === true
+                            ? styles.workflowReleasePillVisible
+                            : styles.workflowReleasePill
+                        }
+                      >
+                        {currentFolderItem.client_visible === true
+                          ? "● Client Visible"
+                          : "Internal"}
+                      </span>
+                    </div>
+
+                    {workflowByPath[currentFolderItem.path]?.review_assigned_user_id ? (
+                      <div style={styles.workflowReviewerLine}>
+                        <span style={styles.workflowReviewerIcon}>○</span>
+                        <span>
+                          Reviewer:{" "}
+                          <strong>
+                            {reviewerName(
+                              workflowByPath[currentFolderItem.path]
+                                ?.review_assigned_user_id
+                            )}
+                          </strong>
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
 
-                  <select
-                    value={
-                      workflowByPath[currentFolderItem.path]?.portal_category ||
-                      "general"
-                    }
-                    onChange={(event) =>
-                      void updatePortalCategory(
-                        currentFolderItem,
-                        event.target.value as PortalCategory
-                      )
-                    }
-                    disabled={workflowBusyPath === currentFolderItem.path}
-                    style={styles.portalCategorySelect}
-                  >
-                    {PORTAL_CATEGORY_OPTIONS.map((category) => (
-                      <option key={category.value} value={category.value}>
-                        {category.label}
-                      </option>
-                    ))}
-                  </select>
+                  <div style={styles.portalCard}>
+                    <div style={styles.portalCardHeading}>
+                      <span style={styles.portalCardIcon}>▣</span>
+                      <strong>Client Portal Folder Pack</strong>
+                    </div>
 
-                  <button
-                    type="button"
-                    disabled={workflowBusyPath === currentFolderItem.path}
-                    onClick={() =>
-                      void releaseFolderPack(
-                        currentFolderItem,
+                    <select
+                      value={
                         workflowByPath[currentFolderItem.path]?.portal_category ||
-                          "general",
-                        currentFolderItem.client_visible !== true
-                      )
-                    }
-                    style={styles.workflowPrimaryAction}
-                  >
-                    {workflowBusyPath === currentFolderItem.path
-                      ? "Updating folder pack..."
-                      : currentFolderItem.client_visible === true
-                        ? "Remove Folder from Client"
-                        : "Release Folder to Client"}
-                  </button>
+                        "general"
+                      }
+                      onChange={(event) =>
+                        void updatePortalCategory(
+                          currentFolderItem,
+                          event.target.value as PortalCategory
+                        )
+                      }
+                      disabled={workflowBusyPath === currentFolderItem.path}
+                      style={styles.portalCategorySelect}
+                    >
+                      {PORTAL_CATEGORY_OPTIONS.map((category) => (
+                        <option key={category.value} value={category.value}>
+                          {category.label}
+                        </option>
+                      ))}
+                    </select>
 
-                  <span style={styles.portalCategoryHint}>
-                    Releasing a folder publishes the folder and its current contents as one client pack.
-                  </span>
-                </div>
+                    <span style={styles.portalCategoryHint}>
+                      The folder pack follows the same review and approval workflow as an individual document.
+                    </span>
+                  </div>
+
+                  <div style={styles.actionCard}>
+                    <div style={styles.actionCardHeading}>Folder Pack Workflow</div>
+
+                    {workflowLabel(currentFolderItem) === "Stored" ||
+                    workflowLabel(currentFolderItem) === "Rejected" ? (
+                      <button
+                        type="button"
+                        disabled={workflowBusyPath === currentFolderItem.path}
+                        onClick={() => openReviewRequest(currentFolderItem)}
+                        style={styles.workflowPrimaryAction}
+                      >
+                        {workflowBusyPath === currentFolderItem.path
+                          ? "Updating..."
+                          : "Request Review"}
+                      </button>
+                    ) : null}
+
+                    {workflowLabel(currentFolderItem) === "Awaiting Review" ? (
+                      <button
+                        type="button"
+                        disabled={workflowBusyPath === currentFolderItem.path}
+                        onClick={() =>
+                          void updateWorkflowStatus(
+                            currentFolderItem,
+                            "reviewed"
+                          )
+                        }
+                        style={styles.workflowPrimaryAction}
+                      >
+                        {workflowBusyPath === currentFolderItem.path
+                          ? "Updating..."
+                          : "Mark Reviewed"}
+                      </button>
+                    ) : null}
+
+                    {workflowLabel(currentFolderItem) === "Reviewed" ? (
+                      <button
+                        type="button"
+                        disabled={workflowBusyPath === currentFolderItem.path}
+                        onClick={() =>
+                          void updateWorkflowStatus(
+                            currentFolderItem,
+                            "approved"
+                          )
+                        }
+                        style={styles.workflowPrimaryAction}
+                      >
+                        {workflowBusyPath === currentFolderItem.path
+                          ? "Updating..."
+                          : "Approve Folder Pack"}
+                      </button>
+                    ) : null}
+
+                    {workflowLabel(currentFolderItem) === "Approved" &&
+                    currentFolderItem.client_visible !== true ? (
+                      <button
+                        type="button"
+                        disabled={workflowBusyPath === currentFolderItem.path}
+                        onClick={() =>
+                          void releaseFolderPack(
+                            currentFolderItem,
+                            workflowByPath[currentFolderItem.path]
+                              ?.portal_category || "general",
+                            true
+                          )
+                        }
+                        style={styles.workflowPrimaryAction}
+                      >
+                        {workflowBusyPath === currentFolderItem.path
+                          ? "Releasing..."
+                          : "Release Folder to Client"}
+                      </button>
+                    ) : null}
+
+                    {workflowLabel(currentFolderItem) === "Approved" &&
+                    currentFolderItem.client_visible === true ? (
+                      <button
+                        type="button"
+                        disabled={workflowBusyPath === currentFolderItem.path}
+                        onClick={() =>
+                          void releaseFolderPack(
+                            currentFolderItem,
+                            workflowByPath[currentFolderItem.path]
+                              ?.portal_category || "general",
+                            false
+                          )
+                        }
+                        style={styles.workflowPrimaryAction}
+                      >
+                        {workflowBusyPath === currentFolderItem.path
+                          ? "Updating..."
+                          : "Remove Folder from Client"}
+                      </button>
+                    ) : null}
+                  </div>
+                </>
               ) : null}
 
               <div style={styles.folderOverviewHint}>
@@ -3099,7 +3268,7 @@ export default function DocumentBrowser({
               <div style={styles.modalTitleWrap}>
                 <span style={styles.reviewModalIcon}>✓</span>
                 <div>
-                  <strong style={styles.modalTitle}>Request Review</strong>
+                  <strong style={styles.modalTitle}>{reviewRequestItem.type === "folder" ? "Request Folder Pack Review" : "Request Review"}</strong>
                   <span style={styles.modalSubtitle}>
                     {reviewRequestItem.name}
                   </span>

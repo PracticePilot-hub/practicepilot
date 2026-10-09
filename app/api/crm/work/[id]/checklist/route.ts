@@ -17,14 +17,18 @@ function adminClient() {
   });
 }
 
-async function authContext(request: Request, workId: string, supabase: ReturnType<typeof adminClient>) {
+async function authContext(
+  request: Request,
+  workId: string,
+  supabase: ReturnType<typeof adminClient>
+) {
   const token = String(request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
   const { data: authData, error: authError } = await supabase.auth.getUser(token);
   if (authError || !authData.user) return null;
 
   const { data: profile } = await supabase
     .from("user_profiles")
-    .select("user_id, organisation_id, access_enabled")
+    .select("id, user_id, organisation_id, access_enabled")
     .eq("user_id", authData.user.id)
     .maybeSingle();
 
@@ -36,10 +40,7 @@ async function authContext(request: Request, workId: string, supabase: ReturnTyp
     .eq("id", workId)
     .maybeSingle();
 
-  if (
-    !work ||
-    String(work.organisation_id || "") !== String(profile.organisation_id || "")
-  ) {
+  if (!work || String(work.organisation_id || "") !== String(profile.organisation_id || "")) {
     return null;
   }
 
@@ -53,15 +54,11 @@ export async function POST(request: Request, context: any) {
     const supabase = adminClient();
     const auth = await authContext(request, workId, supabase);
 
-    if (!auth) {
-      return NextResponse.json({ error: "Access denied." }, { status: 403 });
-    }
+    if (!auth) return NextResponse.json({ error: "Access denied." }, { status: 403 });
 
     const body = await request.json();
     const label = String(body.label || "").trim();
-    if (!label) {
-      return NextResponse.json({ error: "Checklist item is required." }, { status: 400 });
-    }
+    if (!label) return NextResponse.json({ error: "Checklist item is required." }, { status: 400 });
 
     const { data: lastItem } = await supabase
       .from("crm_work_item_checklist")
@@ -71,26 +68,22 @@ export async function POST(request: Request, context: any) {
       .limit(1)
       .maybeSingle();
 
-    const { error } = await supabase
-      .from("crm_work_item_checklist")
-      .insert({
-        work_item_id: workId,
-        item_order: Number(lastItem?.item_order || 0) + 1,
-        label,
-        status: "outstanding",
-        item_type: "manual",
-        template_key: "manual_addition",
-      });
+    const { error } = await supabase.from("crm_work_item_checklist").insert({
+      work_item_id: workId,
+      item_order: Number(lastItem?.item_order || 0) + 1,
+      label,
+      status: "outstanding",
+      item_type: "manual",
+      template_key: "manual_addition",
+      requires_evidence: false,
+      evidence_label: null,
+    });
 
     if (error) throw error;
-
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Add checklist item failed:", error);
-    return NextResponse.json(
-      { error: error?.message || "Could not add checklist item." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error?.message || "Could not add checklist item." }, { status: 500 });
   }
 }
 
@@ -101,69 +94,66 @@ export async function PATCH(request: Request, context: any) {
     const supabase = adminClient();
     const auth = await authContext(request, workId, supabase);
 
-    if (!auth) {
-      return NextResponse.json({ error: "Access denied." }, { status: 403 });
-    }
+    if (!auth) return NextResponse.json({ error: "Access denied." }, { status: 403 });
 
     const body = await request.json();
     const itemId = String(body.itemId || "").trim();
 
     const { data: item, error: itemError } = await supabase
       .from("crm_work_item_checklist")
-      .select("id, item_type, status, allow_not_applicable")
+      .select("id, item_type, status, allow_not_applicable, requires_evidence, evidence_label")
       .eq("id", itemId)
       .eq("work_item_id", workId)
       .maybeSingle();
 
-    if (itemError || !item) {
-      return NextResponse.json({ error: "Checklist item not found." }, { status: 404 });
-    }
+    if (itemError || !item) return NextResponse.json({ error: "Checklist item not found." }, { status: 404 });
 
     if (item.item_type === "dependency") {
-      return NextResponse.json(
-        { error: "Dependency items are completed automatically from linked PracticePilot work." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Dependency items are completed automatically from linked PracticePilot work." }, { status: 400 });
+    }
+
+    if (item.item_type === "review") {
+      return NextResponse.json({ error: "Review steps are controlled by the assigned reviewer workflow. Use Send to Reviewer / Approve Review." }, { status: 403 });
     }
 
     const status = String(body.status || item.status);
     const allowed = new Set(["outstanding", "received", "completed", "not_applicable"]);
-
-    if (!allowed.has(status)) {
-      return NextResponse.json({ error: "Invalid checklist status." }, { status: 400 });
-    }
+    if (!allowed.has(status)) return NextResponse.json({ error: "Invalid checklist status." }, { status: 400 });
 
     if (status === "not_applicable" && item.allow_not_applicable === false) {
-      return NextResponse.json(
-        { error: "This checklist step is required by the practice and cannot be marked N/A." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "This checklist step is required by the practice and cannot be marked N/A." }, { status: 400 });
+    }
+
+    if (status === "completed" && item.requires_evidence) {
+      const { count, error: evidenceError } = await supabase
+        .from("crm_work_item_evidence")
+        .select("id", { count: "exact", head: true })
+        .eq("organisation_id", auth.profile.organisation_id)
+        .eq("work_item_id", workId)
+        .eq("checklist_item_id", itemId);
+      if (evidenceError) throw evidenceError;
+      if (!count) {
+        return NextResponse.json({ error: `Upload ${item.evidence_label || "the required evidence"} before completing this step.` }, { status: 409 });
+      }
     }
 
     const updatePayload: Record<string, any> = {
       status,
       updated_at: new Date().toISOString(),
     };
-
-    if (body.notes !== undefined) {
-      updatePayload.notes = String(body.notes || "").trim() || null;
-    }
+    if (body.notes !== undefined) updatePayload.notes = String(body.notes || "").trim() || null;
 
     const { error } = await supabase
       .from("crm_work_item_checklist")
       .update(updatePayload)
       .eq("id", itemId)
       .eq("work_item_id", workId);
-
     if (error) throw error;
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Update checklist item failed:", error);
-    return NextResponse.json(
-      { error: error?.message || "Could not update checklist item." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error?.message || "Could not update checklist item." }, { status: 500 });
   }
 }
 
@@ -173,10 +163,7 @@ export async function DELETE(request: Request, context: any) {
     const workId = String(params?.id || "").trim();
     const supabase = adminClient();
     const auth = await authContext(request, workId, supabase);
-
-    if (!auth) {
-      return NextResponse.json({ error: "Access denied." }, { status: 403 });
-    }
+    if (!auth) return NextResponse.json({ error: "Access denied." }, { status: 403 });
 
     const url = new URL(request.url);
     const itemId = String(url.searchParams.get("itemId") || "").trim();
@@ -188,15 +175,9 @@ export async function DELETE(request: Request, context: any) {
       .eq("work_item_id", workId)
       .maybeSingle();
 
-    if (!item) {
-      return NextResponse.json({ error: "Checklist item not found." }, { status: 404 });
-    }
-
-    if (item.item_type === "dependency") {
-      return NextResponse.json(
-        { error: "Generated dependency items cannot be deleted here." },
-        { status: 400 }
-      );
+    if (!item) return NextResponse.json({ error: "Checklist item not found." }, { status: 404 });
+    if (item.item_type === "dependency" || item.item_type === "review") {
+      return NextResponse.json({ error: "Generated dependency/review items cannot be deleted from a live work item." }, { status: 400 });
     }
 
     const { error } = await supabase
@@ -204,15 +185,11 @@ export async function DELETE(request: Request, context: any) {
       .delete()
       .eq("id", itemId)
       .eq("work_item_id", workId);
-
     if (error) throw error;
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Delete checklist item failed:", error);
-    return NextResponse.json(
-      { error: error?.message || "Could not delete checklist item." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error?.message || "Could not delete checklist item." }, { status: 500 });
   }
 }

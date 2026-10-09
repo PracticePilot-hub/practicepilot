@@ -30,11 +30,15 @@ async function getProfile(request: Request) {
     error: authError,
   } = await admin.auth.getUser(token);
 
-  if (authError || !user) throw new Error("Not authenticated.");
+  if (authError || !user) {
+    throw new Error("Not authenticated.");
+  }
 
   const { data: profile, error } = await admin
     .from("user_profiles")
-    .select("organisation_id, access_enabled")
+    .select(
+      "organisation_id, access_enabled, can_view_commercial_reports"
+    )
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -42,6 +46,10 @@ async function getProfile(request: Request) {
 
   if (!profile?.access_enabled || !profile.organisation_id) {
     throw new Error("Practice access could not be confirmed.");
+  }
+
+  if (profile.can_view_commercial_reports !== true) {
+    throw new Error("You do not have access to commercial practice reports.");
   }
 
   return profile;
@@ -126,13 +134,14 @@ export async function GET(request: Request) {
       },
     });
   } catch (error: any) {
+    const message =
+      error?.message || "Could not load Billing to be done.";
+
     return NextResponse.json(
+      { success: false, error: message },
       {
-        success: false,
-        error:
-          error?.message || "Could not load Billing to be done.",
-      },
-      { status: 500 }
+        status: message.includes("access") ? 403 : 500,
+      }
     );
   }
 }

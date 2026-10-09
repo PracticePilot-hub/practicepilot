@@ -46,6 +46,14 @@ type PortalMeResponse = {
 
   };
 
+  clients?: Array<{
+
+    id: string;
+
+    client_name: string;
+
+  }>;
+
   portal_user?: {
 
     full_name: string | null;
@@ -254,71 +262,102 @@ export default function ClientPortalRequestActionPage() {
   }
 
   async function load() {
-
     setLoading(true);
-
     setError("");
 
     try {
-
       const token = await sessionToken();
 
-      const response = await fetch("/api/client-portal/me", {
+      async function fetchPortalMe(clientId?: string) {
+        const query = clientId
+          ? `?client=${encodeURIComponent(clientId)}`
+          : "";
 
-        cache: "no-store",
+        const response = await fetch(
+          `/api/client-portal/me${query}`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
 
-        headers: {
+        const result = (await response.json()) as PortalMeResponse;
 
-          Authorization: `Bearer ${token}`,
+        if (!response.ok || !result?.success) {
+          throw new Error(
+            result?.error || "Could not load the request."
+          );
+        }
 
-        },
-
-      });
-
-      const result = (await response.json()) as PortalMeResponse;
-
-      if (!response.ok || !result?.success) {
-
-        throw new Error(result?.error || "Could not load the request.");
-
+        return result;
       }
 
-      const request = (result.requests || []).find(
+      const initialResult = await fetchPortalMe();
 
+      let matchedResult: PortalMeResponse | null = null;
+      let matchedRequest: PortalRequest | null = null;
+
+      const initialRequest = (initialResult.requests || []).find(
         (item) => item.id === requestId
-
       );
 
-      if (!request) {
+      if (initialRequest) {
+        matchedResult = initialResult;
+        matchedRequest = initialRequest;
+      }
 
-        throw new Error("This request is not available to your portal login.");
+      if (!matchedRequest) {
+        const linkedClientIds = Array.from(
+          new Set(
+            [
+              initialResult.client?.id,
+              ...(initialResult.clients || []).map(
+                (client) => client.id
+              ),
+            ].filter((value): value is string => Boolean(value))
+          )
+        );
 
+        for (const linkedClientId of linkedClientIds) {
+          if (linkedClientId === initialResult.client?.id) continue;
+
+          const clientResult = await fetchPortalMe(linkedClientId);
+
+          const clientRequest = (
+            clientResult.requests || []
+          ).find((item) => item.id === requestId);
+
+          if (clientRequest) {
+            matchedResult = clientResult;
+            matchedRequest = clientRequest;
+            break;
+          }
+        }
+      }
+
+      if (!matchedResult || !matchedRequest) {
+        throw new Error(
+          "This request is not available to your portal login."
+        );
       }
 
       setData({
-
-        ...result,
-
-        requests: [request],
-
+        ...matchedResult,
+        requests: [matchedRequest],
       });
 
-      setResponseText(request.response_text || "");
-
+      setResponseText(matchedRequest.response_text || "");
     } catch (caught) {
-
       setError(
-
-        caught instanceof Error ? caught.message : "Could not load the request."
-
+        caught instanceof Error
+          ? caught.message
+          : "Could not load the request."
       );
-
     } finally {
-
       setLoading(false);
-
     }
-
   }
 
   const request = useMemo(
@@ -328,6 +367,16 @@ export default function ClientPortalRequestActionPage() {
     [data]
 
   );
+
+  function requestsHref() {
+    const selectedClientId = data?.client?.id || "";
+
+    return selectedClientId
+      ? `/client-portal?view=requests&client=${encodeURIComponent(
+          selectedClientId
+        )}`
+      : "/client-portal?view=requests";
+  }
 
   async function submitAction(action: string) {
 
@@ -411,7 +460,7 @@ export default function ClientPortalRequestActionPage() {
 
       window.setTimeout(() => {
 
-        router.push("/client-portal?view=requests");
+        router.push(requestsHref());
 
         router.refresh();
 
@@ -455,7 +504,7 @@ export default function ClientPortalRequestActionPage() {
 
           type="button"
 
-          onClick={() => router.push("/client-portal?view=requests")}
+          onClick={() => router.push(requestsHref())}
 
           style={styles.secondaryButton}
 
@@ -541,7 +590,7 @@ export default function ClientPortalRequestActionPage() {
 
             type="button"
 
-            onClick={() => router.push("/client-portal?view=requests")}
+            onClick={() => router.push(requestsHref())}
 
             style={styles.sideButtonActive}
 
@@ -559,7 +608,7 @@ export default function ClientPortalRequestActionPage() {
 
             type="button"
 
-            onClick={() => router.push("/client-portal?view=requests")}
+            onClick={() => router.push(requestsHref())}
 
             style={styles.backButton}
 
@@ -823,7 +872,7 @@ export default function ClientPortalRequestActionPage() {
 
                       window.setTimeout(() => {
 
-                        router.push("/client-portal?view=requests");
+                        router.push(requestsHref());
 
                         router.refresh();
 

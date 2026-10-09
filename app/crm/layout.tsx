@@ -12,7 +12,7 @@ const navItems = [
   { label: "Secretarial", href: "/crm/secretarial", icon: "secretarial" as IconName },
   { label: "FlightDeck", href: "/crm/flightdeck", icon: "flightdeck" as IconName, managerOnly: true },
   { label: "Practice Reports", href: "/crm/reports", icon: "reports" as IconName },
-  { label: "Commercials", href: "/crm/commercials", icon: "commercials" as IconName, managerOnly: true },
+  { label: "Commercials", href: "/crm/commercials", icon: "commercials" as IconName, commercialOnly: true },
 ];
 type ClientSummary = {
   client_name: string;
@@ -20,6 +20,7 @@ type ClientSummary = {
 };
 type IconName = string;
 let cachedManagerNavAccess: boolean | null = null;
+let cachedCommercialNavAccess: boolean | null = null;
 function NavIcon({ name }: { name: IconName }) {
   const common = {
     width: 16,
@@ -198,17 +199,24 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
   const showClientPanel = Boolean(clientId) || isNewClient;
   const [clientSummary, setClientSummary] = useState<ClientSummary | null>(null);
   const [clientSummaryLoaded, setClientSummaryLoaded] = useState(!clientId);
-  const [canViewCommercials, setCanViewCommercials] = useState(
+  const [canViewManagerNav, setCanViewManagerNav] = useState(
     cachedManagerNavAccess === true
   );
-  const [managerNavLoaded, setManagerNavLoaded] = useState(
-    cachedManagerNavAccess !== null
+  const [canViewCommercials, setCanViewCommercials] = useState(
+    cachedCommercialNavAccess === true
+  );
+  const [navPermissionsLoaded, setNavPermissionsLoaded] = useState(
+    cachedManagerNavAccess !== null && cachedCommercialNavAccess !== null
   );
   useEffect(() => {
     let cancelled = false;
-    if (cachedManagerNavAccess !== null) {
-      setCanViewCommercials(cachedManagerNavAccess);
-      setManagerNavLoaded(true);
+    if (
+      cachedManagerNavAccess !== null &&
+      cachedCommercialNavAccess !== null
+    ) {
+      setCanViewManagerNav(cachedManagerNavAccess);
+      setCanViewCommercials(cachedCommercialNavAccess);
+      setNavPermissionsLoaded(true);
       return () => {
         cancelled = true;
       };
@@ -222,19 +230,23 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
         if (!user || cancelled) {
           if (!cancelled) {
             cachedManagerNavAccess = false;
+            cachedCommercialNavAccess = false;
+            setCanViewManagerNav(false);
             setCanViewCommercials(false);
-            setManagerNavLoaded(true);
+            setNavPermissionsLoaded(true);
           }
           return;
         }
         const { data: profile, error } = await supabase
           .from("user_profiles")
-          .select("role, access_enabled, can_manage_practice_users")
+          .select(
+            "role, access_enabled, can_manage_practice_users, can_access_commercials"
+          )
           .eq("user_id", user.id)
           .maybeSingle();
         if (error) throw error;
         if (cancelled) return;
-        const allowed = Boolean(
+        const managerAllowed = Boolean(
           profile?.access_enabled &&
             (
               ["Client Manager", "Admin", "Super Admin"].includes(
@@ -243,17 +255,25 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
               profile?.can_manage_practice_users === true
             )
         );
-        cachedManagerNavAccess = allowed;
-        setCanViewCommercials(allowed);
+        const commercialAllowed = Boolean(
+          profile?.access_enabled &&
+            profile?.can_access_commercials === true
+        );
+        cachedManagerNavAccess = managerAllowed;
+        cachedCommercialNavAccess = commercialAllowed;
+        setCanViewManagerNav(managerAllowed);
+        setCanViewCommercials(commercialAllowed);
       } catch (error) {
         console.error("Could not resolve CRM navigation permissions:", error);
         if (!cancelled) {
           cachedManagerNavAccess = false;
+          cachedCommercialNavAccess = false;
+          setCanViewManagerNav(false);
           setCanViewCommercials(false);
         }
       } finally {
         if (!cancelled) {
-          setManagerNavLoaded(true);
+          setNavPermissionsLoaded(true);
         }
       }
     })();
@@ -261,7 +281,7 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, []);
-  useEffect(() => {
+    useEffect(() => {
     let cancelled = false;
     if (!clientId) {
       setClientSummary(null);
@@ -367,7 +387,7 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
         {
           label: "Client Setup",
           icon: "core" as IconName,
-          href: `/crm/edit-client?id=${clientId}&section=core`,
+          href: `/crm/edit-client?id=${clientId}§ion=core`,
           active:
             pathname === "/crm/edit-client" &&
             editSection !== "services" &&
@@ -377,7 +397,7 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
         {
           label: "Tasking Setup",
           icon: "tasking" as IconName,
-          href: `/crm/edit-client?id=${clientId}&section=services`,
+          href: `/crm/edit-client?id=${clientId}§ion=services`,
           active:
             pathname === "/crm/edit-client" &&
             (editSection === "services" || editSection === "tasking"),
@@ -392,7 +412,7 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
     { label: "Tasking Setup", icon: "tasking" as IconName, section: "tasking", setup: true },
   ];
   const crmShellReady =
-    managerNavLoaded &&
+    navPermissionsLoaded &&
     (!showClientPanel || isNewClient || clientSummaryLoaded);
   if (!crmShellReady) {
     return (
@@ -414,7 +434,11 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
         <div style={sidebarTitle}>CRM</div>
         <nav style={nav}>
           {navItems
-            .filter((item) => !item.managerOnly || canViewCommercials)
+            .filter((item) => {
+            if (item.managerOnly && !canViewManagerNav) return false;
+            if (item.commercialOnly && !canViewCommercials) return false;
+            return true;
+          })
             .map((item) => {
             const active = isActive(item.href);
             return (

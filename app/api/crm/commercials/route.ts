@@ -37,7 +37,7 @@ async function getCommercialAccess(request: Request) {
   const { data: profile, error: profileError } = await admin
     .from("user_profiles")
     .select(
-      "user_id, organisation_id, role, access_enabled, can_manage_practice_users"
+      "user_id, organisation_id, role, access_enabled, can_manage_practice_users, can_access_commercials, can_view_commercial_reports"
     )
     .eq("user_id", user.id)
     .maybeSingle();
@@ -48,12 +48,7 @@ async function getCommercialAccess(request: Request) {
     throw new Error("Your PracticePilot practice access could not be confirmed.");
   }
 
-  const allowed =
-    profile.role === "Client Manager" ||
-    profile.role === "Admin" ||
-    profile.role === "Super Admin";
-
-  if (!allowed) {
+  if (profile.can_access_commercials !== true) {
     throw new Error("You do not have access to client commercial terms.");
   }
 
@@ -102,9 +97,17 @@ export async function GET(request: Request) {
     });
   } catch (error: any) {
     const message = error?.message || "Could not load client commercial terms.";
+
     return NextResponse.json(
       { success: false, error: message },
-      { status: message.includes("access") ? 403 : 500 }
+      {
+        status:
+          message.includes("access") ||
+          message.includes("signed in") ||
+          message.includes("login session")
+            ? 403
+            : 500,
+      }
     );
   }
 }
@@ -115,6 +118,7 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     const clientId = String(body?.clientId || "").trim();
+
     if (!clientId) {
       return NextResponse.json(
         { success: false, error: "Client is required." },
@@ -131,6 +135,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (clientError) throw clientError;
+
     if (!client) {
       return NextResponse.json(
         { success: false, error: "Flying Client not found." },
@@ -199,9 +204,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true });
   } catch (error: any) {
     const message = error?.message || "Could not save client commercial terms.";
+
     return NextResponse.json(
       { success: false, error: message },
-      { status: message.includes("access") ? 403 : 500 }
+      {
+        status:
+          message.includes("access") ||
+          message.includes("signed in") ||
+          message.includes("login session")
+            ? 403
+            : 500,
+      }
     );
   }
 }

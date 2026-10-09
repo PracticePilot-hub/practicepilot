@@ -36,7 +36,9 @@ async function getContext(request: Request, clientId: string) {
 
   const { data: profile, error: profileError } = await admin
     .from("user_profiles")
-    .select("organisation_id, role, access_enabled")
+    .select(
+      "organisation_id, role, access_enabled, can_access_commercials"
+    )
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -46,11 +48,7 @@ async function getContext(request: Request, clientId: string) {
     throw new Error("Your PracticePilot practice access could not be confirmed.");
   }
 
-  if (
-    !["Client Manager", "Admin", "Super Admin"].includes(
-      String(profile.role || "")
-    )
-  ) {
+  if (profile.can_access_commercials !== true) {
     throw new Error("You do not have access to client commercial terms.");
   }
 
@@ -74,6 +72,86 @@ function nestedServiceName(value: any) {
   return value?.service_name || "";
 }
 
+function dateOnlyToday() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function previousDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() - 1);
+
+  const outYear = date.getFullYear();
+  const outMonth = String(date.getMonth() + 1).padStart(2, "0");
+  const outDay = String(date.getDate()).padStart(2, "0");
+
+  return `${outYear}-${outMonth}-${outDay}`;
+}
+
+function nullableNumber(value: unknown) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function normalText(value: unknown) {
+  const text = String(value || "").trim();
+  return text || null;
+}
+
+function sameNumber(a: unknown, b: unknown) {
+  const left = a == null || a === "" ? null : Number(a);
+  const right = b == null || b === "" ? null : Number(b);
+
+  if (left == null && right == null) return true;
+  return left === right;
+}
+
+function commercialRuleChanged(existing: any, next: any) {
+  return (
+    String(existing?.billing_treatment || "included") !==
+      String(next.billing_treatment || "included") ||
+    !sameNumber(existing?.fee_amount, next.fee_amount) ||
+    !sameNumber(existing?.hourly_rate, next.hourly_rate) ||
+    normalText(existing?.fee_frequency) !==
+      normalText(next.fee_frequency) ||
+    normalText(existing?.scope_notes) !== normalText(next.scope_notes)
+  );
+}
+
+async function snapshotHistory(
+  profile: any,
+  clientId: string,
+  existing: any,
+  effectiveTo: string
+) {
+  const effectiveFrom =
+    String(existing?.effective_from || "").trim() || dateOnlyToday();
+
+  const { error } = await admin
+    .from("crm_client_commercial_service_term_history")
+    .insert({
+      organisation_id: profile.organisation_id,
+      client_id: clientId,
+      client_service_id: existing.client_service_id || null,
+      source_term_id: existing.id,
+      service_name: existing.service_name,
+      billing_treatment: existing.billing_treatment || "included",
+      fee_amount: existing.fee_amount ?? null,
+      hourly_rate: existing.hourly_rate ?? null,
+      fee_frequency: existing.fee_frequency || null,
+      scope_notes: existing.scope_notes || null,
+      effective_from: effectiveFrom,
+      effective_to: effectiveTo,
+    });
+
+  if (error) throw error;
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> }
@@ -85,6 +163,7 @@ export async function GET(
     const [
       { data: terms, error: termsError },
       { data: serviceTerms, error: serviceTermsError },
+      { data: serviceHistory, error: historyError },
       { data: clientServices, error: clientServicesError },
     ] = await Promise.all([
       admin
@@ -104,6 +183,13 @@ export async function GET(
         .order("service_name", { ascending: true }),
 
       admin
+        .from("crm_client_commercial_service_term_history")
+        .select("*")
+        .eq("organisation_id", profile.organisation_id)
+        .eq("client_id", id)
+        .order("effective_from", { ascending: false }),
+
+      admin
         .from("crm_client_services")
         .select(
           "id, frequency, is_active, crm_services(id, service_name, service_group)"
@@ -114,6 +200,7 @@ export async function GET(
 
     if (termsError) throw termsError;
     if (serviceTermsError) throw serviceTermsError;
+    if (historyError) throw historyError;
     if (clientServicesError) throw clientServicesError;
 
     const activeServices = (clientServices || [])
@@ -135,6 +222,7 @@ export async function GET(
       client,
       terms: terms || null,
       serviceTerms: serviceTerms || [],
+      serviceHistory: serviceHistory || [],
       activeServices,
     });
   } catch (error: any) {
@@ -142,7 +230,14 @@ export async function GET(
 
     return NextResponse.json(
       { success: false, error: message },
-      { status: message.includes("access") ? 403 : 500 }
+      {
+        status:
+          message.includes("access") ||
+          message.includes("signed in") ||
+          message.includes("login session")
+            ? 403
+            : 500,
+      }
     );
   }
 }
@@ -166,7 +261,7 @@ export async function POST(
 
     const { data: existing, error: existingError } = await admin
       .from("crm_client_commercial_service_terms")
-      .select("id, client_service_id, service_name")
+      .select("*")
       .eq("organisation_id", profile.organisation_id)
       .eq("client_id", id)
       .eq("is_active", true);
@@ -178,10 +273,15 @@ export async function POST(
         row.client_service_id &&
         !incomingServiceIds.includes(String(row.client_service_id))
       ) {
+        const endDate = dateOnlyToday();
+
+        await snapshotHistory(profile, id, row, endDate);
+
         const { error } = await admin
           .from("crm_client_commercial_service_terms")
           .update({
             is_active: false,
+            effective_to: endDate,
             updated_at: new Date().toISOString(),
           })
           .eq("id", row.id)
@@ -197,26 +297,21 @@ export async function POST(
 
       if (!clientServiceId || !serviceName) continue;
 
-      const feeAmount =
-        item?.feeAmount == null || item?.feeAmount === ""
-          ? null
-          : Number(item.feeAmount);
+      const effectiveFrom =
+        String(item?.effectiveFrom || "").trim() || dateOnlyToday();
 
-      const hourlyRate =
-        item?.hourlyRate == null || item?.hourlyRate === ""
-          ? null
-          : Number(item.hourlyRate);
-
-      const row = {
+      const nextRow = {
         organisation_id: profile.organisation_id,
         client_id: id,
         client_service_id: clientServiceId,
         service_name: serviceName,
         billing_treatment: item?.billingTreatment || "included",
-        fee_amount: feeAmount,
-        hourly_rate: hourlyRate,
-        fee_frequency: item?.feeFrequency || null,
-        scope_notes: item?.scopeNotes || null,
+        fee_amount: nullableNumber(item?.feeAmount),
+        hourly_rate: nullableNumber(item?.hourlyRate),
+        fee_frequency: normalText(item?.feeFrequency),
+        scope_notes: normalText(item?.scopeNotes),
+        effective_from: effectiveFrom,
+        effective_to: null,
         is_active: true,
         updated_at: new Date().toISOString(),
       };
@@ -226,21 +321,39 @@ export async function POST(
           String(entry.client_service_id || "") === clientServiceId
       );
 
-      if (existingRow?.id) {
+      if (!existingRow?.id) {
         const { error } = await admin
           .from("crm_client_commercial_service_terms")
-          .update(row)
-          .eq("id", existingRow.id)
-          .eq("organisation_id", profile.organisation_id);
+          .insert(nextRow);
 
         if (error) throw error;
-      } else {
-        const { error } = await admin
-          .from("crm_client_commercial_service_terms")
-          .insert(row);
-
-        if (error) throw error;
+        continue;
       }
+
+      const ruleChanged = commercialRuleChanged(existingRow, nextRow);
+      const oldEffectiveFrom =
+        String(existingRow.effective_from || "").trim() || effectiveFrom;
+
+      if (!ruleChanged && oldEffectiveFrom === effectiveFrom) {
+        continue;
+      }
+
+      if (ruleChanged && effectiveFrom > oldEffectiveFrom) {
+        await snapshotHistory(
+          profile,
+          id,
+          existingRow,
+          previousDate(effectiveFrom)
+        );
+      }
+
+      const { error } = await admin
+        .from("crm_client_commercial_service_terms")
+        .update(nextRow)
+        .eq("id", existingRow.id)
+        .eq("organisation_id", profile.organisation_id);
+
+      if (error) throw error;
     }
 
     return NextResponse.json({ success: true });
@@ -250,7 +363,14 @@ export async function POST(
 
     return NextResponse.json(
       { success: false, error: message },
-      { status: message.includes("access") ? 403 : 500 }
+      {
+        status:
+          message.includes("access") ||
+          message.includes("signed in") ||
+          message.includes("login session")
+            ? 403
+            : 500,
+      }
     );
   }
 }

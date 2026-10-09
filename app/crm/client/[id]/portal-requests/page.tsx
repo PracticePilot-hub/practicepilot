@@ -265,6 +265,18 @@ export default function ClientPortalRequestsPage() {
     }
   }
 
+  function openUploadFolder(item: PortalRequest) {
+    const folderPath = String(item.upload_folder_path || "").trim();
+
+    if (!folderPath) return;
+
+    window.location.assign(
+      `/crm/client/${clientId}?tab=documents&folderPath=${encodeURIComponent(
+        folderPath
+      )}`
+    );
+  }
+
   async function resendRequestEmail(item: PortalRequest) {
     setUpdatingId(item.id);
     setError("");
@@ -303,6 +315,64 @@ export default function ClientPortalRequestsPage() {
         caught instanceof Error
           ? caught.message
           : "Could not resend the client email."
+      );
+    } finally {
+      setUpdatingId("");
+    }
+  }
+
+  async function deleteRequest(item: PortalRequest) {
+    const warning =
+      item.status === "submitted" || item.status === "completed"
+        ? `Delete "${item.title}"? This request already has client activity/response history. This cannot be undone.`
+        : `Delete "${item.title}"? This cannot be undone.`;
+
+    if (!window.confirm(warning)) return;
+
+    setUpdatingId(item.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const token = await authToken();
+
+      const response = await fetch(
+        `/api/crm/clients/${clientId}/portal-requests`,
+        {
+          method: "DELETE",
+          cache: "no-store",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            request_id: item.id,
+          }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result?.success) {
+        throw new Error(
+          result?.error || "Could not delete the client request."
+        );
+      }
+
+      setRequests((current) =>
+        current.filter((requestItem) => requestItem.id !== item.id)
+      );
+
+      if (selectedRequestId === item.id) {
+        setSelectedRequestId("");
+      }
+
+      setNotice("Client request deleted.");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not delete the client request."
       );
     } finally {
       setUpdatingId("");
@@ -762,6 +832,16 @@ export default function ClientPortalRequestsPage() {
           <button
             type="button"
             onClick={() =>
+              router.push(`/crm/client/${clientId}/communications`)
+            }
+            style={styles.secondaryButton}
+          >
+            Communications
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
               router.push(`/crm/client/${clientId}/portal-access`)
             }
             style={styles.secondaryButton}
@@ -1203,8 +1283,17 @@ export default function ClientPortalRequestsPage() {
                         style={styles.moreMenuButton}
                       >
                         {updatingId === item.id
-                          ? "Sending..."
+                          ? "Working..."
                           : "Resend email"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => void deleteRequest(item)}
+                        disabled={updatingId === item.id}
+                        style={styles.moreMenuDangerButton}
+                      >
+                        Delete request
                       </button>
                     </div>
                   </details>
@@ -1245,6 +1334,13 @@ export default function ClientPortalRequestsPage() {
                         <span style={styles.detailText}>
                           {item.upload_folder_path}
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => openUploadFolder(item)}
+                          style={styles.openFolderButton}
+                        >
+                          Open Folder →
+                        </button>
                       </div>
                     ) : null}
                   </div>
@@ -2275,5 +2371,31 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 850,
     cursor: "pointer",
   },
+  moreMenuDangerButton: {
+    width: "100%",
+    height: 30,
+    padding: "0 9px",
+    border: "none",
+    borderTop: "1px solid #edf1f4",
+    borderRadius: 4,
+    background: "#ffffff",
+    color: "#a43d2f",
+    textAlign: "left",
+    fontSize: 8.5,
+    fontWeight: 850,
+    cursor: "pointer",
+  },
 
+
+  openFolderButton: {
+    marginTop: 8,
+    height: 30,
+    padding: "0 10px",
+    border: "1px solid #1768d2",
+    background: "#1768d2",
+    color: "#ffffff",
+    fontSize: 8.5,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
 };

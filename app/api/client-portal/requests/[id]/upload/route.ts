@@ -1,8 +1,7 @@
-// Path: app/api/client-portal/requests/[id]/upload/route.ts
-
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import nodemailer from "nodemailer";
+import { getDocumentProviderAdapter } from "@/app/lib/documentProviders/index";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,34 +31,6 @@ function bearerToken(request: Request) {
     .trim();
 }
 
-function firstText(...values: unknown[]) {
-  for (const value of values) {
-    const text = String(value ?? "").trim();
-    if (text) return text;
-  }
-
-  return "";
-}
-
-function normaliseEgnyteDomain(value: string) {
-  const text = value
-    .trim()
-    .replace(/^https?:\/\//i, "")
-    .replace(/\/+$/g, "");
-
-  if (!text) return "";
-
-  return text.includes(".") ? text : `${text}.egnyte.com`;
-}
-
-function encodeEgnytePath(value: string) {
-  return value
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-}
-
 function cleanFilename(value: string) {
   return value
     .replace(/[\\/:*?"<>|]/g, "-")
@@ -67,33 +38,22 @@ function cleanFilename(value: string) {
     .trim();
 }
 
-function providerIdentity(row: Record<string, any>) {
-  return firstText(
-    row.provider_type,
-    row.provider,
-    row.provider_key,
-    row.provider_name,
-    row.name,
-    row.type
-  ).toLowerCase();
+function normalisePath(value: string) {
+  const parts = String(value || "")
+    .split("/")
+    .filter(Boolean);
+
+  return `/${parts.join("/")}`;
 }
 
-function mergedProviderConfig(row: Record<string, any>) {
-  const nested = [
-    row.settings,
-    row.config,
-    row.configuration,
-    row.credentials,
-    row.oauth,
-    row.metadata,
-  ].filter(
-    (value) => value && typeof value === "object" && !Array.isArray(value)
-  );
+function isInsideRoot(rootPath: string, requestedPath: string) {
+  const root = normalisePath(rootPath);
+  const requested = normalisePath(requestedPath);
 
-  return Object.assign({}, ...nested, row);
+  return requested === root || requested.startsWith(`${root}/`);
 }
 
-function getSmtpConfig() {
+function smtpConfig() {
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT || 587);
   const user = process.env.SMTP_USER;
@@ -101,20 +61,105 @@ function getSmtpConfig() {
   const fromName = process.env.SMTP_FROM_NAME || "PracticePilot";
   const fromEmail = process.env.SMTP_FROM_EMAIL || user;
 
-  if (!host || !user || !pass || !fromEmail) {
-    throw new Error("Missing SMTP configuration.");
-  }
+  if (!host || !user || !pass || !fromEmail) return null;
 
-  return { host, port, user, pass, fromName, fromEmail };
+  return {
+    host,
+    port,
+    user,
+    pass,
+    fromName,
+    fromEmail,
+  };
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+async function getPortalContext(request: Request) {
+  const token = bearerToken(request);
+
+  if (!token) {
+    throw new Error("Not authenticated.");
+  }
+
+  const {
+    data: { user },
+    error: authError,
+  } = await admin.auth.getUser(token);
+
+  if (authError || !user) {
+    throw new Error("Not authenticated.");
+  }
+
+  const { data: accessRows, error: accessError } = await admin
+    .from("crm_client_portal_users")
+    .select("id,organisation_id,client_id,is_active")
+    .eq("auth_user_id", user.id)
+    .eq("is_active", true);
+
+  if (accessError) throw accessError;
+
+  return {
+    user,
+    accessRows: accessRows || [],
+  };
+}
+
+async function clientProviderContext(
+  organisationId: string,
+  clientId: string
+) {
+  const { data: client, error: clientError } = await admin
+    .from("crm_clients")
+    .select("id")
+    .eq("id", clientId)
+    .eq("organisation_id", organisationId)
+    .maybeSingle();
+
+  if (clientError) throw clientError;
+  if (!client) throw new Error("Client not found.");
+
+  const { data: mapping, error: mappingError } = await admin
+    .from("crm_client_document_locations")
+    .select(
+      "id,organisation_id,client_id,provider_id,folder_id,folder_path,folder_name,is_primary,is_active"
+    )
+    .eq("organisation_id", organisationId)
+    .eq("client_id", clientId)
+    .eq("is_active", true)
+    .eq("is_primary", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (mappingError) throw mappingError;
+
+  if (!mapping) {
+    throw new Error(
+      "This client is not linked to a document-provider folder."
+    );
+  }
+
+  const { data: provider, error: providerError } = await admin
+    .from("organisation_document_providers")
+    .select(
+      "id,organisation_id,provider,provider_domain,provider_base_url,root_folder_path,access_token_encrypted,is_active"
+    )
+    .eq("id", mapping.provider_id)
+    .eq("organisation_id", organisationId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (providerError) throw providerError;
+
+  if (!provider) {
+    throw new Error(
+      "The document provider linked to this client is no longer active."
+    );
+  }
+
+  return {
+    mapping,
+    provider,
+    adapter: getDocumentProviderAdapter(provider.provider),
+  };
 }
 
 async function practiceRecipient(createdByUserId: string | null) {
@@ -125,14 +170,17 @@ async function practiceRecipient(createdByUserId: string | null) {
   );
 
   if (error) {
-    console.error("PORTAL RESPONSE PRACTICE USER LOOKUP ERROR:", error);
+    console.error(
+      "PORTAL RESPONSE PRACTICE USER LOOKUP ERROR:",
+      error
+    );
     return "";
   }
 
   return String(data?.user?.email || "").trim().toLowerCase();
 }
 
-async function clientName(clientId: string) {
+async function getClientName(clientId: string) {
   const { data, error } = await admin
     .from("crm_clients")
     .select("client_name")
@@ -147,17 +195,17 @@ async function clientName(clientId: string) {
   return String(data?.client_name || "Client").trim() || "Client";
 }
 
-async function sendPracticeResponseEmail(args: {
+async function sendPracticeNotification(args: {
   to: string;
   clientName: string;
   requestTitle: string;
-  responseLabel: string;
-  responseDetail: string | null;
+  fileName: string;
   practiceUrl: string;
 }) {
-  if (!args.to) return false;
+  const smtp = smtpConfig();
 
-  const smtp = getSmtpConfig();
+  if (!smtp || !args.to) return false;
+
   const transporter = nodemailer.createTransport({
     host: smtp.host,
     port: smtp.port,
@@ -168,93 +216,19 @@ async function sendPracticeResponseEmail(args: {
     },
   });
 
-  const detail = args.responseDetail
-    ? `<div style="margin-top:8px;color:#526577;">${escapeHtml(
-        args.responseDetail
-      )}</div>`
-    : "";
-
   await transporter.sendMail({
     from: `"${smtp.fromName}" <${smtp.fromEmail}>`,
     to: args.to,
     subject: `${args.clientName} — client responded in PracticePilot`,
-    html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#10233A;max-width:620px;margin:0 auto;">
-        <div style="padding:22px 0;border-bottom:1px solid #D5DDE6;">
-          <div style="font-size:22px;font-weight:800;">PracticePilot</div>
-        </div>
-        <div style="padding:24px 0;">
-          <p>A client has responded to a portal request for <strong>${escapeHtml(
-            args.clientName
-          )}</strong>.</p>
-          <div style="margin:18px 0;padding:16px;border:1px solid #DCE4EC;background:#F7FAFC;">
-            <div style="font-size:16px;font-weight:800;margin-bottom:8px;">
-              ${escapeHtml(args.requestTitle)}
-            </div>
-            <div><strong>Client response:</strong> ${escapeHtml(
-              args.responseLabel
-            )}</div>
-            ${detail}
-          </div>
-          <p style="margin:24px 0;">
-            <a
-              href="${args.practiceUrl}"
-              style="display:inline-block;background:#1768D2;color:#FFFFFF;text-decoration:none;padding:12px 18px;font-weight:700;"
-            >
-              Open Requests & Actions
-            </a>
-          </p>
-        </div>
-      </div>
-    `,
+    text:
+      `A client has uploaded a document in response to a PracticePilot request.\n\n` +
+      `Client: ${args.clientName}\n` +
+      `Request: ${args.requestTitle}\n` +
+      `File: ${args.fileName}\n\n` +
+      `Open Requests & Actions: ${args.practiceUrl}`,
   });
 
   return true;
-}
-
-async function getPortalUser(request: Request) {
-  const token = bearerToken(request);
-
-  if (!token) {
-    return {
-      response: NextResponse.json(
-        { error: "Not authenticated." },
-        { status: 401 }
-      ),
-      user: null,
-      accessRows: [] as any[],
-    };
-  }
-
-  const {
-    data: { user },
-    error: authError,
-  } = await admin.auth.getUser(token);
-
-  if (authError || !user) {
-    return {
-      response: NextResponse.json(
-        { error: "Not authenticated." },
-        { status: 401 }
-      ),
-      user: null,
-      accessRows: [] as any[],
-    };
-  }
-
-  const { data: accessRows, error: accessError } = await admin
-    .from("crm_client_portal_users")
-    .select("id,organisation_id,client_id,is_active")
-    .eq("auth_user_id", user.id)
-    .eq("is_active", true);
-
-  if (accessError) throw accessError;
-
-  return {
-    response: null as NextResponse | null,
-    user,
-    accessRows: accessRows || [],
-  };
 }
 
 export async function POST(
@@ -263,9 +237,7 @@ export async function POST(
 ) {
   try {
     const { id: requestId } = await context.params;
-    const portal = await getPortalUser(request);
-
-    if (portal.response) return portal.response;
+    const portal = await getPortalContext(request);
 
     const { data: portalRequest, error: requestError } = await admin
       .from("crm_client_portal_requests")
@@ -374,64 +346,6 @@ export async function POST(
       );
     }
 
-    const { data: providerRows, error: providerError } = await admin
-      .from("organisation_document_providers")
-      .select("*")
-      .eq("organisation_id", portalRequest.organisation_id);
-
-    if (providerError) throw providerError;
-
-    const providerRow = (providerRows || []).find((row: any) => {
-      const identity = providerIdentity(row);
-
-      return (
-        identity.includes("egnyte") &&
-        row.is_active !== false &&
-        row.active !== false &&
-        row.enabled !== false
-      );
-    });
-
-    if (!providerRow) {
-      return NextResponse.json(
-        {
-          error:
-            "The practice's Egnyte document provider is not available.",
-        },
-        { status: 409 }
-      );
-    }
-
-    const provider = mergedProviderConfig(providerRow);
-
-    const domain = normaliseEgnyteDomain(
-      firstText(
-        provider.egnyte_domain,
-        provider.domain,
-        provider.provider_domain,
-        provider.subdomain,
-        provider.host
-      )
-    );
-
-    const accessToken = firstText(
-      provider.access_token,
-      provider.oauth_access_token,
-      provider.egnyte_access_token,
-      provider.token,
-      provider.oauth_token
-    );
-
-    if (!domain || !accessToken) {
-      return NextResponse.json(
-        {
-          error:
-            "The practice's Egnyte connection is missing its saved domain or access token.",
-        },
-        { status: 409 }
-      );
-    }
-
     const filename = cleanFilename(fileEntry.name);
 
     if (!filename) {
@@ -441,54 +355,39 @@ export async function POST(
       );
     }
 
-    const destinationPath =
-      `${folderPath.replace(/\/+$/g, "")}/${filename}`;
+    const { mapping, provider, adapter } =
+      await clientProviderContext(
+        portalRequest.organisation_id,
+        portalRequest.client_id
+      );
 
-    const uploadUrl =
-      `https://${domain}/pubapi/v1/fs-content/` +
-      encodeEgnytePath(destinationPath);
-
-    const bytes = Buffer.from(await fileEntry.arrayBuffer());
-
-    const egnyteResponse = await fetch(uploadUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type":
-          fileEntry.type || "application/octet-stream",
-      },
-      body: bytes,
-    });
-
-    const egnyteText = await egnyteResponse.text();
-
-    if (!egnyteResponse.ok) {
-      let detail = egnyteText;
-
-      try {
-        const parsed = JSON.parse(egnyteText);
-        detail =
-          parsed?.errorMessage ||
-          parsed?.message ||
-          parsed?.error ||
-          egnyteText;
-      } catch {
-        // Keep raw Egnyte response text.
-      }
-
-      throw new Error(
-        detail
-          ? `Egnyte upload failed: ${detail}`
-          : `Egnyte upload failed with status ${egnyteResponse.status}.`
+    if (!isInsideRoot(mapping.folder_path, folderPath)) {
+      return NextResponse.json(
+        {
+          error:
+            "The upload folder is outside this client's linked document root.",
+        },
+        { status: 403 }
       );
     }
+
+    const bytes = await fileEntry.arrayBuffer();
+
+    const uploadResult = await adapter.uploadFile({
+      provider,
+      folderPath,
+      fileName: filename,
+      contentType:
+        fileEntry.type || "application/octet-stream",
+      bytes,
+    });
 
     const submittedAt = new Date().toISOString();
 
     const uploadRecord = {
       file_name: filename,
-      provider: "egnyte",
-      provider_path: destinationPath,
+      provider: provider.provider,
+      provider_path: uploadResult.path,
       folder_path: folderPath,
       folder_name: portalRequest.upload_folder_name || null,
       size_bytes: fileEntry.size,
@@ -514,16 +413,16 @@ export async function POST(
 
     if (updateError) {
       console.error(
-        "CLIENT PORTAL REQUEST STATUS UPDATE FAILED AFTER EGNYTE UPLOAD:",
+        "CLIENT PORTAL REQUEST STATUS UPDATE FAILED AFTER PROVIDER UPLOAD:",
         updateError
       );
 
       return NextResponse.json(
         {
           error:
-            "The file reached Egnyte, but PracticePilot could not mark the request as submitted. Please contact your accounting team.",
+            "The file reached the document provider, but PracticePilot could not mark the request as submitted. Please contact your accounting team.",
           uploaded: true,
-          provider_path: destinationPath,
+          provider_path: uploadResult.path,
         },
         { status: 500 }
       );
@@ -535,15 +434,14 @@ export async function POST(
       const to = await practiceRecipient(
         portalRequest.created_by_user_id
       );
-      const name = await clientName(portalRequest.client_id);
+      const name = await getClientName(portalRequest.client_id);
       const origin = new URL(request.url).origin.replace(/\/+$/, "");
 
-      notificationSent = await sendPracticeResponseEmail({
+      notificationSent = await sendPracticeNotification({
         to,
         clientName: name,
         requestTitle: portalRequest.title,
-        responseLabel: "Document uploaded",
-        responseDetail: filename,
+        fileName: filename,
         practiceUrl:
           `${origin}/crm/client/${portalRequest.client_id}/portal-requests`,
       });

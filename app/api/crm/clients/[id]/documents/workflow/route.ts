@@ -1158,19 +1158,22 @@ async function createOrRefreshReviewWorkItem(args: {
 
 
 
+  const itemType = cleanItemType(workflow.item_type);
+  const itemLabel = itemType === "folder" ? "folder pack" : "document";
+
   const payload = {
 
     organisation_id: organisationId,
 
     client_id: clientId,
 
-    title: `Review document — ${workflow.document_name}`,
+    title: `Review ${itemLabel} — ${workflow.document_name}`,
 
     description:
 
       `PP_DOCUMENT_REVIEW_PATH:${workflow.provider_path}\n\n` +
 
-      `Review ${workflow.document_name} in the PracticePilot Documents workspace.`,
+      `Review ${itemLabel} ${workflow.document_name} in the PracticePilot Documents workspace.`,
 
     work_type: "workflow_action",
 
@@ -1467,15 +1470,16 @@ export async function PATCH(
 
       const itemType = requestedItemType;
 
-      if (itemType === "file" && existing.workflow_status !== "approved") {
+      if (existing.workflow_status !== "approved") {
 
         return NextResponse.json(
 
           {
 
             error:
-
-              "Only an approved document can be released to the client.",
+              itemType === "folder"
+                ? "Only an approved folder pack can be released to the client."
+                : "Only an approved document can be released to the client.",
 
           },
 
@@ -1511,11 +1515,11 @@ export async function PATCH(
 
           portal_category: portalCategory,
 
-          workflow_status: itemType === "folder" ? "approved" : existing.workflow_status,
+          workflow_status: existing.workflow_status,
 
-          approved_by_user_id: itemType === "folder" ? user.id : existing.approved_by_user_id,
+          approved_by_user_id: existing.approved_by_user_id,
 
-          approved_at: itemType === "folder" ? (existing.approved_at || now) : existing.approved_at,
+          approved_at: existing.approved_at,
 
           client_visible: true,
 
@@ -1527,7 +1531,7 @@ export async function PATCH(
 
             itemType === "folder"
 
-              ? "Folder released to the client."
+              ? "Approved folder pack released to the client. Document approval remains separate."
 
               : "Approved document released to the client.",
 
@@ -1607,29 +1611,13 @@ export async function PATCH(
 
 
 
-    if (requestedItemType === "folder") {
-
-    return NextResponse.json(
-
-      {
-
-        error:
-
-          "Folder portal release does not use the document review workflow.",
-
-      },
-
-      { status: 409 }
-
-    );
-
-  }
-
-  const nextStatus = cleanStatus(body?.workflow_status);
+    const nextStatus = cleanStatus(body?.workflow_status);
 
 
 
     const update: Record<string, unknown> = {
+
+      item_type: requestedItemType,
 
       workflow_status: nextStatus,
 
@@ -1769,7 +1757,7 @@ export async function PATCH(
 
       update.released_at = null;
 
-      update.last_activity_text = "Document review completed.";
+      update.last_activity_text = requestedItemType === "folder" ? "Folder pack review completed." : "Document review completed.";
 
     }
 
@@ -1795,7 +1783,7 @@ export async function PATCH(
 
       update.released_at = null;
 
-      update.last_activity_text = "Document review rejected.";
+      update.last_activity_text = requestedItemType === "folder" ? "Folder pack review rejected." : "Document review rejected.";
 
     }
 

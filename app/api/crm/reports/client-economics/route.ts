@@ -36,7 +36,9 @@ async function getProfile(request: Request) {
 
   const { data: profile, error } = await admin
     .from("user_profiles")
-    .select("organisation_id, access_enabled")
+    .select(
+      "organisation_id, access_enabled, can_view_commercial_reports"
+    )
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -44,6 +46,10 @@ async function getProfile(request: Request) {
 
   if (!profile?.access_enabled || !profile.organisation_id) {
     throw new Error("Your PracticePilot practice access could not be confirmed.");
+  }
+
+  if (profile.can_view_commercial_reports !== true) {
+    throw new Error("You do not have access to commercial practice reports.");
   }
 
   return profile;
@@ -170,7 +176,8 @@ export async function GET(request: Request) {
           ? (feeEquivalent / internalCost) * 100
           : null;
 
-      let healthStatus = retainer?.retainer_health_status || "terms_incomplete";
+      let healthStatus =
+        retainer?.retainer_health_status || "terms_incomplete";
 
       if (
         !["monthly_retainer", "annual_retainer", "hybrid"].includes(
@@ -185,7 +192,6 @@ export async function GET(request: Request) {
         client_name: client.client_name,
         client_code: client.client_code || null,
         entity_type: client.entity_type || null,
-
         commercial_model: model,
         core_fee_amount:
           term?.core_fee_amount == null
@@ -193,7 +199,6 @@ export async function GET(request: Request) {
             : Number(term.core_fee_amount),
         billing_frequency: term?.billing_frequency || null,
         monthly_fee_equivalent: feeEquivalent,
-
         tracked_hours: Number(retainer?.tracked_hours || 0),
         internal_staff_cost: internalCost,
         charge_out_equivalent: Number(
@@ -201,9 +206,7 @@ export async function GET(request: Request) {
         ),
         contribution_amount: contribution,
         effective_recovery_percent: recovery,
-
         retainer_health_status: healthStatus,
-
         included_services: includedServices,
         separately_billable_services: separatelyBillable,
         billing_notes: term?.notes || null,
@@ -214,6 +217,12 @@ export async function GET(request: Request) {
       ["monthly_retainer", "annual_retainer", "hybrid"].includes(
         String(row.commercial_model || "")
       )
+    );
+
+    const recoveryRows = retainerRows.filter(
+      (row: any) =>
+        row.effective_recovery_percent != null &&
+        Number.isFinite(row.effective_recovery_percent)
     );
 
     const summary = {
@@ -236,27 +245,12 @@ export async function GET(request: Request) {
           row.retainer_health_status === "terms_incomplete"
       ).length,
       average_effective_recovery:
-        retainerRows.filter(
-          (row: any) =>
-            row.effective_recovery_percent != null &&
-            Number.isFinite(row.effective_recovery_percent)
-        ).length > 0
-          ? retainerRows
-              .filter(
-                (row: any) =>
-                  row.effective_recovery_percent != null &&
-                  Number.isFinite(row.effective_recovery_percent)
-              )
-              .reduce(
-                (sum: number, row: any) =>
-                  sum + Number(row.effective_recovery_percent || 0),
-                0
-              ) /
-            retainerRows.filter(
-              (row: any) =>
-                row.effective_recovery_percent != null &&
-                Number.isFinite(row.effective_recovery_percent)
-            ).length
+        recoveryRows.length > 0
+          ? recoveryRows.reduce(
+              (sum: number, row: any) =>
+                sum + Number(row.effective_recovery_percent || 0),
+              0
+            ) / recoveryRows.length
           : 0,
       unbilled_ad_hoc_value: (billable || []).reduce(
         (sum: number, row: any) =>
@@ -271,13 +265,14 @@ export async function GET(request: Request) {
       summary,
     });
   } catch (error: any) {
+    const message =
+      error?.message || "Could not load Client Economics.";
+
     return NextResponse.json(
+      { success: false, error: message },
       {
-        success: false,
-        error:
-          error?.message || "Could not load Client Economics.",
-      },
-      { status: 500 }
+        status: message.includes("access") ? 403 : 500,
+      }
     );
   }
 }

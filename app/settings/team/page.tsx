@@ -41,6 +41,8 @@ type TeamUser = {
   can_access_paia?: boolean | null;
   can_access_proposals?: boolean | null;
   can_access_trusts?: boolean | null;
+  can_access_commercials?: boolean | null;
+  can_view_commercial_reports?: boolean | null;
 };
 
 type LicenceRow = {
@@ -128,6 +130,8 @@ export default function TeamPage() {
   const [addEmail, setAddEmail] = useState("");
   const [addRole, setAddRole] = useState("Staff");
   const [addCanManage, setAddCanManage] = useState(false);
+  const [addCanAccessCommercials, setAddCanAccessCommercials] = useState(false);
+  const [addCanViewCommercialReports, setAddCanViewCommercialReports] = useState(false);
   const [addModules, setAddModules] = useState<ModuleState>(emptyModules);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -135,6 +139,8 @@ export default function TeamPage() {
   const [editRole, setEditRole] = useState("Staff");
   const [editAccess, setEditAccess] = useState(true);
   const [editCanManage, setEditCanManage] = useState(false);
+  const [editCanAccessCommercials, setEditCanAccessCommercials] = useState(false);
+  const [editCanViewCommercialReports, setEditCanViewCommercialReports] = useState(false);
   const [editModules, setEditModules] = useState<ModuleState>(emptyModules);
   const [copySourceId, setCopySourceId] = useState("");
 
@@ -222,6 +228,8 @@ export default function TeamPage() {
     setEditRole(user.role === "Client Manager" ? "Client Manager" : "Staff");
     setEditAccess(user.access_enabled !== false);
     setEditCanManage(Boolean(user.can_manage_practice_users));
+    setEditCanAccessCommercials(Boolean(user.can_access_commercials));
+    setEditCanViewCommercialReports(Boolean(user.can_view_commercial_reports));
     setEditModules(modulesFromUser(user));
     setCopySourceId("");
     setNotice("");
@@ -617,6 +625,26 @@ export default function TeamPage() {
             <div style={styles.moduleHeading}>Module access</div>
             {moduleChecks(addModules, toggleAddModule)}
 
+            <div style={styles.moduleHeading}>Commercial permissions</div>
+            <div style={styles.moduleChecks}>
+              <label style={styles.moduleCheck}>
+                <input
+                  type="checkbox"
+                  checked={addCanAccessCommercials}
+                  onChange={(event) => setAddCanAccessCommercials(event.target.checked)}
+                />
+                Commercials
+              </label>
+              <label style={styles.moduleCheck}>
+                <input
+                  type="checkbox"
+                  checked={addCanViewCommercialReports}
+                  onChange={(event) => setAddCanViewCommercialReports(event.target.checked)}
+                />
+                Commercial Reports
+              </label>
+            </div>
+
             <div style={styles.editorActions}>
               <button
                 type="button"
@@ -771,6 +799,28 @@ export default function TeamPage() {
 
                     <div style={styles.moduleHeading}>Module access</div>
                     {moduleChecks(editModules, toggleEditModule)}
+
+                    <div style={styles.moduleHeading}>Commercial permissions</div>
+                    <div style={styles.moduleChecks}>
+                      <label style={styles.moduleCheck}>
+                        <input
+                          type="checkbox"
+                          checked={editCanAccessCommercials}
+                          onChange={(event) => setEditCanAccessCommercials(event.target.checked)}
+                          disabled={Boolean(user.is_practice_owner)}
+                        />
+                        Commercials
+                      </label>
+                      <label style={styles.moduleCheck}>
+                        <input
+                          type="checkbox"
+                          checked={editCanViewCommercialReports}
+                          onChange={(event) => setEditCanViewCommercialReports(event.target.checked)}
+                          disabled={Boolean(user.is_practice_owner)}
+                        />
+                        Commercial Reports
+                      </label>
+                    </div>
 
                     <div style={styles.editorActions}>
                       <button
