@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { createClient } from "@supabase/supabase-js";
+
 import { normaliseWorkflowStep, systemChecklistTemplate } from "@/app/lib/crm/taskWorkflowDefaults";
 
-
-
 type JsonObject = Record<string, unknown>;
-
-
 
 type ServiceInput = {
 
@@ -24,8 +21,6 @@ type ServiceInput = {
   settings?: JsonObject;
 
 };
-
-
 
 type ClientPayload = {
 
@@ -63,8 +58,6 @@ type ClientPayload = {
 
   dateOfBirth?: string;
 
-
-
   vatNumber?: string;
 
   payeNumber?: string;
@@ -79,8 +72,6 @@ type ClientPayload = {
 
   wccRefNr?: string;
 
-
-
   primaryContact?: string;
 
   email?: string;
@@ -90,8 +81,6 @@ type ClientPayload = {
   cellphone?: string;
 
   contactPosition?: string;
-
-
 
   physicalAddressLine1?: string;
 
@@ -105,8 +94,6 @@ type ClientPayload = {
 
   physicalPostalCode?: string;
 
-
-
   postalAddressLine1?: string;
 
   postalAddressLine2?: string;
@@ -119,8 +106,6 @@ type ClientPayload = {
 
   postalPostalCode?: string;
 
-
-
   clientLeadUserId?: string;
 
   defaultWorkOwnerUserId?: string;
@@ -131,13 +116,9 @@ type ClientPayload = {
 
   partnerUserId?: string;
 
-
-
   services?: ServiceInput[];
 
 };
-
-
 
 function getSupabaseAdmin() {
 
@@ -147,15 +128,11 @@ function getSupabaseAdmin() {
 
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
 
-
-
   if (!supabaseUrl || !serviceRoleKey) {
 
     throw new Error("Missing Supabase admin environment variables.");
 
   }
-
-
 
   return createClient(supabaseUrl, serviceRoleKey, {
 
@@ -171,8 +148,6 @@ function getSupabaseAdmin() {
 
 }
 
-
-
 function cleanText(value: unknown): string | null {
 
   if (value === null || value === undefined) return null;
@@ -182,8 +157,6 @@ function cleanText(value: unknown): string | null {
   return text === "" ? null : text;
 
 }
-
-
 
 function getFriendlyDatabaseError(message: string) {
 
@@ -215,8 +188,6 @@ function getFriendlyDatabaseError(message: string) {
 
 }
 
-
-
 async function getAuthenticatedProfile(req: Request) {
 
   const supabase = getSupabaseAdmin();
@@ -225,15 +196,11 @@ async function getAuthenticatedProfile(req: Request) {
 
   const token = authorization.replace(/^Bearer\s+/i, "").trim();
 
-
-
   if (!token) {
 
     throw new Error("You are not signed in.");
 
   }
-
-
 
   const {
 
@@ -243,15 +210,11 @@ async function getAuthenticatedProfile(req: Request) {
 
   } = await supabase.auth.getUser(token);
 
-
-
   if (userError || !user) {
 
     throw new Error("Your login session is invalid or has expired.");
 
   }
-
-
 
   const { data: profile, error: profileError } = await supabase
 
@@ -267,11 +230,7 @@ async function getAuthenticatedProfile(req: Request) {
 
     .maybeSingle();
 
-
-
   if (profileError) throw profileError;
-
-
 
   if (!profile?.organisation_id) {
 
@@ -279,21 +238,15 @@ async function getAuthenticatedProfile(req: Request) {
 
   }
 
-
-
   if (!profile.access_enabled || !profile.can_access_crm) {
 
     throw new Error("You do not have access to CRM.");
 
   }
 
-
-
   return { supabase, profile };
 
 }
-
-
 
 async function checkDuplicate(
 
@@ -313,8 +266,6 @@ async function checkDuplicate(
 
   if (!value) return;
 
-
-
   let query = supabase
 
     .from("crm_clients")
@@ -327,23 +278,15 @@ async function checkDuplicate(
 
     .limit(1);
 
-
-
   if (clientId) {
 
     query = query.neq("id", clientId);
 
   }
 
-
-
   const { data, error } = await query;
 
-
-
   if (error) throw error;
-
-
 
   if (data && data.length > 0) {
 
@@ -352,8 +295,6 @@ async function checkDuplicate(
   }
 
 }
-
-
 
 async function syncContact(
 
@@ -387,8 +328,6 @@ async function syncContact(
 
   };
 
-
-
   const hasContact = Boolean(
 
     contact.contact_name ||
@@ -402,8 +341,6 @@ async function syncContact(
       contact.mobile
 
   );
-
-
 
   const { data: existing, error: existingError } = await supabase
 
@@ -421,11 +358,7 @@ async function syncContact(
 
     .maybeSingle();
 
-
-
   if (existingError) throw existingError;
-
-
 
   if (!hasContact) {
 
@@ -441,8 +374,6 @@ async function syncContact(
 
         .eq("organisation_id", organisationId);
 
-
-
       if (error) throw error;
 
     }
@@ -450,8 +381,6 @@ async function syncContact(
     return;
 
   }
-
-
 
   if (existing?.id) {
 
@@ -465,23 +394,17 @@ async function syncContact(
 
       .eq("organisation_id", organisationId);
 
-
-
     if (error) throw error;
 
     return;
 
   }
 
-
-
   const { error } = await supabase.from("crm_client_contacts").insert(contact);
 
   if (error) throw error;
 
 }
-
-
 
 async function syncAddress(
 
@@ -533,8 +456,6 @@ async function syncAddress(
 
   };
 
-
-
   const hasAddress = Boolean(
 
     address.line_1 ||
@@ -548,8 +469,6 @@ async function syncAddress(
       address.postal_code
 
   );
-
-
 
   const { data: existing, error: existingError } = await supabase
 
@@ -567,11 +486,7 @@ async function syncAddress(
 
     .maybeSingle();
 
-
-
   if (existingError) throw existingError;
-
-
 
   if (!hasAddress) {
 
@@ -587,8 +502,6 @@ async function syncAddress(
 
         .eq("organisation_id", organisationId);
 
-
-
       if (error) throw error;
 
     }
@@ -596,8 +509,6 @@ async function syncAddress(
     return;
 
   }
-
-
 
   if (existing?.id) {
 
@@ -611,23 +522,17 @@ async function syncAddress(
 
       .eq("organisation_id", organisationId);
 
-
-
     if (error) throw error;
 
     return;
 
   }
 
-
-
   const { error } = await supabase.from("crm_client_addresses").insert(address);
 
   if (error) throw error;
 
 }
-
-
 
 async function getServiceMap(
 
@@ -647,15 +552,9 @@ async function getServiceMap(
 
     .or(`organisation_id.eq.${organisationId},organisation_id.is.null`);
 
-
-
   if (error) throw error;
 
-
-
   const map = new Map<string, string>();
-
-
 
   for (const service of data || []) {
 
@@ -667,13 +566,9 @@ async function getServiceMap(
 
   }
 
-
-
   return map;
 
 }
-
-
 
 async function syncServices(
 
@@ -689,8 +584,6 @@ async function syncServices(
 
   const serviceMap = await getServiceMap(supabase, organisationId);
 
-
-
   const { data: existingRows, error: existingError } = await supabase
 
     .from("crm_client_services")
@@ -701,11 +594,7 @@ async function syncServices(
 
     .eq("client_id", clientId);
 
-
-
   if (existingError) throw existingError;
-
-
 
   const existingByServiceId = new Map(
 
@@ -713,13 +602,9 @@ async function syncServices(
 
   );
 
-
-
   for (const input of services) {
 
     const serviceId = serviceMap.get(input.serviceName);
-
-
 
     if (!serviceId) {
 
@@ -731,15 +616,11 @@ async function syncServices(
 
     }
 
-
-
     const existing = existingByServiceId.get(serviceId);
 
     const firstPeriodStart = cleanText(input.firstPeriodStart);
 
     const firstPeriodEnd = cleanText(input.firstPeriodEnd);
-
-
 
     const serviceSettings = {
 
@@ -752,8 +633,6 @@ async function syncServices(
       first_period_end: firstPeriodEnd,
 
     };
-
-
 
     const row = {
 
@@ -783,8 +662,6 @@ async function syncServices(
 
     };
 
-
-
     if (existing?.id) {
 
       const { error } = await supabase
@@ -796,8 +673,6 @@ async function syncServices(
         .eq("id", existing.id)
 
         .eq("organisation_id", organisationId);
-
-
 
       if (error) throw error;
 
@@ -813,17 +688,11 @@ async function syncServices(
 
 }
 
-
-
 function deriveClientCategory(payload: ClientPayload) {
 
   if (payload.clientCategory) return payload.clientCategory;
 
-
-
   const clientType = String(payload.clientType || "").trim().toLowerCase();
-
-
 
   if (clientType === "individual") return "individual";
 
@@ -832,8 +701,6 @@ function deriveClientCategory(payload: ClientPayload) {
   return "entity";
 
 }
-
-
 
 function legacyStatusFromRelationship(
 
@@ -851,8 +718,6 @@ function legacyStatusFromRelationship(
 
 }
 
-
-
 function buildClientRow(organisationId: string, payload: ClientPayload) {
 
   const isIndividual = payload.clientType === "Individual";
@@ -860,8 +725,6 @@ function buildClientRow(organisationId: string, payload: ClientPayload) {
   const relationshipStatus = payload.relationshipStatus || "flying_client";
 
   const isFlyingClient = relationshipStatus === "flying_client";
-
-
 
   return {
 
@@ -884,8 +747,6 @@ function buildClientRow(organisationId: string, payload: ClientPayload) {
     client_code: cleanText(payload.internalCode),
 
     trading_name: cleanText(payload.tradingName),
-
-
 
     registration_number: isIndividual
 
@@ -911,8 +772,6 @@ function buildClientRow(organisationId: string, payload: ClientPayload) {
 
       : null,
 
-
-
     vat_number: cleanText(payload.vatNumber),
 
     paye_number: cleanText(payload.payeNumber),
@@ -927,23 +786,17 @@ function buildClientRow(organisationId: string, payload: ClientPayload) {
 
     wcc_reference_number: cleanText(payload.wccRefNr),
 
-
-
     client_lead_user_id: cleanText(payload.clientLeadUserId),
 
     manager_user_id: cleanText(payload.managerUserId),
 
     partner_user_id: cleanText(payload.partnerUserId),
 
-
-
     imported_source: "client_form",
 
   };
 
 }
-
-
 
 async function saveRelatedRecords(
 
@@ -958,8 +811,6 @@ async function saveRelatedRecords(
 ) {
 
   await syncContact(supabase, organisationId, clientId, payload);
-
-
 
   await syncAddress(supabase, organisationId, clientId, "Physical", {
 
@@ -977,8 +828,6 @@ async function saveRelatedRecords(
 
   });
 
-
-
   await syncAddress(supabase, organisationId, clientId, "Postal", {
 
     line1: payload.postalAddressLine1,
@@ -995,8 +844,6 @@ async function saveRelatedRecords(
 
   });
 
-
-
   await syncServices(
 
     supabase,
@@ -1011,107 +858,116 @@ async function saveRelatedRecords(
 
 }
 
-
-
 export async function GET(req: Request) {
-
   try {
-
     const { supabase, profile } = await getAuthenticatedProfile(req);
-
     const organisationId = profile.organisation_id;
-
     const url = new URL(req.url);
-
     const clientId = cleanText(url.searchParams.get("id"));
 
+    const warnings: Array<{ section: string; message: string }> = [];
 
+    function warn(section: string, error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === "object" &&
+              error !== null &&
+              "message" in error
+            ? String((error as { message?: unknown }).message || "Unknown error")
+            : String(error || "Unknown error");
 
-    const [{ data: users, error: usersError }, { data: services, error: servicesError }] =
+      warnings.push({ section, message });
+      console.error(`CLIENT FORM ${section.toUpperCase()} LOAD WARNING:`, error);
+    }
 
-      await Promise.all([
-
-        supabase
-
-          .from("user_profiles")
-
-          .select("id, full_name, email, role")
-
-          .eq("organisation_id", organisationId)
-
-          .eq("access_enabled", true)
-
-          .order("full_name", { ascending: true }),
-
-        supabase
-
-          .from("crm_services")
-
-          .select(
-
-            "id, service_name, service_group, default_frequency, default_service_settings"
-
-          )
-
-          .eq("is_active", true)
-
-          .or(`organisation_id.eq.${organisationId},organisation_id.is.null`)
-
-          .order("service_group", { ascending: true })
-
-          .order("service_name", { ascending: true }),
-
-      ]);
-
-
-
-    if (usersError) throw usersError;
-
-    if (servicesError) throw servicesError;
-
-    const { data: workflowTemplates, error: workflowTemplateError } =
-      await supabase
-        .from("crm_workflow_templates")
-        .select("id, service_name, is_enabled")
-        .eq("organisation_id", organisationId);
-
-    if (workflowTemplateError) throw workflowTemplateError;
-
-    const templateIds = (workflowTemplates || [])
-      .map((row: any) => String(row.id || ""))
-      .filter(Boolean);
-
+    let users: any[] = [];
+    let services: any[] = [];
+    let workflowTemplates: any[] = [];
     let workflowSteps: any[] = [];
 
-    if (templateIds.length) {
-      const { data, error } = await supabase
-        .from("crm_workflow_template_steps")
-        .select(
-          "template_id, item_order, label, item_type, is_active, dependency_service_code, dependency_rule"
-        )
-        .in("template_id", templateIds)
-        .eq("is_active", true)
-        .order("item_order", { ascending: true });
+    try {
+      const result = await supabase
+        .from("user_profiles")
+        .select("id, full_name, email, role")
+        .eq("organisation_id", organisationId)
+        .eq("access_enabled", true)
+        .order("full_name", { ascending: true });
 
-      if (error) throw error;
-      workflowSteps = data || [];
+      if (result.error) throw result.error;
+      users = result.data || [];
+    } catch (error) {
+      warn("responsibility_users", error);
+    }
+
+    try {
+      const result = await supabase
+        .from("crm_services")
+        .select(
+          "id, service_name, service_group, default_frequency, default_service_settings"
+        )
+        .eq("is_active", true)
+        .or(`organisation_id.eq.${organisationId},organisation_id.is.null`)
+        .order("service_group", { ascending: true })
+        .order("service_name", { ascending: true });
+
+      if (result.error) throw result.error;
+      services = result.data || [];
+    } catch (error) {
+      warn("service_catalogue", error);
+    }
+
+    if (services.length) {
+      try {
+        const result = await supabase
+          .from("crm_workflow_templates")
+          .select("id, service_name, is_enabled")
+          .eq("organisation_id", organisationId);
+
+        if (result.error) throw result.error;
+        workflowTemplates = result.data || [];
+      } catch (error) {
+        warn("workflow_templates", error);
+      }
+
+      const templateIds = workflowTemplates
+        .map((row: any) => String(row.id || ""))
+        .filter(Boolean);
+
+      if (templateIds.length) {
+        try {
+          const result = await supabase
+            .from("crm_workflow_template_steps")
+            .select(
+              "template_id, item_order, label, item_type, is_active, dependency_service_code, dependency_rule, requires_evidence, evidence_label"
+            )
+            .in("template_id", templateIds)
+            .eq("is_active", true)
+            .order("item_order", { ascending: true });
+
+          if (result.error) throw result.error;
+          workflowSteps = result.data || [];
+        } catch (error) {
+          warn("workflow_steps", error);
+        }
+      }
     }
 
     const templateByService = new Map(
-      (workflowTemplates || []).map((row: any) => [
+      workflowTemplates.map((row: any) => [
         String(row.service_name || ""),
         row,
       ])
     );
 
-    const serviceRows = (services || []).map((service: any) => {
+    const serviceRows = services.map((service: any) => {
       const serviceName = String(service.service_name || "");
       const practiceTemplate = templateByService.get(serviceName) as any;
       let resolvedSteps = systemChecklistTemplate(serviceName);
 
       if (practiceTemplate?.is_enabled === false) {
         resolvedSteps = [];
-      } else if (practiceTemplate?.id) {
+      } else if (practiceTemplate?.id && workflowSteps.length) {
         resolvedSteps = workflowSteps
           .filter(
             (step: any) =>
@@ -1124,115 +980,148 @@ export async function GET(req: Request) {
       return { ...service, workflow_steps: resolvedSteps };
     });
 
-
-
     if (!clientId) {
-
       return NextResponse.json({
-
         success: true,
-
-        users: users || [],
-
+        users,
         services: serviceRows,
-
+        warnings,
+        partial: warnings.length > 0,
       });
-
     }
 
-
-
-    const { data: client, error: clientError } = await supabase
-
+    const { data: clientCore, error: clientCoreError } = await supabase
       .from("crm_clients")
-
-      .select(`
-
-        *,
-
-        crm_client_contacts (*),
-
-        crm_client_addresses (*),
-
-        crm_client_services (
-
-          *,
-
-          crm_services (
-
-            id,
-
-            service_name,
-
-            service_group,
-
-            default_frequency
-
-          )
-
-        )
-
-      `)
-
+      .select("*")
       .eq("organisation_id", organisationId)
-
       .eq("id", clientId)
-
       .maybeSingle();
 
-
-
-    if (clientError) throw clientError;
-
-
-
-    if (!client) {
-
-      return NextResponse.json(
-
-        { success: false, error: "Client not found." },
-
-        { status: 404 }
-
+    if (clientCoreError) {
+      throw new Error(
+        `Client core data could not be loaded: ${clientCoreError.message}`
       );
-
     }
 
+    if (!clientCore) {
+      return NextResponse.json(
+        { success: false, error: "Client not found." },
+        { status: 404 }
+      );
+    }
 
+    let contacts: any[] = [];
+    let addresses: any[] = [];
+    let clientServices: any[] = [];
+    let linkedServiceRows: any[] = [];
 
-    return NextResponse.json({
+    try {
+      const result = await supabase
+        .from("crm_client_contacts")
+        .select("*")
+        .eq("organisation_id", organisationId)
+        .eq("client_id", clientId)
+        .order("is_primary", { ascending: false });
 
-      success: true,
+      if (result.error) throw result.error;
+      contacts = result.data || [];
+    } catch (error) {
+      warn("contacts", error);
+    }
 
-      client,
+    try {
+      const result = await supabase
+        .from("crm_client_addresses")
+        .select("*")
+        .eq("organisation_id", organisationId)
+        .eq("client_id", clientId)
+        .order("address_type", { ascending: true });
 
-      users: users || [],
+      if (result.error) throw result.error;
+      addresses = result.data || [];
+    } catch (error) {
+      warn("addresses", error);
+    }
 
-      services: serviceRows,
+    try {
+      const result = await supabase
+        .from("crm_client_services")
+        .select("*")
+        .eq("organisation_id", organisationId)
+        .eq("client_id", clientId)
+        .order("created_at", { ascending: true });
 
-    });
+      if (result.error) throw result.error;
+      clientServices = result.data || [];
+    } catch (error) {
+      warn("client_services", error);
+    }
 
-  } catch (error) {
-
-    const message =
-
-      error instanceof Error ? error.message : "Could not load client.";
-
-
-
-    return NextResponse.json(
-
-      { success: false, error: message },
-
-      { status: message.includes("signed in") || message.includes("session") ? 401 : 500 }
-
+    const linkedServiceIds = Array.from(
+      new Set(
+        clientServices
+          .map((row: any) => String(row.service_id || ""))
+          .filter(Boolean)
+      )
     );
 
+    if (linkedServiceIds.length) {
+      try {
+        const result = await supabase
+          .from("crm_services")
+          .select("id, service_name, service_group, default_frequency")
+          .in("id", linkedServiceIds);
+
+        if (result.error) throw result.error;
+        linkedServiceRows = result.data || [];
+      } catch (error) {
+        warn("client_service_names", error);
+      }
+    }
+
+    const linkedServiceById = new Map(
+      linkedServiceRows.map((row: any) => [String(row.id), row])
+    );
+
+    const hydratedClientServices = clientServices.map((row: any) => ({
+      ...row,
+      crm_services:
+        linkedServiceById.get(String(row.service_id || "")) || null,
+    }));
+
+    const client = {
+      ...clientCore,
+      crm_client_contacts: contacts,
+      crm_client_addresses: addresses,
+      crm_client_services: hydratedClientServices,
+    };
+
+    return NextResponse.json({
+      success: true,
+      client,
+      users,
+      services: serviceRows,
+      warnings,
+      partial: warnings.length > 0,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Could not load client.";
+
+    console.error("CLIENT FORM CRITICAL LOAD ERROR:", error);
+
+    return NextResponse.json(
+      { success: false, error: message },
+      {
+        status:
+          message.includes("signed in") ||
+          message.includes("session")
+            ? 401
+            : 500,
+      }
+    );
   }
-
 }
-
-
 
 export async function POST(req: Request) {
 
@@ -1243,8 +1132,6 @@ export async function POST(req: Request) {
     const organisationId = profile.organisation_id;
 
     const payload = (await req.json()) as ClientPayload;
-
-
 
     if (!cleanText(payload.clientName)) {
 
@@ -1258,11 +1145,7 @@ export async function POST(req: Request) {
 
     }
 
-
-
     const isIndividual = payload.clientType === "Individual";
-
-
 
     await Promise.all([
 
@@ -1320,8 +1203,6 @@ export async function POST(req: Request) {
 
     ]);
 
-
-
     const { data: client, error: clientError } = await supabase
 
       .from("crm_clients")
@@ -1332,15 +1213,11 @@ export async function POST(req: Request) {
 
       .single();
 
-
-
     if (clientError || !client) {
 
       throw clientError || new Error("Client could not be created.");
 
     }
-
-
 
     try {
 
@@ -1368,13 +1245,9 @@ export async function POST(req: Request) {
 
         .eq("id", client.id);
 
-
-
       throw relatedError;
 
     }
-
-
 
     return NextResponse.json({
 
@@ -1390,8 +1263,6 @@ export async function POST(req: Request) {
 
       error instanceof Error ? error.message : "Could not create client.";
 
-
-
     const message = getFriendlyDatabaseError(rawMessage);
 
     const status = message.includes("already exists")
@@ -1403,8 +1274,6 @@ export async function POST(req: Request) {
         ? 401
 
         : 500;
-
-
 
     return NextResponse.json(
 
@@ -1418,8 +1287,6 @@ export async function POST(req: Request) {
 
 }
 
-
-
 export async function PATCH(req: Request) {
 
   try {
@@ -1431,8 +1298,6 @@ export async function PATCH(req: Request) {
     const payload = (await req.json()) as ClientPayload & { clientId?: string };
 
     const clientId = cleanText(payload.clientId);
-
-
 
     if (!clientId) {
 
@@ -1446,8 +1311,6 @@ export async function PATCH(req: Request) {
 
     }
 
-
-
     if (!cleanText(payload.clientName)) {
 
       return NextResponse.json(
@@ -1459,8 +1322,6 @@ export async function PATCH(req: Request) {
       );
 
     }
-
-
 
     const { data: existing, error: existingError } = await supabase
 
@@ -1474,11 +1335,7 @@ export async function PATCH(req: Request) {
 
       .maybeSingle();
 
-
-
     if (existingError) throw existingError;
-
-
 
     if (!existing) {
 
@@ -1492,11 +1349,7 @@ export async function PATCH(req: Request) {
 
     }
 
-
-
     const isIndividual = payload.clientType === "Individual";
-
-
 
     await Promise.all([
 
@@ -1554,8 +1407,6 @@ export async function PATCH(req: Request) {
 
     ]);
 
-
-
     const { error: updateError } = await supabase
 
       .from("crm_clients")
@@ -1566,11 +1417,7 @@ export async function PATCH(req: Request) {
 
       .eq("id", clientId);
 
-
-
     if (updateError) throw updateError;
-
-
 
     await saveRelatedRecords(
 
@@ -1583,8 +1430,6 @@ export async function PATCH(req: Request) {
       payload
 
     );
-
-
 
     return NextResponse.json({
 
@@ -1600,8 +1445,6 @@ export async function PATCH(req: Request) {
 
       error instanceof Error ? error.message : "Could not update client.";
 
-
-
     const message = getFriendlyDatabaseError(rawMessage);
 
     const status = message.includes("already exists")
@@ -1613,8 +1456,6 @@ export async function PATCH(req: Request) {
         ? 401
 
         : 500;
-
-
 
     return NextResponse.json(
 
