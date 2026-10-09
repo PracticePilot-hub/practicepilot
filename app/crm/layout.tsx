@@ -387,7 +387,7 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
         {
           label: "Client Setup",
           icon: "core" as IconName,
-          href: `/crm/edit-client?id=${clientId}§ion=core`,
+          href: `/crm/edit-client?id=${clientId}&section=core`,
           active:
             pathname === "/crm/edit-client" &&
             editSection !== "services" &&
@@ -397,7 +397,7 @@ export default function CRMLayout({ children }: { children: ReactNode }) {
         {
           label: "Tasking Setup",
           icon: "tasking" as IconName,
-          href: `/crm/edit-client?id=${clientId}§ion=services`,
+          href: `/crm/edit-client?id=${clientId}&section=services`,
           active:
             pathname === "/crm/edit-client" &&
             (editSection === "services" || editSection === "tasking"),
