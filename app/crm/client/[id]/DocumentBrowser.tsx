@@ -1014,20 +1014,23 @@ export default function DocumentBrowser({
 
     try {
       const visited = new Set<string>();
-      const pendingApproval: string[] = [];
+      let releasedItemCount = 0;
 
-      const walk = async (currentFolder: BrowseItem) => {
+      await ensureWorkflowRecord(folder);
+      await patchWorkflow(folder, {
+        action: "set_portal_category",
+        portal_category: category,
+      });
+
+      if (makeVisible) {
+        await patchWorkflow(folder, {
+          action: "release",
+        });
+      }
+
+      const walkChildren = async (currentFolder: BrowseItem) => {
         if (visited.has(currentFolder.path)) return;
         visited.add(currentFolder.path);
-
-        await ensureWorkflowRecord(currentFolder);
-        await patchWorkflow(currentFolder, {
-          action: "set_portal_category",
-          portal_category: category,
-        });
-        await patchWorkflow(currentFolder, {
-          action: makeVisible ? "release" : "unrelease",
-        });
 
         const response = await fetchFolder(currentFolder.path, true);
 
@@ -1038,45 +1041,43 @@ export default function DocumentBrowser({
             portal_category: category,
           });
 
-          if (child.type === "folder") {
-            await walk(child);
-            continue;
-          }
-
           if (makeVisible) {
-            const workflow = workflowByPathRef.current[child.path];
-
-            if (workflow?.workflow_status === "approved") {
-              await patchWorkflow(child, {
-                action: "release",
-              });
-            } else {
-              pendingApproval.push(child.name);
-            }
-
-            continue;
+            await patchWorkflow(child, {
+              action: "release_from_folder_pack",
+              folder_pack_path: folder.path,
+              portal_category: category,
+            });
+            releasedItemCount += 1;
+          } else {
+            await patchWorkflow(child, {
+              action: "unrelease",
+            });
           }
 
-          await patchWorkflow(child, {
-            action: "unrelease",
-          });
+          if (child.type === "folder") {
+            await walkChildren(child);
+          }
         }
       };
 
-      await walk(folder);
+      await walkChildren(folder);
+
+      if (!makeVisible) {
+        await patchWorkflow(folder, {
+          action: "unrelease",
+        });
+      }
+
       await loadWorkflow();
       await load(currentPath, { force: true });
+
       setNotice(
         makeVisible
-          ? pendingApproval.length
-            ? `${folder.name} was released under ${portalCategoryLabel(
-                category
-              )}. ${pendingApproval.length} document${
-                pendingApproval.length === 1 ? "" : "s"
-              } remain internal until review and approval are completed.`
-            : `${folder.name} and all approved documents were released to the client under ${portalCategoryLabel(
-                category
-              )}.`
+          ? `${folder.name} and ${releasedItemCount} current item${
+              releasedItemCount === 1 ? "" : "s"
+            } were released to the client under ${portalCategoryLabel(
+              category
+            )}. New documents added later will remain internal until the folder pack is reviewed and released again.`
           : `Client access was removed from ${folder.name} and its current contents.`
       );
     } catch (caught) {

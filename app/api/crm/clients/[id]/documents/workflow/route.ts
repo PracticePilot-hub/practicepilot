@@ -2,11 +2,7 @@ import { NextResponse } from "next/server";
 
 import { createClient } from "@supabase/supabase-js";
 
-
-
 export const dynamic = "force-dynamic";
-
-
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
@@ -20,13 +16,9 @@ const serviceKey =
 
   "";
 
-
-
 if (!supabaseUrl) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
 
 if (!serviceKey) throw new Error("Missing Supabase service-role key");
-
-
 
 const admin = createClient(supabaseUrl, serviceKey, {
 
@@ -39,8 +31,6 @@ const admin = createClient(supabaseUrl, serviceKey, {
   },
 
 });
-
-
 
 type WorkflowStatus =
 
@@ -56,8 +46,6 @@ type WorkflowStatus =
 
 type WorkflowItemType = "file" | "folder";
 
-
-
 function bearerToken(request: Request) {
 
   return (request.headers.get("authorization") || "")
@@ -68,13 +56,9 @@ function bearerToken(request: Request) {
 
 }
 
-
-
 async function currentContext(request: Request) {
 
   const token = bearerToken(request);
-
-
 
   if (!token) {
 
@@ -96,8 +80,6 @@ async function currentContext(request: Request) {
 
   }
 
-
-
   const {
 
     data: { user },
@@ -105,8 +87,6 @@ async function currentContext(request: Request) {
     error: authError,
 
   } = await admin.auth.getUser(token);
-
-
 
   if (authError || !user) {
 
@@ -128,8 +108,6 @@ async function currentContext(request: Request) {
 
   }
 
-
-
   const { data: profile, error } = await admin
 
     .from("user_profiles")
@@ -143,8 +121,6 @@ async function currentContext(request: Request) {
     .eq("user_id", user.id)
 
     .maybeSingle();
-
-
 
   if (
 
@@ -178,8 +154,6 @@ async function currentContext(request: Request) {
 
   }
 
-
-
   return {
 
     user,
@@ -191,8 +165,6 @@ async function currentContext(request: Request) {
   };
 
 }
-
-
 
 async function clientProviderContext(
 
@@ -214,19 +186,13 @@ async function clientProviderContext(
 
     .maybeSingle();
 
-
-
   if (clientError) throw clientError;
-
-
 
   if (!client) {
 
     throw new Error("Client not found.");
 
   }
-
-
 
   const { data: mapping, error: mappingError } = await admin
 
@@ -250,11 +216,7 @@ async function clientProviderContext(
 
     .maybeSingle();
 
-
-
   if (mappingError) throw mappingError;
-
-
 
   if (!mapping) {
 
@@ -266,8 +228,6 @@ async function clientProviderContext(
 
   }
 
-
-
   return {
 
     client,
@@ -278,8 +238,6 @@ async function clientProviderContext(
 
 }
 
-
-
 function normalisePath(value: string) {
 
   const parts = String(value || "")
@@ -288,13 +246,9 @@ function normalisePath(value: string) {
 
     .filter(Boolean);
 
-
-
   return `/${parts.join("/")}`;
 
 }
-
-
 
 function isInsideRoot(rootPath: string, requestedPath: string) {
 
@@ -302,14 +256,9 @@ function isInsideRoot(rootPath: string, requestedPath: string) {
 
   const requested = normalisePath(requestedPath);
 
-
-
   return requested === root || requested.startsWith(`${root}/`);
 
 }
-
-
-
 
 function cleanItemType(value: unknown): WorkflowItemType {
 
@@ -337,8 +286,6 @@ function cleanStatus(value: unknown): WorkflowStatus {
 
     .toLowerCase() as WorkflowStatus;
 
-
-
   if (
 
     ![
@@ -361,13 +308,9 @@ function cleanStatus(value: unknown): WorkflowStatus {
 
   }
 
-
-
   return status;
 
 }
-
-
 
 const PORTAL_CATEGORIES = [
 
@@ -391,11 +334,7 @@ const PORTAL_CATEGORIES = [
 
 ] as const;
 
-
-
 type PortalCategory = (typeof PORTAL_CATEGORIES)[number];
-
-
 
 function cleanPortalCategory(value: unknown): PortalCategory {
 
@@ -405,21 +344,15 @@ function cleanPortalCategory(value: unknown): PortalCategory {
 
     .toLowerCase() as PortalCategory;
 
-
-
   if (!PORTAL_CATEGORIES.includes(category)) {
 
     throw new Error("Invalid client portal category.");
 
   }
 
-
-
   return category;
 
 }
-
-
 
 function suggestPortalCategory(
 
@@ -430,8 +363,6 @@ function suggestPortalCategory(
 ): PortalCategory {
 
   const text = `${providerPath} ${documentName}`.toLowerCase();
-
-
 
   if (
 
@@ -447,8 +378,6 @@ function suggestPortalCategory(
 
   }
 
-
-
   if (
 
     text.includes("management account") ||
@@ -460,9 +389,6 @@ function suggestPortalCategory(
     return "management_accounts";
 
   }
-
-
-
 
   if (
 
@@ -498,8 +424,6 @@ function suggestPortalCategory(
 
   }
 
-
-
   if (
 
     text.includes("secretarial") ||
@@ -518,8 +442,6 @@ function suggestPortalCategory(
 
   }
 
-
-
   if (
 
     text.includes("engagement") ||
@@ -535,8 +457,6 @@ function suggestPortalCategory(
     return "agreements_contracts";
 
   }
-
-
 
   if (
 
@@ -556,8 +476,6 @@ function suggestPortalCategory(
 
   }
 
-
-
   if (
 
     text.includes("company document") ||
@@ -576,13 +494,9 @@ function suggestPortalCategory(
 
   }
 
-
-
   return "general";
 
 }
-
-
 
 function withSuggestedPortalCategory(row: any) {
 
@@ -606,8 +520,6 @@ function withSuggestedPortalCategory(row: any) {
 
 }
 
-
-
 export async function GET(
 
   request: Request,
@@ -622,13 +534,9 @@ export async function GET(
 
     if (response || !profile) return response;
 
-
-
     const { id: clientId } = await context.params;
 
     const organisationId = profile.organisation_id;
-
-
 
     const { mapping } = await clientProviderContext(
 
@@ -638,13 +546,9 @@ export async function GET(
 
     );
 
-
-
     const url = new URL(request.url);
 
     const path = String(url.searchParams.get("path") || "").trim();
-
-
 
     let query = admin
 
@@ -718,13 +622,9 @@ export async function GET(
 
       .order("updated_at", { ascending: false });
 
-
-
     if (path) {
 
       const normalised = normalisePath(path);
-
-
 
       if (!isInsideRoot(mapping.folder_path, normalised)) {
 
@@ -738,21 +638,13 @@ export async function GET(
 
       }
 
-
-
       query = query.eq("provider_path", normalised);
 
     }
 
-
-
     const { data, error } = await query;
 
-
-
     if (error) throw error;
-
-
 
     const { data: reviewers, error: reviewersError } = await admin
 
@@ -768,11 +660,7 @@ export async function GET(
 
       .order("full_name", { ascending: true });
 
-
-
     if (reviewersError) throw reviewersError;
-
-
 
     return NextResponse.json({
 
@@ -787,8 +675,6 @@ export async function GET(
   } catch (error) {
 
     console.error("CLIENT DOCUMENT WORKFLOW GET ERROR:", error);
-
-
 
     return NextResponse.json(
 
@@ -812,8 +698,6 @@ export async function GET(
 
 }
 
-
-
 export async function POST(
 
   request: Request,
@@ -828,13 +712,9 @@ export async function POST(
 
     if (response || !profile || !user) return response;
 
-
-
     const { id: clientId } = await context.params;
 
     const organisationId = profile.organisation_id;
-
-
 
     const { mapping } = await clientProviderContext(
 
@@ -844,11 +724,7 @@ export async function POST(
 
     );
 
-
-
     const body = await request.json().catch(() => ({}));
-
-
 
     const providerPath = normalisePath(
 
@@ -856,15 +732,11 @@ export async function POST(
 
     );
 
-
-
     const documentName = String(body?.document_name || "").trim();
 
     const providerItemId = String(body?.provider_item_id || "").trim() || null;
 
     const itemType = cleanItemType(body?.item_type);
-
-
 
     if (!providerPath || providerPath === "/") {
 
@@ -878,8 +750,6 @@ export async function POST(
 
     }
 
-
-
     if (!documentName) {
 
       return NextResponse.json(
@@ -892,8 +762,6 @@ export async function POST(
 
     }
 
-
-
     if (!isInsideRoot(mapping.folder_path, providerPath)) {
 
       return NextResponse.json(
@@ -905,8 +773,6 @@ export async function POST(
       );
 
     }
-
-
 
     const { data: existingWorkflow, error: existingWorkflowError } = await admin
 
@@ -924,15 +790,9 @@ export async function POST(
 
       .maybeSingle();
 
-
-
     if (existingWorkflowError) throw existingWorkflowError;
 
-
-
     let data: any;
-
-
 
     if (existingWorkflow) {
 
@@ -973,8 +833,6 @@ export async function POST(
         .select("*")
 
         .single();
-
-
 
       if (updateError) throw updateError;
 
@@ -1024,15 +882,11 @@ export async function POST(
 
         .single();
 
-
-
       if (insertError) throw insertError;
 
       data = insertedWorkflow;
 
     }
-
-
 
     return NextResponse.json({
 
@@ -1045,8 +899,6 @@ export async function POST(
   } catch (error) {
 
     console.error("CLIENT DOCUMENT WORKFLOW POST ERROR:", error);
-
-
 
     return NextResponse.json(
 
@@ -1070,8 +922,6 @@ export async function POST(
 
 }
 
-
-
 function localDateInJohannesburg() {
 
   return new Intl.DateTimeFormat("en-CA", {
@@ -1087,8 +937,6 @@ function localDateInJohannesburg() {
   }).format(new Date());
 
 }
-
-
 
 async function validReviewer(
 
@@ -1114,15 +962,11 @@ async function validReviewer(
 
     .maybeSingle();
 
-
-
   if (error) throw error;
 
   return data || null;
 
 }
-
-
 
 async function createOrRefreshReviewWorkItem(args: {
 
@@ -1156,9 +1000,8 @@ async function createOrRefreshReviewWorkItem(args: {
 
   } = args;
 
-
-
   const itemType = cleanItemType(workflow.item_type);
+
   const itemLabel = itemType === "folder" ? "folder pack" : "document";
 
   const payload = {
@@ -1215,8 +1058,6 @@ async function createOrRefreshReviewWorkItem(args: {
 
   };
 
-
-
   if (workflow.review_work_item_id) {
 
     const { data, error } = await admin
@@ -1231,15 +1072,11 @@ async function createOrRefreshReviewWorkItem(args: {
 
       .maybeSingle();
 
-
-
     if (error) throw error;
 
     if (data?.id) return data.id;
 
   }
-
-
 
   const { data, error } = await admin
 
@@ -1251,21 +1088,15 @@ async function createOrRefreshReviewWorkItem(args: {
 
     .single();
 
-
-
   if (error) throw error;
 
   return data.id as string;
 
 }
 
-
-
 async function completeReviewWorkItem(workItemId: string | null | undefined) {
 
   if (!workItemId) return;
-
-
 
   const { error } = await admin
 
@@ -1283,13 +1114,9 @@ async function completeReviewWorkItem(workItemId: string | null | undefined) {
 
     .eq("id", workItemId);
 
-
-
   if (error) throw error;
 
 }
-
-
 
 export async function PATCH(
 
@@ -1305,13 +1132,9 @@ export async function PATCH(
 
     if (response || !profile || !user) return response;
 
-
-
     const { id: clientId } = await context.params;
 
     const organisationId = profile.organisation_id;
-
-
 
     const { mapping } = await clientProviderContext(
 
@@ -1321,19 +1144,13 @@ export async function PATCH(
 
     );
 
-
-
     const body = await request.json().catch(() => ({}));
-
-
 
     const providerPath = normalisePath(
 
       String(body?.provider_path || "").trim()
 
     );
-
-
 
     if (!providerPath || providerPath === "/") {
 
@@ -1347,8 +1164,6 @@ export async function PATCH(
 
     }
 
-
-
     if (!isInsideRoot(mapping.folder_path, providerPath)) {
 
       return NextResponse.json(
@@ -1360,8 +1175,6 @@ export async function PATCH(
       );
 
     }
-
-
 
     const { data: existing, error: existingError } = await admin
 
@@ -1379,11 +1192,7 @@ export async function PATCH(
 
       .maybeSingle();
 
-
-
     if (existingError) throw existingError;
-
-
 
     if (!existing) {
 
@@ -1403,24 +1212,21 @@ export async function PATCH(
 
     }
 
-
-
     const action = String(body?.action || "").trim().toLowerCase();
 
     const requestedItemType =
+
       body?.item_type === undefined || body?.item_type === null
+
         ? cleanItemType(existing.item_type)
+
         : cleanItemType(body.item_type);
 
     const now = new Date().toISOString();
 
-
-
     if (action === "set_portal_category") {
 
       const portalCategory = cleanPortalCategory(body?.portal_category);
-
-
 
       const { data, error } = await admin
 
@@ -1448,11 +1254,7 @@ export async function PATCH(
 
         .single();
 
-
-
       if (error) throw error;
-
-
 
       return NextResponse.json({
 
@@ -1464,7 +1266,101 @@ export async function PATCH(
 
     }
 
+    if (action === "release_from_folder_pack") {
+      const folderPackPath = normalisePath(
+        String(body?.folder_pack_path || "").trim()
+      );
 
+      if (!folderPackPath || folderPackPath === "/") {
+        return NextResponse.json(
+          { error: "Folder pack path is required." },
+          { status: 400 }
+        );
+      }
+
+      if (
+        providerPath === folderPackPath ||
+        !providerPath.startsWith(`${folderPackPath}/`)
+      ) {
+        return NextResponse.json(
+          { error: "This item is not inside the selected folder pack." },
+          { status: 409 }
+        );
+      }
+
+      const { data: folderPack, error: folderPackError } = await admin
+        .from("crm_document_workflow")
+        .select("*")
+        .eq("organisation_id", organisationId)
+        .eq("client_id", clientId)
+        .eq("provider_id", mapping.provider_id)
+        .eq("provider_path", folderPackPath)
+        .eq("item_type", "folder")
+        .maybeSingle();
+
+      if (folderPackError) throw folderPackError;
+
+      if (
+        !folderPack ||
+        folderPack.workflow_status !== "approved" ||
+        folderPack.client_visible !== true
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "The parent folder pack must be approved and released before its contents can be released.",
+          },
+          { status: 409 }
+        );
+      }
+
+      const portalCategory =
+        body?.portal_category != null
+          ? cleanPortalCategory(body.portal_category)
+          : folderPack.portal_category
+            ? cleanPortalCategory(folderPack.portal_category)
+            : suggestPortalCategory(
+                String(folderPack.provider_path || ""),
+                String(folderPack.document_name || "")
+              );
+
+      if (existing.review_work_item_id) {
+        await completeReviewWorkItem(existing.review_work_item_id);
+      }
+
+      const { data, error } = await admin
+        .from("crm_document_workflow")
+        .update({
+          item_type: requestedItemType,
+          portal_category: portalCategory,
+          workflow_status: "approved",
+          reviewed_by_user_id:
+            folderPack.reviewed_by_user_id || existing.reviewed_by_user_id,
+          reviewed_at:
+            folderPack.reviewed_at || existing.reviewed_at || now,
+          approved_by_user_id:
+            folderPack.approved_by_user_id || user.id,
+          approved_at:
+            folderPack.approved_at || now,
+          client_visible: true,
+          released_by_user_id: user.id,
+          released_at: now,
+          last_activity_text:
+            requestedItemType === "folder"
+              ? `Released as part of approved folder pack ${folderPack.document_name}.`
+              : `Approved and released as part of folder pack ${folderPack.document_name}.`,
+        })
+        .eq("id", existing.id)
+        .select("*")
+        .single();
+
+      if (error) throw error;
+
+      return NextResponse.json({
+        success: true,
+        workflow: withSuggestedPortalCategory(data),
+      });
+    }
 
     if (action === "release") {
 
@@ -1477,8 +1373,11 @@ export async function PATCH(
           {
 
             error:
+
               itemType === "folder"
+
                 ? "Only an approved folder pack can be released to the client."
+
                 : "Only an approved document can be released to the client.",
 
           },
@@ -1488,8 +1387,6 @@ export async function PATCH(
         );
 
       }
-
-
 
       const portalCategory = existing.portal_category
 
@@ -1502,8 +1399,6 @@ export async function PATCH(
             String(existing.document_name || "")
 
           );
-
-
 
       const { data, error } = await admin
 
@@ -1543,11 +1438,7 @@ export async function PATCH(
 
         .single();
 
-
-
       if (error) throw error;
-
-
 
       return NextResponse.json({
 
@@ -1558,8 +1449,6 @@ export async function PATCH(
       });
 
     }
-
-
 
     if (action === "unrelease") {
 
@@ -1593,11 +1482,7 @@ export async function PATCH(
 
         .single();
 
-
-
       if (error) throw error;
-
-
 
       return NextResponse.json({
 
@@ -1609,11 +1494,7 @@ export async function PATCH(
 
     }
 
-
-
     const nextStatus = cleanStatus(body?.workflow_status);
-
-
 
     const update: Record<string, unknown> = {
 
@@ -1631,8 +1512,6 @@ export async function PATCH(
 
     };
 
-
-
     if (nextStatus === "awaiting_review") {
 
       const reviewerUserId = String(
@@ -1644,8 +1523,6 @@ export async function PATCH(
           ""
 
       ).trim();
-
-
 
       if (!reviewerUserId) {
 
@@ -1659,8 +1536,6 @@ export async function PATCH(
 
       }
 
-
-
       const reviewer = await validReviewer(
 
         organisationId,
@@ -1668,8 +1543,6 @@ export async function PATCH(
         reviewerUserId
 
       );
-
-
 
       if (!reviewer) {
 
@@ -1683,15 +1556,11 @@ export async function PATCH(
 
       }
 
-
-
       const dueDate = String(
 
         body?.review_due_date || localDateInJohannesburg()
 
       ).trim();
-
-
 
       const workItemId = await createOrRefreshReviewWorkItem({
 
@@ -1708,8 +1577,6 @@ export async function PATCH(
         dueDate,
 
       });
-
-
 
       update.review_requested_by_user_id = user.id;
 
@@ -1741,8 +1608,6 @@ export async function PATCH(
 
     }
 
-
-
     if (nextStatus === "reviewed") {
 
       await completeReviewWorkItem(existing.review_work_item_id);
@@ -1761,8 +1626,6 @@ export async function PATCH(
 
     }
 
-
-
     if (nextStatus === "approved") {
 
       update.approved_by_user_id = user.id;
@@ -1770,8 +1633,6 @@ export async function PATCH(
       update.approved_at = now;
 
     }
-
-
 
     if (nextStatus === "rejected") {
 
@@ -1786,8 +1647,6 @@ export async function PATCH(
       update.last_activity_text = requestedItemType === "folder" ? "Folder pack review rejected." : "Document review rejected.";
 
     }
-
-
 
     if (nextStatus === "stored") {
 
@@ -1815,8 +1674,6 @@ export async function PATCH(
 
     }
 
-
-
     const { data, error } = await admin
 
       .from("crm_document_workflow")
@@ -1829,11 +1686,7 @@ export async function PATCH(
 
       .single();
 
-
-
     if (error) throw error;
-
-
 
     return NextResponse.json({
 
@@ -1846,8 +1699,6 @@ export async function PATCH(
   } catch (error) {
 
     console.error("CLIENT DOCUMENT WORKFLOW PATCH ERROR:", error);
-
-
 
     return NextResponse.json(
 
