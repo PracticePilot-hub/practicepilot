@@ -1351,8 +1351,6 @@ export default function DocumentBrowser({
         <div key={itemKey(folder)}>
           <button
             type="button"
-            onMouseEnter={() => prefetchFolder(folder.path)}
-            onFocus={() => prefetchFolder(folder.path)}
             onClick={() => {
               toggleFolderExpansion(folder.path);
               if (!selectedFolder) void load(folder.path);
@@ -2123,8 +2121,6 @@ export default function DocumentBrowser({
                 <div key={itemKey(folder)}>
                   <button
                     type="button"
-                    onMouseEnter={() => prefetchFolder(folder.path)}
-                    onFocus={() => prefetchFolder(folder.path)}
                     onClick={() => {
                       toggleFolderExpansion(folder.path);
                       if (currentPath !== folder.path) void load(folder.path);
@@ -2258,12 +2254,6 @@ export default function DocumentBrowser({
 
                     <button
                       type="button"
-                      onMouseEnter={() => {
-                        if (item.type === "folder") prefetchFolder(item.path);
-                      }}
-                      onFocus={() => {
-                        if (item.type === "folder") prefetchFolder(item.path);
-                      }}
                       onClick={() => {
                         if (item.type === "folder") {
                           void load(item.path);
