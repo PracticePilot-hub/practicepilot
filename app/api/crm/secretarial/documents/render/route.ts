@@ -208,13 +208,13 @@ function baseHtml(title: string, client: any, body: string) {
 
   .sig { border-top: 1px solid #10233a; padding-top: 8px; min-height: 74px; font-size: 9.5px; line-height: 1.8; }
 
-  .signature-single { width: 72%; margin-top: auto; padding-top: 26px; font-size: 10px; line-height: 1.45; }
+  .signature-single { width: 74%; margin-top: 28px; padding-top: 0; font-size: 10.5px; line-height: 1.5; }
 
-  .mandate-body { min-height: 198mm; display: flex; flex-direction: column; font-size: 11.3px; line-height: 1.48; }
+  .mandate-body { font-size: 11.6px; line-height: 1.5; }
 
-  .mandate-body p { line-height: 1.48; margin: 7px 0; }
+  .mandate-body p { line-height: 1.5; margin: 8px 0; }
 
-  .mandate-body h2 { margin: 15px 0 4px; font-size: 12.5px; }
+  .mandate-body h2 { margin: 17px 0 5px; font-size: 12.5px; }
 
   .mandate-body th { font-size: 8.4px; }
 
@@ -651,10 +651,14 @@ function boResolutionHtml({ client, signatory, firmSettings }: { client: any; si
       <p>It is hereby resolved that the Agent be authorised to act on behalf of <strong>${esc(client.client_name)}</strong> to prepare, lodge and submit the Beneficial Ownership information and any other prescribed information and supporting documents required for that filing with the CIPC, and to respond to reasonable CIPC queries arising directly from the submission.</p>
       <p>The company / close corporation remains responsible for the accuracy and completeness of the information supplied to the Agent and must advise the Agent of any material change before submission.</p>
       <div class="signature-single">
-        <div>Signed at __________________________ on this ______ day of __________________ ${new Date().getFullYear()}.</div>
-        <div style="margin-top:28px;border-top:1px solid #10233a;width:62%;padding-top:6px;">
-          <strong>${esc(signatory?.director_name || "")}</strong><br/>
-          ${esc(String(signatory?.director_capacity || (isCloseCorporation ? "Member" : "Director")).replaceAll("_", " "))}
+        <div>
+          Signed at ______________________________ on this ______ day of __________________ ${new Date().getFullYear()}.
+        </div>
+        <div style="margin-top:34px;width:58%;">
+          <div style="border-top:1px solid #10233a;padding-top:6px;">
+            <strong>${esc(signatory?.director_name || "")}</strong><br/>
+            ${esc(String(signatory?.director_capacity || (isCloseCorporation ? "Member" : "Director")).replaceAll("_", " "))}
+          </div>
         </div>
       </div>
     </div>`;
@@ -741,8 +745,8 @@ function boPackHtml({
     table{width:100%;border-collapse:collapse}
     th{text-align:left;background:#f3f6f9;color:#52647a;font-size:8px}
     th,td{padding:6px 7px;border:1px solid #d8dee7;vertical-align:top}
-    .signature-single{width:72%;margin-top:auto;padding-top:26px;font-size:10px;line-height:1.45}
-    .mandate-body{min-height:198mm;display:flex;flex-direction:column;font-size:11.2px;line-height:1.48}
+    .signature-single{width:74%;margin-top:28px;padding-top:0;font-size:10.5px;line-height:1.5}
+    .mandate-body{font-size:11.5px;line-height:1.5}
     .powered{position:absolute;left:15mm;right:15mm;bottom:7mm;text-align:center;color:#94a3b8;font-size:7px}
     .checklist li{margin-bottom:5px}
   </style></head><body>
