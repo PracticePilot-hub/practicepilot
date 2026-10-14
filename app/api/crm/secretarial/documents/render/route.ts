@@ -208,13 +208,13 @@ function baseHtml(title: string, client: any, body: string) {
 
   .sig { border-top: 1px solid #10233a; padding-top: 8px; min-height: 74px; font-size: 9.5px; line-height: 1.8; }
 
-  .signature-single { width: 58%; margin-top: 34px; border-top: 1px solid #10233a; padding-top: 6px; }
+  .signature-single { width: 72%; margin-top: auto; padding-top: 26px; font-size: 10px; line-height: 1.45; }
 
-  .mandate-body { font-size: 11.8px; line-height: 1.52; }
+  .mandate-body { min-height: 198mm; display: flex; flex-direction: column; font-size: 11.3px; line-height: 1.48; }
 
-  .mandate-body p { line-height: 1.52; margin: 6px 0; }
+  .mandate-body p { line-height: 1.48; margin: 7px 0; }
 
-  .mandate-body h2 { margin-top: 13px; font-size: 12.5px; }
+  .mandate-body h2 { margin: 15px 0 4px; font-size: 12.5px; }
 
   .mandate-body th { font-size: 8.4px; }
 
@@ -650,7 +650,13 @@ function boResolutionHtml({ client, signatory, firmSettings }: { client: any; si
       <h2>Resolution 1</h2>
       <p>It is hereby resolved that the Agent be authorised to act on behalf of <strong>${esc(client.client_name)}</strong> to prepare, lodge and submit the Beneficial Ownership information and any other prescribed information and supporting documents required for that filing with the CIPC, and to respond to reasonable CIPC queries arising directly from the submission.</p>
       <p>The company / close corporation remains responsible for the accuracy and completeness of the information supplied to the Agent and must advise the Agent of any material change before submission.</p>
-      <div class="signature-single">Signed at ______________________________ on this ________ day of _____________ ${new Date().getFullYear()}<br/><br/><br/>______________________________<br/><strong>${esc(signatory?.director_name || "")}</strong><br/>${esc(String(signatory?.director_capacity || (isCloseCorporation ? "Member" : "Director")).replaceAll("_", " "))}</div>
+      <div class="signature-single">
+        <div>Signed at __________________________ on this ______ day of __________________ ${new Date().getFullYear()}.</div>
+        <div style="margin-top:28px;border-top:1px solid #10233a;width:62%;padding-top:6px;">
+          <strong>${esc(signatory?.director_name || "")}</strong><br/>
+          ${esc(String(signatory?.director_capacity || (isCloseCorporation ? "Member" : "Director")).replaceAll("_", " "))}
+        </div>
+      </div>
     </div>`;
 }
 
@@ -680,12 +686,93 @@ function boShareholderRegisterHtml({ shareholders, classes, transactions }: { sh
   return `<p>Generated from the current PracticePilot share transaction history as a supporting document for the Beneficial Ownership filing.</p><table><thead><tr><th>Holder</th><th>ID / Registration</th><th>Holder Type</th><th>Class</th><th>Current Shares</th><th>% of Issued</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No current issued-share position recorded.</td></tr>'}</tbody></table>`;
 }
 
-function boPackHtml({ client, signatory, firmSettings, owners, shareholders, classes, transactions }: { client: any; signatory: any; firmSettings: any; owners: Array<{ name: string; idNumber: string; interest: string; percentage: number | null; effective: string | null }>; shareholders: any[]; classes: any[]; transactions: any[] }) {
-  return `<!doctype html><html><head><meta charset="utf-8" /><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#10233a;font-size:10.5px}.pack-page{position:relative;width:210mm;min-height:297mm;padding:12mm 15mm 18mm;page-break-after:always}.pack-page:last-child{page-break-after:auto}.client{font-size:18px;font-weight:900}.reg{margin-top:3px;color:#52647a;font-size:10px;font-weight:700}.line{margin-top:8px;border-bottom:2px solid #10233a}.document-title{margin:11px 0 15px;text-align:center;font-size:20px;font-weight:900}h2{margin:14px 0 6px;font-size:12px}p{line-height:1.48;margin:5px 0}table{width:100%;border-collapse:collapse}th{text-align:left;background:#f3f6f9;color:#52647a;font-size:8px}th,td{padding:6px 7px;border:1px solid #d8dee7;vertical-align:top}.signature-single{width:58%;margin-top:34px;border-top:1px solid #10233a;padding-top:6px}.mandate-body{font-size:11.4px;line-height:1.5}.powered{position:absolute;left:15mm;right:15mm;bottom:7mm;text-align:center;color:#94a3b8;font-size:7px}.checklist li{margin-bottom:5px}</style></head><body>
-  <section class="pack-page"><div class="client">${esc(client.client_name)}</div><div class="reg">${esc(client.registration_number || "")}</div><div class="line"></div><div class="document-title">Beneficial Ownership Mandate / Resolution</div>${boResolutionHtml({ client, signatory, firmSettings })}<div class="powered">Powered by PracticePilot</div></section>
-  <section class="pack-page"><div class="client">${esc(client.client_name)}</div><div class="reg">${esc(client.registration_number || "")}</div><div class="line"></div><div class="document-title">Beneficial Ownership Supporting Schedule</div>${boSupportingScheduleHtml({ owners })}<div class="powered">Powered by PracticePilot</div></section>
-  <section class="pack-page"><div class="client">${esc(client.client_name)}</div><div class="reg">${esc(client.registration_number || "")}</div><div class="line"></div><div class="document-title">Current Shareholder / Beneficial Interest Register</div>${boShareholderRegisterHtml({ shareholders, classes, transactions })}<h2>Supporting document checklist</h2><ul class="checklist"><li>Signed BO mandate / resolution — generated in this pack.</li><li>Beneficial ownership supporting schedule — generated in this pack.</li><li>Current shareholder / beneficial interest register — generated in this pack.</li><li>Identity documents or other external evidence required for the filing must be attached separately where applicable.</li></ul><div class="powered">Powered by PracticePilot</div></section>
-</body></html>`;
+function boPackHtml({
+  client,
+  signatory,
+  firmSettings,
+  owners,
+  shareholders,
+  classes,
+  transactions,
+}: {
+  client: any;
+  signatory: any;
+  firmSettings: any;
+  owners: Array<{
+    name: string;
+    idNumber: string;
+    interest: string;
+    percentage: number | null;
+    effective: string | null;
+  }>;
+  shareholders: any[];
+  classes: any[];
+  transactions: any[];
+}) {
+  const supportingSchedulePage =
+    owners.length > 0
+      ? `<section class="pack-page">
+          <div class="client">${esc(client.client_name)}</div>
+          <div class="reg">${esc(client.registration_number || "")}</div>
+          <div class="line"></div>
+          <div class="document-title">Beneficial Ownership Supporting Schedule</div>
+          ${boSupportingScheduleHtml({ owners })}
+          <div class="powered">Powered by PracticePilot</div>
+        </section>`
+      : "";
+
+  const supportingChecklistItem =
+    owners.length > 0
+      ? "<li>Beneficial ownership supporting schedule — generated in this pack.</li>"
+      : "";
+
+  return `<!doctype html><html><head><meta charset="utf-8" /><style>
+    @page{size:A4 portrait;margin:0}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#10233a;font-size:10.5px}
+    .pack-page{position:relative;width:210mm;min-height:297mm;padding:12mm 15mm 18mm;page-break-after:always}
+    .pack-page:last-child{page-break-after:auto}
+    .client{font-size:18px;font-weight:900}
+    .reg{margin-top:3px;color:#52647a;font-size:10px;font-weight:700}
+    .line{margin-top:8px;border-bottom:2px solid #10233a}
+    .document-title{margin:11px 0 15px;text-align:center;font-size:20px;font-weight:900}
+    h2{margin:14px 0 6px;font-size:12px}
+    p{line-height:1.48;margin:5px 0}
+    table{width:100%;border-collapse:collapse}
+    th{text-align:left;background:#f3f6f9;color:#52647a;font-size:8px}
+    th,td{padding:6px 7px;border:1px solid #d8dee7;vertical-align:top}
+    .signature-single{width:72%;margin-top:auto;padding-top:26px;font-size:10px;line-height:1.45}
+    .mandate-body{min-height:198mm;display:flex;flex-direction:column;font-size:11.2px;line-height:1.48}
+    .powered{position:absolute;left:15mm;right:15mm;bottom:7mm;text-align:center;color:#94a3b8;font-size:7px}
+    .checklist li{margin-bottom:5px}
+  </style></head><body>
+    <section class="pack-page">
+      <div class="client">${esc(client.client_name)}</div>
+      <div class="reg">${esc(client.registration_number || "")}</div>
+      <div class="line"></div>
+      <div class="document-title">Beneficial Ownership Mandate / Resolution</div>
+      ${boResolutionHtml({ client, signatory, firmSettings })}
+      <div class="powered">Powered by PracticePilot</div>
+    </section>
+
+    ${supportingSchedulePage}
+
+    <section class="pack-page">
+      <div class="client">${esc(client.client_name)}</div>
+      <div class="reg">${esc(client.registration_number || "")}</div>
+      <div class="line"></div>
+      <div class="document-title">Current Shareholder / Beneficial Interest Register</div>
+      ${boShareholderRegisterHtml({ shareholders, classes, transactions })}
+      <h2>Supporting document checklist</h2>
+      <ul class="checklist">
+        <li>Signed BO mandate / resolution — generated in this pack.</li>
+        ${supportingChecklistItem}
+        <li>Current shareholder / beneficial interest register — generated in this pack.</li>
+        <li>Identity documents or other external evidence required for the filing must be attached separately where applicable.</li>
+      </ul>
+      <div class="powered">Powered by PracticePilot</div>
+    </section>
+  </body></html>`;
 }
 
 async function launchBrowser() {
