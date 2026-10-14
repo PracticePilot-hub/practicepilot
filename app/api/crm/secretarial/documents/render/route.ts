@@ -1,2350 +1,590 @@
-import { NextResponse } from "next/server";
+"use client";
 
-import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
 
-import chromium from "@sparticuz/chromium";
+import { useEffect, useState, type CSSProperties } from "react";
 
-import puppeteer from "puppeteer-core";
-
-import fs from "node:fs";
-
-import path from "node:path";
-
-
-
-export const runtime = "nodejs";
-
-export const dynamic = "force-dynamic";
-
-export const maxDuration = 60;
-
-
-
-type RenderBody = {
-
-  clientId?: string;
-
-  documentType?: string;
-
-  sourceId?: string | null;
-
-};
-
-
+import { supabase } from "@/app/lib/supabase";
 
 type UserProfile = {
 
-  id: string;
-
   role: string;
 
-  organisation_id: string | null;
+  can_access_crm?: boolean | null;
 
-  access_enabled: boolean;
+  can_access_afs?: boolean | null;
 
-  can_access_secretarial: boolean;
+  can_manage_practice_users?: boolean | null;
 
 };
 
-
-
-function adminClient() {
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-  const key =
-
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-
-    process.env.SUPABASE_SECRET_KEY ||
-
-    process.env.SUPABASE_SERVICE_KEY;
-
-
-
-  if (!url || !key) {
-
-    throw new Error("Server Supabase credentials are not configured.");
-
-  }
-
-
-
-  return createClient(url, key, {
-
-    auth: { persistSession: false, autoRefreshToken: false },
-
-  });
-
-}
-
-
-
-function tokenFrom(request: Request) {
-
-  return (request.headers.get("authorization") || "")
-
-    .replace(/^Bearer\s+/i, "")
-
-    .trim();
-
-}
-
-
-
-function globalAdmin(role: string) {
+function isGlobalAdmin(role: string) {
 
   return role === "Super Admin" || role === "Admin";
 
 }
 
+export default function SettingsPage() {
 
+  const [profile, setProfile] = useState<UserProfile | null>(null);
 
-function esc(value: unknown) {
+  const [loading, setLoading] = useState(true);
 
-  return String(value ?? "")
+  useEffect(() => {
 
-    .replaceAll("&", "&amp;")
+    async function loadProfile() {
 
-    .replaceAll("<", "&lt;")
+try {
 
-    .replaceAll(">", "&gt;")
+        const {
 
-    .replaceAll('"', "&quot;")
+          data: { user },
 
-    .replaceAll("'", "&#039;");
+        } = await supabase.auth.getUser();
 
-}
+        if (!user?.id) {
 
+          setLoading(false);
 
+          return;
 
-function dateText(value: unknown) {
+        }
 
-  const text = String(value ?? "").slice(0, 10);
+        const { data, error } = await supabase
 
-  if (!text) return "-";
-
-  const parsed = new Date(`${text}T00:00:00`);
-
-  if (Number.isNaN(parsed.getTime())) return esc(text);
-
-
-
-  return new Intl.DateTimeFormat("en-ZA", {
-
-    day: "2-digit",
-
-    month: "long",
-
-    year: "numeric",
-
-  }).format(parsed);
-
-}
-
-
-
-function money(value: unknown) {
-
-  return new Intl.NumberFormat("en-ZA", {
-
-    style: "currency",
-
-    currency: "ZAR",
-
-    minimumFractionDigits: 2,
-
-  }).format(Number(value || 0));
-
-}
-
-
-
-function fileSafe(value: string) {
-
-  return value
-
-    .replace(/[^a-z0-9\\-_.]+/gi, "-")
-
-    .replace(/-+/g, "-")
-
-    .replace(/^-|-$/g, "");
-
-}
-
-
-
-function baseHtml(title: string, client: any, body: string) {
-
-  return `<!doctype html>
-
-<html>
-
-<head>
-
-<meta charset="utf-8" />
-
-<style>
-
-  @page { size: A4 portrait; margin: 0; }
-
-  * { box-sizing: border-box; }
-
-  html, body { margin: 0; padding: 0; width: 210mm; height: 297mm; overflow: hidden; }
-
-  body { font-family: Arial, Helvetica, sans-serif; color: #10233a; font-size: 10.5px; }
-
-  .page-shell { position: relative; width: 180mm; height: 266mm; margin: 12mm 15mm 10mm; padding-bottom: 10mm; overflow: hidden; }
-
-  .client { font-size: 18px; font-weight: 900; line-height: 1.05; }
-
-  .reg { margin-top: 3px; color: #52647a; font-size: 10px; font-weight: 700; }
-
-  .line { margin-top: 8px; border-bottom: 2px solid #10233a; }
-
-  .document-title { margin: 11px 0 15px; text-align: center; font-size: 20px; font-weight: 900; }
-
-  h1 { font-size: 18px; margin: 0 0 7px; }
-
-  h2 { margin: 14px 0 6px; font-size: 12px; }
-
-  h3 { margin: 10px 0 5px; font-size: 11px; }
-
-  p { line-height: 1.48; margin: 5px 0; }
-
-  ol { margin: 6px 0 8px 19px; padding: 0; }
-
-  li { margin: 4px 0; line-height: 1.45; }
-
-  .muted { color: #64748b; }
-
-  .subject { margin: 10px 0 8px; font-size: 11px; font-weight: 900; }
-
-  table { width: 100%; border-collapse: collapse; page-break-inside: avoid; }
-
-  tr { page-break-inside: avoid; }
-
-  th { text-align: left; background: #f3f6f9; color: #52647a; font-size: 8px; letter-spacing: .04em; }
-
-  th, td { padding: 6px 7px; border: 1px solid #d8dee7; vertical-align: top; }
-
-  .label { width: 34%; color: #64748b; font-weight: 700; }
-
-  .green { border: 1px solid #b7efc9; background: #ecfdf3; color: #166534; padding: 8px 10px; line-height: 1.45; }
-
-  .signature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 34px; margin-top: 30px; page-break-inside: avoid; }
-
-  .sig { border-top: 1px solid #10233a; padding-top: 8px; min-height: 74px; font-size: 9.5px; line-height: 1.8; }
-
-  .signature-single { width: 58%; margin-top: 34px; border-top: 1px solid #10233a; padding-top: 6px; }
-
-  .mandate-body { font-size: 11.8px; line-height: 1.52; }
-
-  .mandate-body p { line-height: 1.52; margin: 6px 0; }
-
-  .mandate-body h2 { margin-top: 13px; font-size: 12.5px; }
-
-  .mandate-body th { font-size: 8.4px; }
-
-  .mandate-body td { font-size: 10.2px; }
-
-  .ar-authority { font-size: 11.4px; line-height: 1.5; }
-
-  .ar-authority p { line-height: 1.5; margin: 6px 0; }
-
-  .ar-authority h2 { margin-top: 13px; font-size: 12.5px; }
-
-  .ar-authority th { font-size: 8.4px; }
-
-  .ar-authority td { font-size: 10.3px; padding: 6.5px 7px; }
-
-  .entity-emphasis { margin: 8px 0 12px; font-size: 15px; font-weight: 900; }
-
-  .powered { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; color: #d3dbe5; font-size: 6px; letter-spacing: .08em; }
-
-</style>
-
-</head>
-
-<body>
-
-<div class="page-shell">
-
-  <div class="client">${esc(client.client_name)}</div>
-
-  <div class="reg">${esc(client.registration_number || "")}</div>
-
-  <div class="line"></div>
-
-  <div class="document-title">${esc(title)}</div>
-
-  ${body}
-
-  <div class="powered">Powered by PracticePilot</div>
-
-</div>
-
-</body>
-
-</html>`;
-
-}
-
-
-
-
-
-
-
-function compactAddress(row: any) {
-
-  const parts = [
-
-    row?.physical_address_line_1,
-
-    row?.physical_address_line_2,
-
-    row?.physical_address_city,
-
-    row?.physical_address_province,
-
-    row?.physical_address_postal_code,
-
-    row?.physical_address_country,
-
-  ]
-
-    .map((value) => String(value || "").trim())
-
-    .filter(Boolean);
-
-
-
-  return parts.join(", ");
-
-}
-
-
-
-function registerHtml(title: string, client: any, body: string) {
-
-  return `<!doctype html>
-
-<html>
-
-<head>
-
-<meta charset="utf-8" />
-
-<style>
-
-  @page { size: A4 portrait; margin: 0; }
-
-  * { box-sizing: border-box; }
-
-  html, body { margin: 0; padding: 0; width: 210mm; height: 297mm; overflow: hidden; }
-
-  body { font-family: Arial, Helvetica, sans-serif; color: #10233a; font-size: 9px; }
-
-  .page-shell { position: relative; width: 180mm; height: 267mm; margin: 12mm 15mm 18mm; padding-bottom: 10mm; overflow: hidden; }
-
-  .client { font-size: 20px; font-weight: 900; line-height: 1.05; }
-
-  .reg { margin-top: 4px; color: #52647a; font-size: 10px; font-weight: 800; }
-
-  .line { margin-top: 9px; border-bottom: 2px solid #10233a; }
-
-  .register-title { margin: 11px 0 15px; text-align: center; font-size: 21px; font-weight: 900; }
-
-  table { width: 100%; border-collapse: collapse; }
-
-  tr { page-break-inside: avoid; }
-
-  th { text-align: left; background: #f3f6f9; color: #52647a; font-size: 7.5px; letter-spacing: .04em; }
-
-  th, td { padding: 5px 6px; border: 1px solid #d8dee7; vertical-align: top; }
-
-  .muted { color: #64748b; }
-
-  .powered { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; color: #d3dbe5; font-size: 6px; letter-spacing: .08em; }
-
-</style>
-
-</head>
-
-<body>
-
-<div class="page-shell">
-
-  <div class="client">${esc(client.client_name)}</div>
-
-  <div class="reg">${esc(client.registration_number || "")}</div>
-
-  <div class="line"></div>
-
-  <div class="register-title">${esc(title)}</div>
-
-  ${body}
-
-  <div class="powered">Powered by PracticePilot</div>
-
-</div>
-
-</body>
-
-</html>`;
-
-}
-
-
-
-function shareCertificateBackground() {
-
-  const candidates = [
-
-    path.join(process.cwd(), "public", "secretarial", "share-certificate-background.png"),
-
-    path.join(process.cwd(), "public", "share-certificate-background.png"),
-
-  ];
-
-  const filePath = candidates.find((candidate) => fs.existsSync(candidate));
-
-  if (!filePath) return "";
-
-  return `data:image/png;base64,${fs.readFileSync(filePath).toString("base64")}`;
-
-}
-
-
-
-
-
-function localBizzaccLogo() {
-
-  const candidates = [
-
-    path.join(process.cwd(), "public", "bizzacc", "Logo.png"),
-
-    path.join(process.cwd(), "public", "bizzacc", "logo.png"),
-
-    path.join(process.cwd(), "public", "bizzacc", "BizzaccLogo.png"),
-
-    path.join(process.cwd(), "public", "bizzacc", "bizzacc-logo.png"),
-
-  ];
-
-
-
-  const filePath = candidates.find((candidate) => fs.existsSync(candidate));
-
-  if (!filePath) return "";
-
-  return `data:image/png;base64,${fs.readFileSync(filePath).toString("base64")}`;
-
-}
-
-
-
-function addressLines(value: unknown) {
-
-  return String(value || "")
-
-    .split(/\r?\n/)
-
-    .map((line) => line.trim())
-
-    .filter(Boolean);
-
-}
-
-
-
-async function imageAsDataUri(value: unknown) {
-
-  const url = String(value || "").trim();
-
-  if (!url) return "";
-
-  if (url.startsWith("data:")) return url;
-
-
-
-  try {
-
-    const response = await fetch(url, { cache: "no-store" });
-
-    if (!response.ok) return "";
-
-
-
-    const contentType =
-
-      response.headers.get("content-type") ||
-
-      (url.toLowerCase().includes(".svg") ? "image/svg+xml" : "image/png");
-
-
-
-    const bytes = Buffer.from(await response.arrayBuffer());
-
-    return `data:${contentType};base64,${bytes.toString("base64")}`;
-
-  } catch (error) {
-
-    console.warn("Could not embed firm logo for Secretarial PDF:", error);
-
-    return "";
-
-  }
-
-}
-
-
-
-function certificateHtml({
-
-  client,
-
-  certificate,
-
-  shareholder,
-
-  shareClass,
-
-  matter,
-
-}: {
-
-  client: any;
-
-  certificate: any;
-
-  shareholder: any;
-
-  shareClass: any;
-
-  matter: any;
-
-}) {
-
-  const shareDescription = `${Number(certificate.number_of_shares || 0).toLocaleString("en-ZA")} ${shareClass?.class_name || "shares"}`;
-
-  const bg = shareCertificateBackground();
-
-
-
-  return `<!doctype html>
-
-<html>
-
-<head>
-
-<meta charset="utf-8" />
-
-<style>
-
-  @page { size: A4 landscape; margin: 0; }
-
-  * { box-sizing: border-box; }
-
-  html, body { margin: 0; padding: 0; width: 297mm; height: 210mm; overflow: hidden; }
-
-  body { color: #10233a; background: #fff; }
-
-  .page { position: relative; width: 297mm; height: 210mm; overflow: hidden; }
-
-  .bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
-
-  .content { position: absolute; inset: 12mm 17mm 10mm; text-align: center; font-family: Arial, Helvetica, sans-serif; }
-
-  .cert-no { position: absolute; top: 0; right: 0; font-size: 8px; color: #64748b; text-align: right; }
-
-  .cert-no strong { display: block; color: #10233a; font-size: 14px; margin-top: 2px; }
-
-  .company { margin-top: 8mm; font-family: Georgia, "Times New Roman", serif; font-size: 28px; font-weight: 700; }
-
-  .registration { margin-top: 2mm; color: #64748b; font: 9px Arial, sans-serif; }
-
-  .title { margin: 11mm 0 8mm; font-family: Georgia, "Times New Roman", serif; font-size: 36px; font-weight: 700; letter-spacing: .12em; }
-
-  .small { color: #52647a; font-size: 10px; }
-
-  .holder-id { margin-top: 1.5mm; color: #64748b; font-size: 9px; }
-
-  .detail-strip { margin: 6mm auto 0; width: 82%; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
-
-  .detail-cell { padding: 3mm 2mm; border-right: 1px solid #e2e8f0; }
-
-  .detail-cell:last-child { border-right: 0; }
-
-  .detail-label { display: block; color: #64748b; font-size: 7px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-
-  .detail-value { display: block; margin-top: 1mm; color: #10233a; font-size: 9px; font-weight: 800; }
-
-  .holder { margin: 5mm 0 2mm; font-family: Georgia, "Times New Roman", serif; font-size: 25px; font-weight: 700; }
-
-  .holder-id { color: #64748b; font-size: 9px; margin-bottom: 3mm; }
-
-  .shares { display: inline-block; min-width: 150mm; margin: 5mm auto; padding: 4mm 10mm; border-top: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; font-family: Georgia, "Times New Roman", serif; font-size: 19px; font-weight: 700; }
-
-  .meta { margin-top: 6mm; color: #52647a; font-size: 10px; line-height: 1.55; }
-
-  .restriction { max-width: 220mm; margin: 4mm auto 0; color: #64748b; font-size: 8.5px; line-height: 1.4; }
-
-  .signatures { position: absolute; left: 12mm; right: 12mm; bottom: 2mm; display: grid; grid-template-columns: 1fr 1fr; gap: 40mm; }
-
-  .signature { border-top: 1px solid #10233a; padding-top: 3mm; font: 9px Arial, sans-serif; }
-
-  .signature strong { display: block; color: #10233a; }
-
-  .signature span { color: #64748b; }
-
-</style>
-
-</head>
-
-<body>
-
-<div class="page">
-
-  ${bg ? `<img class="bg" src="${bg}" />` : ""}
-
-  <div class="content">
-
-    <div class="cert-no">CERTIFICATE NO.<strong>${esc(certificate.certificate_number)}</strong></div>
-
-    <div class="company">${esc(client.client_name)}</div>
-
-    <div class="registration">Registration number: ${esc(client.registration_number || "")}</div>
-
-    <div class="title">SHARE CERTIFICATE</div>
-
-    <div class="small">This is to certify that</div>
-
-    <div class="holder">${esc(shareholder?.full_legal_name || "")}</div>
-
-    <div class="holder-id">${esc(shareholder?.id_registration_number || "")}</div>
-
-    <div class="small">is the registered holder of</div>
-
-    <div class="shares">${esc(shareDescription)}</div>
-
-    <div class="small">in the issued share capital of the company.</div>
-
-    <div class="detail-strip">
-
-      <div class="detail-cell">
-
-        <span class="detail-label">Share class</span>
-
-        <span class="detail-value">${esc(shareClass?.class_name || "")}</span>
-
-      </div>
-
-      <div class="detail-cell">
-
-        <span class="detail-label">Issue date</span>
-
-        <span class="detail-value">${dateText(certificate.issue_date)}</span>
-
-      </div>
-
-      <div class="detail-cell">
-
-        <span class="detail-label">Place of issue</span>
-
-        <span class="detail-value">${esc(matter?.place_of_issue || "-")}</span>
-
-      </div>
-
-    </div>
-
-    <div class="meta">${matter?.fully_paid === false ? "The shares are partly paid." : "The shares are fully paid."}</div>
-
-    <div class="restriction"><strong>Transfer restriction:</strong> ${esc(
-
-      matter?.transfer_restriction ||
-
-        "No specific transfer restriction has been recorded for this certificate."
-
-    )}</div>
-
-    <div class="restriction">Issued as a certificated security and signed by two persons authorised by the board.</div>
-
-    <div class="signatures">
-
-      <div class="signature"><strong>${esc(matter?.signatory_one_name || "")}</strong><span>${esc(matter?.signatory_one_capacity || "Director")}</span></div>
-
-      <div class="signature"><strong>${esc(matter?.signatory_two_name || "")}</strong><span>${esc(matter?.signatory_two_capacity || "Director")}</span></div>
-
-    </div>
-
-  </div>
-
-</div>
-
-</body>
-
-</html>`;
-
-}
-
-
-
-
-function boResolutionHtml({ client, signatory, firmSettings }: { client: any; signatory: any; firmSettings: any }) {
-  const entityType = String(client?.entity_type || "").toLowerCase();
-  const isCloseCorporation = entityType === "cc" || entityType.includes("close corporation");
-  const agentName = String(firmSettings?.cipc_agent_name || "").trim();
-  const agentEmail = String(firmSettings?.cipc_agent_email || "").trim();
-  const customerCode = String(firmSettings?.cipc_customer_code || "").trim();
-  const practiceName = String(firmSettings?.trading_name || firmSettings?.firm_name || "the appointed secretarial representative").trim();
-  const heading = isCloseCorporation ? "RESOLUTION OF THE MEMBERS OF THE CLOSE CORPORATION" : "RESOLUTION OF THE DIRECTORS OF THE COMPANY";
-  const legislation = isCloseCorporation ? "PASSED IN ACCORDANCE WITH THE CLOSE CORPORATIONS ACT 69 OF 1984 (AS AMENDED) AND THE COMPANIES ACT 71 OF 2008 (AS AMENDED), WHERE APPLICABLE" : "PASSED IN ACCORDANCE WITH THE COMPANIES ACT 71 OF 2008 (AS AMENDED)";
-  return `
-    <div class="mandate-body">
-      <p><strong>${heading}</strong></p>
-      <p><strong>${legislation}</strong></p>
-      <h2>Introduction</h2>
-      <p>The ${isCloseCorporation ? "members" : "Board"} seek to authorise <strong>${esc(agentName || "the appointed filing agent")}</strong>${agentEmail ? ` (Email Address: ${esc(agentEmail)})` : ""}${customerCode ? `, with CIPC Customer Code: <strong>${esc(customerCode)}</strong>` : ""} of <strong>${esc(practiceName)}</strong> (“the Agent”) to file the beneficial ownership information of <strong>${esc(client.client_name)}</strong> (“the Beneficial Ownership”) with the Companies and Intellectual Property Commission (“the CIPC”).</p>
-      <h2>Waiver of Notice of Meeting</h2>
-      <p>The undersigned authorised ${isCloseCorporation ? "member" : "director"} confirms that the resolution recorded below is duly authorised for purposes of the CIPC filing.</p>
-      <h2>Resolution 1</h2>
-      <p>It is hereby resolved that the Agent be authorised to act on behalf of <strong>${esc(client.client_name)}</strong> to prepare, lodge and submit the Beneficial Ownership information and any other prescribed information and supporting documents required for that filing with the CIPC, and to respond to reasonable CIPC queries arising directly from the submission.</p>
-      <p>The company / close corporation remains responsible for the accuracy and completeness of the information supplied to the Agent and must advise the Agent of any material change before submission.</p>
-      <div class="signature-single">Signed at ______________________________ on this ________ day of _____________ ${new Date().getFullYear()}<br/><br/><br/>______________________________<br/><strong>${esc(signatory?.director_name || "")}</strong><br/>${esc(String(signatory?.director_capacity || (isCloseCorporation ? "Member" : "Director")).replaceAll("_", " "))}</div>
-    </div>`;
-}
-
-function boSupportingScheduleHtml({ owners }: { owners: Array<{ name: string; idNumber: string; interest: string; percentage: number | null; effective: string | null }> }) {
-  const rows = owners.map((row) => `<tr><td>${esc(row.name)}</td><td>${esc(row.idNumber)}</td><td>${esc(row.interest)}</td><td style="text-align:right;">${row.percentage == null ? "—" : `${row.percentage.toFixed(2)}%`}</td><td>${dateText(row.effective)}</td></tr>`).join("");
-  return `<p>This schedule reflects the natural-person beneficial ownership position generated by PracticePilot from the current statutory records.</p><table><thead><tr><th>Name</th><th>ID / Passport</th><th>Nature of Interest</th><th>%</th><th>Effective</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No natural-person beneficial owner has been identified.</td></tr>'}</tbody></table>`;
-}
-
-function boShareholderRegisterHtml({ shareholders, classes, transactions }: { shareholders: any[]; classes: any[]; transactions: any[] }) {
-  const holderMap = new Map((shareholders || []).map((row: any) => [row.id, row]));
-  const classMap = new Map((classes || []).map((row: any) => [row.id, row]));
-  const balances = new Map<string, number>();
-  for (const row of transactions || []) {
-    const key = `${row.shareholder_id}:${row.share_class_id}`;
-    const qty = Number(row.number_of_shares || 0);
-    const type = String(row.transaction_type || "");
-    const signed = ["issue", "transfer_in"].includes(type) ? qty : ["transfer_out", "redemption", "repurchase", "cancellation"].includes(type) ? -qty : 0;
-    balances.set(key, (balances.get(key) || 0) + signed);
-  }
-  const total = Array.from(balances.values()).reduce((sum, qty) => sum + Math.max(0, qty), 0);
-  const rows = Array.from(balances.entries()).filter(([, qty]) => qty > 0).map(([key, qty]) => {
-    const [holderId, classId] = key.split(":");
-    const holder = holderMap.get(holderId);
-    const shareClass = classMap.get(classId);
-    return `<tr><td><strong>${esc(holder?.full_legal_name || "")}</strong></td><td>${esc(holder?.id_registration_number || "")}</td><td>${esc(holder?.holder_type || "")}</td><td>${esc(shareClass?.class_name || "")}</td><td style="text-align:right;font-weight:800;">${qty.toLocaleString("en-ZA")}</td><td style="text-align:right;font-weight:800;">${total > 0 ? ((qty / total) * 100).toFixed(2) : "0.00"}%</td></tr>`;
-  }).join("");
-  return `<p>Generated from the current PracticePilot share transaction history as a supporting document for the Beneficial Ownership filing.</p><table><thead><tr><th>Holder</th><th>ID / Registration</th><th>Holder Type</th><th>Class</th><th>Current Shares</th><th>% of Issued</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No current issued-share position recorded.</td></tr>'}</tbody></table>`;
-}
-
-function boPackHtml({ client, signatory, firmSettings, owners, shareholders, classes, transactions }: { client: any; signatory: any; firmSettings: any; owners: Array<{ name: string; idNumber: string; interest: string; percentage: number | null; effective: string | null }>; shareholders: any[]; classes: any[]; transactions: any[] }) {
-  return `<!doctype html><html><head><meta charset="utf-8" /><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#10233a;font-size:10.5px}.pack-page{position:relative;width:210mm;min-height:297mm;padding:12mm 15mm 18mm;page-break-after:always}.pack-page:last-child{page-break-after:auto}.client{font-size:18px;font-weight:900}.reg{margin-top:3px;color:#52647a;font-size:10px;font-weight:700}.line{margin-top:8px;border-bottom:2px solid #10233a}.document-title{margin:11px 0 15px;text-align:center;font-size:20px;font-weight:900}h2{margin:14px 0 6px;font-size:12px}p{line-height:1.48;margin:5px 0}table{width:100%;border-collapse:collapse}th{text-align:left;background:#f3f6f9;color:#52647a;font-size:8px}th,td{padding:6px 7px;border:1px solid #d8dee7;vertical-align:top}.signature-single{width:58%;margin-top:34px;border-top:1px solid #10233a;padding-top:6px}.mandate-body{font-size:11.4px;line-height:1.5}.powered{position:absolute;left:15mm;right:15mm;bottom:7mm;text-align:center;color:#94a3b8;font-size:7px}.checklist li{margin-bottom:5px}</style></head><body>
-  <section class="pack-page"><div class="client">${esc(client.client_name)}</div><div class="reg">${esc(client.registration_number || "")}</div><div class="line"></div><div class="document-title">Beneficial Ownership Mandate / Resolution</div>${boResolutionHtml({ client, signatory, firmSettings })}<div class="powered">Powered by PracticePilot</div></section>
-  <section class="pack-page"><div class="client">${esc(client.client_name)}</div><div class="reg">${esc(client.registration_number || "")}</div><div class="line"></div><div class="document-title">Beneficial Ownership Supporting Schedule</div>${boSupportingScheduleHtml({ owners })}<div class="powered">Powered by PracticePilot</div></section>
-  <section class="pack-page"><div class="client">${esc(client.client_name)}</div><div class="reg">${esc(client.registration_number || "")}</div><div class="line"></div><div class="document-title">Current Shareholder / Beneficial Interest Register</div>${boShareholderRegisterHtml({ shareholders, classes, transactions })}<h2>Supporting document checklist</h2><ul class="checklist"><li>Signed BO mandate / resolution — generated in this pack.</li><li>Beneficial ownership supporting schedule — generated in this pack.</li><li>Current shareholder / beneficial interest register — generated in this pack.</li><li>Identity documents or other external evidence required for the filing must be attached separately where applicable.</li></ul><div class="powered">Powered by PracticePilot</div></section>
-</body></html>`;
-}
-
-async function launchBrowser() {
-
-  const isLocal = process.env.NODE_ENV !== "production";
-
-
-
-  if (isLocal) {
-
-    const candidates = [
-
-      process.env.CHROME_EXECUTABLE_PATH,
-
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-
-      "/Applications/Chromium.app/Contents/MacOS/Chromium",
-
-    ].filter(Boolean) as string[];
-
-
-
-    const fs = await import("fs");
-
-    const localChrome = candidates.find((path) => fs.existsSync(path));
-
-
-
-    if (localChrome) {
-
-      return puppeteer.launch({
-
-        executablePath: localChrome,
-
-        headless: true,
-
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
-
-      });
-
-    }
-
-  }
-
-
-
-  const executablePath = await chromium.executablePath();
-
-
-
-  return puppeteer.launch({
-
-    args: chromium.args,
-
-    defaultViewport: {
-
-      width: 1440,
-
-      height: 900,
-
-    },
-
-    executablePath,
-
-    headless: true,
-
-  });
-
-}
-
-
-
-export async function POST(request: Request) {
-
-  const supabase = adminClient();
-
-
-
-  try {
-
-    const token = tokenFrom(request);
-
-    if (!token) {
-
-      return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-
-    }
-
-
-
-    const {
-
-      data: { user },
-
-      error: userError,
-
-    } = await supabase.auth.getUser(token);
-
-
-
-    if (userError || !user) {
-
-      return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-
-    }
-
-
-
-    const { data: profile, error: profileError } = await supabase
-
-      .from("user_profiles")
-
-      .select(
-
-        "id, role, organisation_id, access_enabled, can_access_secretarial"
-
-      )
-
-      .eq("user_id", user.id)
-
-      .single();
-
-
-
-    if (profileError || !profile) {
-
-      return NextResponse.json(
-
-        { error: "Could not load your user profile." },
-
-        { status: 403 }
-
-      );
-
-    }
-
-
-
-    const typedProfile = profile as UserProfile;
-
-
-
-    if (
-
-      !typedProfile.access_enabled ||
-
-      (!globalAdmin(typedProfile.role) &&
-
-        !typedProfile.can_access_secretarial)
-
-    ) {
-
-      return NextResponse.json(
-
-        { error: "You do not have access to Secretarial." },
-
-        { status: 403 }
-
-      );
-
-    }
-
-
-
-    const { data: firmSettings } = await supabase
-      .from("practice_settings")
-      .select(
-        "firm_name,trading_name,logo_url,address_lines,telephone,email,website,authorised_signatory_name,authorised_signatory_professional_designation,authorised_signatory_registration_number,authorised_signatory_position,governing_body_name,governing_body_registration_number,governing_body_logo_url,second_governing_body_name,second_governing_body_registration_number,second_governing_body_logo_url,footer_text,footer_logo_url,cipc_agent_name,cipc_agent_email,cipc_customer_code"
-      )
-      .eq("organisation_id", typedProfile.organisation_id)
-      .maybeSingle();
-
-
-
-    const body = (await request.json()) as RenderBody;
-
-    const clientId = String(body.clientId || "");
-
-    const documentType = String(body.documentType || "");
-
-    const sourceId = body.sourceId ? String(body.sourceId) : null;
-
-
-
-    if (!clientId || !documentType) {
-
-      return NextResponse.json(
-
-        { error: "Client and document type are required." },
-
-        { status: 400 }
-
-      );
-
-    }
-
-
-
-    const { data: client, error: clientError } = await supabase
-
-      .from("crm_clients")
-
-      .select(
-
-        "id, client_name, trading_name, registration_number, entity_type, organisation_id, registration_date"
-
-      )
-
-      .eq("id", clientId)
-
-      .single();
-
-
-
-    if (clientError || !client) {
-
-      return NextResponse.json({ error: "Client not found." }, { status: 404 });
-
-    }
-
-
-
-    if (
-
-      !globalAdmin(typedProfile.role) &&
-
-      typedProfile.organisation_id !== client.organisation_id
-
-    ) {
-
-      return NextResponse.json(
-
-        { error: "You cannot access this client." },
-
-        { status: 403 }
-
-      );
-
-    }
-
-
-
-    let html = "";
-
-    let fileName = "";
-
-
-
-    if (documentType === "share-certificate") {
-
-      if (!sourceId) throw new Error("Certificate source is required.");
-
-
-
-      const { data: certificate, error } = await supabase
-
-        .from("secretarial_share_certificates")
-
-        .select(
-
-          "id, certificate_number, issue_date, number_of_shares, certificate_status, shareholder_id, share_class_id, matter_id"
-
-        )
-
-        .eq("id", sourceId)
-
-        .eq("client_id", clientId)
-
-        .single();
-
-
-
-      if (error || !certificate) throw new Error("Certificate not found.");
-
-
-
-      const [{ data: shareholder }, { data: shareClass }, { data: matter }] =
-
-        await Promise.all([
-
-          supabase
-
-            .from("secretarial_shareholders")
-
-            .select("full_legal_name, id_registration_number")
-
-            .eq("id", certificate.shareholder_id)
-
-            .single(),
-
-          supabase
-
-            .from("secretarial_share_classes")
-
-            .select("class_name, series_designation")
-
-            .eq("id", certificate.share_class_id)
-
-            .single(),
-
-          supabase
-
-            .from("secretarial_share_matters")
-
-            .select(
-
-              "place_of_issue, transfer_restriction, fully_paid, signatory_one_name, signatory_one_capacity, signatory_two_name, signatory_two_capacity"
-
-            )
-
-            .eq("id", certificate.matter_id)
-
-            .single(),
-
-        ]);
-
-
-
-      html = certificateHtml({
-
-        client,
-
-        certificate,
-
-        shareholder,
-
-        shareClass,
-
-        matter,
-
-      });
-
-
-
-      fileName = `${fileSafe(client.client_name)}-Share-Certificate-${fileSafe(
-
-        certificate.certificate_number
-
-      )}.pdf`;
-
-    } else if (documentType === "resolution") {
-
-      if (!sourceId) throw new Error("Resolution source is required.");
-
-
-
-      const { data: resolution, error } = await supabase
-
-        .from("secretarial_resolutions")
-
-        .select(
-
-          "client_id, resolution_number, resolution_type, resolution_category, title, resolution_date, body_text, status"
-
-        )
-
-        .eq("id", sourceId)
-
-        .single();
-
-
-
-      if (
-
-        error ||
-
-        !resolution ||
-
-        String(resolution.client_id || "") !== clientId
-
-      ) {
-
-        throw new Error("Resolution could not be loaded for this client.");
-
-      }
-
-
-
-      html = baseHtml(
-
-        `${resolution.resolution_number} · ${resolution.title}`,
-
-        client,
-
-        `
-
-        <p><strong>Date:</strong> ${dateText(resolution.resolution_date)}</p>
-
-        <p><strong>Resolution type:</strong> ${esc(
-
-          String(resolution.resolution_type || "").replaceAll("_", " ")
-
-        )}</p>
-
-        <h2>Resolution</h2>
-
-        <p>${esc(resolution.body_text)}</p>
-
-        <div class="signature-grid">
-
-          <div class="sig">
-
-            <strong>Authorised signatory</strong><br/><br/>
-
-            Name:<br/>________________________________________<br/><br/>
-
-            Capacity:<br/>________________________________________
-
-          </div>
-
-          <div class="sig">
-
-            <strong>Signature and date</strong><br/><br/>
-
-            Signature:<br/>________________________________________<br/><br/>
-
-            Date:<br/>________________________________________
-
-          </div>
-
-        </div>`
-
-      );
-
-
-
-      fileName = `${fileSafe(client.client_name)}-${fileSafe(
-
-        resolution.resolution_number
-
-      )}-${fileSafe(resolution.title)}.pdf`;
-
-    } else if (documentType === "board-resolution") {
-
-      if (!sourceId) throw new Error("Resolution source is required.");
-
-
-
-      const { data: matter, error } = await supabase
-
-        .from("secretarial_share_matters")
-
-        .select(
-
-          "client_id, board_resolution_reference, board_resolution_date, board_resolution_text, number_of_shares, shareholder_id, share_class_id"
-
-        )
-
-        .eq("id", sourceId)
-
-        .single();
-
-
-
-      if (error || !matter || String(matter.client_id || "") !== clientId) {
-
-        throw new Error("Resolution could not be loaded for this client.");
-
-      }
-
-
-
-      const [{ data: shareholder }, { data: shareClass }] = await Promise.all([
-
-        supabase
-
-          .from("secretarial_shareholders")
-
-          .select("full_legal_name")
-
-          .eq("id", matter.shareholder_id)
-
-          .single(),
-
-        supabase
-
-          .from("secretarial_share_classes")
-
-          .select("class_name")
-
-          .eq("id", matter.share_class_id)
-
-          .single(),
-
-      ]);
-
-
-
-      const resolutionText =
-
-        matter.board_resolution_text ||
-
-        `RESOLVED that the company issue ${Number(
-
-          matter.number_of_shares || 0
-
-        ).toLocaleString("en-ZA")} ${
-
-          shareClass?.class_name || "shares"
-
-        } to ${shareholder?.full_legal_name || "the shareholder"} and that the directors are authorised to update the securities register and issue the relevant share certificate.`;
-
-
-
-      html = baseHtml(
-
-        `Board Resolution ${matter.board_resolution_reference || ""}`,
-
-        client,
-
-        `
-
-        <p><strong>Date:</strong> ${dateText(matter.board_resolution_date)}</p>
-
-        <h2>Resolution</h2>
-
-        <p>${esc(resolutionText)}</p>
-
-        <div class="signature-grid">
-
-          <div class="sig">Director</div>
-
-          <div class="sig">Director / Authorised Signatory</div>
-
-        </div>`
-
-      );
-
-
-
-      fileName = `${fileSafe(client.client_name)}-Board-Resolution-${fileSafe(
-
-        matter.board_resolution_reference || "Share-Issue"
-
-      )}.pdf`;
-
-    } else if (
-
-      documentType === "securities-register" ||
-
-      documentType === "shareholder-register" ||
-
-      documentType === "shareholding-confirmation" ||
-
-      documentType === "shareholding-confirmation-detailed"
-
-    ) {
-
-      const [
-
-        { data: transactions },
-
-        { data: shareholders },
-
-        { data: classes },
-
-        { data: certificates },
-
-      ] = await Promise.all([
-
-        supabase
-
-          .from("secretarial_share_transactions")
+          .from("user_profiles")
 
           .select(
 
-            "id, transaction_type, transaction_date, number_of_shares, shareholder_id, share_class_id, notes"
+            "role,can_access_crm,can_access_afs,can_manage_practice_users"
 
           )
 
-          .eq("client_id", clientId)
+          .eq("user_id", user.id)
 
-          .order("transaction_date", { ascending: true }),
+          .single();
 
-        supabase
+        if (error) throw error;
 
-          .from("secretarial_shareholders")
+        setProfile(data as UserProfile);
 
-          .select("id, full_legal_name, id_registration_number, holder_type, physical_address_line_1, physical_address_line_2, physical_address_city, physical_address_province, physical_address_postal_code, physical_address_country")
+      } catch (error) {
 
-          .eq("client_id", clientId),
+        console.error("SETTINGS PROFILE LOAD ERROR:", error);
 
-        supabase
+      } finally {
 
-          .from("secretarial_share_classes")
-
-          .select("id, class_name")
-
-          .eq("client_id", clientId),
-
-        supabase
-
-          .from("secretarial_share_certificates")
-
-          .select(
-
-            "certificate_number, certificate_status, issue_date, shareholder_id, share_class_id"
-
-          )
-
-          .eq("client_id", clientId)
-
-          .order("issue_date", { ascending: true }),
-
-      ]);
-
-
-
-      const holderMap = new Map(
-
-        (shareholders || []).map((row: any) => [row.id, row])
-
-      );
-
-      const classMap = new Map(
-
-        (classes || []).map((row: any) => [row.id, row])
-
-      );
-
-
-
-      if (documentType === "securities-register") {
-
-        const holderBalances = new Map<string, number>();
-
-
-
-        const rows = (transactions || [])
-
-          .map((row: any) => {
-
-            const qty = Number(row.number_of_shares || 0);
-
-            const type = String(row.transaction_type || "");
-
-            const movement = ["issue", "transfer_in"].includes(type)
-
-              ? qty
-
-              : ["transfer_out", "redemption", "repurchase", "cancellation"].includes(type)
-
-              ? -qty
-
-              : 0;
-
-
-
-            const balanceKey = `${row.shareholder_id}:${row.share_class_id}`;
-
-            const nextBalance = (holderBalances.get(balanceKey) || 0) + movement;
-
-            holderBalances.set(balanceKey, nextBalance);
-
-
-
-            const movementText =
-
-              movement > 0
-
-                ? `+${movement.toLocaleString("en-ZA")}`
-
-                : movement.toLocaleString("en-ZA");
-
-
-
-            return `
-
-          <tr>
-
-            <td>${dateText(row.transaction_date)}</td>
-
-            <td>${esc(type.replaceAll("_", " "))}</td>
-
-            <td>
-
-              <strong>${esc(holderMap.get(row.shareholder_id)?.full_legal_name || "")}</strong><br/>
-
-              <span class="muted">${esc(holderMap.get(row.shareholder_id)?.id_registration_number || "")}</span>
-
-            </td>
-
-            <td>${esc(compactAddress(holderMap.get(row.shareholder_id)) || "—")}</td>
-
-            <td>${esc(classMap.get(row.share_class_id)?.class_name || "")}</td>
-
-            <td style="text-align:right;font-weight:800;">${movementText}</td>
-
-            <td style="text-align:right;font-weight:800;">${nextBalance.toLocaleString("en-ZA")}</td>
-
-            <td>${esc(row.notes || "")}</td>
-
-          </tr>`;
-
-          })
-
-          .join("");
-
-
-
-        html = registerHtml(
-
-          "Securities Register",
-
-          client,
-
-          `<table>
-
-            <thead><tr><th>Date</th><th>Transaction</th><th>Holder</th><th>Address</th><th>Class</th><th>Movement</th><th>Holder Balance</th><th>Reference / Notes</th></tr></thead>
-
-            <tbody>${rows || '<tr><td colspan="8">No transactions recorded.</td></tr>'}</tbody>
-
-          </table>`
-
-        );
-
-        fileName = `${fileSafe(client.client_name)}-Securities-Register.pdf`;
-
-      } else {
-
-        const balances = new Map<string, number>();
-
-
-
-        for (const row of transactions || []) {
-
-          const key = `${row.shareholder_id}:${row.share_class_id}`;
-
-          const qty = Number(row.number_of_shares || 0);
-
-          const type = String(row.transaction_type || "");
-
-          const signed = ["issue", "transfer_in"].includes(type)
-
-            ? qty
-
-            : ["transfer_out", "redemption", "repurchase", "cancellation"].includes(type)
-
-            ? -qty
-
-            : 0;
-
-          balances.set(key, (balances.get(key) || 0) + signed);
-
-        }
-
-
-
-        const certificateMap = new Map<string, string[]>();
-
-        for (const certificate of certificates || []) {
-
-          const status = String(certificate.certificate_status || "").toLowerCase();
-
-          if (!["issued", "current"].includes(status)) continue;
-
-
-
-          const key = `${certificate.shareholder_id}:${certificate.share_class_id}`;
-
-          const certificateNumber = String(certificate.certificate_number || "").trim();
-
-          if (!certificateNumber) continue;
-
-
-
-          const existing = certificateMap.get(key) || [];
-
-          if (!existing.includes(certificateNumber)) existing.push(certificateNumber);
-
-          certificateMap.set(key, existing);
-
-        }
-
-
-
-        const totalLiveShares = Array.from(balances.values()).reduce(
-
-          (sum, qty) => sum + Math.max(0, qty),
-
-          0
-
-        );
-
-
-
-        const liveRows = Array.from(balances.entries())
-
-          .filter(([, qty]) => qty !== 0)
-
-          .map(([key, qty]) => {
-
-            const [holderId, classId] = key.split(":");
-
-            const holder = holderMap.get(holderId);
-
-            const certificateNumbers = certificateMap.get(key) || [];
-
-            return `
-
-            <tr>
-
-              <td><strong>${esc(holder?.full_legal_name || "")}</strong><br/><span class="muted">${esc(holder?.holder_type || "")}</span></td>
-
-              <td>${esc(holder?.id_registration_number || "")}</td>
-
-              <td>${esc(compactAddress(holder) || "—")}</td>
-
-              <td>${esc(classMap.get(classId)?.class_name || "")}</td>
-
-              <td>${esc(certificateNumbers.join(", ") || "—")}</td>
-
-              <td style="text-align:right;font-weight:800;">${qty.toLocaleString("en-ZA")}</td>
-
-              <td style="text-align:right;font-weight:800;">${totalLiveShares > 0 ? ((qty / totalLiveShares) * 100).toFixed(2) : "0.00"}%</td>
-
-            </tr>`;
-
-          })
-
-          .join("");
-
-
-
-        const registerTable = `<table>
-
-            <colgroup>
-
-              <col style="width:15%" />
-
-              <col style="width:12%" />
-
-              <col style="width:27%" />
-
-              <col style="width:14%" />
-
-              <col style="width:12%" />
-
-              <col style="width:10%" />
-
-              <col style="width:10%" />
-
-            </colgroup>
-
-            <thead><tr><th>Shareholder</th><th>ID / Registration</th><th>Registered / Residential Address</th><th>Class</th><th>Certificate No.</th><th>Current Shares</th><th>% of Issued</th></tr></thead>
-
-            <tbody>${liveRows || '<tr><td colspan="7">No current holdings recorded.</td></tr>'}</tbody>
-
-          </table>`;
-
-
-
-        const confirmationRows = Array.from(balances.entries())
-
-          .filter(([, qty]) => qty !== 0)
-
-          .map(([key, qty]) => {
-
-            const [holderId, classId] = key.split(":");
-
-            const holder = holderMap.get(holderId);
-
-            const certificateNumbers = certificateMap.get(key) || [];
-
-            return `
-
-            <tr>
-
-              <td><strong>${esc(holder?.full_legal_name || "")}</strong></td>
-
-              <td>${esc(holder?.id_registration_number || "")}</td>
-
-              <td>${esc(classMap.get(classId)?.class_name || "")}</td>
-
-              <td>${esc(certificateNumbers.join(", ") || "—")}</td>
-
-              <td style="text-align:right;font-weight:800;">${qty.toLocaleString("en-ZA")}</td>
-
-              <td style="text-align:right;font-weight:800;">${totalLiveShares > 0 ? ((qty / totalLiveShares) * 100).toFixed(2) : "0.00"}%</td>
-
-            </tr>`;
-
-          })
-
-          .join("");
-
-
-
-        const confirmationTable = `<table class="confirmation-table">
-
-          <colgroup>
-
-            <col style="width:25%" />
-
-            <col style="width:20%" />
-
-            <col style="width:18%" />
-
-            <col style="width:15%" />
-
-            <col style="width:10%" />
-
-            <col style="width:12%" />
-
-          </colgroup>
-
-          <thead>
-
-            <tr>
-
-              <th>Shareholder</th>
-
-              <th>ID / Registration Number</th>
-
-              <th>Share Class</th>
-
-              <th>Certificate No.</th>
-
-              <th>Shares</th>
-
-              <th>Shareholding</th>
-
-            </tr>
-
-          </thead>
-
-          <tbody>
-
-            ${confirmationRows || '<tr><td colspan="6">No current holdings recorded.</td></tr>'}
-
-            <tr>
-
-              <td colspan="4" style="text-align:right;font-weight:900;">Total issued shares</td>
-
-              <td style="text-align:right;font-weight:900;">${totalLiveShares.toLocaleString("en-ZA")}</td>
-
-              <td style="text-align:right;font-weight:900;">${totalLiveShares > 0 ? "100.00%" : "0.00%"}</td>
-
-            </tr>
-
-          </tbody>
-
-        </table>`;
-
-
-
-        if (documentType === "shareholder-register") {
-
-          html = registerHtml(
-
-            "Current Shareholder Register",
-
-            client,
-
-            registerTable
-
-          );
-
-          fileName = `${fileSafe(client.client_name)}-Current-Shareholder-Register.pdf`;
-
-        } else if (documentType === "shareholding-confirmation-detailed") {
-
-          const today = dateText(new Date().toISOString());
-
-          const firmName = String(firmSettings?.firm_name || "Bizzacc Menlyn (Pty) Ltd");
-
-          const firmLogo =
-
-            (await imageAsDataUri(firmSettings?.logo_url)) || localBizzaccLogo();
-
-          const firmAddress = addressLines(firmSettings?.address_lines);
-
-          const firmTelephone = String(firmSettings?.telephone || "");
-
-          const firmEmail = String(firmSettings?.email || "");
-
-          const firmWebsite = String(firmSettings?.website || "");
-
-          const practitionerName = String(firmSettings?.authorised_signatory_name || "").trim();
-
-          const practitionerDesignation = String(firmSettings?.authorised_signatory_professional_designation || "").trim();
-
-          const professionalRegistration = String(
-
-            firmSettings?.governing_body_registration_number || ""
-
-          ).trim();
-
-
-
-          html = `<!doctype html>
-
-<html>
-
-<head>
-
-<meta charset="utf-8" />
-
-<style>
-
-  @page { size: A4 portrait; margin: 0; }
-
-  * { box-sizing: border-box; }
-
-  html, body { margin: 0; padding: 0; width: 210mm; }
-
-  body { font-family: Arial, Helvetica, sans-serif; color: #10233a; font-size: 10.5px; }
-
-  .letter-page { position: relative; width: 210mm; min-height: 297mm; padding: 12mm 15mm 18mm; page-break-after: always; }
-
-  .afs-letterhead { display: grid; grid-template-columns: 1fr 58mm; align-items: center; column-gap: 18px; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1.25px solid #111827; }
-
-  .afs-logo-wrap { min-height: 52px; display: flex; align-items: center; justify-content: flex-start; }
-
-  .afs-logo { width: 62mm; max-width: 100%; height: auto; max-height: 23mm; object-fit: contain; object-position: left center; display: block; }
-
-  .afs-contact { text-align: right; font-size: 8.5px; line-height: 1.25; color: #111827; }
-
-  .afs-firm-name { font-weight: 900; margin-bottom: 3px; }
-
-  .letter-body { padding: 2mm 7mm 0; }
-
-  .letter-date { margin-bottom: 18px; }
-
-  .letter-to { margin-bottom: 18px; font-weight: 700; }
-
-  .letter-subject { margin-bottom: 18px; font-weight: 900; text-transform: uppercase; }
-
-  .letter-page p { margin: 0 0 12px; line-height: 1.55; }
-
-  .confirmation-table { margin: 14px 0 16px; width: 100%; border-collapse: collapse; font-size: 8.5px; }
-
-  .confirmation-table th { background: #f3f6f9; color: #52647a; font-size: 7.3px; letter-spacing: .03em; text-align: left; }
-
-  .confirmation-table th, .confirmation-table td { border: 1px solid #d8dee7; padding: 5px 6px; vertical-align: top; }
-
-  .signoff { margin-top: 24px; }
-
-  .signature-space { margin-top: 28px; line-height: 1.45; }
-
-  .register-page { position: relative; width: 210mm; min-height: 297mm; padding: 12mm 15mm 18mm; page-break-before: always; }
-
-  .client { font-size: 20px; font-weight: 900; line-height: 1.05; }
-
-  .reg { margin-top: 4px; color: #52647a; font-size: 10px; font-weight: 800; }
-
-  .line { margin-top: 9px; border-bottom: 2px solid #10233a; }
-
-  .register-title { margin: 11px 0 15px; text-align: center; font-size: 21px; font-weight: 900; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 9px; }
-
-  tr { page-break-inside: avoid; }
-
-  th { text-align: left; background: #f3f6f9; color: #52647a; font-size: 7.2px; letter-spacing: .04em; }
-
-  th, td { padding: 5px 6px; border: 1px solid #d8dee7; vertical-align: top; }
-
-  .muted { color: #64748b; }
-
-  .powered { position: absolute; left: 15mm; right: 15mm; bottom: 7mm; display: flex; justify-content: space-between; align-items: center; color: #94a3b8; font-size: 7px; letter-spacing: .03em; }
-
-  .powered strong { color: #64748b; font-weight: 700; }
-
-</style>
-
-</head>
-
-<body>
-
-  <section class="letter-page">
-
-    <div class="afs-letterhead">
-
-      <div class="afs-logo-wrap">${firmLogo ? `<img class="afs-logo" src="${esc(firmLogo)}" alt="${esc(firmName)} logo" />` : ""}</div>
-
-      <div class="afs-contact">
-
-        <div class="afs-firm-name">${esc(firmName)}</div>
-
-        ${firmAddress.map((line) => `<div>${esc(line)}</div>`).join("")}
-
-        ${firmTelephone ? `<div>Tel: ${esc(firmTelephone)}</div>` : ""}
-
-        ${firmEmail ? `<div>Email: ${esc(firmEmail)}</div>` : ""}
-
-        ${firmWebsite ? `<div>${esc(firmWebsite)}</div>` : ""}
-
-      </div>
-
-    </div>
-
-
-
-    <div class="letter-body">
-
-      <div class="letter-date">${today}</div>
-
-      <div class="letter-to">TO WHOM IT MAY CONCERN</div>
-
-      <div class="letter-subject">RE: ${esc(client.client_name)}<br/>REGISTRATION NUMBER: ${esc(client.registration_number || "")}</div>
-
-
-
-      <p>We hereby confirm that, according to the company's current statutory records, the issued shareholding as at <strong>${today}</strong> is as follows:</p>
-
-
-
-      ${confirmationTable}
-
-
-
-      <p>We confirm that the above reflects the current shareholding recorded in the company's statutory records as at the date of this letter.</p>
-
-      <p>This confirmation is issued at the request of the company.</p>
-
-
-
-      <div class="signoff">Yours faithfully</div>
-
-      <div class="signature-space">
-
-        ______________________________<br/>
-
-        ${practitionerName ? `<strong>${esc(practitionerName)}</strong><br/>` : ""}
-
-        ${practitionerDesignation ? `${esc(practitionerDesignation)}${professionalRegistration ? ` - ${esc(professionalRegistration)}` : ""}<br/>` : ""}
-
-        ${esc(firmName)}
-
-      </div>
-
-    </div>
-
-
-
-    <div class="powered"><strong>Prepared by ${esc(firmName)}</strong><span>Powered by PracticePilot</span></div>
-
-  </section>
-
-
-
-</body>
-
-</html>`;
-
-
-
-          fileName = `${fileSafe(client.client_name)}-Detailed-Shareholding-Confirmation.pdf`;
-
-        } else {
-
-          const today = dateText(new Date().toISOString());
-
-          const firmName = String(firmSettings?.firm_name || "Bizzacc Menlyn (Pty) Ltd");
-
-          const firmLogo =
-
-            (await imageAsDataUri(firmSettings?.logo_url)) || localBizzaccLogo();
-
-          const firmAddress = addressLines(firmSettings?.address_lines);
-
-          const firmTelephone = String(firmSettings?.telephone || "");
-
-          const firmEmail = String(firmSettings?.email || "");
-
-          const firmWebsite = String(firmSettings?.website || "");
-
-          const practitionerName = String(firmSettings?.authorised_signatory_name || "").trim();
-
-          const practitionerDesignation = String(firmSettings?.authorised_signatory_professional_designation || "").trim();
-
-
-
-          html = `<!doctype html>
-
-<html>
-
-<head>
-
-<meta charset="utf-8" />
-
-<style>
-
-  @page { size: A4 portrait; margin: 0; }
-
-  * { box-sizing: border-box; }
-
-  html, body { margin: 0; padding: 0; width: 210mm; }
-
-  body { font-family: Arial, Helvetica, sans-serif; color: #10233a; font-size: 10.5px; }
-
-  .letter-page { position: relative; width: 210mm; min-height: 297mm; padding: 12mm 15mm 18mm; page-break-after: always; }
-
-  .afs-letterhead { display: grid; grid-template-columns: 1fr 58mm; align-items: center; column-gap: 18px; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1.25px solid #111827; }
-
-  .afs-logo-wrap { min-height: 52px; display: flex; align-items: center; justify-content: flex-start; }
-
-  .afs-logo { width: 62mm; max-width: 100%; height: auto; max-height: 23mm; object-fit: contain; object-position: left center; display: block; }
-
-  .afs-contact { text-align: right; font-size: 8.5px; line-height: 1.25; color: #111827; }
-
-  .afs-firm-name { font-weight: 900; margin-bottom: 3px; }
-
-  .letter-body { padding: 2mm 7mm 0; }
-
-  .letter-date { margin-bottom: 18px; }
-
-  .letter-to { margin-bottom: 18px; font-weight: 700; }
-
-  .letter-subject { margin-bottom: 18px; font-weight: 900; text-transform: uppercase; }
-
-  .letter-page p { margin: 0 0 12px; line-height: 1.6; }
-
-  .signoff { margin-top: 28px; }
-
-  .signature-space { margin-top: 34px; }
-
-  .register-page { position: relative; width: 210mm; min-height: 297mm; padding: 12mm 15mm 18mm; page-break-before: always; }
-
-  .client { font-size: 20px; font-weight: 900; line-height: 1.05; }
-
-  .reg { margin-top: 4px; color: #52647a; font-size: 10px; font-weight: 800; }
-
-  .line { margin-top: 9px; border-bottom: 2px solid #10233a; }
-
-  .register-title { margin: 11px 0 15px; text-align: center; font-size: 21px; font-weight: 900; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 9px; }
-
-  tr { page-break-inside: avoid; }
-
-  th { text-align: left; background: #f3f6f9; color: #52647a; font-size: 7.2px; letter-spacing: .04em; }
-
-  th, td { padding: 5px 6px; border: 1px solid #d8dee7; vertical-align: top; }
-
-  .muted { color: #64748b; }
-
-  .powered { position: absolute; left: 15mm; right: 15mm; bottom: 7mm; display: flex; justify-content: space-between; align-items: center; color: #94a3b8; font-size: 7px; letter-spacing: .03em; }
-
-  .powered strong { color: #64748b; font-weight: 700; }
-
-</style>
-
-</head>
-
-<body>
-
-  <section class="letter-page">
-
-    <div class="afs-letterhead">
-
-      <div class="afs-logo-wrap">${firmLogo ? `<img class="afs-logo" src="${esc(firmLogo)}" alt="${esc(firmName)} logo" />` : ""}</div>
-
-      <div class="afs-contact">
-
-        <div class="afs-firm-name">${esc(firmName)}</div>
-
-        ${firmAddress.map((line) => `<div>${esc(line)}</div>`).join("")}
-
-        ${firmTelephone ? `<div>Tel: ${esc(firmTelephone)}</div>` : ""}
-
-        ${firmEmail ? `<div>Email: ${esc(firmEmail)}</div>` : ""}
-
-        ${firmWebsite ? `<div>${esc(firmWebsite)}</div>` : ""}
-
-      </div>
-
-    </div>
-
-    <div class="letter-body">
-
-    <div class="letter-date">${today}</div>
-
-    <div class="letter-to">TO WHOM IT MAY CONCERN</div>
-
-    <div class="letter-subject">RE: ${esc(client.client_name)}<br/>REGISTRATION NUMBER: ${esc(client.registration_number || "")}</div>
-
-
-
-    <p>We hereby confirm that the shareholding of the above-mentioned company is reflected in the shareholder register attached hereto.</p>
-
-
-
-    <p>The attached shareholder register reflects the shareholding recorded in the company's statutory records as at ${today}.</p>
-
-
-
-    <p>This letter is issued at the request of the company for purposes of confirming its current shareholding.</p>
-
-
-
-    <div class="signoff">Yours faithfully</div>
-
-    <div class="signature-space">______________________________<br/>${practitionerName ? `<strong>${esc(practitionerName)}</strong><br/>` : ""}${practitionerDesignation ? `${esc(practitionerDesignation)}<br/>` : ""}Authorised Signatory</div>
-
-    </div>
-
-    <div class="powered"><strong>Prepared by ${esc(firmName)}</strong><span>Powered by PracticePilot</span></div>
-
-  </section>
-
-
-
-  <section class="register-page">
-
-    <div class="client">${esc(client.client_name)}</div>
-
-    <div class="reg">${esc(client.registration_number || "")}</div>
-
-    <div class="line"></div>
-
-    <div class="register-title">Current Shareholder Register</div>
-
-    ${registerTable}
-
-    <div class="powered"><strong>Prepared by ${esc(firmName)}</strong><span>Powered by PracticePilot</span></div>
-
-  </section>
-
-</body>
-
-</html>`;
-
-          fileName = `${fileSafe(client.client_name)}-Shareholding-Confirmation.pdf`;
-
-        }
+        setLoading(false);
 
       }
 
-    } else if (documentType === "bo-mandate" || documentType === "bo-supporting-pack") {
-    const [{ data: transactions }, { data: shareholders }, { data: classes }, { data: savedBoOwners }, { data: directors }] = await Promise.all([
-      supabase.from("secretarial_share_transactions").select("transaction_type, number_of_shares, shareholder_id, share_class_id, transaction_date").eq("client_id", clientId).order("transaction_date", { ascending: true }),
-      supabase.from("secretarial_shareholders").select("id, full_legal_name, id_registration_number, holder_type, email, phone").eq("client_id", clientId),
-      supabase.from("secretarial_share_classes").select("id, class_name").eq("client_id", clientId),
-      supabase.from("secretarial_beneficial_owners").select("full_legal_name, id_registration_number, ownership_percentage, ownership_type, linked_shareholder_id, nature_of_interest, effective_from").eq("client_id", clientId).eq("is_active", true).eq("owner_type", "individual"),
-      supabase.from("crm_client_directors").select("id, director_name, id_passport_number, email, phone, director_capacity, is_active, appointment_date").eq("client_id", clientId).eq("is_active", true).order("appointment_date", { ascending: true }),
-    ]);
-
-    const holderMap = new Map((shareholders || []).map((row: any) => [row.id, row]));
-    const classMap = new Map((classes || []).map((row: any) => [row.id, row]));
-    const balances = new Map<string, { shares: number; effective: string | null }>();
-    for (const row of transactions || []) {
-      const key = `${row.shareholder_id}:${row.share_class_id}`;
-      const qty = Number(row.number_of_shares || 0);
-      const type = String(row.transaction_type || "");
-      const signed = ["issue", "transfer_in"].includes(type) ? qty : ["transfer_out", "redemption", "repurchase", "cancellation"].includes(type) ? -qty : 0;
-      const current = balances.get(key) || { shares: 0, effective: row.transaction_date || null };
-      current.shares += signed;
-      if (!current.effective && row.transaction_date) current.effective = row.transaction_date;
-      balances.set(key, current);
     }
-    const totalIssued = Array.from(balances.values()).reduce((sum, row) => sum + Math.max(0, row.shares), 0);
-    const directRows = Array.from(balances.entries()).filter(([key, row]) => row.shares > 0 && String(holderMap.get(key.split(":")[0])?.holder_type || "individual").toLowerCase() === "individual").map(([key, row]) => {
-      const [holderId, classId] = key.split(":");
-      const holder = holderMap.get(holderId);
-      const shareClass = classMap.get(classId);
-      return { name: holder?.full_legal_name || "", idNumber: holder?.id_registration_number || "", interest: `Direct shareholding · ${shareClass?.class_name || "Shares"}`, percentage: totalIssued > 0 ? (row.shares / totalIssued) * 100 : 0, effective: row.effective };
-    });
-    const indirectRows = (savedBoOwners || []).filter((row: any) => !row.linked_shareholder_id).map((row: any) => ({ name: row.full_legal_name || "", idNumber: row.id_registration_number || "", interest: String(row.nature_of_interest || row.ownership_type || "indirect").replaceAll("_", " "), percentage: row.ownership_percentage == null ? null : Number(row.ownership_percentage), effective: row.effective_from || null }));
-    const allOwners = [...directRows, ...indirectRows];
-    const selectedDirector = (directors || []).find((director: any) => String(director.id) === String(sourceId || "")) || null;
-    if (!selectedDirector) throw new Error("Select one active director to sign the Beneficial Ownership mandate / resolution.");
-    if (!firmSettings?.cipc_agent_name || !firmSettings?.cipc_customer_code) throw new Error("Complete the CIPC filing agent name and customer code under Settings > Practice Details & Letterhead before generating the BO mandate.");
 
-    if (documentType === "bo-supporting-pack") {
-      html = boPackHtml({ client, signatory: selectedDirector, firmSettings, owners: allOwners, shareholders: shareholders || [], classes: classes || [], transactions: transactions || [] });
-      fileName = `${fileSafe(client.client_name)}-Beneficial-Ownership-Mandate-and-Supporting-Pack.pdf`;
-    } else {
-      html = baseHtml("Beneficial Ownership Mandate / Resolution", client, boResolutionHtml({ client, signatory: selectedDirector, firmSettings }));
-      fileName = `${fileSafe(client.client_name)}-Beneficial-Ownership-Mandate-Resolution.pdf`;
-    }
-} else if (documentType === "annual-return-authority") {
+    void loadProfile();
 
-      let query = supabase
+  }, []);
 
-        .from("secretarial_annual_returns")
+  const globalAdmin = isGlobalAdmin(profile?.role || "");
 
-        .select(
+  const clientManager = profile?.role === "Client Manager";
 
-          "id, return_year, annual_turnover, annual_return_fee, penalty_amount, due_date, beneficial_ownership_status, financial_submission_type, financial_submission_status, return_status, cipc_reference"
+  const canManageUsers =
 
-        )
+    globalAdmin ||
 
-        .eq("client_id", clientId)
+    clientManager ||
 
-        .order("return_year", { ascending: false });
+    Boolean(profile?.can_manage_practice_users);
 
+  const hasCrm = globalAdmin || Boolean(profile?.can_access_crm);
 
+  const hasAfs = globalAdmin || Boolean(profile?.can_access_afs);
 
-      if (sourceId) query = query.eq("id", sourceId);
+  return (
 
+    <main style={styles.page}>
 
+      <section style={styles.header}>
 
-      const { data: annual, error } = sourceId
+        <div>
 
-        ? await query.single()
+          <p style={styles.eyebrow}>PracticePilot</p>
 
-        : await query.limit(1).single();
+          <h1 style={styles.title}>Settings</h1>
 
+          <p style={styles.subtitle}>
 
+            Manage the settings available for your PracticePilot access.
 
-      if (error || !annual) {
-
-        throw new Error(
-
-          "Save the Annual Return turnover and control record before generating the client authority."
-
-        );
-
-      }
-
-
-
-      const total =
-
-        Number(annual.annual_return_fee || 0) +
-
-        Number(annual.penalty_amount || 0);
-
-
-
-      html = baseHtml(
-
-        `Annual Return Filing Authority - ${annual.return_year}`,
-
-        client,
-
-        `
-
-        <div class="ar-authority">
-
-        <div class="green">
-
-          Client authority to proceed with the company's CIPC Annual Return filing for the ${esc(annual.return_year)} return year.
+          </p>
 
         </div>
 
+        <Link href="/dashboard" style={styles.secondaryButton}>
 
+          Back to PilotHub
 
-        <h2>Information confirmed by the client</h2>
+        </Link>
 
-        <table>
+      </section>
 
-          <tr><td class="label">Return year</td><td>${esc(annual.return_year)}</td></tr>
+      {loading ? (
 
-          <tr><td class="label">Filing deadline</td><td>${dateText(annual.due_date)}</td></tr>
+        <section style={styles.loading}>Loading settings...</section>
 
-          <tr><td class="label">Annual turnover</td><td><strong>${money(annual.annual_turnover)}</strong></td></tr>
+      ) : (
 
-          <tr><td class="label">Turnover source</td><td>Latest approved financial statements supplied / approved by the client</td></tr>
+        <section style={styles.grid}>
 
-          <tr><td class="label">CIPC filing fee</td><td>${money(annual.annual_return_fee)}</td></tr>
+          {canManageUsers ? (
+          <Link href="/settings/practice" style={styles.card}>
 
-          <tr><td class="label">Late amount</td><td>${money(annual.penalty_amount)}</td></tr>
+              <h2 style={styles.cardTitle}>Practice Details & Letterhead</h2>
 
-          <tr><td class="label"><strong>Total payable to CIPC</strong></td><td><strong>${money(total)}</strong></td></tr>
+              <p style={styles.cardText}>
 
-          <tr><td class="label">Beneficial Ownership position</td><td>${esc(String(annual.beneficial_ownership_status || "").replaceAll("_", " "))}</td></tr>
+                Practice identity, letterhead, authorised signatory and
 
-          <tr><td class="label">AFS / FAS route</td><td>${esc(annual.financial_submission_type || "")} - ${esc(String(annual.financial_submission_status || "").replaceAll("_", " "))}</td></tr>
+                professional-body details used across PracticePilot.
 
-        </table>
+              </p>
 
+            </Link>
 
+          ) : null}
 
-        <h2>Authority</h2>
+          {canManageUsers ? (
 
-        <p>I confirm that the annual turnover and other information reflected above are complete and correct to the best of my knowledge and are based on the latest approved financial information made available by the company.</p>
+            <Link href="/settings/team" style={styles.card}>
 
-        <p>I hereby authorise the company's appointed accounting / secretarial representative to prepare, submit and lodge the Annual Return with the Companies and Intellectual Property Commission (CIPC), together with the Beneficial Ownership information and the applicable AFS/FAS submission where required.</p>
+              <h2 style={styles.cardTitle}>My Team & Licences</h2>
 
-        <p>I further authorise payment of the CIPC filing amount reflected above from funds made available by or on behalf of the company for this purpose, and authorise the representative to respond to reasonable CIPC queries arising directly from the filing.</p>
+              <p style={styles.cardText}>
 
-        <p>I acknowledge that the company remains responsible for the accuracy and completeness of the information supplied and for notifying its representative of any material change before submission.</p>
+                Manage staff, roles, module access, delegated team permissions
 
+                and licence quantities.
 
+              </p>
 
-        <div class="signature-grid">
+            </Link>
 
-          <div class="sig">
+          ) : null}
 
-            <strong>Authorised client signatory</strong><br/><br/>
+          {hasAfs ? (
 
-            Name:<br/>________________________________________<br/><br/>
+            <Link href="/afs/settings" style={styles.card}>
 
-            Capacity:<br/>________________________________________
+              <h2 style={styles.cardTitle}>AFS Settings</h2>
 
-          </div>
+              <p style={styles.cardText}>
 
-          <div class="sig">
+                AFS defaults, workflow, notifications, templates and entity
 
-            <strong>Signature and date</strong><br/><br/>
+                types.
 
-            Signature:<br/>________________________________________<br/><br/>
+              </p>
 
-            Date:<br/>________________________________________
+            </Link>
 
-          </div>
+          ) : null}
 
-        </div>
+          {hasCrm ? (
 
-        </div>`
+            <Link href="/settings/services" style={styles.card}>
 
-      );
+              <h2 style={styles.cardTitle}>Services & Colours</h2>
 
+              <p style={styles.cardText}>
 
+                CRM service names, task colours and default service settings.
 
-      fileName = `${fileSafe(client.client_name)}-Annual-Return-Authority-${annual.return_year}.pdf`;
+              </p>
 
-    } else {
+            </Link>
 
-      throw new Error("This Secretarial document type is not supported yet.");
+          ) : null}
 
-    }
+          {hasCrm ? (
 
+            <Link href="/settings/workflows" style={styles.card}>
 
+              <h2 style={styles.cardTitle}>Workflows & Checklists</h2>
 
-    const browser = await launchBrowser();
+              <p style={styles.cardText}>
 
+                Choose the work steps, dependencies, review checks and
 
+                submission controls your practice wants to use.
 
-    try {
+              </p>
 
-      const page = await browser.newPage();
+            </Link>
 
-      await page.setContent(html, { waitUntil: "load", timeout: 20000 });
+          ) : null}
 
+          {hasCrm ? (
 
+            <Link href="/settings/client-numbering" style={styles.card}>
 
-      const pdf = await page.pdf({
+              <h2 style={styles.cardTitle}>Client Numbering</h2>
 
-        format: "A4",
+              <p style={styles.cardText}>
 
-        landscape: documentType === "share-certificate",
+                Configure practice numbering series, prefixes and legal-type
 
-        printBackground: true,
+                allocation rules.
 
-        preferCSSPageSize: true,
+              </p>
 
-        margin: { top: "0mm", right: "0mm", bottom: "0mm", left: "0mm" },
+            </Link>
 
-        displayHeaderFooter: false,
+          ) : null}
 
-      });
+          {hasCrm && canManageUsers ? (
 
+            <Link href="/settings/flightdeck" style={styles.card}>
 
+              <h2 style={styles.cardTitle}>FlightDeck</h2>
 
-      const pdfBytes = new Uint8Array(pdf);
+              <p style={styles.cardText}>
 
+                Set practice targets, staff capacity and commercial silo
 
+                controls.
 
-      return new NextResponse(pdfBytes, {
+              </p>
 
-        status: 200,
+            </Link>
 
-        headers: {
+          ) : null}
 
-          "Content-Type": "application/pdf",
+          {hasCrm && canManageUsers ? (
 
-          "Content-Disposition": `inline; filename="${fileName}"`,
+            <Link href="/settings/team-costing" style={styles.card}>
 
-          "Cache-Control": "no-store",
+              <h2 style={styles.cardTitle}>Team Costing</h2>
 
-        },
+              <p style={styles.cardText}>
 
-      });
+                Set internal hourly cost rates and charge-out rates for practice
 
-    } finally {
+                staff.
 
-      await browser.close();
+              </p>
 
-    }
+            </Link>
 
-  } catch (error) {
+          ) : null}
 
-    console.error("Secretarial PDF render failed:", error);
+          {hasCrm && canManageUsers ? (
 
-    return NextResponse.json(
+            <Link href="/settings/email-sending" style={styles.card}>
 
-      {
+              <h2 style={styles.cardTitle}>Email Sending</h2>
 
-        error:
+              <p style={styles.cardText}>
 
-          error instanceof Error
+                Configure the practice mailbox PracticePilot uses for client
 
-            ? error.message
+                communication.
 
-            : "Could not generate the Secretarial PDF.",
+              </p>
 
-      },
+            </Link>
 
-      { status: 500 }
+          ) : null}
 
-    );
+          {hasCrm && canManageUsers ? (
 
-  }
+            <Link href="/settings/crm-import" style={styles.card}>
+
+              <h2 style={styles.cardTitle}>CRM Data Import</h2>
+
+              <p style={styles.cardText}>
+
+                Upload a PracticePilot CRM Master Import workbook to bulk add or
+
+                update clients, groups, people and registrations.
+
+              </p>
+
+            </Link>
+
+          ) : null}
+
+          {globalAdmin ? (
+
+            <div style={styles.cardMuted}>
+
+              <h2 style={styles.cardTitle}>Task Rules</h2>
+
+              <p style={styles.cardText}>
+
+                VAT categories, payroll frequency, EMP501, provisional tax and
+
+                annual CRM task rules.
+
+              </p>
+
+            </div>
+
+          ) : null}
+
+          {globalAdmin ? (
+
+            <div style={styles.cardMuted}>
+
+              <h2 style={styles.cardTitle}>Feature Toggles</h2>
+
+              <p style={styles.cardText}>
+
+                Practice-wide feature controls will live here as shared settings
+
+                are consolidated.
+
+              </p>
+
+            </div>
+
+          ) : null}
+
+          {hasCrm && canManageUsers ? (
+
+            <Link href="/settings/document-providers" style={styles.card}>
+
+              <h2 style={styles.cardTitle}>Document Providers</h2>
+
+              <p style={styles.cardText}>
+
+                Connect Egnyte and manage the practice document-storage
+
+                integration used by staff and the client portal.
+
+              </p>
+
+            </Link>
+
+          ) : null}
+
+          {globalAdmin ? (
+
+            <div style={styles.cardMuted}>
+
+              <h2 style={styles.cardTitle}>Billing & Profitability</h2>
+
+              <p style={styles.cardText}>
+
+                PracticePilot administration area for commercial and
+
+                profitability controls.
+
+              </p>
+
+            </div>
+
+          ) : null}
+
+        </section>
+
+      )}
+
+    </main>
+
+  );
 
 }
+
+const styles: Record<string, CSSProperties> = {
+
+  page: {
+
+    minHeight: "100vh",
+
+    background: "#f5f7fa",
+
+    padding: "18px 20px 32px",
+
+    color: "#10233a",
+
+  },
+
+  header: {
+
+    minHeight: "82px",
+
+    padding: "14px 4px 16px",
+
+    display: "flex",
+
+    justifyContent: "space-between",
+
+    gap: "20px",
+
+    alignItems: "center",
+
+    borderTop: "3px solid #10233a",
+
+    borderBottom: "1px solid #d8dee7",
+
+  },
+
+  eyebrow: {
+
+    margin: 0,
+
+    color: "#1758d5",
+
+    fontSize: "8px",
+
+    fontWeight: 900,
+
+    letterSpacing: "0.12em",
+
+    textTransform: "uppercase",
+
+  },
+
+  title: {
+
+    margin: "4px 0 0",
+
+    fontSize: "20px",
+
+    lineHeight: 1,
+
+    fontWeight: 950,
+
+  },
+
+  subtitle: {
+
+    margin: "5px 0 0",
+
+    color: "#64748b",
+
+    fontSize: "9px",
+
+    maxWidth: "760px",
+
+  },
+
+  secondaryButton: {
+
+    height: "32px",
+
+    padding: "0 12px",
+
+    display: "inline-flex",
+
+    alignItems: "center",
+
+    justifyContent: "center",
+
+    background: "#ffffff",
+
+    color: "#10233a",
+
+    textDecoration: "none",
+
+    border: "1px solid #cbd5e1",
+
+    fontSize: "8px",
+
+    fontWeight: 900,
+
+  },
+
+  loading: {
+
+    marginTop: "10px",
+
+    background: "#ffffff",
+
+    border: "1px solid #d8dee7",
+
+    padding: "18px",
+
+    fontSize: "9px",
+
+  },
+
+  grid: {
+
+    marginTop: "10px",
+
+    display: "grid",
+
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+
+    gap: "8px",
+
+  },
+
+  card: {
+
+    minHeight: "92px",
+
+    padding: "12px 14px",
+
+    display: "grid",
+
+    alignContent: "center",
+
+    background: "#ffffff",
+
+    border: "1px solid #d8dee7",
+
+    borderTop: "3px solid #1758d5",
+
+    textDecoration: "none",
+
+    color: "#10233a",
+
+  },
+
+  cardMuted: {
+
+    minHeight: "92px",
+
+    padding: "12px 14px",
+
+    display: "grid",
+
+    alignContent: "center",
+
+    background: "#f8fafc",
+
+    border: "1px solid #d8dee7",
+
+    color: "#10233a",
+
+    opacity: 0.72,
+
+  },
+
+  cardTitle: {
+
+    margin: 0,
+
+    fontSize: "13px",
+
+    lineHeight: 1.15,
+
+    fontWeight: 900,
+
+  },
+
+  cardText: {
+
+    margin: "5px 0 0",
+
+    color: "#64748b",
+
+    fontSize: "8.5px",
+
+    lineHeight: 1.4,
+
+  },
+
+};

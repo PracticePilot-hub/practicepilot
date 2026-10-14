@@ -1,13 +1,10 @@
 "use client";
 
-
-
 import Link from "next/link";
 
 import { useEffect, useState, type CSSProperties } from "react";
+
 import { supabase } from "@/app/lib/supabase";
-
-
 
 type UserProfile = {
 
@@ -21,15 +18,11 @@ type UserProfile = {
 
 };
 
-
-
 function isGlobalAdmin(role: string) {
 
   return role === "Super Admin" || role === "Admin";
 
 }
-
-
 
 export default function SettingsPage() {
 
@@ -37,11 +30,10 @@ export default function SettingsPage() {
 
   const [loading, setLoading] = useState(true);
 
-
-
   useEffect(() => {
 
     async function loadProfile() {
+
 try {
 
         const {
@@ -50,8 +42,6 @@ try {
 
         } = await supabase.auth.getUser();
 
-
-
         if (!user?.id) {
 
           setLoading(false);
@@ -59,8 +49,6 @@ try {
           return;
 
         }
-
-
 
         const { data, error } = await supabase
 
@@ -76,11 +64,7 @@ try {
 
           .single();
 
-
-
         if (error) throw error;
-
-
 
         setProfile(data as UserProfile);
 
@@ -96,19 +80,13 @@ try {
 
     }
 
-
-
     void loadProfile();
 
   }, []);
 
-
-
   const globalAdmin = isGlobalAdmin(profile?.role || "");
 
   const clientManager = profile?.role === "Client Manager";
-
-
 
   const canManageUsers =
 
@@ -118,13 +96,9 @@ try {
 
     Boolean(profile?.can_manage_practice_users);
 
-
-
   const hasCrm = globalAdmin || Boolean(profile?.can_access_crm);
 
   const hasAfs = globalAdmin || Boolean(profile?.can_access_afs);
-
-
 
   return (
 
@@ -146,8 +120,6 @@ try {
 
         </div>
 
-
-
         <Link href="/dashboard" style={styles.secondaryButton}>
 
           Back to PilotHub
@@ -155,8 +127,6 @@ try {
         </Link>
 
       </section>
-
-
 
       {loading ? (
 
@@ -166,9 +136,8 @@ try {
 
         <section style={styles.grid}>
 
-          {globalAdmin ? (
-
-            <Link href="/settings/practice" style={styles.card}>
+          {canManageUsers ? (
+          <Link href="/settings/practice" style={styles.card}>
 
               <h2 style={styles.cardTitle}>Practice Details & Letterhead</h2>
 
@@ -183,8 +152,6 @@ try {
             </Link>
 
           ) : null}
-
-
 
           {canManageUsers ? (
 
@@ -204,8 +171,6 @@ try {
 
           ) : null}
 
-
-
           {hasAfs ? (
 
             <Link href="/afs/settings" style={styles.card}>
@@ -224,8 +189,6 @@ try {
 
           ) : null}
 
-
-
           {hasCrm ? (
 
             <Link href="/settings/services" style={styles.card}>
@@ -241,8 +204,6 @@ try {
             </Link>
 
           ) : null}
-
-
 
           {hasCrm ? (
 
@@ -262,8 +223,6 @@ try {
 
           ) : null}
 
-
-
           {hasCrm ? (
 
             <Link href="/settings/client-numbering" style={styles.card}>
@@ -281,8 +240,6 @@ try {
             </Link>
 
           ) : null}
-
-
 
           {hasCrm && canManageUsers ? (
 
@@ -302,8 +259,6 @@ try {
 
           ) : null}
 
-
-
           {hasCrm && canManageUsers ? (
 
             <Link href="/settings/team-costing" style={styles.card}>
@@ -321,8 +276,6 @@ try {
             </Link>
 
           ) : null}
-
-
 
           {hasCrm && canManageUsers ? (
 
@@ -342,8 +295,6 @@ try {
 
           ) : null}
 
-
-
           {hasCrm && canManageUsers ? (
 
             <Link href="/settings/crm-import" style={styles.card}>
@@ -361,8 +312,6 @@ try {
             </Link>
 
           ) : null}
-
-
 
           {globalAdmin ? (
 
@@ -382,8 +331,6 @@ try {
 
           ) : null}
 
-
-
           {globalAdmin ? (
 
             <div style={styles.cardMuted}>
@@ -402,19 +349,23 @@ try {
 
           ) : null}
 
-
-
           {hasCrm && canManageUsers ? (
+
             <Link href="/settings/document-providers" style={styles.card}>
+
               <h2 style={styles.cardTitle}>Document Providers</h2>
+
               <p style={styles.cardText}>
+
                 Connect Egnyte and manage the practice document-storage
+
                 integration used by staff and the client portal.
+
               </p>
+
             </Link>
+
           ) : null}
-
-
 
           {globalAdmin ? (
 
@@ -444,8 +395,6 @@ try {
 
 }
 
-
-
 const styles: Record<string, CSSProperties> = {
 
   page: {
@@ -459,8 +408,6 @@ const styles: Record<string, CSSProperties> = {
     color: "#10233a",
 
   },
-
-
 
   header: {
 
@@ -482,8 +429,6 @@ const styles: Record<string, CSSProperties> = {
 
   },
 
-
-
   eyebrow: {
 
     margin: 0,
@@ -500,8 +445,6 @@ const styles: Record<string, CSSProperties> = {
 
   },
 
-
-
   title: {
 
     margin: "4px 0 0",
@@ -514,8 +457,6 @@ const styles: Record<string, CSSProperties> = {
 
   },
 
-
-
   subtitle: {
 
     margin: "5px 0 0",
@@ -527,8 +468,6 @@ const styles: Record<string, CSSProperties> = {
     maxWidth: "760px",
 
   },
-
-
 
   secondaryButton: {
 
@@ -556,8 +495,6 @@ const styles: Record<string, CSSProperties> = {
 
   },
 
-
-
   loading: {
 
     marginTop: "10px",
@@ -572,8 +509,6 @@ const styles: Record<string, CSSProperties> = {
 
   },
 
-
-
   grid: {
 
     marginTop: "10px",
@@ -585,8 +520,6 @@ const styles: Record<string, CSSProperties> = {
     gap: "8px",
 
   },
-
-
 
   card: {
 
@@ -610,8 +543,6 @@ const styles: Record<string, CSSProperties> = {
 
   },
 
-
-
   cardMuted: {
 
     minHeight: "92px",
@@ -632,8 +563,6 @@ const styles: Record<string, CSSProperties> = {
 
   },
 
-
-
   cardTitle: {
 
     margin: 0,
@@ -645,8 +574,6 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 900,
 
   },
-
-
 
   cardText: {
 
