@@ -433,6 +433,7 @@ export default function SecretarialClientPage() {
 
   const [boCipcReference, setBoCipcReference] = useState("");
   const [boFiledDate, setBoFiledDate] = useState("");
+  const [boSignatoryDirectorId, setBoSignatoryDirectorId] = useState("");
 
   const [saving, setSaving] = useState(false);
 
@@ -787,6 +788,13 @@ export default function SecretarialClientPage() {
   }, [beneficialOwners, currentHoldings.length]);
 
   const annualBOLiveStatus = boOverallStatus === "filed" ? "up_to_date" : "outstanding";
+
+  useEffect(() => {
+    if (boSignatoryDirectorId) return;
+    const firstActiveDirector = directors.find((director) => director.is_active !== false);
+    if (firstActiveDirector?.id) setBoSignatoryDirectorId(firstActiveDirector.id);
+  }, [directors, boSignatoryDirectorId]);
+
 
   async function confirmBeneficialOwnership() {
     if (!client?.organisation_id || !currentHoldings.length) {
@@ -2544,15 +2552,24 @@ export default function SecretarialClientPage() {
               <div>
                 <strong>CIPC BO filing</strong>
                 <div style={mutedSmall}>
-                  Generate the mandate from the live ownership position, send it for signature, then record the CIPC filing result here.
+                  Select one director to sign the mandate / resolution, then generate the mandate or the full PracticePilot supporting pack.
                 </div>
-                <button
-                  type="button"
-                  onClick={() => previewSecretarialDocument("bo-mandate")}
-                  style={{ ...rowActionButton, marginTop: "8px" }}
-                >
-                  Preview BO Mandate
-                </button>
+                <div style={{ marginTop: "8px", display: "grid", gap: "6px" }}>
+                  <select value={boSignatoryDirectorId} onChange={(event) => setBoSignatoryDirectorId(event.target.value)} style={input}>
+                    <option value="">Select signing director...</option>
+                    {directors.filter((director) => director.is_active !== false).map((director) => (
+                      <option key={director.id} value={director.id}>{director.director_name}</option>
+                    ))}
+                  </select>
+                  <div style={rowActions}>
+                    <button type="button" disabled={!boSignatoryDirectorId} onClick={() => previewSecretarialDocument("bo-mandate", boSignatoryDirectorId || null)} style={rowActionButton}>
+                      Preview BO Mandate
+                    </button>
+                    <button type="button" disabled={!boSignatoryDirectorId} onClick={() => previewSecretarialDocument("bo-supporting-pack", boSignatoryDirectorId || null)} style={rowActionButton}>
+                      Preview Supporting Pack
+                    </button>
+                  </div>
+                </div>
               </div>
               <Field label="CIPC REFERENCE">
                 <input
@@ -3201,18 +3218,19 @@ export default function SecretarialClientPage() {
 
           {derivedBeneficialOwners.length ? (
             <TableRow columns="220px 1.4fr 160px 170px 220px">
-              <div>Beneficial Ownership Mandate</div>
-              <strong>BO Mandate & Supporting Pack</strong>
+              <div>Beneficial Ownership</div>
+              <strong>BO Mandate / Resolution & Supporting Pack</strong>
               <div>Current</div>
               <StatusPill text="Available to Preview" />
               <button
                 type="button"
                 onClick={() =>
-                  previewSecretarialDocument("bo-mandate")
+                  previewSecretarialDocument("bo-supporting-pack", boSignatoryDirectorId || null)
                 }
+                disabled={!boSignatoryDirectorId}
                 style={downloadButton}
               >
-                Preview PDF
+                Preview Pack
               </button>
             </TableRow>
           ) : null}

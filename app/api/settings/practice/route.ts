@@ -171,6 +171,9 @@ export async function PATCH(request: Request) {
         String(body.authorised_signatory_position || "").trim() || null,
       authorised_signatory_signature_url:
         String(body.authorised_signatory_signature_url || "").trim() || null,
+      cipc_agent_name: String(body.cipc_agent_name || "").trim() || null,
+      cipc_agent_email: String(body.cipc_agent_email || "").trim() || null,
+      cipc_customer_code: String(body.cipc_customer_code || "").trim() || null,
       governing_body_name:
         String(body.governing_body_name || "").trim() || null,
       governing_body_registration_number:
