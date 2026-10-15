@@ -350,6 +350,7 @@ export default function YearEndDocumentsPanel({
   const [minutesDate, setMinutesDate] = useState("");
   const [minutesChairperson, setMinutesChairperson] = useState("");
   const [minutesAttendees, setMinutesAttendees] = useState<string[]>([]);
+  const [minutesSignatories, setMinutesSignatories] = useState<string[] | null>(null);
   const [minutesClauses, setMinutesClauses] =
     useState<Record<TrustApprovalClauseKey, boolean>>({
       ...DEFAULT_TRUST_APPROVAL_CLAUSES,
@@ -367,11 +368,15 @@ export default function YearEndDocumentsPanel({
   const [loanMessage, setLoanMessage] = useState("");
   const [loanTerms, setLoanTerms] = useState<Record<string, {
     creditorName?: string;
+    certifierName?: string;
+    certifierIdNumber?: string;
+    certifierCapacity?: string;
     initiationDate?: string;
     security?: string;
     interestRate?: string;
     interestAmount?: string;
     repaymentTerms?: string;
+    covenants?: string;
   }>>({});
 
   const [subordinationStatus, setSubordinationStatus] = useState<DocumentStatus>("draft");
@@ -650,6 +655,7 @@ export default function YearEndDocumentsPanel({
           ? payload.attendees.map(String).filter(Boolean)
           : [],
       );
+      setMinutesSignatories(Array.isArray(payload.signatories) ? payload.signatories.map(String).filter(Boolean) : null);
       setMinutesRepresentatives(
         payload.representatives && typeof payload.representatives === "object"
           ? Object.fromEntries(
@@ -725,6 +731,7 @@ export default function YearEndDocumentsPanel({
               meetingDate: minutesDate,
               chairperson: effectiveMinutesChairperson,
               attendees: effectiveMinutesAttendees,
+              signatories: effectiveMinutesSignatories,
               representatives: minutesRepresentatives,
               includeAccountantAppointment: minutesIncludeAccountantAppointment,
               additionalItems: minutesAdditionalItems,
@@ -962,14 +969,33 @@ export default function YearEndDocumentsPanel({
     [clientPeople],
   );
 
+  // The legal CC member may be stored as "Trust represented by:" followed by
+  // natural-person representatives. Never offer the legal member as a signer.
+  // Only interpret the legacy represented-by pattern if exactly one parent exists.
+  const ccMemberNames = entityKind === "cc"
+    ? signatories.filter((name) => /\brepresented by\s*:?\s*$/i.test(name))
+    : [];
+  const ccLegalMember = ccMemberNames.length === 1
+    ? ccMemberNames[0].replace(/\s*represented by\s*:?\s*$/i, "").trim()
+    : "";
+  const ccRepresentatives = ccLegalMember
+    ? signatories.filter((name) => !ccMemberNames.includes(name))
+    : signatories;
+
   const effectiveApprovalSignatories =
-    approvalSignatories.length > 0 ? approvalSignatories : signatories.slice(0, 2);
+    (approvalSignatories.length > 0 ? approvalSignatories : ccRepresentatives.slice(0, 2))
+      .filter((name) => !ccLegalMember || !ccMemberNames.includes(name));
 
   const effectiveMinutesAttendees =
-    minutesAttendees.length > 0 ? minutesAttendees : signatories;
+    (minutesAttendees.length > 0 ? minutesAttendees : ccRepresentatives)
+      .filter((name) => !ccLegalMember || !ccMemberNames.includes(name));
+
+  const effectiveMinutesSignatories = (minutesSignatories === null ? effectiveMinutesAttendees : minutesSignatories)
+    .filter((name) => (ccLegalMember ? ccRepresentatives : signatories).includes(name));
 
   const effectiveMinutesChairperson =
-    minutesChairperson || effectiveMinutesAttendees[0] || "";
+    (minutesChairperson && effectiveMinutesAttendees.includes(minutesChairperson)
+      ? minutesChairperson : "") || effectiveMinutesAttendees[0] || "";
 
   const detectedDistributionLines = useMemo(
     () =>
@@ -1263,7 +1289,8 @@ export default function YearEndDocumentsPanel({
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
             framework={framework}
-            availableSignatories={signatories}
+            availableSignatories={ccLegalMember ? ccRepresentatives : signatories}
+            ccLegalMember={ccLegalMember}
             selectedSignatories={effectiveApprovalSignatories}
             representatives={approvalRepresentatives}
             approvalPlace={approvalPlace}
@@ -1319,8 +1346,10 @@ export default function YearEndDocumentsPanel({
             displayName={displayName}
             registrationNumber={registrationNumber}
             yearEnd={yearEnd}
-            availablePeople={signatories}
+            availablePeople={ccLegalMember ? ccRepresentatives : signatories}
+            ccLegalMember={ccLegalMember}
             attendees={effectiveMinutesAttendees}
+            selectedSignatories={effectiveMinutesSignatories}
             chairperson={effectiveMinutesChairperson}
             meetingPlace={minutesPlace}
             meetingDate={minutesDate}
@@ -1348,6 +1377,10 @@ export default function YearEndDocumentsPanel({
             onAttendeesChange={(value) => {
               minutesChanged();
               setMinutesAttendees(value);
+            }}
+            onSignatoriesChange={(value) => {
+              minutesChanged();
+              setMinutesSignatories(value);
             }}
             onClauseChange={(key, checked) => {
               minutesChanged();
@@ -1392,6 +1425,10 @@ export default function YearEndDocumentsPanel({
             loanLines={loanLines}
             loanTerms={loanTerms}
             linkedLoanData={linkedLoanData}
+            entityKind={entityKind}
+            ccLegalMember={ccLegalMember}
+            signatories={ccLegalMember ? ccRepresentatives : signatories}
+            clientPeople={clientPeople}
             status={loanStatus}
             saving={loanSaving}
             message={loanMessage}
@@ -1964,6 +2001,7 @@ function ApprovalDocument({
   yearEnd,
   framework,
   availableSignatories,
+  ccLegalMember,
   selectedSignatories,
   representatives,
   approvalPlace,
@@ -1991,6 +2029,7 @@ function ApprovalDocument({
   yearEnd: string;
   framework: string;
   availableSignatories: string[];
+  ccLegalMember: string;
   selectedSignatories: string[];
   representatives: Record<string, string>;
   approvalPlace: string;
@@ -2458,7 +2497,7 @@ function ApprovalDocument({
                       )}
                     </p>
 
-                    <h2 style={styles.documentHeading}>It was resolved that:</h2>
+        <h2 style={styles.documentHeading}>It was resolved that:</h2>
 
                     <ul style={styles.documentList}>
                       {trustPreviewItems}
@@ -2702,6 +2741,12 @@ function ApprovalDocument({
           </ol>
         )}
 
+        {entityKind === "cc" && ccLegalMember ? (
+          <p style={{ ...styles.bodyText, marginTop: 22 }}>
+            Signed for and on behalf of <strong>{ccLegalMember}</strong>, being the member
+            of <strong>{displayName}</strong>, by the authorised representatives below.
+          </p>
+        ) : null}
         <div className="signature-grid">
           <SignatureBlock names={displaySignatories} fallbackLabel={signatureFallbackLabel(entityKind)} />
         </div>
@@ -2726,7 +2771,9 @@ function MinutesDocument({
   registrationNumber,
   yearEnd,
   availablePeople,
+  ccLegalMember,
   attendees,
+  selectedSignatories,
   chairperson,
   meetingPlace,
   meetingDate,
@@ -2743,6 +2790,7 @@ function MinutesDocument({
   onDateChange,
   onChairpersonChange,
   onAttendeesChange,
+  onSignatoriesChange,
   onClauseChange,
   onResetClauses,
   onRepresentativeChange,
@@ -2758,7 +2806,9 @@ function MinutesDocument({
   registrationNumber: string;
   yearEnd: string;
   availablePeople: string[];
+  ccLegalMember: string;
   attendees: string[];
+  selectedSignatories: string[];
   chairperson: string;
   meetingPlace: string;
   meetingDate: string;
@@ -2775,6 +2825,7 @@ function MinutesDocument({
   onDateChange: (value: string) => void;
   onChairpersonChange: (value: string) => void;
   onAttendeesChange: (value: string[]) => void;
+  onSignatoriesChange: (value: string[]) => void;
   onClauseChange: (key: TrustApprovalClauseKey, checked: boolean) => void;
   onResetClauses: () => void;
   onRepresentativeChange: (name: string, value: string) => void;
@@ -2785,6 +2836,12 @@ function MinutesDocument({
   onMarkSigned: () => void;
 }) {
   const documentId = `yd02-${engagementId}`;
+
+  function toggleSignatory(name: string) {
+    onSignatoriesChange(selectedSignatories.includes(name)
+      ? selectedSignatories.filter((item) => item !== name)
+      : [...selectedSignatories, name]);
+  }
 
   function toggleAttendee(name: string) {
     const current = attendees.includes(name)
@@ -3005,6 +3062,11 @@ function MinutesDocument({
 
       <div className="attendance" style={styles.minutesAttendance}>
         <strong>Present</strong>
+        {entityKind === "cc" && ccLegalMember ? (
+          <p style={styles.bodyText}>
+            <strong>{ccLegalMember}</strong> (member), represented by:
+          </p>
+        ) : null}
         {attendees.length ? (
           <ul style={styles.minutesAttendanceList}>
             {attendees.map((name) => (
@@ -3126,7 +3188,7 @@ function MinutesDocument({
         Interests of the {entityKind === "cc" ? "Members" : "Directors"}
       </h2>
       <p style={styles.bodyText}>
-        Any interests required to be disclosed by the {responsiblePlural(entityKind)} were
+        Any interests required to be disclosed by the {responsiblePlural(entityKind)}{" "}were
         noted and are to be dealt with in accordance with the entity&apos;s governing
         documents and applicable law.
       </p>
@@ -3137,8 +3199,14 @@ function MinutesDocument({
       </p>
 
       <div className="signature-grid">
+        {entityKind === "cc" && ccLegalMember ? (
+          <p style={styles.bodyText}>
+            Signed for and on behalf of <strong>{ccLegalMember}</strong> by its
+            authorised representatives:
+          </p>
+        ) : null}
         <SignatureBlock
-          names={chairperson ? [chairperson] : attendees.slice(0, 1)}
+          names={selectedSignatories}
           fallbackLabel={signatureFallbackLabel(entityKind)}
         />
       </div>
@@ -3238,6 +3306,20 @@ function MinutesDocument({
           ) : (
             <span style={styles.controlHelp}>No {responsiblePlural(entityKind)} have been loaded in Client Setup.</span>
           )}
+        </div>
+
+        <div style={{ ...styles.signatoryControl, gridColumn: "1 / -1" }}>
+          <span style={styles.controlLabel}>Signatories (independent of chairperson and attendance)</span>
+          <div style={styles.signatoryChoices}>
+            {availablePeople.map((name) => (
+              <button key={`minutes-signer-${name}`} type="button"
+                onClick={() => toggleSignatory(name)}
+                style={{ ...styles.signatoryChoice, ...(selectedSignatories.includes(name) ? styles.signatoryChoiceSelected : {}) }}>
+                {selectedSignatories.includes(name) ? "✓ " : ""}{name}
+              </button>
+            ))}
+          </div>
+          <span style={styles.controlHelp}>Select every authorised person who must sign the minutes.</span>
         </div>
 
         {entityKind === "trust" && corporateTrusteeAttendees.length ? (
@@ -3384,6 +3466,10 @@ function LoanCertificatesDocument({
   loanLines,
   loanTerms,
   linkedLoanData,
+  entityKind,
+  ccLegalMember,
+  signatories,
+  clientPeople,
   status,
   saving,
   message,
@@ -3401,13 +3487,21 @@ function LoanCertificatesDocument({
   loanLines: TrialBalanceLine[];
   loanTerms: Record<string, {
     creditorName?: string;
+    certifierName?: string;
+    certifierIdNumber?: string;
+    certifierCapacity?: string;
     initiationDate?: string;
     security?: string;
     interestRate?: string;
     interestAmount?: string;
     repaymentTerms?: string;
+    covenants?: string;
   }>;
   linkedLoanData: Record<string, any>;
+  entityKind: EntityKind;
+  ccLegalMember: string;
+  signatories: string[];
+  clientPeople: ClientPerson[];
   status: DocumentStatus;
   saving: boolean;
   message: string;
@@ -3447,6 +3541,9 @@ function LoanCertificatesDocument({
         linked.creditor_name ||
         line.account_name ||
         "",
+       certifierName: savedTerms.certifierName || signatories[0] || "",
+       certifierIdNumber: savedTerms.certifierIdNumber || String((clientPeople.find(person => person.full_name === (savedTerms.certifierName || signatories[0])) as any)?.id_number || (clientPeople.find(person => person.full_name === (savedTerms.certifierName || signatories[0])) as any)?.identity_number || ""),
+       certifierCapacity: savedTerms.certifierCapacity || (String(clientPeople.find(person => person.full_name === (savedTerms.certifierName || signatories[0]))?.person_type || "").toLowerCase().includes("trustee") ? "Trustee" : "Authorised representative"),
       initiationDate: savedTerms.initiationDate || "",
       security:
         savedTerms.security ||
@@ -3461,6 +3558,7 @@ function LoanCertificatesDocument({
         savedTerms.repaymentTerms ||
         linked.repayment_terms ||
         "",
+       covenants: savedTerms.covenants || "",
     };
   }
 
@@ -3566,7 +3664,26 @@ function LoanCertificatesDocument({
                     </div>
                   ) : null}
 
-                  <div style={styles.loanEditGrid}>
+                   <div style={styles.loanEditGrid}>
+                     <label style={styles.controlField}>
+                       <span>Person certifying the loan</span>
+                       {signatories.length ? (
+                         <select value={terms.certifierName} onChange={(event) => onLoanTermsChange(key, { certifierName: event.target.value })} style={styles.controlInput}>
+                           <option value="">Select signatory</option>
+                           {signatories.map((name) => <option key={name} value={name}>{cleanTrusteeDisplayName(name)}</option>)}
+                         </select>
+                       ) : (
+                         <input value={terms.certifierName} onChange={(event) => onLoanTermsChange(key, { certifierName: event.target.value })} style={styles.controlInput} placeholder="Full name" />
+                       )}
+                     </label>
+                     <label style={styles.controlField}>
+                       <span>Certifier ID number</span>
+                       <input value={terms.certifierIdNumber} onChange={(event) => onLoanTermsChange(key, { certifierIdNumber: event.target.value })} style={styles.controlInput} placeholder="ID or passport number" />
+                     </label>
+                     <label style={styles.controlField}>
+                       <span>Certifier capacity</span>
+                       <input value={terms.certifierCapacity} onChange={(event) => onLoanTermsChange(key, { certifierCapacity: event.target.value })} style={styles.controlInput} placeholder="e.g. Main Trustee" />
+                     </label>
                     <label style={styles.controlField}>
                       <span>Creditor / lender</span>
                       <input
@@ -3655,6 +3772,13 @@ function LoanCertificatesDocument({
                         style={styles.controlInput}
                       />
                     </label>
+                     <label style={styles.controlField}>
+                       <span>Specific or unusual covenants (if any)</span>
+                       <input value={terms.covenants}
+                         onChange={(event) => onLoanTermsChange(key, { covenants: event.target.value })}
+                         placeholder="None / describe specific covenants"
+                         style={styles.controlInput} />
+                     </label>
                   </div>
 
                   <div style={styles.loanExpandedActions}>
@@ -3674,62 +3798,45 @@ function LoanCertificatesDocument({
                     </button>
                   </div>
 
-                  <article
-                    id={`yd03-certificate-${engagementId}-${key}`}
-                    className="certificate-page"
-                    style={styles.paper}
-                  >
-                    <DocumentIdentity
-                      displayName={displayName}
-                      registrationNumber={registrationNumber}
-                      yearEnd={yearEnd}
-                    />
+                   <article
+                     id={`yd03-certificate-${engagementId}-${key}`}
+                     className="certificate-page"
+                     style={{ ...styles.paper, color: "#111827", fontFamily: "Arial, Helvetica, sans-serif", fontSize: 12, lineHeight: 1.4, padding: "42px 48px 52px" }}
+                   >
+                     <div style={{ textAlign: "center", marginBottom: 20 }}>
+                       <div style={{ fontSize: 19, fontWeight: 750, textTransform: "uppercase", letterSpacing: 0.3 }}>{displayName}</div>
+                       {registrationNumber ? <div style={{ marginTop: 6, fontSize: 12 }}>(Registration No. {registrationNumber})</div> : null}
+                       <div style={{ marginTop: 17, paddingBottom: 6, borderBottom: "1.5px solid #111827", fontSize: 12, fontWeight: 750, textTransform: "uppercase" }}>
+                         In respect of the annual financial statements for the year ended {formatDate(yearEnd)}
+                       </div>
+                     </div>
+                     <div style={{ fontWeight: 750, fontSize: 14, margin: "17px 0 25px" }}>TO WHOM IT MAY CONCERN:</div>
+                     <p style={{ fontSize: 12.5, lineHeight: 1.55, margin: "0 0 26px", fontWeight: 400 }}>
+                       I, {terms.certifierName || "____________________________"}
+                       {terms.certifierIdNumber?.trim() ? ` with ID number ${terms.certifierIdNumber.trim()}` : ""},
+                       {entityKind === "cc" && ccLegalMember
+                         ? <> in my capacity as {terms.certifierCapacity || "authorised representative"} of <strong>{ccLegalMember}</strong>, being a member of <strong>{displayName}</strong>, duly authorised to issue this certificate,</>
+                         : <> in my capacity as {terms.certifierCapacity || (entityKind === "trust" ? "trustee" : "authorised representative")} of <strong>{displayName}</strong>, duly authorised to issue this certificate,</>}
+                       {" "}hereby certify that an amount of {formatMoney(Math.abs(currentBalance(line)))} ({randAmountInWords(currentBalance(line))}) was
+                       {currentBalance(line) >= 0 ? " owing by " : " owing to "}
+                       <strong>{terms.creditorName || line.account_name}</strong>
+                       {currentBalance(line) >= 0 ? ` to ${displayName}` : ` by ${displayName}`}
+                       {" "}as at {formatDate(yearEnd)}.
+                     </p>
+                     <div style={{ display: "grid", gridTemplateColumns: "250px minmax(0, 1fr)", gap: "9px 18px", padding: "0 4px", fontSize: 12.5, lineHeight: 1.3 }}>
+                       {terms.initiationDate?.trim() ? <><span>Initiation date:</span><span>{formatDate(terms.initiationDate)}</span></> : null}
+                       {terms.security?.trim() ? <><span>Security held:</span><span>{terms.security.trim()}</span></> : null}
+                       {terms.interestRate?.trim() ? <><span>Interest rate:</span><span>{terms.interestRate.trim()}</span></> : null}
+                       {terms.interestAmount?.trim() ? <><span>Interest {currentBalance(line) >= 0 ? "received" : "paid"} up to {formatDate(yearEnd)}:</span><span>{terms.interestAmount.trim()}</span></> : null}
+                       {terms.repaymentTerms?.trim() ? <><span>Repayment terms:</span><span>{terms.repaymentTerms.trim()}</span></> : null}
+                       {terms.covenants?.trim() ? <><span>Specific or unusual covenants (if any):</span><span>{terms.covenants.trim()}</span></> : null}
+                     </div>
+                     <div style={{ display: "grid", gridTemplateColumns: "220px 170px", justifyContent: "space-between", gap: 35, marginTop: 65, fontSize: 12, breakInside: "avoid", pageBreakInside: "avoid" }}>
+                       <div><div style={{ borderBottom: "1px solid #111827", height: 26, marginBottom: 5 }} /><div>{terms.certifierName || "Name: ____________________"}</div><div style={{ marginTop: 2, fontSize: 11 }}>{terms.certifierCapacity || (entityKind === "trust" ? "Trustee" : "Authorised representative")}</div></div>
+                       <div><div style={{ borderBottom: "1px solid #111827", height: 26, marginBottom: 5 }} /><div>Date</div></div>
+                     </div>
+                   </article>
 
-                    <h1 style={styles.documentMainTitle}>Loan Certificate</h1>
-
-                    <p style={styles.bodyText}>
-                      <strong>Certificate of Loan Balance and Terms</strong>
-                    </p>
-
-                    <p style={styles.bodyText}>
-                      I / We hereby certify that the balance owing to{" "}
-                      <strong>{terms.creditorName || line.account_name}</strong> by{" "}
-                      <strong>{displayName}</strong> amounted to{" "}
-                      <strong>{formatMoney(currentBalance(line))}</strong> as at{" "}
-                      <strong>{formatDate(yearEnd)}</strong>, and that the material
-                      terms of the loan were as follows:
-                    </p>
-
-                    <div style={styles.certificateGrid}>
-                      <span>Initiation date</span>
-                      <strong>
-                        {terms.initiationDate
-                          ? formatDate(terms.initiationDate)
-                          : "—"}
-                      </strong>
-
-                      <span>Security held</span>
-                      <strong>{terms.security || "—"}</strong>
-
-                      <span>Interest rate</span>
-                      <strong>{terms.interestRate || "—"}</strong>
-
-                      <span>Interest for year / accrued</span>
-                      <strong>{terms.interestAmount || "—"}</strong>
-
-                      <span>Repayment terms</span>
-                      <strong>{terms.repaymentTerms || "—"}</strong>
-                    </div>
-
-                    <SignatureBlock
-                      names={[terms.creditorName || line.account_name]}
-                    />
-
-                    <DocumentFooter
-                      practiceName={practiceName}
-                      whiteLabel={whiteLabel}
-                    />
-                  </article>
                 </div>
               ) : null}
             </div>
@@ -5425,6 +5532,44 @@ function formatMoney(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value || 0);
+}
+
+/** Converts a monetary TB amount into words without changing its accounting sign. */
+function randAmountInWords(value: number): string {
+  if (!Number.isFinite(value)) return "Amount unavailable";
+
+  // Work with integer cents to avoid binary floating-point fraction errors.
+  const centsTotal = Math.round(Math.abs(value) * 100);
+  const rands = Math.floor(centsTotal / 100);
+  const cents = centsTotal % 100;
+  const ones = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+  const tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+
+  function belowThousand(n: number): string {
+    if (n < 20) return ones[n];
+    if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? `-${ones[n % 10]}` : "");
+    return `${ones[Math.floor(n / 100)]} hundred${n % 100 ? ` and ${belowThousand(n % 100)}` : ""}`;
+  }
+
+  function wholeNumber(n: number): string {
+    if (n === 0) return "zero";
+    const scales = ["", "thousand", "million", "billion", "trillion"];
+    const chunks: string[] = [];
+    let scale = 0;
+    while (n > 0 && scale < scales.length) {
+      const chunk = n % 1000;
+      if (chunk) chunks.unshift(`${belowThousand(chunk)}${scales[scale] ? ` ${scales[scale]}` : ""}`);
+      n = Math.floor(n / 1000);
+      scale++;
+    }
+    return chunks.join(" ");
+  }
+
+  const randWords = wholeNumber(rands);
+  const result = `${randWords[0].toUpperCase()}${randWords.slice(1)} Rand`;
+  return cents === 0
+    ? `${result} only`
+    : `${result} and ${wholeNumber(cents)} ${cents === 1 ? "cent" : "cents"}`;
 }
 
 function formatDate(value: string) {

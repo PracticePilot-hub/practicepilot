@@ -1335,6 +1335,31 @@ function isShareCapitalNoteSection(section: any) {
   );
 }
 
+// Group a legal CC member and its named representatives when the imported
+// membership list explicitly uses "represented by:". Never infer ownership
+// from a person's name, and do not affect companies, trusts or other CCs.
+function resolveCcMemberRepresentation(people: PersonData[]) {
+  const members: PersonData[] = [];
+  const representatives: PersonData[] = [];
+  let collectingRepresentatives = false;
+
+  for (const person of people) {
+    const name = getPersonName(person).trim();
+    const representation = name.match(/^(.*?)\s+represented\s+by\s*:?\s*$/i);
+    if (representation && representation[1].trim()) {
+      members.push({ ...person, full_name: representation[1].trim(), name: representation[1].trim() });
+      collectingRepresentatives = true;
+      continue;
+    }
+    if (collectingRepresentatives) {
+      representatives.push(person);
+      continue;
+    }
+    members.push(person);
+  }
+  return { members, representatives };
+}
+
 function ccMemberPossessive(memberCount: number) {
   return memberCount === 1 ? "Member's" : "Members'";
 }
@@ -1349,6 +1374,7 @@ function CcMembersResponsibilitiesBlock({
   reportingPeriodLabel,
   approvalDate,
   members,
+  representatives = [],
   numberOfMembersToSign,
 }: {
   clientName: string;
@@ -1356,6 +1382,7 @@ function CcMembersResponsibilitiesBlock({
   reportingPeriodLabel?: string;
   approvalDate: string;
   members: PersonData[];
+  representatives?: PersonData[];
   numberOfMembersToSign?: number;
 }) {
   const memberCount = Math.max(1, members.length);
@@ -1368,10 +1395,11 @@ function CcMembersResponsibilitiesBlock({
     Math.floor(Number(numberOfMembersToSign || 0)),
   );
 
-  const signatureMembers = members.length
-    ? requestedSignatureCount > 0
-      ? members.slice(0, requestedSignatureCount)
-      : members
+  const availableSigners = representatives.length ? representatives : members;
+  const signatureMembers = availableSigners.length
+    ? requestedSignatureCount > 0 && !representatives.length
+      ? availableSigners.slice(0, requestedSignatureCount)
+      : availableSigners
     : [{ full_name: memberWordCapitalised }];
 
   return (
@@ -1387,7 +1415,7 @@ function CcMembersResponsibilitiesBlock({
       </p>
 
       <p style={paragraphStyle()}>
-        The {memberWord} {memberCount === 1 ? "is" : "are"} also responsible for
+        The {memberWord} {memberCount === 1 ? "is" : "are"}{" "}also responsible for
         the close corporation&apos;s system of internal financial control. These
         controls are designed to provide reasonable, but not absolute, assurance
         as to the reliability of the annual financial statements, to safeguard
@@ -1408,7 +1436,12 @@ function CcMembersResponsibilitiesBlock({
         are signed below by the {memberWord} or on their behalf.
       </p>
 
-      <h2 style={sectionHeadingStyle()}>Approval of annual financial statements</h2>
+      <h2 style={{ ...sectionHeadingStyle(), marginTop: 18, marginBottom: 6 }}>Approval of annual financial statements</h2>
+      {representatives.length > 0 && members.length === 1 ? (
+        <p style={{ ...paragraphStyle(), marginBottom: 5 }}>
+          For and on behalf of <strong>{getPersonName(members[0])}</strong>, the member of {clientName}:
+        </p>
+      ) : null}
 
       <div
         style={{
@@ -1431,6 +1464,11 @@ function CcMembersResponsibilitiesBlock({
                 }}
               >
                 {getPersonName(member)}
+                {representatives.length > 0 ? (
+                  <div style={{ fontSize: 10, fontWeight: 400, marginTop: 3 }}>
+                    Trustee / authorised representative
+                  </div>
+                ) : null}
               </div>
             </div>
           ),
@@ -2886,6 +2924,13 @@ const clientLogoUrl = cleanString(
       ? clientPeople
       : peopleFromSetup;
 
+  const ccRepresentation = isCloseCorporation
+    ? resolveCcMemberRepresentation(directorsForDisplay)
+    : { members: directorsForDisplay, representatives: [] as PersonData[] };
+  const reportMembersForDisplay = ccRepresentation.members;
+  const reportRepresentativesForDisplay = ccRepresentation.representatives;
+
+
   const requestedSignatureCount = Math.max(
     0,
     Math.floor(
@@ -3055,7 +3100,8 @@ const clientLogoUrl = cleanString(
       .trim()
       .replace(/[.\s]+$/g, ""),
     country: String(country || "South Africa"),
-    directors: directorsForDisplay,
+    directors: isCloseCorporation ? reportMembersForDisplay : directorsForDisplay,
+    memberRepresentatives: reportRepresentativesForDisplay,
   };
 
   const genericDirectorsReportTexts = useMemo(
@@ -7123,7 +7169,7 @@ const flightDeckIssues = useMemo(() => {
     {
       id: "directors-responsibilities",
       label: isCloseCorporation
-        ? `${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Responsibilities and Approval`
+        ? `${ccMemberPossessive(Math.max(1, reportMembersForDisplay.length))} Responsibilities and Approval`
         : isTrust
           ? "Trustees’ Responsibilities and Approval"
           : "Directors’ Responsibilities",
@@ -7134,7 +7180,7 @@ const flightDeckIssues = useMemo(() => {
     {
       id: "directors-report",
       label: isCloseCorporation
-        ? `${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Report`
+        ? `${ccMemberPossessive(Math.max(1, reportMembersForDisplay.length))} Report`
         : isTrust
           ? "Trustees’ Report"
           : "Directors’ Report",
@@ -8087,7 +8133,7 @@ const flightDeckIssues = useMemo(() => {
     if (activeSectionId === "directors-report") {
       return {
         title: isCloseCorporation
-          ? `${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Report settings`
+          ? `${ccMemberPossessive(Math.max(1, reportMembersForDisplay.length))} Report settings`
           : isTrust
             ? "Trustees’ Report settings"
             : "Directors’ Report settings",
@@ -9399,7 +9445,13 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       )}
                       {renderInfoRow(
                         roleLabel(entityType),
-                        directorsForDisplay.map(getPersonName)
+                        (isCloseCorporation
+                          ? reportMembersForDisplay.map(getPersonName).map((name) =>
+                              reportRepresentativesForDisplay.length
+                                ? `${name}\nRepresented by: ${reportRepresentativesForDisplay.map(getPersonName).join(", ")}`
+                                : name,
+                            )
+                          : directorsForDisplay.map(getPersonName))
                       )}
                       {isTrust
                         ? renderBeneficiariesInfoRow(
@@ -9523,7 +9575,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                 >
                   <h1 style={pageHeadingStyle()}>
                     {isCloseCorporation
-                      ? `${ccMemberPossessive(Math.max(1, directorsForDisplay.length))} Responsibilities and Approval`
+                      ? `${ccMemberPossessive(Math.max(1, reportMembersForDisplay.length))} Responsibilities and Approval`
                       : responsibilityTitle(entityType)}
                   </h1>
 
@@ -9533,7 +9585,8 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       yearEnd={displayYearEnd}
                       reportingPeriodLabel={reportingPeriodLabel}
                       approvalDate={String(approvalDate)}
-                      members={directorsForDisplay}
+                      members={reportMembersForDisplay}
+                      representatives={reportRepresentativesForDisplay}
                       numberOfMembersToSign={requestedSignatureCount}
                     />
                   ) : isTrust ? (
@@ -9603,7 +9656,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     clientName={clientName}
                     yearEnd={displayYearEnd}
                     reportingPeriodLabel={reportingPeriodLabel}
-                    members={directorsForDisplay}
+                    members={reportMembersForDisplay}
                     practitionerFirm={String(practitionerFirm)}
                     practitionerName={String(practitionerName)}
                     practitionerDesignation={String(practitionerDesignation)}

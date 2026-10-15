@@ -2516,13 +2516,49 @@ function FragmentWithKey({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+// Cash disclosure derives its lines strictly from the 420 mapping family.
+// Account wording is never used to classify a cash balance.
+function cashDisclosureRows(lines: any[], fallback: AmountLine[]): AmountLine[] {
+  const groups = new Map<string, { label: string; current: number; prior: number }>();
+  const add = (key: string, label: string, line: any) => {
+    const current = groups.get(key) || { label, current: 0, prior: 0 };
+    current.current += lineAmount(line, "current");
+    current.prior += lineAmount(line, "prior");
+    groups.set(key, current);
+  };
+
+  (lines || []).forEach((line) => {
+    const code = String(line?.mapping_code || "").trim();
+    if (!(code === "420" || code.startsWith("420."))) return;
+    if (code === "420.50" || code.startsWith("420.50.")) {
+      add("cash-on-hand", "Cash on hand", line);
+    } else if (code === "420.60" || code.startsWith("420.60.")) {
+      add("restricted-cash", "Restricted cash", line);
+    } else if (/^420\.(10|20|30|35|40)(\.|$)/.test(code)) {
+      add("bank-balances", "Bank balances", line);
+    } else {
+      add("other-cash-equivalents", "Other cash and cash equivalents", line);
+    }
+  });
+
+  if (!groups.size) return fallback;
+  const order = ["bank-balances", "cash-on-hand", "restricted-cash", "other-cash-equivalents"];
+  return order.filter((key) => groups.has(key)).map((key) => {
+    const group = groups.get(key)!;
+    return { id: `cash-${key}`, label: group.label,
+      current: Math.round(group.current), prior: Math.round(group.prior) };
+  });
+}
+
 function CashNote({
   rows,
+  trialBalanceLines,
   edit,
   state,
   update,
 }: {
   rows: AmountLine[];
+  trialBalanceLines: any[];
   edit: boolean;
   state: StructuredState;
   update: (path: string[], value: any) => void;
@@ -2533,7 +2569,7 @@ function CashNote({
         Cash and cash equivalents consist of the following:
       </p>
       <NoteTable
-        rows={rows}
+        rows={cashDisclosureRows(trialBalanceLines, rows)}
         edit={edit}
         state={state}
         stateKey="cash"
@@ -5659,6 +5695,7 @@ export default function AfsStructuredNotesPanel({
                 {section.key === "notesCashAndCashEquivalents" ? (
                   <CashNote
                     rows={rows}
+                    trialBalanceLines={trialBalanceLines}
                     edit={isEditing}
                     state={state}
                     update={update}
