@@ -29,40 +29,6 @@ const serviceLibrary: ServiceLine[] = [
       "Includes processing and reconciliation of up to 6 bank, money market or credit card accounts.",
   },
   {
-    id: "debtors-creditors",
-    category: "Accounting Services",
-    name: "Debtors and Creditors Assistance",
-    description:
-      "Assistance with maintaining debtor and creditor accounts, allocations, reconciliations and routine account queries based on information supplied.",
-    feeType: "Monthly",
-    scopeQuantity: "",
-    scopeUnit: "",
-    clientFacingNote:
-      "Debt collection, supplier payment approval and payment loading remain subject to separate client instructions and controls.",
-  },
-  {
-    id: "afs",
-    category: "Accounting Services",
-    name: "Annual Financial Statements",
-    description:
-      "Preparation of annual financial statements in accordance with the applicable financial reporting framework. Any independent review or audit, should one become legally required or requested, is excluded and will be quoted separately.",
-    feeType: "Annual",
-    scopeQuantity: "",
-    scopeUnit: "",
-    clientFacingNote: "",
-  },
-  {
-    id: "management-reporting",
-    category: "Management Reporting",
-    name: "Monthly Management Reporting",
-    description:
-      "Preparation of a monthly income statement, balance sheet, trial balance and basic management review to support informed decision-making.",
-    feeType: "Monthly",
-    scopeQuantity: "",
-    scopeUnit: "",
-    clientFacingNote: "",
-  },
-  {
     id: "monthly-vat-compliance",
     category: "Taxation Services",
     name: "Monthly VAT Compliance",
@@ -79,39 +45,6 @@ const serviceLibrary: ServiceLine[] = [
     name: "Bi-Monthly VAT Compliance",
     description:
       "Preparation, review and submission of the bi-monthly VAT return based on the accounting information and supporting records supplied.",
-    feeType: "Monthly",
-    scopeQuantity: "",
-    scopeUnit: "",
-    clientFacingNote: "",
-  },
-  {
-    id: "itr14",
-    category: "Taxation Services",
-    name: "Business Income Tax Return",
-    description:
-      "Preparation and submission of the annual corporate income tax return and review of the resulting assessment.",
-    feeType: "Annual",
-    scopeQuantity: "",
-    scopeUnit: "",
-    clientFacingNote: "",
-  },
-  {
-    id: "irp6",
-    category: "Taxation Services",
-    name: "Business Provisional Tax Returns",
-    description:
-      "Preparation and submission of the first and second provisional tax returns.",
-    feeType: "Annual",
-    scopeQuantity: "",
-    scopeUnit: "",
-    clientFacingNote: "",
-  },
-  {
-    id: "tax-compliance",
-    category: "Taxation Services",
-    name: "Routine Tax Compliance and SARS Query Management",
-    description:
-      "General tax compliance assistance and routine liaison with SARS. Formal audits, objections and disputes are excluded unless separately agreed.",
     feeType: "Monthly",
     scopeQuantity: "",
     scopeUnit: "",
@@ -165,17 +98,6 @@ const serviceLibrary: ServiceLine[] = [
     clientFacingNote: "",
   },
   {
-    id: "uif-declaration",
-    category: "Payroll Services",
-    name: "UIF Declaration to the Department of Employment and Labour",
-    description:
-      "Preparation and submission of the monthly UIF declaration to the Department of Employment and Labour.",
-    feeType: "Monthly",
-    scopeQuantity: "",
-    scopeUnit: "",
-    clientFacingNote: "",
-  },
-  {
     id: "emp501",
     category: "Payroll Services",
     name: "EMP501 Reconciliations",
@@ -187,16 +109,37 @@ const serviceLibrary: ServiceLine[] = [
     clientFacingNote: "",
   },
   {
-    id: "payroll-software",
-    category: "Software and Subscriptions",
-    name: "Payroll Software Subscription",
+    id: "afs",
+    category: "Accounting Services",
+    name: "Annual Financial Statements",
     description:
-      "Monthly payroll software subscription required for processing the agreed payroll service.",
-    feeType: "Monthly",
-    scopeQuantity: 10,
-    scopeUnit: "employees",
-    clientFacingNote:
-      "Included for the agreed payroll of up to 10 employees.",
+      "Preparation of annual financial statements in accordance with the applicable financial reporting framework. Any independent review or audit, should one become legally required or requested, is excluded and will be quoted separately.",
+    feeType: "Annual",
+    scopeQuantity: "",
+    scopeUnit: "",
+    clientFacingNote: "",
+  },
+  {
+    id: "itr14",
+    category: "Taxation Services",
+    name: "Business Income Tax Return",
+    description:
+      "Preparation and submission of the annual corporate income tax return and review of the resulting assessment.",
+    feeType: "Annual",
+    scopeQuantity: "",
+    scopeUnit: "",
+    clientFacingNote: "",
+  },
+  {
+    id: "irp6",
+    category: "Taxation Services",
+    name: "Business Provisional Tax Returns",
+    description:
+      "Preparation and submission of the first and second provisional tax returns.",
+    feeType: "Annual",
+    scopeQuantity: "",
+    scopeUnit: "",
+    clientFacingNote: "",
   },
   {
     id: "cipc-ar",
@@ -207,8 +150,7 @@ const serviceLibrary: ServiceLine[] = [
     feeType: "Annual",
     scopeQuantity: "",
     scopeUnit: "",
-    clientFacingNote:
-      "CIPC statutory filing fees are excluded from the monthly professional fee.",
+    clientFacingNote: "",
   },
   {
     id: "beneficial-ownership",
@@ -230,8 +172,41 @@ const serviceLibrary: ServiceLine[] = [
     feeType: "Annual",
     scopeQuantity: "",
     scopeUnit: "",
+    clientFacingNote: "",
+  },
+  {
+    id: "management-reporting",
+    category: "Management Reporting",
+    name: "Monthly Management Reporting",
+    description:
+      "Preparation of a monthly income statement, balance sheet, trial balance and basic management review to support informed decision-making.",
+    feeType: "Monthly",
+    scopeQuantity: "",
+    scopeUnit: "",
+    clientFacingNote: "",
+  },
+  {
+    id: "debtors-creditors",
+    category: "Accounting Services",
+    name: "Debtors and Creditors Assistance",
+    description:
+      "Assistance with maintaining debtor and creditor accounts, allocations, reconciliations and routine account queries based on information supplied.",
+    feeType: "Monthly",
+    scopeQuantity: "",
+    scopeUnit: "",
     clientFacingNote:
-      "Compensation Fund assessment amounts are excluded from the monthly professional fee.",
+      "Debt collection, supplier payment approval and payment loading remain subject to separate client instructions and controls.",
+  },
+  {
+    id: "uif-declaration",
+    category: "Payroll Services",
+    name: "UIF Declaration to the Department of Employment and Labour",
+    description:
+      "Preparation and submission of the monthly UIF declaration to the Department of Employment and Labour.",
+    feeType: "Monthly",
+    scopeQuantity: "",
+    scopeUnit: "",
+    clientFacingNote: "",
   },
   {
     id: "letter-good-standing",
@@ -242,7 +217,8 @@ const serviceLibrary: ServiceLine[] = [
     feeType: "Annual",
     scopeQuantity: "",
     scopeUnit: "",
-    clientFacingNote: "",
+    clientFacingNote:
+      "Compensation Fund assessment amounts are excluded from the monthly professional fee.",
   },
   {
     id: "paia",
@@ -251,6 +227,41 @@ const serviceLibrary: ServiceLine[] = [
     description:
       "Preparation of the PAIA manual and registration of the Information Officer, including the initial compliance setup.",
     feeType: "Annual",
+    scopeQuantity: "",
+    scopeUnit: "",
+    clientFacingNote: "",
+  },
+  {
+    id: "payroll-software",
+    category: "Software and Subscriptions",
+    name: "Payroll Software Subscription",
+    description:
+      "Monthly payroll software subscription required for processing the agreed payroll service.",
+    feeType: "Monthly",
+    scopeQuantity: 10,
+    scopeUnit: "employees",
+    clientFacingNote:
+      "Included for the agreed payroll of up to 10 employees.",
+  },
+  {
+    id: "accounting-software",
+    category: "Software and Subscriptions",
+    name: "Accounting Software Subscription",
+    description:
+      "Monthly accounting software subscription required for processing and maintaining the agreed accounting records.",
+    feeType: "Monthly",
+    scopeQuantity: 1,
+    scopeUnit: "entity",
+    clientFacingNote:
+      "Includes the accounting software subscription required for the agreed entity.",
+  },
+  {
+    id: "tax-compliance",
+    category: "Taxation Services",
+    name: "Routine Tax Compliance and SARS Query Management",
+    description:
+      "General tax compliance assistance and routine liaison with SARS. Formal audits, objections and disputes are excluded unless separately agreed.",
+    feeType: "Monthly",
     scopeQuantity: "",
     scopeUnit: "",
     clientFacingNote: "",
@@ -346,59 +357,78 @@ export default function EditProposalPage() {
           Number(proposal.package_monthly_fee || proposal.monthly_fee || 0)
         );
 
-        const existingByCode = new Map<string, any>(
-          existingServices.map((service: any) => [
-            String(service.service_code || service.id),
-            service,
-          ])
-        );
+        // Match saved services to catalogue entries without discarding legacy or
+        // practice-specific lines that are not part of the current catalogue.
+        const savedCode = (item: any) =>
+          String(item.service_code ?? item.id ?? "").trim();
+        const savedName = (item: any) =>
+          String(item.service_name ?? item.name ?? "").trim().toLowerCase();
 
-        const existingByName = new Map<string, any>(
-          existingServices.map((service: any) => [
-            String(service.service_name || "").toLowerCase(),
-            service,
-          ])
-        );
+        const matchedSaved = new Set<number>();
+        const selected = new Set<string>();
 
-        const merged = serviceLibrary.map((libraryService) => {
-          const existing =
-            existingByCode.get(libraryService.id) ||
-            existingByName.get(libraryService.name.toLowerCase());
+        const merged: ServiceLine[] = serviceLibrary.map((libraryService) => {
+          const matchIndex = existingServices.findIndex(
+            (existing: any, index: number) =>
+              !matchedSaved.has(index) &&
+              (savedCode(existing) === libraryService.id ||
+                savedName(existing) === libraryService.name.toLowerCase())
+          );
 
-          if (!existing) return libraryService;
+          if (matchIndex === -1) return libraryService;
+
+          matchedSaved.add(matchIndex);
+          selected.add(libraryService.id);
+          const existing = existingServices[matchIndex];
 
           return {
             ...libraryService,
-            category: existing.category || libraryService.category,
-            name: existing.service_name || libraryService.name,
-            description: existing.description || libraryService.description,
-            feeType: existing.fee_type || libraryService.feeType,
+            category: existing.category ?? libraryService.category,
+            name: existing.service_name ?? existing.name ?? libraryService.name,
+            description: existing.description ?? libraryService.description,
+            feeType: existing.fee_type ?? existing.feeType ?? libraryService.feeType,
             scopeQuantity:
               existing.scope_quantity === null ||
               existing.scope_quantity === undefined
                 ? libraryService.scopeQuantity
                 : Number(existing.scope_quantity),
-            scopeUnit: existing.scope_unit || libraryService.scopeUnit,
+            scopeUnit: existing.scope_unit ?? libraryService.scopeUnit,
             clientFacingNote:
-              existing.client_facing_note || libraryService.clientFacingNote,
+              existing.client_facing_note ?? libraryService.clientFacingNote,
           };
         });
 
+        // Keep any previously saved service not currently in the catalogue.
+        // Otherwise editing and saving can permanently remove its selection.
+        existingServices.forEach((existing: any, index: number) => {
+          if (matchedSaved.has(index)) return;
+          const id = savedCode(existing) || `legacy-service-${index}`;
+          const safeId = merged.some((service) => service.id === id)
+            ? `legacy-service-${index}`
+            : id;
+          const rawFeeType = existing.fee_type ?? existing.feeType;
+          const feeType: ServiceLine["feeType"] =
+            rawFeeType === "Annual" || rawFeeType === "Once-off"
+              ? rawFeeType
+              : "Monthly";
+
+          merged.push({
+            id: safeId,
+            category: String(existing.category ?? "Other Services"),
+            name: String(existing.service_name ?? existing.name ?? safeId),
+            description: String(existing.description ?? ""),
+            feeType,
+            scopeQuantity:
+              existing.scope_quantity == null
+                ? ""
+                : Number(existing.scope_quantity),
+            scopeUnit: String(existing.scope_unit ?? ""),
+            clientFacingNote: String(existing.client_facing_note ?? ""),
+          });
+          selected.add(safeId);
+        });
+
         setServices(merged);
-
-        const selected = new Set<string>();
-        for (const existing of existingServices) {
-          const code = existing.service_code;
-          const byCode = serviceLibrary.find((item) => item.id === code);
-          const byName = serviceLibrary.find(
-            (item) =>
-              item.name.toLowerCase() ===
-              String(existing.service_name || "").toLowerCase()
-          );
-          if (byCode) selected.add(byCode.id);
-          else if (byName) selected.add(byName.id);
-        }
-
         setSelectedIds(Array.from(selected));
       } catch (loadError: any) {
         if (!cancelled) {
@@ -424,7 +454,7 @@ export default function EditProposalPage() {
     );
   }
 
-  function selectRecommendedServices() {
+  function selectAllServices() {
     setSelectedIds(serviceLibrary.map((service) => service.id));
   }
 
@@ -589,17 +619,17 @@ export default function EditProposalPage() {
           <div>
             <h2 style={styles.panelTitle}>Services included</h2>
             <p style={styles.panelText}>
-              This draft was created before the extra services were added. Use
-              the button below to select the complete recommended scope.
+              Select the services to include in this proposal. Existing saved
+              services and their descriptions are retained.
             </p>
           </div>
 
           <button
             type="button"
-            onClick={selectRecommendedServices}
+            onClick={selectAllServices}
             style={styles.secondaryButton}
           >
-            Select all recommended services
+            Select all services
           </button>
         </div>
 
