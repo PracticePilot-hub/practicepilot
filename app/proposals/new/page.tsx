@@ -98,6 +98,19 @@ const initialServices: ServiceLine[] = [
       "Includes processing and reconciliation of up to 6 bank, money market or credit card accounts.",
   },
   {
+    id: "monthly-vat-compliance",
+    category: "Taxation Services",
+    name: "Monthly VAT Compliance",
+    description:
+      "Preparation, review and submission of the monthly VAT return based on the accounting information and supporting records supplied.",
+    includedInPackage: true,
+    feeType: "Monthly",
+    amount: 0,
+    scopeQuantity: 12,
+    scopeUnit: "VAT periods per year",
+    clientFacingNote: "Includes 12 monthly VAT return periods per year.",
+  },
+  {
     id: "vat-compliance",
     category: "Taxation Services",
     name: "Bi-Monthly VAT Compliance",
@@ -123,6 +136,34 @@ const initialServices: ServiceLine[] = [
     scopeUnit: "employees",
     clientFacingNote:
       "Includes payroll for up to 10 employees. Leave administration and non-routine HR matters are excluded unless separately agreed.",
+  },
+  {
+    id: "bi-weekly-payroll",
+    category: "Payroll Services",
+    name: "Bi-Weekly Wages (Every 2 Weeks)",
+    description:
+      "Processing of wages every two weeks (26 pay runs per year), including statutory deductions, payslips and standard payroll reports, and routine employee starters and terminations.",
+    includedInPackage: true,
+    feeType: "Monthly",
+    amount: 0,
+    scopeQuantity: "",
+    scopeUnit: "employees",
+    clientFacingNote:
+      "Includes 26 fortnightly wage runs per year for the agreed number of employees. Leave administration and non-routine HR matters are excluded unless separately agreed.",
+  },
+  {
+    id: "weekly-payroll",
+    category: "Payroll Services",
+    name: "Weekly Wages",
+    description:
+      "Processing of weekly wages (52 pay runs per year), including statutory deductions, payslips and standard payroll reports, and routine employee starters and terminations.",
+    includedInPackage: true,
+    feeType: "Monthly",
+    amount: 0,
+    scopeQuantity: "",
+    scopeUnit: "employees",
+    clientFacingNote:
+      "Includes 52 weekly wage runs per year for the agreed number of employees. Leave administration and non-routine HR matters are excluded unless separately agreed.",
   },
   {
     id: "emp201",
@@ -1294,3 +1335,4 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 750,
   },
 };
+  
