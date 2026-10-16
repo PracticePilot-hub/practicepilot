@@ -1,14 +1,10 @@
 "use client";
 
-
-
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { useRouter } from "next/navigation";
 
 import { createClient } from "@supabase/supabase-js";
-
-
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
@@ -22,8 +18,6 @@ const supabase =
 
     : null;
 
-
-
 type PracticeUser = {
 
   user_id: string;
@@ -33,8 +27,6 @@ type PracticeUser = {
   email: string | null;
 
 };
-
-
 
 type ChecklistItem = {
 
@@ -51,19 +43,42 @@ type ChecklistItem = {
   dependency_complete: boolean | null;
 
   dependency_summary: string | null;
+
   requires_evidence?: boolean | null;
+
   evidence_label?: string | null;
 
 };
 
-
-
 type EvidenceItem = {
+
   id: string;
+
   checklist_item_id: string | null;
+
   document_name: string;
+
   provider_path: string;
+
   created_at: string | null;
+
+};
+
+type ReviewMeta = {
+  review_status: string;
+  review_due_date: string | null;
+  working_papers_path: string | null;
+  review_notes: string | null;
+  preparer_user_id: string | null;
+  reviewer_user_id: string | null;
+  preparer_name: string | null;
+  reviewer_name: string | null;
+};
+
+type FolderItem = {
+  name: string;
+  path: string;
+  type: "folder";
 };
 
 type TimerState = {
@@ -80,8 +95,6 @@ type TimerState = {
 
 };
 
-
-
 function formatDuration(totalSeconds: number) {
 
   const seconds = Math.max(0, Math.floor(totalSeconds || 0));
@@ -91,8 +104,6 @@ function formatDuration(totalSeconds: number) {
   const minutes = Math.floor((seconds % 3600) / 60);
 
   const remainingSeconds = seconds % 60;
-
-
 
   return [
 
@@ -105,8 +116,6 @@ function formatDuration(totalSeconds: number) {
   ].join(":");
 
 }
-
-
 
 type Props = {
 
@@ -127,14 +136,16 @@ type Props = {
   users: PracticeUser[];
 
   checklist: ChecklistItem[];
+
   reviewStatus: string;
+
   preparerUserId: string | null;
+
   reviewerUserId: string | null;
+
   serviceCode: string;
 
 };
-
-
 
 export function TaskDetailClient({
 
@@ -155,16 +166,18 @@ export function TaskDetailClient({
   users,
 
   checklist,
+
   reviewStatus,
+
   preparerUserId,
+
   reviewerUserId,
+
   serviceCode,
 
 }: Props) {
 
   const router = useRouter();
-
-
 
   const [currentStatus, setCurrentStatus] = useState(status);
 
@@ -187,12 +200,23 @@ export function TaskDetailClient({
   const [error, setError] = useState("");
 
   const [message, setMessage] = useState("");
+
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
+
   const [evidenceBusyId, setEvidenceBusyId] = useState("");
+
   const [reviewBusy, setReviewBusy] = useState(false);
+
   const [currentUserId, setCurrentUserId] = useState("");
-
-
+  const [reviewMeta, setReviewMeta] = useState<ReviewMeta | null>(null);
+  const [reviewDueDate, setReviewDueDate] = useState("");
+  const [workingPapersPath, setWorkingPapersPath] = useState("");
+  const [reviewNotes, setReviewNotes] = useState("");
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  const [folderPickerBusy, setFolderPickerBusy] = useState(false);
+  const [folderPickerPath, setFolderPickerPath] = useState("");
+  const [folderPickerRoot, setFolderPickerRoot] = useState("");
+  const [folderPickerItems, setFolderPickerItems] = useState<FolderItem[]>([]);
 
   const [timerState, setTimerState] = useState<TimerState>({
 
@@ -212,13 +236,9 @@ export function TaskDetailClient({
 
   const [timerNow, setTimerNow] = useState(Date.now());
 
-
-
   async function authFetch(url: string, init: RequestInit) {
 
     if (!supabase) throw new Error("Supabase client is not configured.");
-
-
 
     const {
 
@@ -226,11 +246,7 @@ export function TaskDetailClient({
 
     } = await supabase.auth.getSession();
 
-
-
     if (!session?.access_token) throw new Error("You are not signed in.");
-
-
 
     const response = await fetch(url, {
 
@@ -248,8 +264,6 @@ export function TaskDetailClient({
 
     });
 
-
-
     const json = await response.json();
 
     if (!response.ok) throw new Error(json.error || "Request failed.");
@@ -258,69 +272,222 @@ export function TaskDetailClient({
 
   }
 
-
-
   async function loadEvidence() {
+
     try {
+
       const result = await authFetch(`/api/crm/work/${workId}/evidence`, { method: "GET" });
+
       setEvidence(Array.isArray(result?.evidence) ? result.evidence : []);
+
     } catch (err) {
+
       setError(err instanceof Error ? err.message : "Could not load review evidence.");
+
     }
+
   }
 
   async function uploadEvidence(item: ChecklistItem, file: File) {
+
     setEvidenceBusyId(item.id);
+
     setError("");
+
     setMessage("");
+
     try {
+
       const rootResult = await authFetch(`/api/crm/clients/${clientId}/documents/browse`, { method: "GET" });
+
       const rootPath = String(rootResult?.root_path || "").trim();
+
       if (!rootPath) throw new Error("This client does not have a linked document-provider root.");
+
       if (!supabase) throw new Error("Supabase client is not configured.");
+
       const { data: { session } } = await supabase.auth.getSession();
+
       if (!session?.access_token) throw new Error("You are not signed in.");
+
       const formData = new FormData();
+
       formData.set("folderPath", rootPath);
+
       formData.set("file", file);
+
       const uploadResponse = await fetch(`/api/crm/clients/${clientId}/documents/upload`, {
+
         method: "POST",
+
         headers: { Authorization: `Bearer ${session.access_token}` },
+
         body: formData,
+
       });
+
       const uploadResult = await uploadResponse.json();
+
       if (!uploadResponse.ok || !uploadResult?.success) throw new Error(uploadResult?.error || "Could not upload review evidence.");
+
       await authFetch(`/api/crm/work/${workId}/evidence`, {
+
         method: "POST",
+
         body: JSON.stringify({ checklistItemId: item.id, documentName: uploadResult?.uploaded?.name || file.name, providerPath: uploadResult?.uploaded?.path || "" }),
+
       });
+
       await loadEvidence();
+
       setMessage(`${item.evidence_label || item.label} uploaded for reviewer evidence.`);
+
     } catch (err) {
+
       setError(err instanceof Error ? err.message : "Could not upload review evidence.");
+
     } finally {
+
       setEvidenceBusyId("");
+
+    }
+
+  }
+
+  async function loadReviewMeta() {
+    try {
+      const result = await authFetch(`/api/crm/work/${workId}/review`, {
+        method: "GET",
+      });
+
+      const meta: ReviewMeta = {
+        review_status: String(result?.review_status || reviewStatus || "not_requested"),
+        review_due_date: result?.review_due_date || null,
+        working_papers_path: result?.working_papers_path || null,
+        review_notes: result?.review_notes || null,
+        preparer_user_id: result?.preparer_user_id || preparerUserId || null,
+        reviewer_user_id: result?.reviewer_user_id || reviewerUserId || null,
+        preparer_name: result?.preparer_name || null,
+        reviewer_name: result?.reviewer_name || null,
+      };
+
+      setReviewMeta(meta);
+      setReviewDueDate(meta.review_due_date || "");
+      setWorkingPapersPath(meta.working_papers_path || "");
+      setReviewNotes(meta.review_notes || "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load review details.");
     }
   }
 
-  async function reviewAction(action: "send" | "approve" | "return") {
-    setReviewBusy(true);
+  async function loadFolderPicker(path = "") {
+    setFolderPickerBusy(true);
     setError("");
-    setMessage("");
+
     try {
-      await authFetch(`/api/crm/work/${workId}/review`, { method: "POST", body: JSON.stringify({ action }) });
-      if (action === "send") setMessage("Sent to the assigned reviewer.");
-      if (action === "return") setMessage("Returned to the preparer.");
-      if (action === "approve") {
-        setMessage("Review approved and task completed.");
-        await refreshClientWork(false);
-      }
-      router.refresh();
+      const suffix = path ? `?path=${encodeURIComponent(path)}` : "";
+      const result = await authFetch(
+        `/api/crm/clients/${clientId}/documents/browse${suffix}`,
+        { method: "GET" }
+      );
+
+      const root = String(result?.root_path || "").trim();
+      const current = String(result?.current_path || root).trim();
+
+      setFolderPickerRoot(root);
+      setFolderPickerPath(current);
+      setFolderPickerItems(
+        (Array.isArray(result?.items) ? result.items : [])
+          .filter((item: any) => item?.type === "folder")
+          .map((item: any) => ({
+            name: String(item.name || "Folder"),
+            path: String(item.path || ""),
+            type: "folder" as const,
+          }))
+      );
+      setFolderPickerOpen(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update review.");
+      setError(err instanceof Error ? err.message : "Could not browse working-paper folders.");
     } finally {
-      setReviewBusy(false);
+      setFolderPickerBusy(false);
     }
+  }
+
+  function parentFolder(path: string) {
+    const trimmed = String(path || "").replace(/\/+$/, "");
+    const index = trimmed.lastIndexOf("/");
+    return index > 0 ? trimmed.slice(0, index) : folderPickerRoot;
+  }
+
+  const effectiveReviewStatus =
+    reviewMeta?.review_status || reviewStatus || "not_requested";
+  const effectivePreparerUserId =
+    reviewMeta?.preparer_user_id || preparerUserId || assignedUserId || null;
+  const effectiveReviewerUserId =
+    reviewMeta?.reviewer_user_id || reviewerUserId || null;
+  const hasReviewItems = checklist.some((item) => item.item_type === "review");
+  const submissionItems = checklist.filter((item) => item.item_type === "submission");
+  const submissionComplete =
+    submissionItems.length === 0 ||
+    submissionItems.every((item) =>
+      ["completed", "not_applicable"].includes(item.status)
+    );
+  const isPreparer =
+    Boolean(currentUserId) &&
+    (!effectivePreparerUserId || currentUserId === effectivePreparerUserId);
+  const isReviewer =
+    Boolean(currentUserId) &&
+    Boolean(effectiveReviewerUserId) &&
+    currentUserId === effectiveReviewerUserId;
+  const submissionUnlocked =
+    !hasReviewItems || effectiveReviewStatus === "approved";
+  const canMarkTaskCompleted =
+    !hasReviewItems || (effectiveReviewStatus === "approved" && submissionComplete);
+
+  async function reviewAction(action: "send" | "approve" | "return") {
+
+    setReviewBusy(true);
+
+    setError("");
+
+    setMessage("");
+
+    try {
+
+      await authFetch(`/api/crm/work/${workId}/review`, {
+      method: "POST",
+      body: JSON.stringify({
+        action,
+        reviewDueDate: action === "send" ? reviewDueDate : undefined,
+        workingPapersPath: action === "send" ? workingPapersPath : undefined,
+        reviewNotes: action === "return" ? reviewNotes : undefined,
+      }),
+    });
+
+      if (action === "send") setMessage("Sent to the assigned reviewer.");
+
+      if (action === "return") setMessage("Returned to the preparer.");
+
+      if (action === "approve") {
+
+        setMessage("Review approved and task completed.");
+
+        await refreshClientWork(false);
+
+      }
+
+      router.refresh();
+
+    } catch (err) {
+
+      setError(err instanceof Error ? err.message : "Could not update review.");
+
+    } finally {
+
+      setReviewBusy(false);
+
+    }
+
   }
 
   async function loadTimer() {
@@ -332,8 +499,6 @@ export function TaskDetailClient({
         method: "GET",
 
       });
-
-
 
       setTimerState({
 
@@ -357,25 +522,23 @@ export function TaskDetailClient({
 
   }
 
-
-
   useEffect(() => {
 
     void loadTimer();
+
     void loadEvidence();
+
     void supabase?.auth.getSession().then(({ data }) => {
+
       setCurrentUserId(data.session?.user?.id || "");
+
     });
 
   }, [workId]);
 
-
-
   useEffect(() => {
 
     if (!timerState.running) return;
-
-
 
     const handle = window.setInterval(() => {
 
@@ -383,37 +546,25 @@ export function TaskDetailClient({
 
     }, 1000);
 
-
-
     return () => window.clearInterval(handle);
 
   }, [timerState.running]);
-
-
 
   const runningSeconds = useMemo(() => {
 
     if (!timerState.running || !timerState.openStartedAt) return 0;
 
-
-
     const started = new Date(timerState.openStartedAt).getTime();
 
     if (Number.isNaN(started)) return 0;
-
-
 
     return Math.max(0, Math.floor((timerNow - started) / 1000));
 
   }, [timerState.running, timerState.openStartedAt, timerNow]);
 
-
-
   const myDisplayedSeconds = timerState.myClosedSeconds + runningSeconds;
 
   const taskDisplayedSeconds = timerState.totalClosedSeconds + runningSeconds;
-
-
 
   async function timerAction(action: "start" | "pause" | "resume" | "end") {
 
@@ -422,8 +573,6 @@ export function TaskDetailClient({
     setError("");
 
     setMessage("");
-
-
 
     try {
 
@@ -434,8 +583,6 @@ export function TaskDetailClient({
         body: JSON.stringify({ action }),
 
       });
-
-
 
       setTimerState({
 
@@ -451,11 +598,7 @@ export function TaskDetailClient({
 
       });
 
-
-
       setTimerNow(Date.now());
-
-
 
       if (action === "start" || action === "resume") {
 
@@ -467,13 +610,9 @@ export function TaskDetailClient({
 
       }
 
-
-
       if (action === "pause") setMessage("Timer paused.");
 
       if (action === "end") setMessage("Time session ended.");
-
-
 
       router.refresh();
 
@@ -489,15 +628,11 @@ export function TaskDetailClient({
 
   }
 
-
-
   async function refreshClientWork(showMessage = true) {
 
     setError("");
 
     if (showMessage) setMessage("");
-
-
 
     try {
 
@@ -510,8 +645,6 @@ export function TaskDetailClient({
         body: JSON.stringify({ clientId }),
 
       });
-
-
 
       if (showMessage) {
 
@@ -528,8 +661,6 @@ export function TaskDetailClient({
         );
 
       }
-
-
 
       router.refresh();
 
@@ -551,15 +682,11 @@ export function TaskDetailClient({
 
   }
 
-
-
   async function saveTask(event: FormEvent) {
 
     event.preventDefault();
 
     setError("");
-
-
 
     try {
 
@@ -585,8 +712,6 @@ export function TaskDetailClient({
 
       });
 
-
-
       if (currentStatus === "completed") {
 
         await refreshClientWork(false);
@@ -609,13 +734,9 @@ export function TaskDetailClient({
 
   }
 
-
-
   async function updateChecklist(item: ChecklistItem, nextStatus: string) {
 
     setError("");
-
-
 
     try {
 
@@ -633,8 +754,6 @@ export function TaskDetailClient({
 
       });
 
-
-
       router.refresh();
 
     } catch (err) {
@@ -645,21 +764,18 @@ export function TaskDetailClient({
 
   }
 
-
-
   async function completeAllChecklistItems() {
 
     setError("");
 
     setMessage("");
 
-
-
     const itemsToComplete = checklist.filter(
 
       (item) =>
 
         item.item_type !== "dependency" &&
+
         item.item_type !== "review" &&
 
         item.status !== "completed" &&
@@ -667,8 +783,6 @@ export function TaskDetailClient({
         item.status !== "not_applicable"
 
     );
-
-
 
     if (itemsToComplete.length === 0) {
 
@@ -678,13 +792,9 @@ export function TaskDetailClient({
 
     }
 
-
-
     try {
 
       setCompletingAll(true);
-
-
 
       await Promise.all(
 
@@ -708,8 +818,6 @@ export function TaskDetailClient({
 
       );
 
-
-
       setMessage(
 
         `${itemsToComplete.length} checklist step${itemsToComplete.length === 1 ? "" : "s"} completed.`
@@ -730,19 +838,13 @@ export function TaskDetailClient({
 
   }
 
-
-
   async function addChecklist(event: FormEvent) {
 
     event.preventDefault();
 
     if (!newChecklistItem.trim()) return;
 
-
-
     setError("");
-
-
 
     try {
 
@@ -758,8 +860,6 @@ export function TaskDetailClient({
 
       });
 
-
-
       setNewChecklistItem("");
 
       router.refresh();
@@ -772,8 +872,6 @@ export function TaskDetailClient({
 
   }
 
-
-
   const effectiveOutstanding = checklist.filter((item) => {
 
     if (item.item_type === "dependency") {
@@ -782,13 +880,9 @@ export function TaskDetailClient({
 
     }
 
-
-
     return !["completed", "not_applicable"].includes(item.status);
 
   }).length;
-
-
 
   return (
 
@@ -840,8 +934,6 @@ export function TaskDetailClient({
 
           </span>
 
-
-
           <div style={timerCopy}>
 
             <strong style={timerBarText}>
@@ -876,15 +968,11 @@ export function TaskDetailClient({
 
         </div>
 
-
-
         <strong style={timerClock}>
 
           {formatDuration(myDisplayedSeconds)}
 
         </strong>
-
-
 
         <div style={timerActions}>
 
@@ -907,8 +995,6 @@ export function TaskDetailClient({
                 Pause
 
               </button>
-
-
 
               <button
 
@@ -947,8 +1033,6 @@ export function TaskDetailClient({
                 ▶ Resume
 
               </button>
-
-
 
               <button
 
@@ -992,8 +1076,6 @@ export function TaskDetailClient({
 
       </div>
 
-
-
       <section style={panel}>
 
         <div style={sectionHeader}>
@@ -1017,8 +1099,6 @@ export function TaskDetailClient({
           </div>
 
         </div>
-
-
 
         <form onSubmit={saveTask}>
 
@@ -1046,13 +1126,11 @@ export function TaskDetailClient({
 
                 <option value="ready">Ready</option>
 
-                <option value="completed">Completed</option>
+                <option value="completed" disabled={!canMarkTaskCompleted}>Completed</option>
 
               </select>
 
             </label>
-
-
 
             <label style={field}>
 
@@ -1084,8 +1162,6 @@ export function TaskDetailClient({
 
             </label>
 
-
-
             <label style={field}>
 
               <span style={label}>Due date</span>
@@ -1103,8 +1179,6 @@ export function TaskDetailClient({
               />
 
             </label>
-
-
 
             <label style={field}>
 
@@ -1132,8 +1206,6 @@ export function TaskDetailClient({
 
             </label>
 
-
-
             <label style={wideField}>
 
               <span style={label}>Notes / instructions</span>
@@ -1154,13 +1226,9 @@ export function TaskDetailClient({
 
           </div>
 
-
-
           {error ? <div style={errorBox}>{error}</div> : null}
 
           {message ? <div style={messageBox}>{message}</div> : null}
-
-
 
           <div style={actions}>
 
@@ -1192,30 +1260,180 @@ export function TaskDetailClient({
 
       </section>
 
-
-
       <section style={reviewPanel}>
         <div style={reviewPanelHeader}>
           <div>
             <div style={reviewPanelTitle}>Review workflow</div>
-            <div style={reviewPanelSub}>Preparation evidence must be attached before the work can be sent for review.</div>
+            <div style={reviewPanelSub}>
+              Preparation, review and submission are controlled as separate stages.
+            </div>
           </div>
-          <span style={reviewStatusBadge}>{String(reviewStatus || "not_requested").replaceAll("_", " ")}</span>
+          <span style={reviewStatusBadge}>
+            {String(effectiveReviewStatus).replaceAll("_", " ")}
+          </span>
         </div>
-        <div style={reviewPanelBody}>
-          {reviewStatus === "awaiting_review" ? (
-            currentUserId && currentUserId === reviewerUserId ? (<>
-              <span style={reviewPanelText}>This task is with you for review.</span>
-              <button type="button" disabled={reviewBusy} onClick={() => void reviewAction("return")} style={reviewReturnButton}>Return to preparer</button>
-              <button type="button" disabled={reviewBusy} onClick={() => void reviewAction("approve")} style={reviewApproveButton}>{reviewBusy ? "Updating..." : "Approve review"}</button>
-            </>) : (
-              <span style={reviewPanelText}>Awaiting review by the assigned reviewer.</span>
+
+        <div style={reviewPanelBodyColumn}>
+          {effectiveReviewStatus === "awaiting_review" ? (
+            isReviewer ? (
+              <>
+                <div style={reviewFacts}>
+                  <div><span>Review required by</span><strong>{reviewMeta?.review_due_date || "—"}</strong></div>
+                  <div><span>Preparer</span><strong>{reviewMeta?.preparer_name || "—"}</strong></div>
+                  <div>
+                    <span>Working papers</span>
+                    {workingPapersPath ? (
+                      <a
+                        href={`/crm/client/${clientId}?tab=documents&folderPath=${encodeURIComponent(workingPapersPath)}`}
+                        style={workingPapersLink}
+                      >
+                        Open Egnyte folder
+                      </a>
+                    ) : <strong>—</strong>}
+                  </div>
+                </div>
+
+                <label style={reviewNotesField}>
+                  <span>Review notes / corrections</span>
+                  <textarea
+                    value={reviewNotes}
+                    onChange={(event) => setReviewNotes(event.target.value)}
+                    rows={3}
+                    placeholder="Required when returning the work for correction."
+                    style={textarea}
+                  />
+                </label>
+
+                <div style={reviewActionRow}>
+                  <span style={reviewPanelText}>This task is with you for review.</span>
+                  <button type="button" disabled={reviewBusy} onClick={() => void reviewAction("return")} style={reviewReturnButton}>
+                    Return for Correction
+                  </button>
+                  <button type="button" disabled={reviewBusy} onClick={() => void reviewAction("approve")} style={reviewApproveButton}>
+                    {reviewBusy ? "Updating..." : "Approve for Submission"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={reviewActionRow}>
+                <span style={reviewPanelText}>
+                  Awaiting review by {reviewMeta?.reviewer_name || "the assigned reviewer"}.
+                  {reviewMeta?.review_due_date ? ` Review required by ${reviewMeta.review_due_date}.` : ""}
+                </span>
+                {workingPapersPath ? (
+                  <a href={`/crm/client/${clientId}?tab=documents&folderPath=${encodeURIComponent(workingPapersPath)}`} style={workingPapersLink}>
+                    Open Working Papers
+                  </a>
+                ) : null}
+              </div>
             )
-          ) : currentUserId && (!preparerUserId || currentUserId === preparerUserId) ? (<>
-            <span style={reviewPanelText}>When preparation is complete, send the task to the client reviewer.</span>
-            <button type="button" disabled={reviewBusy} onClick={() => void reviewAction("send")} style={reviewSendButton}>{reviewBusy ? "Sending..." : "Send to Reviewer"}</button>
-          </>) : (
-            <span style={reviewPanelText}>Only the assigned work owner can send this task for review.</span>
+          ) : effectiveReviewStatus === "approved" ? (
+            <div style={reviewActionRow}>
+              <span style={reviewApprovedText}>
+                Review approved{submissionItems.length ? " — ready for submission." : "."}
+              </span>
+              {workingPapersPath ? (
+                <a href={`/crm/client/${clientId}?tab=documents&folderPath=${encodeURIComponent(workingPapersPath)}`} style={workingPapersLink}>
+                  Open Working Papers
+                </a>
+              ) : null}
+            </div>
+          ) : isPreparer ? (
+            <>
+              {effectiveReviewStatus === "returned" && reviewMeta?.review_notes ? (
+                <div style={reviewReturnedNote}>
+                  <strong>Returned for correction</strong>
+                  <span>{reviewMeta.review_notes}</span>
+                </div>
+              ) : null}
+
+              <div style={reviewSetupGrid}>
+                <label style={field}>
+                  <span style={label}>Review required by</span>
+                  <input
+                    type="date"
+                    value={reviewDueDate}
+                    max={currentDueDate || undefined}
+                    onChange={(event) => setReviewDueDate(event.target.value)}
+                    style={input}
+                  />
+                </label>
+
+                <div style={field}>
+                  <span style={label}>Working papers folder</span>
+                  <div style={workingPapersControl}>
+                    <input
+                      value={workingPapersPath}
+                      onChange={(event) => setWorkingPapersPath(event.target.value)}
+                      placeholder="Select the Egnyte folder..."
+                      style={input}
+                    />
+                    <button
+                      type="button"
+                      disabled={folderPickerBusy}
+                      onClick={() => void loadFolderPicker(workingPapersPath || "")}
+                      style={secondaryButton}
+                    >
+                      {folderPickerBusy ? "Loading..." : "Choose Folder"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {folderPickerOpen ? (
+                <div style={folderPicker}>
+                  <div style={folderPickerHeader}>
+                    <strong>{folderPickerPath || folderPickerRoot}</strong>
+                    <div style={reviewActionRow}>
+                      {folderPickerPath && folderPickerPath !== folderPickerRoot ? (
+                        <button type="button" onClick={() => void loadFolderPicker(parentFolder(folderPickerPath))} style={secondaryButton}>
+                          Up
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWorkingPapersPath(folderPickerPath || folderPickerRoot);
+                          setFolderPickerOpen(false);
+                        }}
+                        style={reviewSendButton}
+                      >
+                        Use This Folder
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={folderPickerList}>
+                    {folderPickerItems.length ? (
+                      folderPickerItems.map((folder) => (
+                        <button type="button" key={folder.path} onClick={() => void loadFolderPicker(folder.path)} style={folderPickerRow}>
+                          <span>▸</span>
+                          <strong>{folder.name}</strong>
+                        </button>
+                      ))
+                    ) : (
+                      <div style={folderPickerEmpty}>No subfolders here.</div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              <div style={reviewActionRow}>
+                <span style={reviewPanelText}>
+                  Complete preparation only. Reviewer and submission steps are locked until their stage.
+                </span>
+                <button
+                  type="button"
+                  disabled={reviewBusy || !reviewDueDate || !workingPapersPath}
+                  onClick={() => void reviewAction("send")}
+                  style={reviewSendButton}
+                >
+                  {reviewBusy ? "Sending..." : "Send to Reviewer"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <span style={reviewPanelText}>Only the preparer can send this task for review.</span>
           )}
         </div>
       </section>
@@ -1236,8 +1454,6 @@ export function TaskDetailClient({
 
           </div>
 
-
-
           <button
 
             type="button"
@@ -1256,8 +1472,6 @@ export function TaskDetailClient({
 
         </div>
 
-
-
         <div>
 
           {checklist.map((item) => {
@@ -1271,8 +1485,9 @@ export function TaskDetailClient({
               : item.status === "completed";
 
             const notApplicable = item.status === "not_applicable";
-
-
+            const submission = item.item_type === "submission";
+            const submissionLocked =
+              submission && (!submissionUnlocked || !isPreparer);
 
             return (
 
@@ -1282,7 +1497,7 @@ export function TaskDetailClient({
 
                   type="button"
 
-                  disabled={dependency || item.item_type === "review"}
+                  disabled={dependency || item.item_type === "review" || submissionLocked}
 
                   onClick={() =>
 
@@ -1302,7 +1517,9 @@ export function TaskDetailClient({
 
                     ...(complete ? checkButtonComplete : {}),
 
-                    ...(dependency || item.item_type === "review" ? checkButtonDependency : {}),
+                    ...(dependency || item.item_type === "review" || submissionLocked
+                      ? checkButtonDependency
+                      : {}),
 
                   }}
 
@@ -1311,9 +1528,14 @@ export function TaskDetailClient({
                     dependency
 
                       ? "This item follows linked PracticePilot work automatically."
+
                       : item.item_type === "review"
                         ? "This step is completed only by the assigned reviewer workflow."
-                        : complete
+                        : submissionLocked
+                          ? effectiveReviewStatus !== "approved"
+                            ? "Submission unlocks only after review approval."
+                            : "Only the preparer can complete submission steps."
+                          : complete
 
                         ? "Mark outstanding"
 
@@ -1326,8 +1548,6 @@ export function TaskDetailClient({
                   {complete ? "✓" : ""}
 
                 </button>
-
-
 
                 <div style={checkContent}>
 
@@ -1347,8 +1567,6 @@ export function TaskDetailClient({
 
                   </div>
 
-
-
                   {dependency ? (
 
                     <div style={dependencyText}>
@@ -1364,9 +1582,13 @@ export function TaskDetailClient({
                     <div style={checkMeta}>
 
                       {item.item_type === "review"
+
                         ? "Reviewer controlled"
+
                         : notApplicable
+
                           ? "Not applicable"
+
                           : item.status.replaceAll("_", " ")}
 
                     </div>
@@ -1374,25 +1596,36 @@ export function TaskDetailClient({
                   )}
 
                   {item.requires_evidence ? (
+
                     <div style={evidenceWrap}>
+
                       <div style={evidenceRequirement}>Required evidence: {item.evidence_label || item.label}</div>
+
                       <div style={evidenceFiles}>
+
                         {evidence.filter((row) => row.checklist_item_id === item.id).map((row) => (
+
                           <a key={row.id} href={`/crm/client/${clientId}?tab=documents&documentPath=${encodeURIComponent(row.provider_path)}`} style={evidenceLink}>{row.document_name}</a>
+
                         ))}
+
                       </div>
+
                       <label style={evidenceUploadLabel}>
+
                         {evidenceBusyId === item.id ? "Uploading..." : "Upload evidence"}
+
                         <input type="file" disabled={evidenceBusyId === item.id} style={{ display: "none" }} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadEvidence(item, file); event.currentTarget.value = ""; }} />
+
                       </label>
+
                     </div>
+
                   ) : null}
 
                 </div>
 
-
-
-                {!dependency && item.item_type !== "review" ? (
+                {!dependency && item.item_type !== "review" && item.item_type !== "submission" ? (
 
                   <button
 
@@ -1419,7 +1652,9 @@ export function TaskDetailClient({
                   </button>
 
                 ) : item.item_type === "review" ? (
+
                   <span style={reviewControlledBadge}>Reviewer</span>
+
                 ) : (
 
                   <span style={linkedBadge}>Linked</span>
@@ -1433,8 +1668,6 @@ export function TaskDetailClient({
           })}
 
         </div>
-
-
 
         <form onSubmit={addChecklist} style={addChecklistRow}>
 
@@ -1466,8 +1699,6 @@ export function TaskDetailClient({
 
 }
 
-
-
 const layout: React.CSSProperties = {
 
   display: "grid",
@@ -1475,8 +1706,6 @@ const layout: React.CSSProperties = {
   gap: "12px",
 
 };
-
-
 
 const timerBar: React.CSSProperties = {
 
@@ -1498,8 +1727,6 @@ const timerBar: React.CSSProperties = {
 
 };
 
-
-
 const timerBarRunning: React.CSSProperties = {
 
   background: "#102f28",
@@ -1508,8 +1735,6 @@ const timerBarRunning: React.CSSProperties = {
 
 };
 
-
-
 const timerBarPaused: React.CSSProperties = {
 
   background: "#26303c",
@@ -1517,8 +1742,6 @@ const timerBarPaused: React.CSSProperties = {
   borderColor: "#3b4754",
 
 };
-
-
 
 const timerBarLeft: React.CSSProperties = {
 
@@ -1531,8 +1754,6 @@ const timerBarLeft: React.CSSProperties = {
   gap: "8px",
 
 };
-
-
 
 const timerPlayMark: React.CSSProperties = {
 
@@ -1558,8 +1779,6 @@ const timerPlayMark: React.CSSProperties = {
 
 };
 
-
-
 const timerPlayMarkRunning: React.CSSProperties = {
 
   background: "#2f855a",
@@ -1568,15 +1787,11 @@ const timerPlayMarkRunning: React.CSSProperties = {
 
 };
 
-
-
 const timerPlayMarkPaused: React.CSSProperties = {
 
   background: "#6b7280",
 
 };
-
-
 
 const timerCopy: React.CSSProperties = {
 
@@ -1588,8 +1803,6 @@ const timerCopy: React.CSSProperties = {
 
 };
 
-
-
 const timerBarText: React.CSSProperties = {
 
   color: "#ffffff",
@@ -1600,8 +1813,6 @@ const timerBarText: React.CSSProperties = {
 
 };
 
-
-
 const timerBarSub: React.CSSProperties = {
 
   color: "#aebdca",
@@ -1609,8 +1820,6 @@ const timerBarSub: React.CSSProperties = {
   fontSize: "7.5px",
 
 };
-
-
 
 const timerClock: React.CSSProperties = {
 
@@ -1630,8 +1839,6 @@ const timerClock: React.CSSProperties = {
 
 };
 
-
-
 const timerActions: React.CSSProperties = {
 
   flex: "0 0 auto",
@@ -1643,8 +1850,6 @@ const timerActions: React.CSSProperties = {
   gap: "5px",
 
 };
-
-
 
 const timerStartButton: React.CSSProperties = {
 
@@ -1668,8 +1873,6 @@ const timerStartButton: React.CSSProperties = {
 
 };
 
-
-
 const timerPauseButton: React.CSSProperties = {
 
   minWidth: "58px",
@@ -1691,8 +1894,6 @@ const timerPauseButton: React.CSSProperties = {
   cursor: "pointer",
 
 };
-
-
 
 const timerEndButton: React.CSSProperties = {
 
@@ -1716,8 +1917,6 @@ const timerEndButton: React.CSSProperties = {
 
 };
 
-
-
 const panel: React.CSSProperties = {
 
   background: "#ffffff",
@@ -1725,8 +1924,6 @@ const panel: React.CSSProperties = {
   border: "1px solid #d7e0e8",
 
 };
-
-
 
 const sectionHeader: React.CSSProperties = {
 
@@ -1746,8 +1943,6 @@ const sectionHeader: React.CSSProperties = {
 
 };
 
-
-
 const sectionTitle: React.CSSProperties = {
 
   color: "#10233a",
@@ -1758,8 +1953,6 @@ const sectionTitle: React.CSSProperties = {
 
 };
 
-
-
 const sectionSub: React.CSSProperties = {
 
   marginTop: "2px",
@@ -1769,8 +1962,6 @@ const sectionSub: React.CSSProperties = {
   fontSize: "9.5px",
 
 };
-
-
 
 const checklistCount: React.CSSProperties = {
 
@@ -1788,8 +1979,6 @@ const checklistCount: React.CSSProperties = {
 
 };
 
-
-
 const formGrid: React.CSSProperties = {
 
   padding: "8px 10px",
@@ -1802,8 +1991,6 @@ const formGrid: React.CSSProperties = {
 
 };
 
-
-
 const field: React.CSSProperties = {
 
   display: "grid",
@@ -1812,8 +1999,6 @@ const field: React.CSSProperties = {
 
 };
 
-
-
 const wideField: React.CSSProperties = {
 
   ...field,
@@ -1821,8 +2006,6 @@ const wideField: React.CSSProperties = {
   gridColumn: "1 / -1",
 
 };
-
-
 
 const label: React.CSSProperties = {
 
@@ -1833,8 +2016,6 @@ const label: React.CSSProperties = {
   fontWeight: 800,
 
 };
-
-
 
 const input: React.CSSProperties = {
 
@@ -1856,8 +2037,6 @@ const input: React.CSSProperties = {
 
 };
 
-
-
 const textarea: React.CSSProperties = {
 
   ...input,
@@ -1870,8 +2049,6 @@ const textarea: React.CSSProperties = {
 
 };
 
-
-
 const actions: React.CSSProperties = {
 
   padding: "7px 10px",
@@ -1883,8 +2060,6 @@ const actions: React.CSSProperties = {
   borderTop: "1px solid #e2e8ee",
 
 };
-
-
 
 const saveButton: React.CSSProperties = {
 
@@ -1906,8 +2081,6 @@ const saveButton: React.CSSProperties = {
 
 };
 
-
-
 const errorBox: React.CSSProperties = {
 
   margin: "0 12px 10px",
@@ -1925,8 +2098,6 @@ const errorBox: React.CSSProperties = {
   fontWeight: 700,
 
 };
-
-
 
 const messageBox: React.CSSProperties = {
 
@@ -1946,8 +2117,6 @@ const messageBox: React.CSSProperties = {
 
 };
 
-
-
 const checkRow: React.CSSProperties = {
 
   minHeight: "50px",
@@ -1965,8 +2134,6 @@ const checkRow: React.CSSProperties = {
   borderBottom: "1px solid #e5ebf0",
 
 };
-
-
 
 const checkButton: React.CSSProperties = {
 
@@ -1988,8 +2155,6 @@ const checkButton: React.CSSProperties = {
 
 };
 
-
-
 const checkButtonComplete: React.CSSProperties = {
 
   borderColor: "#62a978",
@@ -1998,23 +2163,17 @@ const checkButtonComplete: React.CSSProperties = {
 
 };
 
-
-
 const checkButtonDependency: React.CSSProperties = {
 
   cursor: "default",
 
 };
 
-
-
 const checkContent: React.CSSProperties = {
 
   minWidth: 0,
 
 };
-
-
 
 const checkLabel: React.CSSProperties = {
 
@@ -2026,8 +2185,6 @@ const checkLabel: React.CSSProperties = {
 
 };
 
-
-
 const checkLabelDone: React.CSSProperties = {
 
   color: "#74827b",
@@ -2035,8 +2192,6 @@ const checkLabelDone: React.CSSProperties = {
   textDecoration: "line-through",
 
 };
-
-
 
 const checkMeta: React.CSSProperties = {
 
@@ -2048,8 +2203,6 @@ const checkMeta: React.CSSProperties = {
 
 };
 
-
-
 const dependencyText: React.CSSProperties = {
 
   marginTop: "2px",
@@ -2059,8 +2212,6 @@ const dependencyText: React.CSSProperties = {
   fontSize: "8.5px",
 
 };
-
-
 
 const linkedBadge: React.CSSProperties = {
 
@@ -2077,8 +2228,6 @@ const linkedBadge: React.CSSProperties = {
   fontWeight: 800,
 
 };
-
-
 
 const naButton: React.CSSProperties = {
 
@@ -2100,8 +2249,6 @@ const naButton: React.CSSProperties = {
 
 };
 
-
-
 const addChecklistRow: React.CSSProperties = {
 
   padding: "10px",
@@ -2113,8 +2260,6 @@ const addChecklistRow: React.CSSProperties = {
   gap: "7px",
 
 };
-
-
 
 const secondaryButton: React.CSSProperties = {
 
@@ -2136,10 +2281,6 @@ const secondaryButton: React.CSSProperties = {
 
 };
 
-
-
-
-
 const completeAllButton: React.CSSProperties = {
 
   minHeight: "32px",
@@ -2160,20 +2301,50 @@ const completeAllButton: React.CSSProperties = {
 
 };
 
-
 const reviewPanel: React.CSSProperties = { background: "#ffffff", border: "1px solid #b8c7d3" };
+
 const reviewPanelHeader: React.CSSProperties = { minHeight: "44px", padding: "7px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", borderBottom: "1px solid #dde5eb", background: "#f6f9fb" };
+
 const reviewPanelTitle: React.CSSProperties = { color: "#10233a", fontSize: "12px", fontWeight: 900 };
+
 const reviewPanelSub: React.CSSProperties = { marginTop: "2px", color: "#71808c", fontSize: "9px" };
+
 const reviewStatusBadge: React.CSSProperties = { padding: "4px 7px", border: "1px solid #c7d5df", background: "#ffffff", color: "#4d6475", fontSize: "8px", fontWeight: 850, textTransform: "capitalize" };
+
 const reviewPanelBody: React.CSSProperties = { minHeight: "44px", padding: "7px 10px", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "6px" };
+
 const reviewPanelText: React.CSSProperties = { marginRight: "auto", color: "#526779", fontSize: "9.5px" };
+
 const reviewSendButton: React.CSSProperties = { minHeight: "30px", padding: "0 10px", border: "1px solid #1769e0", background: "#1769e0", color: "#ffffff", fontSize: "9px", fontWeight: 850, cursor: "pointer" };
+
 const reviewApproveButton: React.CSSProperties = { ...reviewSendButton, borderColor: "#3d8054", background: "#3d8054" };
+
 const reviewReturnButton: React.CSSProperties = { ...reviewSendButton, borderColor: "#b08a34", background: "#fff8e8", color: "#7b5711" };
+
 const evidenceWrap: React.CSSProperties = { marginTop: "6px", padding: "6px 7px", display: "grid", gap: "5px", borderLeft: "3px solid #2f6fa9", background: "#f4f8fc" };
+
 const evidenceRequirement: React.CSSProperties = { color: "#31536d", fontSize: "8.5px", fontWeight: 850 };
+
 const evidenceFiles: React.CSSProperties = { display: "flex", flexWrap: "wrap", gap: "4px" };
+
 const evidenceLink: React.CSSProperties = { padding: "3px 5px", border: "1px solid #bfd0df", background: "#ffffff", color: "#245f91", textDecoration: "none", fontSize: "8px", fontWeight: 750 };
+
 const evidenceUploadLabel: React.CSSProperties = { width: "fit-content", minHeight: "24px", padding: "0 7px", display: "inline-flex", alignItems: "center", border: "1px solid #bfcdd8", background: "#ffffff", color: "#425a6e", fontSize: "8px", fontWeight: 850, cursor: "pointer" };
+
 const reviewControlledBadge: React.CSSProperties = { padding: "3px 6px", border: "1px solid #c8b9e2", background: "#f5f0fb", color: "#65468f", fontSize: "8px", fontWeight: 800 };
+const submissionBadge: React.CSSProperties = { padding: "3px 6px", border: "1px solid #b8d3c0", background: "#f2fbf5", color: "#2f6d44", fontSize: "8px", fontWeight: 800 };
+const reviewPanelBodyColumn: React.CSSProperties = { padding: "10px", display: "grid", gap: "9px" };
+const reviewSetupGrid: React.CSSProperties = { display: "grid", gridTemplateColumns: "180px minmax(0, 1fr)", gap: "9px" };
+const workingPapersControl: React.CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: "6px" };
+const reviewActionRow: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "7px", flexWrap: "wrap" };
+const reviewFacts: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: "8px" };
+const reviewNotesField: React.CSSProperties = { display: "grid", gap: "4px", color: "#53697a", fontSize: "9px", fontWeight: 800 };
+const workingPapersLink: React.CSSProperties = { color: "#1758d5", textDecoration: "none", fontSize: "9px", fontWeight: 900 };
+const reviewApprovedText: React.CSSProperties = { marginRight: "auto", color: "#285c3a", fontSize: "10px", fontWeight: 850 };
+const reviewReturnedNote: React.CSSProperties = { display: "grid", gap: "3px", padding: "8px 9px", borderLeft: "3px solid #b08a34", background: "#fff8e8", color: "#6c531d", fontSize: "9px" };
+const folderPicker: React.CSSProperties = { border: "1px solid #cfd9e2", background: "#ffffff" };
+const folderPickerHeader: React.CSSProperties = { padding: "7px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", borderBottom: "1px solid #e2e8ee", fontSize: "9px" };
+const folderPickerList: React.CSSProperties = { maxHeight: "220px", overflowY: "auto" };
+const folderPickerRow: React.CSSProperties = { width: "100%", minHeight: "34px", padding: "0 9px", display: "flex", alignItems: "center", gap: "7px", border: 0, borderBottom: "1px solid #edf1f4", background: "#ffffff", color: "#10233a", textAlign: "left", cursor: "pointer", fontSize: "9px" };
+const folderPickerEmpty: React.CSSProperties = { padding: "12px", color: "#7b8994", fontSize: "9px" };
+

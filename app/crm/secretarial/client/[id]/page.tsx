@@ -155,6 +155,7 @@ type AnnualReturnRecord = {
   paid_at: string | null;
   cipc_reference: string | null;
   authority_generated_at?: string | null;
+  fas_questionnaire?: Record<string, string> | null;
 };
 
 type ClientServiceRecord = {
@@ -443,6 +444,18 @@ export default function SecretarialClientPage() {
   const [annualCipcReference, setAnnualCipcReference] = useState("");
   const [annualSubmittedDate, setAnnualSubmittedDate] = useState("");
   const [annualPaidDate, setAnnualPaidDate] = useState("");
+  const [annualFasAnswers, setAnnualFasAnswers] = useState<Record<string, string>>({
+    fiduciary_over_5m: "",
+    internal_compiled_pis_100: "",
+    independent_compiled_pis_350: "",
+    state_related: "",
+    public_function: "",
+    record_keeper_type: "",
+    same_person_compiles: "",
+    financial_records_adviser: "",
+    independent_review: "",
+    deals_in_goods: "",
+  });
 
   const [boCipcReference, setBoCipcReference] = useState("");
   const [boFiledDate, setBoFiledDate] = useState("");
@@ -1446,6 +1459,35 @@ export default function SecretarialClientPage() {
     setShowShareClassForm(true);
   }
 
+
+  const fasDecisionKeys = [
+    "fiduciary_over_5m",
+    "internal_compiled_pis_100",
+    "independent_compiled_pis_350",
+    "state_related",
+    "public_function",
+  ];
+
+  const fasDecisionComplete = fasDecisionKeys.every((key) =>
+    ["yes", "no"].includes(String(annualFasAnswers[key] || ""))
+  );
+
+  const fasRequiresAfs = fasDecisionKeys.some(
+    (key) => annualFasAnswers[key] === "yes"
+  );
+
+  const recommendedFinancialType = fasDecisionComplete
+    ? fasRequiresAfs
+      ? "AFS"
+      : "FAS"
+    : "";
+
+  useEffect(() => {
+    if (recommendedFinancialType) {
+      setAnnualFinancialType(recommendedFinancialType);
+    }
+  }, [recommendedFinancialType]);
+
   const currentAnnualReturn = useMemo(() => {
     if (!nextAnnualReturn) return null;
     return (
@@ -1489,6 +1531,11 @@ export default function SecretarialClientPage() {
         ? currentAnnualReturn.paid_at.slice(0, 10)
         : ""
     );
+
+    setAnnualFasAnswers((current) => ({
+      ...current,
+      ...(currentAnnualReturn.fas_questionnaire || {}),
+    }));
   }, [currentAnnualReturn?.id]);
 
   async function saveAnnualReturnControl() {
@@ -1518,6 +1565,7 @@ export default function SecretarialClientPage() {
         : null,
       paid_at: annualPaidDate ? `${annualPaidDate}T12:00:00+02:00` : null,
       cipc_reference: annualCipcReference.trim() || null,
+      fas_questionnaire: annualFasAnswers,
     };
 
     const ok = currentAnnualReturn
@@ -2808,11 +2856,116 @@ export default function SecretarialClientPage() {
                 </div>
               </div>
 
+              <div style={arFasQuestions}>
+                <div style={arFasHeader}>
+                  <div>
+                    <strong>CIPC Financial Statements / FAS Questions</strong>
+                    <span>
+                      These answers determine whether CIPC requires AFS or permits the Financial Accountability Supplement.
+                    </span>
+                  </div>
+                  <div style={arRouteResult}>
+                    <span>Recommended route</span>
+                    <strong>{recommendedFinancialType || "Answer all 5 questions"}</strong>
+                  </div>
+                </div>
+
+                {[
+                  ["fiduciary_over_5m", "Does the entity hold assets in a fiduciary capacity for unrelated persons exceeding R5 million at any time during the financial year?"],
+                  ["internal_compiled_pis_100", "Are the Annual Financial Statements compiled internally and is the Public Interest Score 100 or more?"],
+                  ["independent_compiled_pis_350", "Are the Annual Financial Statements compiled by an independent party and is the Public Interest Score 350 or more?"],
+                  ["state_related", "Was the company incorporated directly or indirectly by the state, an organ of state, a state-owned company, international entity, foreign state entity or foreign company?"],
+                  ["public_function", "Was the company incorporated primarily to perform a statutory, regulatory or public function?"],
+                ].map(([key, question]) => (
+                  <div key={key} style={arQuestionRow}>
+                    <span style={arQuestionText}>{question}</span>
+                    <select
+                      value={annualFasAnswers[key] || ""}
+                      onChange={(event) =>
+                        setAnnualFasAnswers((current) => ({
+                          ...current,
+                          [key]: event.target.value,
+                        }))
+                      }
+                      style={arQuestionSelect}
+                    >
+                      <option value="">Select...</option>
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </div>
+                ))}
+
+                {annualFinancialType === "FAS" ? (
+                  <div style={arFasCapture}>
+                    <div style={arFasCaptureTitle}>Financial Accountability Supplement capture</div>
+
+                    <div style={arQuestionRow}>
+                      <span style={arQuestionText}>
+                        Person primarily responsible for recording day-to-day financial transactions and maintaining the financial records
+                      </span>
+                      <select
+                        value={annualFasAnswers.record_keeper_type || ""}
+                        onChange={(event) =>
+                          setAnnualFasAnswers((current) => ({
+                            ...current,
+                            record_keeper_type: event.target.value,
+                          }))
+                        }
+                        style={arQuestionSelect}
+                      >
+                        <option value="">Select...</option>
+                        <option value="natural_person">Natural person</option>
+                        <option value="juristic_person">Juristic person</option>
+                      </select>
+                    </div>
+
+                    {[
+                      ["same_person_compiles", "Is the person who compiles financial information and prepares reports/statements the same person who records the day-to-day financial transactions?"],
+                      ["financial_records_adviser", "Is there a person who provides advice to the company concerning the maintenance of financial records?"],
+                      ["independent_review", "Is there a person performing an independent review of the Annual Financial Statements?"],
+                      ["deals_in_goods", "Does the company deal in goods?"],
+                    ].map(([key, question]) => (
+                      <div key={key} style={arQuestionRow}>
+                        <span style={arQuestionText}>{question}</span>
+                        <select
+                          value={annualFasAnswers[key] || ""}
+                          onChange={(event) =>
+                            setAnnualFasAnswers((current) => ({
+                              ...current,
+                              [key]: event.target.value,
+                            }))
+                          }
+                          style={arQuestionSelect}
+                        >
+                          <option value="">Select...</option>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
               <div style={arFooter}>
                 <div style={arFootNote}>
                   Turnover drives the statutory CIPC fee. The filed year remains in history and is never overwritten by the next cycle.
                 </div>
                 <div style={rowActions}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      previewSecretarialDocument(
+                        "annual-return-payment-instruction",
+                        currentAnnualReturn?.id || null
+                      )
+                    }
+                    style={secondaryButton}
+                    disabled={!currentAnnualReturn}
+                  >
+                    Payment Instruction
+                  </button>
                   <button
                     type="button"
                     onClick={() =>
@@ -4987,6 +5140,73 @@ const arHistoryHeading: React.CSSProperties = {
   gap: "10px",
   borderTop: "1px solid #d8dee7",
   color: "#10233a",
+};
+
+
+const arFasQuestions: React.CSSProperties = {
+  borderTop: "1px solid #d8dee7",
+  background: "#fbfcfd",
+};
+
+const arFasHeader: React.CSSProperties = {
+  padding: "10px 12px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "16px",
+  borderBottom: "1px solid #d8dee7",
+  fontSize: "9px",
+};
+
+const arRouteResult: React.CSSProperties = {
+  minWidth: "170px",
+  padding: "7px 9px",
+  display: "grid",
+  gap: "2px",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#10233a",
+};
+
+const arQuestionRow: React.CSSProperties = {
+  minHeight: "42px",
+  padding: "7px 12px",
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) 170px",
+  gap: "12px",
+  alignItems: "center",
+  borderBottom: "1px solid #e5eaf0",
+};
+
+const arQuestionText: React.CSSProperties = {
+  color: "#334155",
+  fontSize: "9px",
+  lineHeight: 1.4,
+};
+
+const arQuestionSelect: React.CSSProperties = {
+  width: "100%",
+  minHeight: "30px",
+  padding: "4px 7px",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#10233a",
+  fontSize: "9px",
+};
+
+const arFasCapture: React.CSSProperties = {
+  margin: "10px 12px",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+};
+
+const arFasCaptureTitle: React.CSSProperties = {
+  padding: "8px 10px",
+  borderBottom: "1px solid #d8dee7",
+  background: "#f8fafc",
+  color: "#10233a",
+  fontSize: "9px",
+  fontWeight: 900,
 };
 
 const tileArrow: React.CSSProperties = {
