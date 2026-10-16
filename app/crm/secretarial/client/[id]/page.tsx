@@ -157,6 +157,18 @@ type AnnualReturnRecord = {
   authority_generated_at?: string | null;
 };
 
+type ClientServiceRecord = {
+  id: string;
+  start_date: string | null;
+  service_settings: Record<string, any> | null;
+  is_active: boolean | null;
+  task_generation_enabled: boolean | null;
+  crm_services:
+    | { service_name: string | null }
+    | Array<{ service_name: string | null }>
+    | null;
+};
+
 type CompanyChangeRecord = {
   id: string;
   change_type: string;
@@ -342,6 +354,7 @@ export default function SecretarialClientPage() {
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [beneficialOwners, setBeneficialOwners] = useState<BeneficialOwnerRecord[]>([]);
   const [annualReturns, setAnnualReturns] = useState<AnnualReturnRecord[]>([]);
+  const [cipcAnnualReturnService, setCipcAnnualReturnService] = useState<ClientServiceRecord | null>(null);
   const [companyChanges, setCompanyChanges] = useState<CompanyChangeRecord[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [airspaceRecords, setAirspaceRecords] = useState<AirspaceRecord[]>([]);
@@ -458,6 +471,7 @@ export default function SecretarialClientPage() {
         transactionsResult,
         boResult,
         annualReturnsResult,
+        annualReturnServiceResult,
         changesResult,
         documentsResult,
         airspaceResult,
@@ -522,6 +536,22 @@ export default function SecretarialClientPage() {
           .order("return_year", { ascending: false }),
 
         supabaseAny
+          .from("crm_client_services")
+          .select(`
+            id,
+            start_date,
+            service_settings,
+            is_active,
+            task_generation_enabled,
+            crm_services (
+              service_name
+            )
+          `)
+          .eq("client_id", clientId)
+          .eq("is_active", true)
+          .eq("task_generation_enabled", true),
+
+        supabaseAny
           .from("secretarial_company_changes")
           .select("*")
           .eq("client_id", clientId)
@@ -576,7 +606,25 @@ export default function SecretarialClientPage() {
       setCertificates(certificatesResult.error ? [] : ((certificatesResult.data || []) as CertificateRecord[]));
       setTransactions(transactionsResult.error ? [] : ((transactionsResult.data || []) as TransactionRecord[]));
       setBeneficialOwners(boResult.error ? [] : ((boResult.data || []) as BeneficialOwnerRecord[]));
-      setAnnualReturns(annualReturnsResult.error ? [] : ((annualReturnsResult.data || []) as AnnualReturnRecord[]));
+      setAnnualReturns(
+        annualReturnsResult.error
+          ? []
+          : ((annualReturnsResult.data || []) as AnnualReturnRecord[])
+      );
+
+      const annualReturnServices = annualReturnServiceResult.error
+        ? []
+        : ((annualReturnServiceResult.data || []) as ClientServiceRecord[]);
+
+      const cipcService =
+        annualReturnServices.find((row) => {
+          const relation = Array.isArray(row.crm_services)
+            ? row.crm_services[0]
+            : row.crm_services;
+          return String(relation?.service_name || "").trim() === "CIPC Annual Return";
+        }) || null;
+
+      setCipcAnnualReturnService(cipcService);
       setCompanyChanges(changesResult.error ? [] : ((changesResult.data || []) as CompanyChangeRecord[]));
       setDocuments(documentsResult.error ? [] : ((documentsResult.data || []) as DocumentRecord[]));
 
@@ -589,6 +637,7 @@ export default function SecretarialClientPage() {
         transactionsResult.error,
         boResult.error,
         annualReturnsResult.error,
+        annualReturnServiceResult.error,
         changesResult.error,
         documentsResult.error,
         airspaceResult.error,
@@ -653,30 +702,44 @@ export default function SecretarialClientPage() {
     const registration = new Date(`${client.registration_date}T00:00:00`);
     if (Number.isNaN(registration.getTime())) return null;
 
-    const now = new Date();
-    let year = now.getFullYear();
+    const serviceSettings = cipcAnnualReturnService?.service_settings || {};
+    const configuredYear = Number(serviceSettings?.tasking_year || 0);
+    const startDateYear = cipcAnnualReturnService?.start_date
+      ? Number(String(cipcAnnualReturnService.start_date).slice(0, 4))
+      : 0;
 
-    let anniversary = new Date(
+    let year = configuredYear || startDateYear || new Date().getFullYear();
+
+    const completedYears = new Set(
+      annualReturns
+        .filter(
+          (row) =>
+            String(row.return_status || "").toLowerCase() === "completed"
+        )
+        .map((row) => Number(row.return_year))
+    );
+
+    while (completedYears.has(year)) {
+      year += 1;
+    }
+
+    const anniversary = new Date(
       year,
       registration.getMonth(),
       registration.getDate()
     );
-
-    if (anniversary < now) {
-      year += 1;
-      anniversary = new Date(
-        year,
-        registration.getMonth(),
-        registration.getDate()
-      );
-    }
 
     return {
       year,
       anniversaryDate: isoDate(anniversary),
       dueDate: isoDate(addBusinessDays(anniversary, 30)),
     };
-  }, [client?.registration_date]);
+  }, [
+    client?.registration_date,
+    cipcAnnualReturnService?.start_date,
+    cipcAnnualReturnService?.service_settings,
+    annualReturns,
+  ]);
 
   const issuedCertificates = useMemo(
     () =>
@@ -794,7 +857,6 @@ export default function SecretarialClientPage() {
     const firstActiveDirector = directors.find((director) => director.is_active !== false);
     if (firstActiveDirector?.id) setBoSignatoryDirectorId(firstActiveDirector.id);
   }, [directors, boSignatoryDirectorId]);
-
 
   async function confirmBeneficialOwnership() {
     if (!client?.organisation_id || !currentHoldings.length) {
@@ -1194,7 +1256,6 @@ export default function SecretarialClientPage() {
     setShowDirectorForm(true);
   }
 
-
   function startEndDirector(row: DirectorRecord) {
     setEndingDirectorId(row.id);
     setDirectorCessationReason("resigned");
@@ -1384,7 +1445,6 @@ export default function SecretarialClientPage() {
     setEditingShareClassId(row.id);
     setShowShareClassForm(true);
   }
-
 
   const currentAnnualReturn = useMemo(() => {
     if (!nextAnnualReturn) return null;
@@ -3291,7 +3351,6 @@ export default function SecretarialClientPage() {
   );
 }
 
-
 function Summary({
   label,
   value,
@@ -3821,7 +3880,6 @@ const controlValue: React.CSSProperties = {
   fontSize: "9px",
 };
 
-
 const controlTileTop: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -3845,7 +3903,6 @@ const rowActions: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
-
 const processNote: React.CSSProperties = {
   padding: "10px 12px",
   display: "flex",
@@ -3857,9 +3914,6 @@ const processNote: React.CSSProperties = {
   fontSize: "9px",
   lineHeight: 1.45,
 };
-
-
-
 
 const downloadButton: React.CSSProperties = {
   border: "1px solid #10233a",
@@ -3949,7 +4003,6 @@ const documentFace: React.CSSProperties = {
   color: "#166534",
   fontSize: "9px",
 };
-
 
 const linkOnlyIntro: React.CSSProperties = {
   minHeight: "42px",
@@ -4081,8 +4134,6 @@ const airspaceLinkText: React.CSSProperties = {
   lineHeight: 1.35,
 };
 
-
-
 const formPanel: React.CSSProperties = {
   padding: "12px",
   borderBottom: "1px solid #d8dee7",
@@ -4210,7 +4261,6 @@ const statusPillGreen: React.CSSProperties = {
   background: "#ecfdf3",
   color: "#166534",
 };
-
 
 const rowActionButton: React.CSSProperties = {
   minWidth: "118px",
@@ -4357,7 +4407,6 @@ const emptyState: React.CSSProperties = {
   fontSize: "10px",
 };
 
-
 const quietActionButton: React.CSSProperties = {
   height: "36px",
   padding: "0 14px",
@@ -4379,7 +4428,6 @@ const primaryCompactButton: React.CSSProperties = {
   fontWeight: 900,
   cursor: "pointer",
 };
-
 
 const editActionButton: React.CSSProperties = {
   minWidth: "132px",
@@ -4453,7 +4501,6 @@ const boFilingPanelSimple: React.CSSProperties = {
   borderBottom: "1px solid #d8dee7",
   background: "#ffffff",
 };
-
 
 const annualCleanWorkspace: React.CSSProperties = { padding: "0 12px 12px" };
 const annualCleanTop: React.CSSProperties = {
@@ -4560,7 +4607,6 @@ const boFilingPanel: React.CSSProperties = {
   borderBottom: "1px solid #d8dee7",
   background: "#ffffff",
 };
-
 
 const formSectionTitle: React.CSSProperties = {
   margin: "8px 0 5px",
@@ -4734,7 +4780,6 @@ const annualActions: React.CSSProperties = {
   gap: "8px",
   paddingTop: "4px",
 };
-
 
 const arWorkspace: React.CSSProperties = {
   margin: "0 12px 12px",
@@ -4943,7 +4988,6 @@ const arHistoryHeading: React.CSSProperties = {
   borderTop: "1px solid #d8dee7",
   color: "#10233a",
 };
-
 
 const tileArrow: React.CSSProperties = {
   marginTop: "6px",
