@@ -6,11 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import { TaskDetailClient } from "./TaskDetailClient";
 
-
-
 export const dynamic = "force-dynamic";
-
-
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -22,23 +18,17 @@ const serviceRoleKey =
 
   process.env.SUPABASE_SERVICE_KEY;
 
-
-
 if (!supabaseUrl || !serviceRoleKey) {
 
   throw new Error("Missing Supabase admin environment variables.");
 
 }
 
-
-
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
 
   auth: { persistSession: false, autoRefreshToken: false },
 
 });
-
-
 
 function formatDate(value: string | null | undefined) {
 
@@ -47,8 +37,6 @@ function formatDate(value: string | null | undefined) {
   const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
 
   if (Number.isNaN(date.getTime())) return String(value);
-
-
 
   return new Intl.DateTimeFormat("en-ZA", {
 
@@ -62,8 +50,6 @@ function formatDate(value: string | null | undefined) {
 
 }
 
-
-
 function formatDateTime(value: string | null | undefined) {
 
   if (!value) return "—";
@@ -71,8 +57,6 @@ function formatDateTime(value: string | null | undefined) {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) return String(value);
-
-
 
   return new Intl.DateTimeFormat("en-ZA", {
 
@@ -90,8 +74,6 @@ function formatDateTime(value: string | null | undefined) {
 
 }
 
-
-
 function parseStage(stage: string | null | undefined) {
 
   const [start, end] = String(stage || "").split(":");
@@ -105,8 +87,6 @@ function parseStage(stage: string | null | undefined) {
   };
 
 }
-
-
 
 function periodsOverlap(
 
@@ -126,13 +106,9 @@ function periodsOverlap(
 
 }
 
-
-
 function monthKeysBetween(start: string, end: string) {
 
   if (!start || !end) return [] as string[];
-
-
 
   const startDate = new Date(`${start}T12:00:00`);
 
@@ -144,15 +120,11 @@ function monthKeysBetween(start: string, end: string) {
 
   }
 
-
-
   const result: string[] = [];
 
   let cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
 
   const last = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
-
-
 
   while (cursor.getTime() <= last.getTime()) {
 
@@ -166,21 +138,15 @@ function monthKeysBetween(start: string, end: string) {
 
   }
 
-
-
   return result;
 
 }
-
-
 
 function candidateCoversMonth(candidateStart: string, candidateEnd: string, monthKey: string) {
 
   const [year, month] = monthKey.split("-").map(Number);
 
   if (!year || !month) return false;
-
-
 
   const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
 
@@ -192,13 +158,9 @@ function candidateCoversMonth(candidateStart: string, candidateEnd: string, mont
 
   ).padStart(2, "0")}`;
 
-
-
   return periodsOverlap(candidateStart, candidateEnd, monthStart, monthEnd);
 
 }
-
-
 
 export default async function WorkItemPage({
 
@@ -212,8 +174,6 @@ export default async function WorkItemPage({
 
   const { id: clientId, workId } = await params;
 
-
-
   const { data: work, error: workError } = await supabase
 
     .from("crm_work_items")
@@ -226,11 +186,7 @@ export default async function WorkItemPage({
 
     .maybeSingle();
 
-
-
   if (workError || !work) notFound();
-
-
 
   const [
 
@@ -244,6 +200,7 @@ export default async function WorkItemPage({
 
     relatedWorkResult,
 
+      clientServicesResult,
   ] = await Promise.all([
 
     supabase
@@ -255,8 +212,6 @@ export default async function WorkItemPage({
       .eq("id", clientId)
 
       .maybeSingle(),
-
-
 
     supabase
 
@@ -271,8 +226,6 @@ export default async function WorkItemPage({
       .eq("work_item_id", workId)
 
       .order("item_order"),
-
-
 
     supabase
 
@@ -290,8 +243,6 @@ export default async function WorkItemPage({
 
       .limit(30),
 
-
-
     supabase
 
       .from("user_profiles")
@@ -303,8 +254,6 @@ export default async function WorkItemPage({
       .eq("access_enabled", true)
 
       .order("full_name"),
-
-
 
     supabase
 
@@ -322,23 +271,51 @@ export default async function WorkItemPage({
 
       .neq("status", "cancelled"),
 
+    supabase
+      .from("crm_client_services")
+      .select("crm_services(service_name)")
+      .eq("client_id", clientId)
+      .eq("is_active", true)
+      .eq("task_generation_enabled", true),
+
   ]);
-
-
 
   const client = clientResult.data;
 
   if (!client) notFound();
 
-
-
   const relatedWork = relatedWorkResult.data || [];
-
   const currentPeriod = parseStage(work.workflow_stage);
 
-
+  const generatedServiceNames = new Set(
+    (clientServicesResult.data || [])
+      .map((row: any) => {
+        const relation = Array.isArray(row.crm_services)
+          ? row.crm_services[0]
+          : row.crm_services;
+        return String(relation?.service_name || "").trim();
+      })
+      .filter(Boolean)
+  );
 
   const checklist = (checklistResult.data || []).map((item: any) => {
+    const emp201ClientPayrollStep =
+      work.service_code === "EMP201" &&
+      item.item_type === "dependency" &&
+      item.dependency_service_code === "Payroll" &&
+      !generatedServiceNames.has("Payroll");
+
+    if (emp201ClientPayrollStep) {
+      return {
+        ...item,
+        label: "Client payroll information received for this period",
+        item_type: "manual",
+        dependency_service_code: null,
+        dependency_rule: null,
+        dependency_complete: null,
+        dependency_summary: null,
+      };
+    }
 
     if (item.item_type !== "dependency" || !item.dependency_service_code) {
 
@@ -354,17 +331,11 @@ export default async function WorkItemPage({
 
     }
 
-
-
     const candidates = relatedWork.filter((candidate: any) => {
 
       if (candidate.service_code !== item.dependency_service_code) return false;
 
-
-
       const dependencyPeriod = parseStage(candidate.workflow_stage);
-
-
 
       if (item.dependency_rule === "same_period_all_completed") {
 
@@ -377,8 +348,6 @@ export default async function WorkItemPage({
         );
 
       }
-
-
 
       return periodsOverlap(
 
@@ -394,13 +363,9 @@ export default async function WorkItemPage({
 
     });
 
-
-
     const isCandidateCompleted = (candidate: any) =>
 
       candidate.status === "completed" || Boolean(candidate.completed_at);
-
-
 
     if (item.dependency_rule === "covered_period_all_completed") {
 
@@ -428,13 +393,9 @@ export default async function WorkItemPage({
 
       );
 
-
-
       const complete =
 
         expectedMonths.length > 0 && completedMonths.length === expectedMonths.length;
-
-
 
       return {
 
@@ -448,17 +409,11 @@ export default async function WorkItemPage({
 
     }
 
-
-
     const complete =
 
       candidates.length > 0 && candidates.every(isCandidateCompleted);
 
-
-
     const completedCount = candidates.filter(isCandidateCompleted).length;
-
-
 
     return {
 
@@ -476,8 +431,6 @@ export default async function WorkItemPage({
 
   });
 
-
-
   return (
 
     <main style={page}>
@@ -491,8 +444,6 @@ export default async function WorkItemPage({
         </Link>
 
       </div>
-
-
 
       <section style={hero}>
 
@@ -520,8 +471,6 @@ export default async function WorkItemPage({
 
         </div>
 
-
-
         <Link href={`/crm/client/${clientId}?tab=work`} style={secondaryAction}>
 
           Client Work
@@ -529,8 +478,6 @@ export default async function WorkItemPage({
         </Link>
 
       </section>
-
-
 
       {currentPeriod.start && currentPeriod.end ? (
 
@@ -547,8 +494,6 @@ export default async function WorkItemPage({
         </div>
 
       ) : null}
-
-
 
       <div style={contentGrid}>
 
@@ -580,14 +525,15 @@ export default async function WorkItemPage({
 
           checklist={checklist}
 
-        
           reviewStatus={work.review_status || "not_requested"}
+
           preparerUserId={work.preparer_user_id || work.assigned_user_id || null}
+
           reviewerUserId={work.reviewer_user_id || null}
+
           serviceCode={work.service_code || ""}
+
         />
-
-
 
         <aside style={activityPanel}>
 
@@ -598,8 +544,6 @@ export default async function WorkItemPage({
             <div style={activitySub}>Audit trail for this work item.</div>
 
           </div>
-
-
 
           {(activityResult.data || []).length ? (
 
@@ -635,8 +579,6 @@ export default async function WorkItemPage({
 
 }
 
-
-
 const page: React.CSSProperties = {
 
   padding: "8px 10px 24px",
@@ -646,8 +588,6 @@ const page: React.CSSProperties = {
   fontFamily: "'Aptos', 'Segoe UI', Arial, sans-serif",
 
 };
-
-
 
 const crumbBar: React.CSSProperties = {
 
@@ -667,8 +607,6 @@ const crumbBar: React.CSSProperties = {
 
 };
 
-
-
 const backLink: React.CSSProperties = {
 
   color: "#174ea6",
@@ -682,8 +620,6 @@ const backLink: React.CSSProperties = {
   letterSpacing: 0,
 
 };
-
-
 
 const hero: React.CSSProperties = {
 
@@ -707,8 +643,6 @@ const hero: React.CSSProperties = {
 
 };
 
-
-
 const title: React.CSSProperties = {
 
   margin: "2px 0 3px",
@@ -723,8 +657,6 @@ const title: React.CSSProperties = {
 
 };
 
-
-
 const meta: React.CSSProperties = {
 
   display: "flex",
@@ -736,8 +668,6 @@ const meta: React.CSSProperties = {
   fontSize: "9px",
 
 };
-
-
 
 const secondaryAction: React.CSSProperties = {
 
@@ -763,8 +693,6 @@ const secondaryAction: React.CSSProperties = {
 
 };
 
-
-
 const periodStrip: React.CSSProperties = {
 
   minHeight: "30px",
@@ -789,8 +717,6 @@ const periodStrip: React.CSSProperties = {
 
 };
 
-
-
 const contentGrid: React.CSSProperties = {
 
   marginTop: "6px",
@@ -805,8 +731,6 @@ const contentGrid: React.CSSProperties = {
 
 };
 
-
-
 const activityPanel: React.CSSProperties = {
 
   background: "#ffffff",
@@ -815,8 +739,6 @@ const activityPanel: React.CSSProperties = {
 
 };
 
-
-
 const activityHeader: React.CSSProperties = {
 
   padding: "8px 10px",
@@ -824,8 +746,6 @@ const activityHeader: React.CSSProperties = {
   borderBottom: "1px solid #e0e7ed",
 
 };
-
-
 
 const activityTitle: React.CSSProperties = {
 
@@ -837,8 +757,6 @@ const activityTitle: React.CSSProperties = {
 
 };
 
-
-
 const activitySub: React.CSSProperties = {
 
   marginTop: "2px",
@@ -849,8 +767,6 @@ const activitySub: React.CSSProperties = {
 
 };
 
-
-
 const activityRow: React.CSSProperties = {
 
   padding: "8px 10px",
@@ -859,8 +775,6 @@ const activityRow: React.CSSProperties = {
 
 };
 
-
-
 const activitySummary: React.CSSProperties = {
 
   color: "#32495b",
@@ -868,8 +782,6 @@ const activitySummary: React.CSSProperties = {
   fontSize: "9.5px",
 
 };
-
-
 
 const activityDate: React.CSSProperties = {
 
@@ -880,8 +792,6 @@ const activityDate: React.CSSProperties = {
   fontSize: "8px",
 
 };
-
-
 
 const empty: React.CSSProperties = {
 

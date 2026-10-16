@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { createClient } from "@supabase/supabase-js";
+
 import { normaliseWorkflowStep, systemChecklistTemplate, type ClientWorkflowStep } from "@/app/lib/crm/taskWorkflowDefaults";
-
-
 
 export const dynamic = "force-dynamic";
 
 export const runtime = "nodejs";
-
-
 
 function getSupabaseAdmin() {
 
@@ -23,15 +20,11 @@ function getSupabaseAdmin() {
 
     process.env.SUPABASE_SERVICE_KEY;
 
-
-
   if (!supabaseUrl || !serviceRoleKey) {
 
     throw new Error("Missing Supabase admin environment variables.");
 
   }
-
-
 
   return createClient(supabaseUrl, serviceRoleKey, {
 
@@ -47,11 +40,7 @@ function getSupabaseAdmin() {
 
 }
 
-
-
 type RelationValue<T> = T | T[] | null | undefined;
-
-
 
 type ClientRelation = {
 
@@ -73,15 +62,11 @@ type ClientRelation = {
 
 };
 
-
-
 type ServiceRelation = {
 
   service_name: string | null;
 
 };
-
-
 
 type ClientServiceRow = {
 
@@ -113,8 +98,6 @@ type ClientServiceRow = {
 
 };
 
-
-
 type TaskPlan = {
 
   serviceName: string;
@@ -129,8 +112,6 @@ type TaskPlan = {
 
 };
 
-
-
 type ExistingWork = {
 
   id: string;
@@ -142,17 +123,16 @@ type ExistingWork = {
   status: string | null;
 
   completed_at: string | null;
+
   assigned_user_id?: string | null;
+
   preparer_user_id?: string | null;
+
   review_status?: string | null;
 
 };
 
-
-
 type ChecklistTemplateItem = ClientWorkflowStep;
-
-
 
 type ResolvedChecklistPlan = {
 
@@ -166,8 +146,6 @@ type ResolvedChecklistPlan = {
 
 };
 
-
-
 function getSingleRelation<T>(value: RelationValue<T>): T | null {
 
   if (!value) return null;
@@ -178,8 +156,6 @@ function getSingleRelation<T>(value: RelationValue<T>): T | null {
 
 }
 
-
-
 function parseDateOnly(value: string) {
 
   const [year, month, day] = value.split("-").map(Number);
@@ -188,23 +164,17 @@ function parseDateOnly(value: string) {
 
 }
 
-
-
 function startOfMonth(date: Date) {
 
   return new Date(date.getFullYear(), date.getMonth(), 1);
 
 }
 
-
-
 function addMonths(date: Date, months: number) {
 
   return new Date(date.getFullYear(), date.getMonth() + months, 1);
 
 }
-
-
 
 function addCalendarMonths(date: Date, months: number) {
 
@@ -222,8 +192,6 @@ function addCalendarMonths(date: Date, months: number) {
 
 }
 
-
-
 function addDays(date: Date, days: number) {
 
   const next = new Date(date);
@@ -233,8 +201,6 @@ function addDays(date: Date, days: number) {
   return next;
 
 }
-
-
 
 function formatDateOnly(date: Date) {
 
@@ -248,15 +214,11 @@ function formatDateOnly(date: Date) {
 
 }
 
-
-
 function getMonthEnd(date: Date) {
 
   return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 
 }
-
-
 
 const YEAR_END_MONTHS = [
 
@@ -286,8 +248,6 @@ const YEAR_END_MONTHS = [
 
 ];
 
-
-
 function financialYearDates(financialYear: number, yearEndName: string | null | undefined) {
 
   const normalised = String(yearEndName || "February").trim().toLowerCase();
@@ -300,19 +260,13 @@ function financialYearDates(financialYear: number, yearEndName: string | null | 
 
   );
 
-
-
   const periodEnd = new Date(financialYear, monthIndex + 1, 0);
 
   const periodStart = new Date(financialYear - 1, monthIndex + 1, 1);
 
-
-
   return { periodStart, periodEnd };
 
 }
-
-
 
 function vatMonthsPerPeriod(settings: Record<string, any>, fallbackFrequency?: string | null) {
 
@@ -326,8 +280,6 @@ function vatMonthsPerPeriod(settings: Record<string, any>, fallbackFrequency?: s
 
 }
 
-
-
 function clampDay(year: number, month: number, day: number) {
 
   const lastDay = new Date(year, month + 1, 0).getDate();
@@ -335,8 +287,6 @@ function clampDay(year: number, month: number, day: number) {
   return Math.max(1, Math.min(day, lastDay));
 
 }
-
-
 
 function getDueDateAfterPeriod(
 
@@ -358,8 +308,6 @@ function getDueDateAfterPeriod(
 
   );
 
-
-
   return new Date(
 
     dueMonth.getFullYear(),
@@ -372,8 +320,6 @@ function getDueDateAfterPeriod(
 
 }
 
-
-
 function normalFrequency(value: string | null | undefined) {
 
   const frequency = String(value || "")
@@ -385,8 +331,6 @@ function normalFrequency(value: string | null | undefined) {
     .replaceAll("-", "_")
 
     .replaceAll(" ", "_");
-
-
 
   if (["weekly", "week"].includes(frequency)) return "weekly";
 
@@ -418,19 +362,13 @@ function normalFrequency(value: string | null | undefined) {
 
   if (["annual", "annually", "yearly"].includes(frequency)) return "annual";
 
-
-
   return frequency || "annual";
 
 }
 
-
-
 function monthsForFrequency(value: string | null | undefined) {
 
   const frequency = normalFrequency(value);
-
-
 
   if (frequency === "weekly" || frequency === "fortnightly") return 0;
 
@@ -444,13 +382,9 @@ function monthsForFrequency(value: string | null | undefined) {
 
   if (frequency === "annual") return 12;
 
-
-
   return 12;
 
 }
-
-
 
 function getMonthlyTask(
 
@@ -470,8 +404,6 @@ function getMonthlyTask(
 
   const periodEnd = getMonthEnd(addMonths(periodStart, monthsInPeriod - 1));
 
-
-
   const dueDate = dueInSameMonth
 
     ? new Date(
@@ -485,8 +417,6 @@ function getMonthlyTask(
       )
 
     : getDueDateAfterPeriod(periodEnd, 1, dueDay);
-
-
 
   return {
 
@@ -504,8 +434,6 @@ function getMonthlyTask(
 
 }
 
-
-
 function getPayrollTask(
 
   startDate: Date,
@@ -520,15 +448,11 @@ function getPayrollTask(
 
   const normal = normalFrequency(frequency || "monthly");
 
-
-
   if (normal === "weekly" || normal === "fortnightly") {
 
     const periodStart = new Date(startDate);
 
     const periodEnd = addDays(periodStart, normal === "weekly" ? 6 : 13);
-
-
 
     return {
 
@@ -546,8 +470,6 @@ function getPayrollTask(
 
   }
 
-
-
   return getMonthlyTask(
 
     startDate,
@@ -563,8 +485,6 @@ function getPayrollTask(
   );
 
 }
-
-
 
 function getVatTask(
 
@@ -582,23 +502,17 @@ function getVatTask(
 
   const periodStart = startOfMonth(startDate);
 
-
-
   const configuredStart = String(settings?.first_period_start || "");
 
   const configuredEnd = String(settings?.first_period_end || "");
 
   const configuredDue = String(settings?.first_due_date || "");
 
-
-
   const isConfiguredFirstPeriod =
 
     configuredStart &&
 
     formatDateOnly(periodStart) === formatDateOnly(parseDateOnly(configuredStart));
-
-
 
   const periodEnd =
 
@@ -607,8 +521,6 @@ function getVatTask(
       ? parseDateOnly(configuredEnd)
 
       : getMonthEnd(addMonths(periodStart, monthsInPeriod - 1));
-
-
 
   const dueDay = Number(settings?.due_day || 25);
 
@@ -619,8 +531,6 @@ function getVatTask(
       ? parseDateOnly(configuredDue)
 
       : getDueDateAfterPeriod(periodEnd, 1, dueDay);
-
-
 
   return {
 
@@ -637,8 +547,6 @@ function getVatTask(
   };
 
 }
-
-
 
 function getFinancialStatementsTask(
 
@@ -660,17 +568,11 @@ function getFinancialStatementsTask(
 
   }
 
-
-
   const { periodStart, periodEnd } = financialYearDates(year, clientYearEnd);
-
-
 
   // PracticePilot work due date. This is a workflow date, not a statutory filing date.
 
   const dueDate = getMonthEnd(addMonths(startOfMonth(periodEnd), 6));
-
-
 
   return {
 
@@ -687,8 +589,6 @@ function getFinancialStatementsTask(
   };
 
 }
-
-
 
 function getIncomeTaxTask(
 
@@ -710,11 +610,7 @@ function getIncomeTaxTask(
 
   }
 
-
-
   const { periodStart, periodEnd } = financialYearDates(year, clientYearEnd);
-
-
 
   // CRM workflow date, not the statutory ITR14 deadline.
 
@@ -725,8 +621,6 @@ function getIncomeTaxTask(
   const afsDueDate = getMonthEnd(addMonths(startOfMonth(periodEnd), 6));
 
   const dueDate = getMonthEnd(addMonths(startOfMonth(afsDueDate), 1));
-
-
 
   return {
 
@@ -743,8 +637,6 @@ function getIncomeTaxTask(
   };
 
 }
-
-
 
 function getExactConfiguredAnnualTask(
 
@@ -772,8 +664,6 @@ function getExactConfiguredAnnualTask(
 
     formatDateOnly(periodStart) === formatDateOnly(parseDateOnly(configuredStart));
 
-
-
   const periodEnd = isConfiguredFirstPeriod && configuredEnd
 
     ? parseDateOnly(configuredEnd)
@@ -788,11 +678,7 @@ function getExactConfiguredAnnualTask(
 
       );
 
-
-
   let dueDate: Date;
-
-
 
   if (serviceName === "Income Tax") {
 
@@ -842,8 +728,6 @@ function getExactConfiguredAnnualTask(
 
   }
 
-
-
   const configuredYear = Number(settings?.tasking_year || 0);
 
   const cycleYear = configuredYear
@@ -851,8 +735,6 @@ function getExactConfiguredAnnualTask(
     ? configuredYear + cycleIndex
 
     : periodEnd.getFullYear();
-
-
 
   const titleServiceName =
 
@@ -870,8 +752,6 @@ function getExactConfiguredAnnualTask(
 
           : `${serviceName} ${cycleYear}`;
 
-
-
   return {
 
     serviceName,
@@ -887,8 +767,6 @@ function getExactConfiguredAnnualTask(
   };
 
 }
-
-
 
 function getProvisionalTaxTask(
 
@@ -912,21 +790,15 @@ function getProvisionalTaxTask(
 
   }
 
-
-
   const firstPeriod = Number(
 
     settings?.provisional_period || settings?.payment_number || 1
 
   );
 
-
-
   let year = firstYear;
 
   let period = firstPeriod;
-
-
 
   if (firstPeriod === 1) {
 
@@ -972,21 +844,15 @@ function getProvisionalTaxTask(
 
   }
 
-
-
   const { periodStart: financialYearStart, periodEnd: financialYearEnd } =
 
     financialYearDates(year, clientYearEnd);
-
-
 
   let periodStart = financialYearStart;
 
   let periodEnd: Date;
 
   let dueDate: Date;
-
-
 
   if (period === 1) {
 
@@ -1014,8 +880,6 @@ function getProvisionalTaxTask(
 
   }
 
-
-
   return {
 
     serviceName,
@@ -1031,8 +895,6 @@ function getProvisionalTaxTask(
   };
 
 }
-
-
 
 function getEmp501Task(
 
@@ -1054,13 +916,9 @@ function getEmp501Task(
 
   ).toLowerCase();
 
-
-
   let year = firstYear;
 
   let cycle = firstCycle;
-
-
 
   if (firstCycle === "interim") {
 
@@ -1088,8 +946,6 @@ function getEmp501Task(
 
   }
 
-
-
   const periodStart = new Date(year - 1, 2, 1);
 
   const periodEnd =
@@ -1100,8 +956,6 @@ function getEmp501Task(
 
       : new Date(year - 1, 7, 31);
 
-
-
   const dueDate =
 
     cycle === "annual"
@@ -1109,8 +963,6 @@ function getEmp501Task(
       ? new Date(year, 4, 31)
 
       : new Date(year - 1, 9, 31);
-
-
 
   return {
 
@@ -1134,8 +986,6 @@ function getEmp501Task(
 
 }
 
-
-
 function buildTaskPlan(
 
   serviceName: string,
@@ -1158,15 +1008,11 @@ function buildTaskPlan(
 
   }
 
-
-
   if (serviceName === "Payroll") {
 
     return getPayrollTask(startDate, serviceName, frequency, settings);
 
   }
-
-
 
   if (serviceName === "EMP201" || serviceName === "UIF") {
 
@@ -1184,8 +1030,6 @@ function buildTaskPlan(
 
   }
 
-
-
   if (serviceName === "Accounting") {
 
     return getMonthlyTask(
@@ -1201,8 +1045,6 @@ function buildTaskPlan(
     );
 
   }
-
-
 
   if (serviceName === "Management Reports") {
 
@@ -1220,15 +1062,11 @@ function buildTaskPlan(
 
   }
 
-
-
   if (serviceName === "EMP501") {
 
     return getEmp501Task(startDate, serviceName, settings, cycleIndex);
 
   }
-
-
 
   if (serviceName === "Provisional Tax") {
 
@@ -1248,23 +1086,17 @@ function buildTaskPlan(
 
   }
 
-
-
   if (serviceName === "Financial Statements") {
 
     return getFinancialStatementsTask(serviceName, settings, clientYearEnd, cycleIndex);
 
   }
 
-
-
   if (serviceName === "Income Tax") {
 
     return getIncomeTaxTask(serviceName, settings, clientYearEnd, cycleIndex);
 
   }
-
-
 
   if (
 
@@ -1294,8 +1126,6 @@ function buildTaskPlan(
 
   }
 
-
-
   const months = monthsForFrequency(frequency);
 
   if (months > 0 && months < 12) {
@@ -1314,13 +1144,9 @@ function buildTaskPlan(
 
   }
 
-
-
   return null;
 
 }
-
-
 
 function getNextPeriodStart(
 
@@ -1334,13 +1160,9 @@ function getNextPeriodStart(
 
   const normal = normalFrequency(frequency);
 
-
-
   if (normal === "weekly") return addDays(plan.periodStart, 7);
 
   if (normal === "fortnightly") return addDays(plan.periodStart, 14);
-
-
 
   if (serviceName === "VAT201") {
 
@@ -1354,8 +1176,6 @@ function getNextPeriodStart(
 
   }
 
-
-
   return addMonths(
 
     startOfMonth(plan.periodStart),
@@ -1366,23 +1186,17 @@ function getNextPeriodStart(
 
 }
 
-
-
 function buildWorkflowStage(plan: TaskPlan) {
 
   return `${formatDateOnly(plan.periodStart)}:${formatDateOnly(plan.periodEnd)}`;
 
 }
 
-
-
 function buildDescription(plan: TaskPlan) {
 
   return `Period: ${formatDateOnly(plan.periodStart)} → ${formatDateOnly(plan.periodEnd)}`;
 
 }
-
-
 
 function isCompleted(work: ExistingWork | undefined) {
 
@@ -1397,8 +1211,6 @@ function isCompleted(work: ExistingWork | undefined) {
   );
 
 }
-
-
 
 function futurePeriodRetentionCount(serviceName: string) {
 
@@ -1430,8 +1242,6 @@ function futurePeriodRetentionCount(serviceName: string) {
 
   }
 
-
-
   if (
 
     serviceName === "EMP501" ||
@@ -1445,8 +1255,6 @@ function futurePeriodRetentionCount(serviceName: string) {
     return 2;
 
   }
-
-
 
   if (
 
@@ -1466,15 +1274,11 @@ function futurePeriodRetentionCount(serviceName: string) {
 
   }
 
-
-
   // Sensible default for any other recurring service.
 
   return 3;
 
 }
-
-
 
 function isRollingCycleService(serviceName: string) {
 
@@ -1500,72 +1304,120 @@ function isRollingCycleService(serviceName: string) {
 
 }
 
-
-
 async function resolveChecklistPlan(
+
   supabase: ReturnType<typeof getSupabaseAdmin>,
+
   organisationId: string,
+
   serviceName: string,
+
   clientServiceId: string,
+
   serviceSettings: Record<string, any>
+
 ): Promise<ResolvedChecklistPlan> {
+
   if (Array.isArray(serviceSettings?.client_workflow_steps)) {
+
     return {
+
       source: "client",
+
       enabled: true,
+
       templateKey: `client:${clientServiceId}`,
+
       steps: serviceSettings.client_workflow_steps
+
         .map((step: any) => normaliseWorkflowStep(step))
+
         .filter(Boolean) as ChecklistTemplateItem[],
+
     };
+
   }
 
   const { data: practiceTemplate, error: templateError } = await supabase
+
     .from("crm_workflow_templates")
+
     .select("id, is_enabled")
+
     .eq("organisation_id", organisationId)
+
     .eq("service_name", serviceName)
+
     .maybeSingle();
 
   if (templateError) throw templateError;
 
   if (!practiceTemplate?.id) {
+
     return {
+
       source: "system",
+
       enabled: true,
+
       templateKey: `system:${serviceName}`,
+
       steps: systemChecklistTemplate(serviceName),
+
     };
+
   }
 
   if (practiceTemplate.is_enabled === false) {
+
     return {
+
       source: "practice",
+
       enabled: false,
+
       templateKey: `practice:${practiceTemplate.id}`,
+
       steps: [],
+
     };
+
   }
 
   const { data: practiceSteps, error: stepsError } = await supabase
+
     .from("crm_workflow_template_steps")
+
     .select(
+
       "item_order, label, item_type, is_active, dependency_service_code, dependency_rule"
+
     )
+
     .eq("template_id", practiceTemplate.id)
+
     .eq("is_active", true)
+
     .order("item_order", { ascending: true });
 
   if (stepsError) throw stepsError;
 
   return {
+
     source: "practice",
+
     enabled: true,
+
     templateKey: `practice:${practiceTemplate.id}`,
+
     steps: (practiceSteps || [])
+
       .map((step: any) => normaliseWorkflowStep(step))
+
       .filter(Boolean) as ChecklistTemplateItem[],
+
   };
+
 }
 
 async function createChecklistForNewWork(
@@ -1579,8 +1431,6 @@ async function createChecklistForNewWork(
 ) {
 
   if (!plan.enabled || plan.steps.length === 0) return;
-
-
 
   const rows = plan.steps.map((item, index) => ({
 
@@ -1599,14 +1449,16 @@ async function createChecklistForNewWork(
     dependency_service_code: item.dependency_service_code || null,
 
     dependency_rule: item.dependency_rule || null,
+
     requires_evidence: Boolean(item.requires_evidence),
+
     evidence_label: item.requires_evidence
+
       ? String(item.evidence_label || item.label || "").trim() || item.label
+
       : null,
 
   }));
-
-
 
   const { error } = await supabase
 
@@ -1614,13 +1466,9 @@ async function createChecklistForNewWork(
 
     .insert(rows);
 
-
-
   if (error) throw error;
 
 }
-
-
 
 async function resolveAssignedAuthUserId(
 
@@ -1644,19 +1492,13 @@ async function resolveAssignedAuthUserId(
 
     null;
 
-
-
   if (!profileId) return null;
-
-
 
   if (profileMap.has(profileId)) {
 
     return profileMap.get(profileId) || null;
 
   }
-
-
 
   const { data, error } = await supabase
 
@@ -1668,23 +1510,15 @@ async function resolveAssignedAuthUserId(
 
     .maybeSingle();
 
-
-
   if (error) throw error;
-
-
 
   const userId = data?.user_id ? String(data.user_id) : "";
 
   if (userId) profileMap.set(profileId, userId);
 
-
-
   return userId || null;
 
 }
-
-
 
 export async function POST(request: Request) {
 
@@ -1692,18 +1526,16 @@ export async function POST(request: Request) {
 
     const supabase = getSupabaseAdmin();
 
-
-
     let requestedClientId = "";
+
     let updateUpcomingTasks = false;
-
-
 
     try {
 
       const body = await request.json();
 
       requestedClientId = String(body?.clientId || "").trim();
+
       updateUpcomingTasks = Boolean(body?.updateUpcomingTasks);
 
     } catch {
@@ -1711,8 +1543,6 @@ export async function POST(request: Request) {
       // Admin/manual generation may call without JSON.
 
     }
-
-
 
     let query = supabase
 
@@ -1774,27 +1604,30 @@ export async function POST(request: Request) {
 
       .eq("task_generation_enabled", true);
 
-
-
     if (requestedClientId) {
 
       query = query.eq("client_id", requestedClientId);
 
     }
 
-
-
     const { data, error } = await query;
 
     if (error) throw error;
 
-
-
     const clientServices = (data || []) as ClientServiceRow[];
 
+  const generatedServicesByClient = new Map<string, Set<string>>();
+  for (const row of clientServices) {
+    const relation = getSingleRelation(row.crm_services);
+    const name = String(relation?.service_name || "").trim();
+    if (!name) continue;
+
+    const set = generatedServicesByClient.get(row.client_id) || new Set<string>();
+    set.add(name);
+    generatedServicesByClient.set(row.client_id, set);
+  }
+
     const profileMap = new Map<string, string>();
-
-
 
     const created: any[] = [];
 
@@ -1804,15 +1637,11 @@ export async function POST(request: Request) {
 
     const skipped: Array<{ client_service_id: string; reason: string }> = [];
 
-
-
     for (const clientService of clientServices) {
 
       const client = getSingleRelation(clientService.crm_clients);
 
       const service = getSingleRelation(clientService.crm_services);
-
-
 
       const serviceName = String(service?.service_name || "").trim();
 
@@ -1821,8 +1650,6 @@ export async function POST(request: Request) {
       const organisationId =
 
         clientService.organisation_id || client?.organisation_id || null;
-
-
 
       if (!serviceName || !clientName || !organisationId || !clientService.start_date) {
 
@@ -1838,15 +1665,11 @@ export async function POST(request: Request) {
 
       }
 
-
-
       const settings = {
 
         ...(clientService.service_settings || {}),
 
       };
-
-
 
       if (!settings.first_period_start && clientService.start_date) {
 
@@ -1854,15 +1677,11 @@ export async function POST(request: Request) {
 
       }
 
-
-
       if (!settings.first_period_end && clientService.end_date) {
 
         settings.first_period_end = clientService.end_date;
 
       }
-
-
 
       const assignedUserId = await resolveAssignedAuthUserId(
 
@@ -1892,23 +1711,45 @@ export async function POST(request: Request) {
 
       );
 
-
-
       // Resolve the practice's checklist ONCE for this client service run.
 
       // A saved practice workflow overrides the PracticePilot standard.
 
       // If the practice has disabled checklists for the service, new work gets no checklist.
 
-      const resolvedChecklistPlan = await resolveChecklistPlan(
-        supabase,
-        organisationId,
-        serviceName,
-        clientService.id,
-        settings
-      );
+      let resolvedChecklistPlan = await resolveChecklistPlan(
+      supabase,
+      organisationId,
+      serviceName,
+      clientService.id,
+      settings
+    );
 
+    const generatedServiceNames =
+      generatedServicesByClient.get(clientService.client_id) || new Set<string>();
 
+    if (serviceName === "EMP201" && !generatedServiceNames.has("Payroll")) {
+      resolvedChecklistPlan = {
+        ...resolvedChecklistPlan,
+        templateKey: `${resolvedChecklistPlan.templateKey}:client-payroll`,
+        steps: resolvedChecklistPlan.steps.map((step) => {
+          if (
+            step.item_type === "dependency" &&
+            step.dependency_service_code === "Payroll"
+          ) {
+            return {
+              ...step,
+              label: "Client payroll information received for this period",
+              item_type: "manual",
+              dependency_service_code: null,
+              dependency_rule: null,
+            };
+          }
+
+          return step;
+        }),
+      };
+    }
 
       /*
 
@@ -1946,11 +1787,7 @@ export async function POST(request: Request) {
 
         .eq("source_module", "crm");
 
-
-
       if (existingError) throw existingError;
-
-
 
       const existing = (existingRows || []) as ExistingWork[];
 
@@ -1964,19 +1801,13 @@ export async function POST(request: Request) {
 
       );
 
-
-
       const desiredPlans: TaskPlan[] = [];
 
       const desiredStages = new Set<string>();
 
-
-
       const today = parseDateOnly(formatDateOnly(new Date()));
 
       const futurePeriodsToKeep = futurePeriodRetentionCount(serviceName);
-
-
 
       let cursor = parseDateOnly(clientService.start_date);
 
@@ -1985,8 +1816,6 @@ export async function POST(request: Request) {
       let cycleIndex = 0;
 
       let upcomingOpenPeriods = 0;
-
-
 
       while (attempts < 240) {
 
@@ -2006,29 +1835,19 @@ export async function POST(request: Request) {
 
         );
 
-
-
         if (!plan) break;
-
-
 
         const stage = buildWorkflowStage(plan);
 
         desiredStages.add(stage);
 
-
-
         const existingAtStage = existingByStage.get(stage);
 
         const completedAtStage = isCompleted(existingAtStage);
 
-
-
         if (!completedAtStage) {
 
           desiredPlans.push(plan);
-
-
 
           // Only genuinely upcoming OPEN periods count toward the planning quota.
 
@@ -2042,8 +1861,6 @@ export async function POST(request: Request) {
 
         }
 
-
-
         // Once the minimum future planning window is full, stop. Historical
 
         // overdue/open work has already been retained because we walked the
@@ -2056,13 +1873,9 @@ export async function POST(request: Request) {
 
         }
 
-
-
         if (isRollingCycleService(serviceName)) {
 
           cycleIndex += 1;
-
-
 
           if (
 
@@ -2092,8 +1905,6 @@ export async function POST(request: Request) {
 
           );
 
-
-
           if (next.getTime() <= cursor.getTime()) {
 
             throw new Error(
@@ -2104,19 +1915,13 @@ export async function POST(request: Request) {
 
           }
 
-
-
           cursor = next;
 
         }
 
-
-
         attempts += 1;
 
       }
-
-
 
       // Remove ONLY invalid / stale, uncompleted auto-generated work for this service.
 
@@ -2134,8 +1939,6 @@ export async function POST(request: Request) {
 
       });
 
-
-
       if (obsolete.length) {
 
         const obsoleteIds = obsolete.map((row) => row.id);
@@ -2148,15 +1951,11 @@ export async function POST(request: Request) {
 
           .in("id", obsoleteIds);
 
-
-
         if (deleteError) throw deleteError;
 
         deleted.push(...obsoleteIds);
 
       }
-
-
 
       // Ensure each desired open period exists and carries the current dates/setup.
 
@@ -2200,8 +1999,6 @@ export async function POST(request: Request) {
 
         };
 
-
-
         if (existingAtStage && !isCompleted(existingAtStage)) {
 
           const { error: updateError } = await supabase
@@ -2209,48 +2006,66 @@ export async function POST(request: Request) {
             .from("crm_work_items")
 
             .update({
+
               ...payload,
+
               assigned_user_id:
+
                 existingAtStage.review_status === "awaiting_review"
+
                   ? existingAtStage.assigned_user_id
+
                   : assignedUserId,
+
               preparer_user_id:
+
                 existingAtStage.preparer_user_id || assignedUserId,
+
               updated_at: new Date().toISOString(),
+
             })
 
             .eq("id", existingAtStage.id);
-
-
 
           if (updateError) throw updateError;
 
           updated.push(existingAtStage.id);
 
           if (
+
             updateUpcomingTasks &&
+
             String(existingAtStage.status || "") === "not_started" &&
+
             existingAtStage.review_status !== "awaiting_review"
+
           ) {
+
             const { error: deleteChecklistError } = await supabase
+
               .from("crm_work_item_checklist")
+
               .delete()
+
               .eq("work_item_id", existingAtStage.id);
 
             if (deleteChecklistError) throw deleteChecklistError;
 
             await createChecklistForNewWork(
+
               supabase,
+
               existingAtStage.id,
+
               resolvedChecklistPlan
+
             );
+
           }
 
           continue;
 
         }
-
-
 
         if (!existingAtStage) {
 
@@ -2274,11 +2089,7 @@ export async function POST(request: Request) {
 
             .single();
 
-
-
           if (insertError) throw insertError;
-
-
 
           created.push(inserted);
 
@@ -2296,11 +2107,7 @@ export async function POST(request: Request) {
 
       }
 
-
-
       const lastPlan = desiredPlans[desiredPlans.length - 1] || null;
-
-
 
       const { error: serviceUpdateError } = await supabase
 
@@ -2326,13 +2133,9 @@ export async function POST(request: Request) {
 
         .eq("id", clientService.id);
 
-
-
       if (serviceUpdateError) throw serviceUpdateError;
 
     }
-
-
 
     return NextResponse.json({
 
@@ -2387,8 +2190,6 @@ export async function POST(request: Request) {
   } catch (error: any) {
 
     console.error("Task generation failed:", error);
-
-
 
     return NextResponse.json(
 
