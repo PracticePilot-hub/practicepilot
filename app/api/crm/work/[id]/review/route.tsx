@@ -246,7 +246,7 @@ export async function POST(request: Request, routeContext: any) {
     const workingPapersPath = String(body?.workingPapersPath || "").trim();
     const reviewNotes = String(body?.reviewNotes || "").trim();
 
-    if (!["send", "approve", "return"].includes(action)) return NextResponse.json({ error: "Invalid review action." }, { status: 400 });
+    if (!["send", "approve", "return", "reopen"].includes(action)) return NextResponse.json({ error: "Invalid review action." }, { status: 400 });
 
     const now = new Date().toISOString();
 
@@ -485,6 +485,92 @@ export async function POST(request: Request, routeContext: any) {
         working_papers_path: workingPapersPath,
       });
 
+    }
+
+    if (action === "reopen") {
+      const isAssignedReviewer =
+        Boolean(context.work.reviewer_user_id) &&
+        context.work.reviewer_user_id === context.user.id;
+
+      const isClientReviewer =
+        Boolean(context.client?.reviewer_user_id) &&
+        context.client?.reviewer_user_id === context.profile.id;
+
+      const isClientManager =
+        Boolean(context.client?.manager_user_id) &&
+        context.client?.manager_user_id === context.profile.id;
+
+      const isClientPartner =
+        Boolean(context.client?.partner_user_id) &&
+        context.client?.partner_user_id === context.profile.id;
+
+      const isPracticeManager = [
+        "Client Manager",
+        "Admin",
+        "Super Admin",
+      ].includes(String(context.profile.role || ""));
+
+      if (
+        !isAssignedReviewer &&
+        !isClientReviewer &&
+        !isClientManager &&
+        !isClientPartner &&
+        !isPracticeManager
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Only the reviewer, manager, partner or practice manager can reopen an approved task.",
+          },
+          { status: 403 }
+        );
+      }
+
+      const preparerUserId =
+        context.work.preparer_user_id ||
+        context.work.assigned_user_id ||
+        context.user.id;
+
+      const { error: resetChecklistError } = await supabase
+        .from("crm_work_item_checklist")
+        .update({ status: "outstanding", updated_at: now })
+        .eq("work_item_id", workId)
+        .in("item_type", ["review", "submission"]);
+
+      if (resetChecklistError) throw resetChecklistError;
+
+      const { error: reopenError } = await supabase
+        .from("crm_work_items")
+        .update({
+          assigned_user_id: preparerUserId,
+          review_status: "not_requested",
+          review_requested_at: null,
+          review_completed_at: null,
+          review_notes: null,
+          status: "in_progress",
+          completed_at: null,
+          updated_at: now,
+        })
+        .eq("id", workId);
+
+      if (reopenError) throw reopenError;
+
+      await addActivity(supabase, {
+        organisationId: context.profile.organisation_id,
+        workId,
+        userId: context.user.id,
+        actionType: "review_reopened",
+        summary:
+          "Review workflow reopened. Review and submission steps were reset.",
+        fromStatus: context.work.status,
+        toStatus: "in_progress",
+      });
+
+      return NextResponse.json({
+        success: true,
+        review_status: "not_requested",
+        status: "in_progress",
+      });
     }
 
     if (!context.work.reviewer_user_id || context.work.reviewer_user_id !== context.user.id) {

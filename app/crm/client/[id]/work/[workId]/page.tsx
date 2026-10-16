@@ -1,737 +1,1933 @@
-import Link from "next/link";
+"use client";
 
-import { notFound } from "next/navigation";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+
+import { useRouter } from "next/navigation";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { TaskDetailClient } from "./TaskDetailClient";
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 
-export const dynamic = "force-dynamic";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabase =
 
-const serviceRoleKey =
+  supabaseUrl && supabaseAnonKey
 
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    ? createClient(supabaseUrl, supabaseAnonKey)
 
-  process.env.SUPABASE_SECRET_KEY ||
+    : null;
 
-  process.env.SUPABASE_SERVICE_KEY;
+type PracticeUser = {
 
-if (!supabaseUrl || !serviceRoleKey) {
+  user_id: string;
 
-  throw new Error("Missing Supabase admin environment variables.");
+  full_name: string | null;
+
+  email: string | null;
+
+};
+
+type ChecklistItem = {
+
+  id: string;
+
+  label: string;
+
+  status: string;
+
+  item_type: string;
+
+  dependency_service_code: string | null;
+
+  dependency_complete: boolean | null;
+
+  dependency_summary: string | null;
+
+  requires_evidence?: boolean | null;
+
+  evidence_label?: string | null;
+
+};
+
+type EvidenceItem = {
+
+  id: string;
+
+  checklist_item_id: string | null;
+
+  document_name: string;
+
+  provider_path: string;
+
+  created_at: string | null;
+
+};
+
+type ReviewMeta = {
+  review_status: string;
+  review_due_date: string | null;
+  working_papers_path: string | null;
+  review_notes: string | null;
+  preparer_user_id: string | null;
+  reviewer_user_id: string | null;
+  preparer_name: string | null;
+  reviewer_name: string | null;
+};
+
+type FolderItem = {
+  name: string;
+  path: string;
+  type: "folder";
+};
+
+type TimerState = {
+
+  running: boolean;
+
+  openEntryId: string | null;
+
+  openStartedAt: string | null;
+
+  myClosedSeconds: number;
+
+  totalClosedSeconds: number;
+
+};
+
+function formatDuration(totalSeconds: number) {
+
+  const seconds = Math.max(0, Math.floor(totalSeconds || 0));
+
+  const hours = Math.floor(seconds / 3600);
+
+  const minutes = Math.floor((seconds % 3600) / 60);
+
+  const remainingSeconds = seconds % 60;
+
+  return [
+
+    String(hours).padStart(2, "0"),
+
+    String(minutes).padStart(2, "0"),
+
+    String(remainingSeconds).padStart(2, "0"),
+
+  ].join(":");
 
 }
 
-const supabase = createClient(supabaseUrl, serviceRoleKey, {
+type Props = {
 
-  auth: { persistSession: false, autoRefreshToken: false },
+  clientId: string;
 
-});
+  workId: string;
 
-function formatDate(value: string | null | undefined) {
+  status: string;
 
-  if (!value) return "—";
+  priority: string;
 
-  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  assignedUserId: string | null;
 
-  if (Number.isNaN(date.getTime())) return String(value);
+  dueDate: string | null;
 
-  return new Intl.DateTimeFormat("en-ZA", {
+  description: string | null;
 
-    day: "2-digit",
+  users: PracticeUser[];
 
-    month: "short",
+  checklist: ChecklistItem[];
 
-    year: "numeric",
+  reviewStatus: string;
 
-  }).format(date);
+  preparerUserId: string | null;
 
-}
+  reviewerUserId: string | null;
 
-function formatDateTime(value: string | null | undefined) {
+  serviceCode: string;
 
-  if (!value) return "—";
+};
 
-  const date = new Date(value);
+export function TaskDetailClient({
 
-  if (Number.isNaN(date.getTime())) return String(value);
+  clientId,
 
-  return new Intl.DateTimeFormat("en-ZA", {
+  workId,
 
-    day: "2-digit",
+  status,
 
-    month: "short",
+  priority,
 
-    year: "numeric",
+  assignedUserId,
 
-    hour: "2-digit",
+  dueDate,
 
-    minute: "2-digit",
+  description,
 
-  }).format(date);
+  users,
 
-}
+  checklist,
 
-function parseStage(stage: string | null | undefined) {
+  reviewStatus,
 
-  const [start, end] = String(stage || "").split(":");
+  preparerUserId,
 
-  return {
+  reviewerUserId,
 
-    start: start || "",
+  serviceCode,
 
-    end: end || "",
+}: Props) {
 
-  };
+  const router = useRouter();
 
-}
+  const [currentStatus, setCurrentStatus] = useState(status);
 
-function periodsOverlap(
+  const [currentPriority, setCurrentPriority] = useState(priority);
 
-  aStart: string,
+  const [currentAssignee, setCurrentAssignee] = useState(assignedUserId || "");
 
-  aEnd: string,
+  const [currentDueDate, setCurrentDueDate] = useState(dueDate || "");
 
-  bStart: string,
+  const [currentDescription, setCurrentDescription] = useState(description || "");
 
-  bEnd: string
+  const [newChecklistItem, setNewChecklistItem] = useState("");
 
-) {
+  const [saving, setSaving] = useState(false);
 
-  if (!aStart || !aEnd || !bStart || !bEnd) return false;
+  const [refreshingWork, setRefreshingWork] = useState(false);
 
-  return aStart <= bEnd && bStart <= aEnd;
+  const [completingAll, setCompletingAll] = useState(false);
 
-}
+  const [error, setError] = useState("");
 
-function monthKeysBetween(start: string, end: string) {
+  const [message, setMessage] = useState("");
 
-  if (!start || !end) return [] as string[];
+  const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
 
-  const startDate = new Date(`${start}T12:00:00`);
+  const [evidenceBusyId, setEvidenceBusyId] = useState("");
 
-  const endDate = new Date(`${end}T12:00:00`);
+  const [reviewBusy, setReviewBusy] = useState(false);
 
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [reviewMeta, setReviewMeta] = useState<ReviewMeta | null>(null);
+  const [reviewDueDate, setReviewDueDate] = useState("");
+  const [workingPapersPath, setWorkingPapersPath] = useState("");
+  const [reviewNotes, setReviewNotes] = useState("");
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  const [folderPickerBusy, setFolderPickerBusy] = useState(false);
+  const [folderPickerPath, setFolderPickerPath] = useState("");
+  const [folderPickerRoot, setFolderPickerRoot] = useState("");
+  const [folderPickerItems, setFolderPickerItems] = useState<FolderItem[]>([]);
 
-    return [] as string[];
+  const [timerState, setTimerState] = useState<TimerState>({
+
+    running: false,
+
+    openEntryId: null,
+
+    openStartedAt: null,
+
+    myClosedSeconds: 0,
+
+    totalClosedSeconds: 0,
+
+  });
+
+  const [timerBusy, setTimerBusy] = useState(false);
+
+  const [timerNow, setTimerNow] = useState(Date.now());
+
+  async function authFetch(url: string, init: RequestInit) {
+
+    if (!supabase) throw new Error("Supabase client is not configured.");
+
+    const {
+
+      data: { session },
+
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) throw new Error("You are not signed in.");
+
+    const response = await fetch(url, {
+
+      ...init,
+
+      headers: {
+
+        ...(init.headers || {}),
+
+        "Content-Type": "application/json",
+
+        Authorization: `Bearer ${session.access_token}`,
+
+      },
+
+    });
+
+    const json = await response.json();
+
+    if (!response.ok) throw new Error(json.error || "Request failed.");
+
+    return json;
 
   }
 
-  const result: string[] = [];
+  async function loadEvidence() {
 
-  let cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    try {
 
-  const last = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+      const result = await authFetch(`/api/crm/work/${workId}/evidence`, { method: "GET" });
 
-  while (cursor.getTime() <= last.getTime()) {
+      setEvidence(Array.isArray(result?.evidence) ? result.evidence : []);
 
-    result.push(
+    } catch (err) {
 
-      `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`
+      setError(err instanceof Error ? err.message : "Could not load review evidence.");
 
+    }
+
+  }
+
+  async function uploadEvidence(item: ChecklistItem, file: File) {
+
+    setEvidenceBusyId(item.id);
+
+    setError("");
+
+    setMessage("");
+
+    try {
+
+      const rootResult = await authFetch(`/api/crm/clients/${clientId}/documents/browse`, { method: "GET" });
+
+      const rootPath = String(rootResult?.root_path || "").trim();
+
+      if (!rootPath) throw new Error("This client does not have a linked document-provider root.");
+
+      if (!supabase) throw new Error("Supabase client is not configured.");
+
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.access_token) throw new Error("You are not signed in.");
+
+      const formData = new FormData();
+
+      formData.set("folderPath", rootPath);
+
+      formData.set("file", file);
+
+      const uploadResponse = await fetch(`/api/crm/clients/${clientId}/documents/upload`, {
+
+        method: "POST",
+
+        headers: { Authorization: `Bearer ${session.access_token}` },
+
+        body: formData,
+
+      });
+
+      const uploadResult = await uploadResponse.json();
+
+      if (!uploadResponse.ok || !uploadResult?.success) throw new Error(uploadResult?.error || "Could not upload review evidence.");
+
+      await authFetch(`/api/crm/work/${workId}/evidence`, {
+
+        method: "POST",
+
+        body: JSON.stringify({ checklistItemId: item.id, documentName: uploadResult?.uploaded?.name || file.name, providerPath: uploadResult?.uploaded?.path || "" }),
+
+      });
+
+      await loadEvidence();
+
+      setMessage(`${item.evidence_label || item.label} uploaded for reviewer evidence.`);
+
+    } catch (err) {
+
+      setError(err instanceof Error ? err.message : "Could not upload review evidence.");
+
+    } finally {
+
+      setEvidenceBusyId("");
+
+    }
+
+  }
+
+  async function loadReviewMeta() {
+    try {
+      const result = await authFetch(`/api/crm/work/${workId}/review`, {
+        method: "GET",
+      });
+
+      const meta: ReviewMeta = {
+        review_status: String(result?.review_status || reviewStatus || "not_requested"),
+        review_due_date: result?.review_due_date || null,
+        working_papers_path: result?.working_papers_path || null,
+        review_notes: result?.review_notes || null,
+        preparer_user_id: result?.preparer_user_id || preparerUserId || null,
+        reviewer_user_id: result?.reviewer_user_id || reviewerUserId || null,
+        preparer_name: result?.preparer_name || null,
+        reviewer_name: result?.reviewer_name || null,
+      };
+
+      setReviewMeta(meta);
+      setReviewDueDate(meta.review_due_date || "");
+      setWorkingPapersPath(meta.working_papers_path || "");
+      setReviewNotes(meta.review_notes || "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load review details.");
+    }
+  }
+
+  async function loadFolderPicker(path = "") {
+    setFolderPickerBusy(true);
+    setError("");
+
+    try {
+      const suffix = path ? `?path=${encodeURIComponent(path)}` : "";
+      const result = await authFetch(
+        `/api/crm/clients/${clientId}/documents/browse${suffix}`,
+        { method: "GET" }
+      );
+
+      const root = String(result?.root_path || "").trim();
+      const current = String(result?.current_path || root).trim();
+
+      setFolderPickerRoot(root);
+      setFolderPickerPath(current);
+      setFolderPickerItems(
+        (Array.isArray(result?.items) ? result.items : [])
+          .filter((item: any) => item?.type === "folder")
+          .map((item: any) => ({
+            name: String(item.name || "Folder"),
+            path: String(item.path || ""),
+            type: "folder" as const,
+          }))
+      );
+      setFolderPickerOpen(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not browse working-paper folders.");
+    } finally {
+      setFolderPickerBusy(false);
+    }
+  }
+
+  function parentFolder(path: string) {
+    const trimmed = String(path || "").replace(/\/+$/, "");
+    const index = trimmed.lastIndexOf("/");
+    return index > 0 ? trimmed.slice(0, index) : folderPickerRoot;
+  }
+
+  const effectiveReviewStatus =
+    reviewMeta?.review_status || reviewStatus || "not_requested";
+  const effectivePreparerUserId =
+    reviewMeta?.preparer_user_id || preparerUserId || assignedUserId || null;
+  const effectiveReviewerUserId =
+    reviewMeta?.reviewer_user_id || reviewerUserId || null;
+  const hasReviewItems = checklist.some((item) => item.item_type === "review");
+  const submissionItems = checklist.filter((item) => item.item_type === "submission");
+  const submissionComplete =
+    submissionItems.length === 0 ||
+    submissionItems.every((item) =>
+      ["completed", "not_applicable"].includes(item.status)
     );
+  const isPreparer =
+    Boolean(currentUserId) &&
+    (!effectivePreparerUserId || currentUserId === effectivePreparerUserId);
+  const isReviewer =
+    Boolean(currentUserId) &&
+    Boolean(effectiveReviewerUserId) &&
+    currentUserId === effectiveReviewerUserId;
+  const submissionUnlocked =
+    !hasReviewItems || effectiveReviewStatus === "approved";
+  const canMarkTaskCompleted =
+    !hasReviewItems || (effectiveReviewStatus === "approved" && submissionComplete);
 
-    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  async function reviewAction(action: "send" | "approve" | "return" | "reopen") {
+
+    setReviewBusy(true);
+
+    setError("");
+
+    setMessage("");
+
+    try {
+
+      await authFetch(`/api/crm/work/${workId}/review`, {
+      method: "POST",
+      body: JSON.stringify({
+        action,
+        reviewDueDate: action === "send" ? reviewDueDate : undefined,
+        workingPapersPath: action === "send" ? workingPapersPath : undefined,
+        reviewNotes: action === "return" ? reviewNotes : undefined,
+      }),
+    });
+
+      if (action === "send") setMessage("Sent to the assigned reviewer.");
+
+      if (action === "return") setMessage("Returned to the preparer.");
+
+      if (action === "approve") {
+        setMessage("Review approved. The preparer has been notified.");
+      }
+
+      if (action === "reopen") {
+        setMessage("Review workflow reopened.");
+        setReviewNotes("");
+      }
+
+      await loadReviewMeta();
+      router.refresh();
+
+    } catch (err) {
+
+      setError(err instanceof Error ? err.message : "Could not update review.");
+
+    } finally {
+
+      setReviewBusy(false);
+
+    }
 
   }
 
-  return result;
+  async function loadTimer() {
 
-}
+    try {
 
-function candidateCoversMonth(candidateStart: string, candidateEnd: string, monthKey: string) {
+      const result = await authFetch(`/api/crm/work/${workId}/time`, {
 
-  const [year, month] = monthKey.split("-").map(Number);
+        method: "GET",
 
-  if (!year || !month) return false;
+      });
 
-  const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+      setTimerState({
 
-  const monthEndDate = new Date(year, month, 0);
+        running: Boolean(result.running),
 
-  const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(
+        openEntryId: result.open_entry_id || null,
 
-    monthEndDate.getDate()
+        openStartedAt: result.open_started_at || null,
 
-  ).padStart(2, "0")}`;
+        myClosedSeconds: Number(result.my_closed_seconds || 0),
 
-  return periodsOverlap(candidateStart, candidateEnd, monthStart, monthEnd);
+        totalClosedSeconds: Number(result.total_closed_seconds || 0),
 
-}
+      });
 
-export default async function WorkItemPage({
+    } catch (err) {
 
-  params,
-
-}: {
-
-  params: Promise<{ id: string; workId: string }>;
-
-}) {
-
-  const { id: clientId, workId } = await params;
-
-  const { data: work, error: workError } = await supabase
-
-    .from("crm_work_items")
-
-    .select("*")
-
-    .eq("id", workId)
-
-    .eq("client_id", clientId)
-
-    .maybeSingle();
-
-  if (workError || !work) notFound();
-
-  const [
-
-    clientResult,
-
-    checklistResult,
-
-    activityResult,
-
-    usersResult,
-
-    relatedWorkResult,
-
-      clientServicesResult,
-  ] = await Promise.all([
-
-    supabase
-
-      .from("crm_clients")
-
-      .select("id, client_name, organisation_id, registration_number, client_lead_user_id, default_work_owner_user_id, reviewer_user_id, manager_user_id, partner_user_id")
-
-      .eq("id", clientId)
-
-      .maybeSingle(),
-
-    supabase
-
-      .from("crm_work_item_checklist")
-
-      .select(
-
-        "id, item_order, label, status, notes, item_type, template_key, dependency_service_code, dependency_rule, requires_evidence, evidence_label"
-
-      )
-
-      .eq("work_item_id", workId)
-
-      .order("item_order"),
-
-    supabase
-
-      .from("crm_work_item_activity")
-
-      .select(
-
-        "id, action_type, action_summary, from_status, to_status, performed_by_user_id, created_at"
-
-      )
-
-      .eq("work_item_id", workId)
-
-      .order("created_at", { ascending: false })
-
-      .limit(30),
-
-    supabase
-
-      .from("user_profiles")
-
-      .select("user_id, full_name, email, access_enabled")
-
-      .eq("organisation_id", work.organisation_id)
-
-      .eq("access_enabled", true)
-
-      .order("full_name"),
-
-    supabase
-
-      .from("crm_work_items")
-
-      .select(
-
-        "id, title, status, completed_at, service_code, workflow_stage, due_date"
-
-      )
-
-      .eq("client_id", clientId)
-
-      .eq("workflow_type", "recurring_client_service")
-
-      .neq("status", "cancelled"),
-
-    supabase
-      .from("crm_client_services")
-      .select("crm_services(service_name)")
-      .eq("client_id", clientId)
-      .eq("is_active", true)
-      .eq("task_generation_enabled", true),
-
-  ]);
-
-  const client = clientResult.data;
-
-  if (!client) notFound();
-
-  const relatedWork = relatedWorkResult.data || [];
-  const currentPeriod = parseStage(work.workflow_stage);
-
-  const generatedServiceNames = new Set(
-    (clientServicesResult.data || [])
-      .map((row: any) => {
-        const relation = Array.isArray(row.crm_services)
-          ? row.crm_services[0]
-          : row.crm_services;
-        return String(relation?.service_name || "").trim();
-      })
-      .filter(Boolean)
-  );
-
-  const checklist = (checklistResult.data || []).map((item: any) => {
-    const emp201ClientPayrollStep =
-      work.service_code === "EMP201" &&
-      item.item_type === "dependency" &&
-      item.dependency_service_code === "Payroll" &&
-      !generatedServiceNames.has("Payroll");
-
-    if (emp201ClientPayrollStep) {
-      return {
-        ...item,
-        label: "Client payroll information received for this period",
-        item_type: "manual",
-        dependency_service_code: null,
-        dependency_rule: null,
-        dependency_complete: null,
-        dependency_summary: null,
-      };
-    }
-
-    if (item.item_type !== "dependency" || !item.dependency_service_code) {
-
-      return {
-
-        ...item,
-
-        dependency_complete: null,
-
-        dependency_summary: null,
-
-      };
+      setError(err instanceof Error ? err.message : "Could not load timer.");
 
     }
 
-    const candidates = relatedWork.filter((candidate: any) => {
+  }
 
-      if (candidate.service_code !== item.dependency_service_code) return false;
+  useEffect(() => {
 
-      const dependencyPeriod = parseStage(candidate.workflow_stage);
+    void loadTimer();
 
-      if (item.dependency_rule === "same_period_all_completed") {
+    void loadEvidence();
 
-        return (
+    void supabase?.auth.getSession().then(({ data }) => {
 
-          dependencyPeriod.start === currentPeriod.start &&
+      setCurrentUserId(data.session?.user?.id || "");
 
-          dependencyPeriod.end === currentPeriod.end
+    });
+
+  }, [workId]);
+
+  useEffect(() => {
+
+    if (!timerState.running) return;
+
+    const handle = window.setInterval(() => {
+
+      setTimerNow(Date.now());
+
+    }, 1000);
+
+    return () => window.clearInterval(handle);
+
+  }, [timerState.running]);
+
+  const runningSeconds = useMemo(() => {
+
+    if (!timerState.running || !timerState.openStartedAt) return 0;
+
+    const started = new Date(timerState.openStartedAt).getTime();
+
+    if (Number.isNaN(started)) return 0;
+
+    return Math.max(0, Math.floor((timerNow - started) / 1000));
+
+  }, [timerState.running, timerState.openStartedAt, timerNow]);
+
+  const myDisplayedSeconds = timerState.myClosedSeconds + runningSeconds;
+
+  const taskDisplayedSeconds = timerState.totalClosedSeconds + runningSeconds;
+
+  async function timerAction(action: "start" | "pause" | "resume" | "end") {
+
+    setTimerBusy(true);
+
+    setError("");
+
+    setMessage("");
+
+    try {
+
+      const result = await authFetch(`/api/crm/work/${workId}/time`, {
+
+        method: "POST",
+
+        body: JSON.stringify({ action }),
+
+      });
+
+      setTimerState({
+
+        running: Boolean(result.running),
+
+        openEntryId: result.open_entry_id || null,
+
+        openStartedAt: result.open_started_at || null,
+
+        myClosedSeconds: Number(result.my_closed_seconds || 0),
+
+        totalClosedSeconds: Number(result.total_closed_seconds || 0),
+
+      });
+
+      setTimerNow(Date.now());
+
+      if (action === "start" || action === "resume") {
+
+        setCurrentStatus((current) =>
+
+          current === "not_started" ? "in_progress" : current
 
         );
 
       }
 
-      return periodsOverlap(
+      if (action === "pause") setMessage("Timer paused.");
 
-        dependencyPeriod.start,
+      if (action === "end") setMessage("Time session ended.");
 
-        dependencyPeriod.end,
+      router.refresh();
 
-        currentPeriod.start,
+    } catch (err) {
 
-        currentPeriod.end
+      setError(err instanceof Error ? err.message : "Could not update timer.");
 
-      );
+    } finally {
 
-    });
-
-    const isCandidateCompleted = (candidate: any) =>
-
-      candidate.status === "completed" || Boolean(candidate.completed_at);
-
-    if (item.dependency_rule === "covered_period_all_completed") {
-
-      const expectedMonths = monthKeysBetween(currentPeriod.start, currentPeriod.end);
-
-      const completedMonths = expectedMonths.filter((monthKey) =>
-
-        candidates.some((candidate: any) => {
-
-          if (!isCandidateCompleted(candidate)) return false;
-
-          const dependencyPeriod = parseStage(candidate.workflow_stage);
-
-          return candidateCoversMonth(
-
-            dependencyPeriod.start,
-
-            dependencyPeriod.end,
-
-            monthKey
-
-          );
-
-        })
-
-      );
-
-      const complete =
-
-        expectedMonths.length > 0 && completedMonths.length === expectedMonths.length;
-
-      return {
-
-        ...item,
-
-        dependency_complete: complete,
-
-        dependency_summary: `${completedMonths.length}/${expectedMonths.length} ${item.dependency_service_code} month${expectedMonths.length === 1 ? "" : "s"} complete for this period`,
-
-      };
+      setTimerBusy(false);
 
     }
 
-    const complete =
+  }
 
-      candidates.length > 0 && candidates.every(isCandidateCompleted);
+  async function refreshClientWork(showMessage = true) {
 
-    const completedCount = candidates.filter(isCandidateCompleted).length;
+    setError("");
 
-    return {
+    if (showMessage) setMessage("");
 
-      ...item,
+    try {
 
-      dependency_complete: complete,
+      setRefreshingWork(true);
 
-      dependency_summary: candidates.length
+      const result = await authFetch("/api/crm/tasks/generate", {
 
-        ? `${completedCount}/${candidates.length} linked ${item.dependency_service_code} task${candidates.length === 1 ? "" : "s"} complete`
+        method: "POST",
 
-        : `No linked ${item.dependency_service_code} work found for this period`,
+        body: JSON.stringify({ clientId }),
 
-    };
+      });
 
-  });
+      if (showMessage) {
+
+        const created = Number(result?.created_count || 0);
+
+        setMessage(
+
+          created > 0
+
+            ? `${created} new client work item${created === 1 ? "" : "s"} generated.`
+
+            : "Client work is already up to date for the current planning horizon."
+
+        );
+
+      }
+
+      router.refresh();
+
+      return result;
+
+    } catch (err) {
+
+      const text = err instanceof Error ? err.message : "Could not refresh client work.";
+
+      setError(text);
+
+      throw err;
+
+    } finally {
+
+      setRefreshingWork(false);
+
+    }
+
+  }
+
+  async function saveTask(event: FormEvent) {
+
+    event.preventDefault();
+
+    setError("");
+
+    try {
+
+      setSaving(true);
+
+      await authFetch(`/api/crm/work/${workId}`, {
+
+        method: "PATCH",
+
+        body: JSON.stringify({
+
+          status: currentStatus,
+
+          priority: currentPriority,
+
+          assignedUserId: currentAssignee || null,
+
+          dueDate: currentDueDate || null,
+
+          description: currentDescription,
+
+        }),
+
+      });
+
+      if (currentStatus === "completed") {
+
+        await refreshClientWork(false);
+
+      } else {
+
+        router.refresh();
+
+      }
+
+    } catch (err) {
+
+      setError(err instanceof Error ? err.message : "Could not save task.");
+
+    } finally {
+
+      setSaving(false);
+
+    }
+
+  }
+
+  async function updateChecklist(item: ChecklistItem, nextStatus: string) {
+
+    setError("");
+
+    try {
+
+      await authFetch(`/api/crm/work/${workId}/checklist`, {
+
+        method: "PATCH",
+
+        body: JSON.stringify({
+
+          itemId: item.id,
+
+          status: nextStatus,
+
+        }),
+
+      });
+
+      router.refresh();
+
+    } catch (err) {
+
+      setError(err instanceof Error ? err.message : "Could not update checklist.");
+
+    }
+
+  }
+
+  async function completeAllChecklistItems() {
+
+    setError("");
+
+    setMessage("");
+
+    const itemsToComplete = checklist.filter(
+
+      (item) =>
+
+        item.item_type !== "dependency" &&
+
+        item.item_type !== "review" &&
+
+        item.status !== "completed" &&
+
+        item.status !== "not_applicable"
+
+    );
+
+    if (itemsToComplete.length === 0) {
+
+      setMessage("All manual checklist steps are already complete.");
+
+      return;
+
+    }
+
+    try {
+
+      setCompletingAll(true);
+
+      await Promise.all(
+
+        itemsToComplete.map((item) =>
+
+          authFetch(`/api/crm/work/${workId}/checklist`, {
+
+            method: "PATCH",
+
+            body: JSON.stringify({
+
+              itemId: item.id,
+
+              status: "completed",
+
+            }),
+
+          })
+
+        )
+
+      );
+
+      setMessage(
+
+        `${itemsToComplete.length} checklist step${itemsToComplete.length === 1 ? "" : "s"} completed.`
+
+      );
+
+      router.refresh();
+
+    } catch (err) {
+
+      setError(err instanceof Error ? err.message : "Could not complete checklist.");
+
+    } finally {
+
+      setCompletingAll(false);
+
+    }
+
+  }
+
+  async function addChecklist(event: FormEvent) {
+
+    event.preventDefault();
+
+    if (!newChecklistItem.trim()) return;
+
+    setError("");
+
+    try {
+
+      await authFetch(`/api/crm/work/${workId}/checklist`, {
+
+        method: "POST",
+
+        body: JSON.stringify({
+
+          label: newChecklistItem.trim(),
+
+        }),
+
+      });
+
+      setNewChecklistItem("");
+
+      router.refresh();
+
+    } catch (err) {
+
+      setError(err instanceof Error ? err.message : "Could not add checklist item.");
+
+    }
+
+  }
+
+  const effectiveOutstanding = checklist.filter((item) => {
+
+    if (item.item_type === "dependency") {
+
+      return item.dependency_complete !== true;
+
+    }
+
+    return !["completed", "not_applicable"].includes(item.status);
+
+  }).length;
 
   return (
 
-    <main style={page}>
+    <div style={layout}>
 
-      <div style={crumbBar}>
+      <div
 
-        <Link href={`/crm/client/${clientId}?tab=work`} style={backLink}>
+        style={{
 
-          ← Back to client work
+          ...timerBar,
 
-        </Link>
+          ...(timerState.running
 
-      </div>
+            ? timerBarRunning
 
-      <section style={hero}>
+            : myDisplayedSeconds > 0
 
-        <div>
+              ? timerBarPaused
 
-          <h1 style={title}>{work.title}</h1>
+              : {}),
 
-          <div style={meta}>
+        }}
 
-            Due {formatDate(work.due_date)}
+      >
 
-            <span>·</span>
+        <div style={timerBarLeft}>
 
-            {String(work.status || "not_started").replaceAll("_", " ")}
+          <span
 
-            <span>·</span>
+            style={{
 
-            {work.workflow_type === "manual_client_work"
+              ...timerPlayMark,
 
-              ? "Manual task"
+              ...(timerState.running
 
-              : "Generated task"}
+                ? timerPlayMarkRunning
 
-          </div>
+                : myDisplayedSeconds > 0
 
-        </div>
+                  ? timerPlayMarkPaused
 
-        <Link href={`/crm/client/${clientId}?tab=work`} style={secondaryAction}>
+                  : {}),
 
-          Client Work
+            }}
 
-        </Link>
+          >
 
-      </section>
-
-      {currentPeriod.start && currentPeriod.end ? (
-
-        <div style={periodStrip}>
-
-          <strong>Work period</strong>
-
-          <span>
-
-            {formatDate(currentPeriod.start)} → {formatDate(currentPeriod.end)}
+            {timerState.running ? "●" : myDisplayedSeconds > 0 ? "Ⅱ" : "▶"}
 
           </span>
 
-        </div>
+          <div style={timerCopy}>
 
-      ) : null}
+            <strong style={timerBarText}>
 
-      <div style={contentGrid}>
+              {timerState.running
 
-        <TaskDetailClient
+                ? "Working on this task"
 
-          clientId={clientId}
+                : myDisplayedSeconds > 0
 
-          workId={workId}
+                  ? "Time paused"
 
-          status={work.status || "not_started"}
+                  : "Track your time"}
 
-          priority={work.priority || "normal"}
+            </strong>
 
-          assignedUserId={work.assigned_user_id || null}
+            <span style={timerBarSub}>
 
-          dueDate={work.due_date || null}
+              {timerState.running
 
-          description={work.description || null}
+                ? "Focus mode is on"
 
-          users={(usersResult.data || []).map((user: any) => ({
+                : myDisplayedSeconds > 0
 
-            user_id: user.user_id,
+                  ? "Resume when you continue"
 
-            full_name: user.full_name,
+                  : "Start when you begin working"}
 
-            email: user.email,
-
-          }))}
-
-          checklist={checklist}
-
-          reviewStatus={work.review_status || "not_requested"}
-
-          preparerUserId={work.preparer_user_id || work.assigned_user_id || null}
-
-          reviewerUserId={work.reviewer_user_id || null}
-
-          serviceCode={work.service_code || ""}
-
-        />
-
-        <aside style={activityPanel}>
-
-          <div style={activityHeader}>
-
-            <div style={activityTitle}>Activity</div>
-
-            <div style={activitySub}>Audit trail for this work item.</div>
+            </span>
 
           </div>
 
-          {(activityResult.data || []).length ? (
+        </div>
 
-            (activityResult.data || []).map((item: any) => (
+        <strong style={timerClock}>
 
-              <div key={item.id} style={activityRow}>
+          {formatDuration(myDisplayedSeconds)}
 
-                <strong style={activitySummary}>
+        </strong>
 
-                  {item.action_summary || item.action_type}
+        <div style={timerActions}>
 
-                </strong>
+          {timerState.running ? (
 
-                <div style={activityDate}>{formatDateTime(item.created_at)}</div>
+            <>
 
-              </div>
+              <button
 
-            ))
+                type="button"
+
+                disabled={timerBusy}
+
+                onClick={() => void timerAction("pause")}
+
+                style={timerPauseButton}
+
+              >
+
+                Pause
+
+              </button>
+
+              <button
+
+                type="button"
+
+                disabled={timerBusy}
+
+                onClick={() => void timerAction("end")}
+
+                style={timerEndButton}
+
+              >
+
+                Stop
+
+              </button>
+
+            </>
+
+          ) : myDisplayedSeconds > 0 ? (
+
+            <>
+
+              <button
+
+                type="button"
+
+                disabled={timerBusy}
+
+                onClick={() => void timerAction("resume")}
+
+                style={timerStartButton}
+
+              >
+
+                ▶ Resume
+
+              </button>
+
+              <button
+
+                type="button"
+
+                disabled={timerBusy}
+
+                onClick={() => void timerAction("end")}
+
+                style={timerEndButton}
+
+              >
+
+                Stop
+
+              </button>
+
+            </>
 
           ) : (
 
-            <div style={empty}>No activity recorded yet.</div>
+            <button
+
+              type="button"
+
+              disabled={timerBusy}
+
+              onClick={() => void timerAction("start")}
+
+              style={timerStartButton}
+
+            >
+
+              ▶ Start timer
+
+            </button>
 
           )}
 
-        </aside>
+        </div>
 
       </div>
 
-    </main>
+      <section style={panel}>
+
+        <div style={sectionHeader}>
+
+          <div>
+
+            <div style={sectionTitle}>Task control</div>
+
+            <div style={sectionSub}>
+
+              Update assignment, status, priority and due date.
+
+            </div>
+
+          </div>
+
+          <div style={checklistCount}>
+
+            {effectiveOutstanding} checklist item{effectiveOutstanding === 1 ? "" : "s"} open
+
+          </div>
+
+        </div>
+
+        <form onSubmit={saveTask}>
+
+          <div style={formGrid}>
+
+            <label style={field}>
+
+              <span style={label}>Status</span>
+
+              <select
+
+                value={currentStatus}
+
+                onChange={(event) => setCurrentStatus(event.target.value)}
+
+                style={input}
+
+              >
+
+                <option value="not_started">Not started</option>
+
+                <option value="in_progress">In progress</option>
+
+                <option value="waiting">Waiting</option>
+
+                <option value="ready">Ready</option>
+
+                <option value="completed" disabled={!canMarkTaskCompleted}>Completed</option>
+
+              </select>
+
+            </label>
+
+            <label style={field}>
+
+              <span style={label}>Work owner</span>
+
+              <select
+
+                value={currentAssignee}
+
+                onChange={(event) => setCurrentAssignee(event.target.value)}
+
+                style={input}
+
+              >
+
+                <option value="">Unassigned</option>
+
+                {users.map((user) => (
+
+                  <option key={user.user_id} value={user.user_id}>
+
+                    {user.full_name || user.email || "Practice user"}
+
+                  </option>
+
+                ))}
+
+              </select>
+
+            </label>
+
+            <label style={field}>
+
+              <span style={label}>Due date</span>
+
+              <input
+
+                type="date"
+
+                value={currentDueDate}
+
+                onChange={(event) => setCurrentDueDate(event.target.value)}
+
+                style={input}
+
+              />
+
+            </label>
+
+            <label style={field}>
+
+              <span style={label}>Priority</span>
+
+              <select
+
+                value={currentPriority}
+
+                onChange={(event) => setCurrentPriority(event.target.value)}
+
+                style={input}
+
+              >
+
+                <option value="low">Low</option>
+
+                <option value="normal">Normal</option>
+
+                <option value="high">High</option>
+
+                <option value="urgent">Urgent</option>
+
+              </select>
+
+            </label>
+
+            <label style={wideField}>
+
+              <span style={label}>Notes / instructions</span>
+
+              <textarea
+
+                value={currentDescription}
+
+                onChange={(event) => setCurrentDescription(event.target.value)}
+
+                rows={4}
+
+                style={textarea}
+
+              />
+
+            </label>
+
+          </div>
+
+          {error ? <div style={errorBox}>{error}</div> : null}
+
+          {message ? <div style={messageBox}>{message}</div> : null}
+
+          <div style={actions}>
+
+            <button
+
+              type="button"
+
+              disabled={refreshingWork || saving}
+
+              onClick={() => void refreshClientWork(true)}
+
+              style={secondaryButton}
+
+            >
+
+              {refreshingWork ? "Refreshing..." : "Refresh Client Work"}
+
+            </button>
+
+            <button type="submit" disabled={saving || refreshingWork} style={saveButton}>
+
+              {saving ? "Saving..." : "Save Task"}
+
+            </button>
+
+          </div>
+
+        </form>
+
+      </section>
+
+      <section style={reviewPanel}>
+        <div style={reviewPanelHeader}>
+          <div>
+            <div style={reviewPanelTitle}>Review workflow</div>
+            <div style={reviewPanelSub}>
+              Preparation, review and submission are controlled as separate stages.
+            </div>
+          </div>
+          <span style={reviewStatusBadge}>
+            {String(effectiveReviewStatus).replaceAll("_", " ")}
+          </span>
+        </div>
+
+        <div style={reviewPanelBodyColumn}>
+          {effectiveReviewStatus === "awaiting_review" ? (
+            isReviewer ? (
+              <>
+                <div style={reviewFacts}>
+                  <div><span>Review required by</span><strong>{reviewMeta?.review_due_date || "—"}</strong></div>
+                  <div><span>Preparer</span><strong>{reviewMeta?.preparer_name || "—"}</strong></div>
+                  <div>
+                    <span>Working papers</span>
+                    {workingPapersPath ? (
+                      <a
+                        href={`/crm/client/${clientId}?tab=documents&folderPath=${encodeURIComponent(workingPapersPath)}`}
+                        style={workingPapersLink}
+                      >
+                        Open Egnyte folder
+                      </a>
+                    ) : <strong>—</strong>}
+                  </div>
+                </div>
+
+                <label style={reviewNotesField}>
+                  <span>Review notes / corrections</span>
+                  <textarea
+                    value={reviewNotes}
+                    onChange={(event) => setReviewNotes(event.target.value)}
+                    rows={3}
+                    placeholder="Required when returning the work for correction."
+                    style={textarea}
+                  />
+                </label>
+
+                <div style={reviewActionRow}>
+                  <span style={reviewPanelText}>This task is with you for review.</span>
+                  <button type="button" disabled={reviewBusy} onClick={() => void reviewAction("return")} style={reviewReturnButton}>
+                    Return for Correction
+                  </button>
+                  <button type="button" disabled={reviewBusy} onClick={() => void reviewAction("approve")} style={reviewApproveButton}>
+                    {reviewBusy ? "Updating..." : "Approve for Submission"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={reviewActionRow}>
+                <span style={reviewPanelText}>
+                  Awaiting review by {reviewMeta?.reviewer_name || "the assigned reviewer"}.
+                  {reviewMeta?.review_due_date ? ` Review required by ${reviewMeta.review_due_date}.` : ""}
+                </span>
+                {workingPapersPath ? (
+                  <a href={`/crm/client/${clientId}?tab=documents&folderPath=${encodeURIComponent(workingPapersPath)}`} style={workingPapersLink}>
+                    Open Working Papers
+                  </a>
+                ) : null}
+              </div>
+            )
+          ) : effectiveReviewStatus === "approved" ? (
+            <div style={reviewActionRow}>
+              <span style={reviewApprovedText}>
+                Review approved{submissionItems.length ? " — ready for submission." : "."}
+              </span>
+              {workingPapersPath ? (
+                <a href={`/crm/client/${clientId}?tab=documents&folderPath=${encodeURIComponent(workingPapersPath)}`} style={workingPapersLink}>
+                  Open Working Papers
+                </a>
+              ) : null}
+              <button
+                type="button"
+                disabled={reviewBusy}
+                onClick={() => void reviewAction("reopen")}
+                style={reviewReopenButton}
+              >
+                {reviewBusy ? "Reopening..." : "Reopen Workflow"}
+              </button>
+            </div>
+          ) : isPreparer ? (
+            <>
+              {effectiveReviewStatus === "returned" && reviewMeta?.review_notes ? (
+                <div style={reviewReturnedNote}>
+                  <strong>Returned for correction</strong>
+                  <span>{reviewMeta.review_notes}</span>
+                </div>
+              ) : null}
+
+              <div style={reviewSetupGrid}>
+                <label style={field}>
+                  <span style={label}>Review required by</span>
+                  <input
+                    type="date"
+                    value={reviewDueDate}
+                    max={currentDueDate || undefined}
+                    onChange={(event) => setReviewDueDate(event.target.value)}
+                    style={input}
+                  />
+                </label>
+
+                <div style={field}>
+                  <span style={label}>Working papers folder</span>
+                  <div style={workingPapersControl}>
+                    <input
+                      value={workingPapersPath}
+                      onChange={(event) => setWorkingPapersPath(event.target.value)}
+                      placeholder="Select the Egnyte folder..."
+                      style={input}
+                    />
+                    <button
+                      type="button"
+                      disabled={folderPickerBusy}
+                      onClick={() => void loadFolderPicker(workingPapersPath || "")}
+                      style={secondaryButton}
+                    >
+                      {folderPickerBusy ? "Loading..." : "Choose Folder"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {folderPickerOpen ? (
+                <div style={folderPicker}>
+                  <div style={folderPickerHeader}>
+                    <strong>{folderPickerPath || folderPickerRoot}</strong>
+                    <div style={reviewActionRow}>
+                      {folderPickerPath && folderPickerPath !== folderPickerRoot ? (
+                        <button type="button" onClick={() => void loadFolderPicker(parentFolder(folderPickerPath))} style={secondaryButton}>
+                          Up
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWorkingPapersPath(folderPickerPath || folderPickerRoot);
+                          setFolderPickerOpen(false);
+                        }}
+                        style={reviewSendButton}
+                      >
+                        Use This Folder
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={folderPickerList}>
+                    {folderPickerItems.length ? (
+                      folderPickerItems.map((folder) => (
+                        <button type="button" key={folder.path} onClick={() => void loadFolderPicker(folder.path)} style={folderPickerRow}>
+                          <span>▸</span>
+                          <strong>{folder.name}</strong>
+                        </button>
+                      ))
+                    ) : (
+                      <div style={folderPickerEmpty}>No subfolders here.</div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              <div style={reviewActionRow}>
+                <span style={reviewPanelText}>
+                  Complete preparation only. Reviewer and submission steps are locked until their stage.
+                </span>
+                <button
+                  type="button"
+                  disabled={reviewBusy || !reviewDueDate || !workingPapersPath}
+                  onClick={() => void reviewAction("send")}
+                  style={reviewSendButton}
+                >
+                  {reviewBusy ? "Sending..." : "Send to Reviewer"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <span style={reviewPanelText}>Only the preparer can send this task for review.</span>
+          )}
+        </div>
+      </section>
+
+      <section style={panel}>
+
+        <div style={sectionHeader}>
+
+          <div>
+
+            <div style={sectionTitle}>Checklist</div>
+
+            <div style={sectionSub}>
+
+              Dependency lines are completed automatically from linked PracticePilot work.
+
+            </div>
+
+          </div>
+
+          <button
+
+            type="button"
+
+            disabled={completingAll}
+
+            onClick={() => void completeAllChecklistItems()}
+
+            style={completeAllButton}
+
+          >
+
+            {completingAll ? "Completing..." : "✓ Complete all steps"}
+
+          </button>
+
+        </div>
+
+        <div>
+
+          {checklist.map((item) => {
+
+            const dependency = item.item_type === "dependency";
+
+            const complete = dependency
+
+              ? item.dependency_complete === true
+
+              : item.status === "completed";
+
+            const notApplicable = item.status === "not_applicable";
+            const submission = item.item_type === "submission";
+            const submissionLocked =
+              submission && (!submissionUnlocked || !isPreparer);
+
+            return (
+
+              <div key={item.id} style={checkRow}>
+
+                <button
+
+                  type="button"
+
+                  disabled={dependency || item.item_type === "review" || submissionLocked}
+
+                  onClick={() =>
+
+                    updateChecklist(
+
+                      item,
+
+                      complete ? "outstanding" : "completed"
+
+                    )
+
+                  }
+
+                  style={{
+
+                    ...checkButton,
+
+                    ...(complete ? checkButtonComplete : {}),
+
+                    ...(dependency || item.item_type === "review" || submissionLocked
+                      ? checkButtonDependency
+                      : {}),
+
+                  }}
+
+                  title={
+
+                    dependency
+
+                      ? "This item follows linked PracticePilot work automatically."
+
+                      : item.item_type === "review"
+                        ? "This step is completed only by the assigned reviewer workflow."
+                        : submissionLocked
+                          ? effectiveReviewStatus !== "approved"
+                            ? "Submission unlocks only after review approval."
+                            : "Only the preparer can complete submission steps."
+                          : complete
+
+                        ? "Mark outstanding"
+
+                        : "Mark complete"
+
+                  }
+
+                >
+
+                  {complete ? "✓" : ""}
+
+                </button>
+
+                <div style={checkContent}>
+
+                  <div
+
+                    style={{
+
+                      ...checkLabel,
+
+                      ...(complete || notApplicable ? checkLabelDone : {}),
+
+                    }}
+
+                  >
+
+                    {item.label}
+
+                  </div>
+
+                  {dependency ? (
+
+                    <div style={dependencyText}>
+
+                      {item.dependency_summary ||
+
+                        `${item.dependency_service_code || "Linked work"} not complete`}
+
+                    </div>
+
+                  ) : (
+
+                    <div style={checkMeta}>
+
+                      {item.item_type === "review"
+
+                        ? "Reviewer controlled"
+
+                        : notApplicable
+
+                          ? "Not applicable"
+
+                          : item.status.replaceAll("_", " ")}
+
+                    </div>
+
+                  )}
+
+                  {item.requires_evidence ? (
+
+                    <div style={evidenceWrap}>
+
+                      <div style={evidenceRequirement}>Required evidence: {item.evidence_label || item.label}</div>
+
+                      <div style={evidenceFiles}>
+
+                        {evidence.filter((row) => row.checklist_item_id === item.id).map((row) => (
+
+                          <a key={row.id} href={`/crm/client/${clientId}?tab=documents&documentPath=${encodeURIComponent(row.provider_path)}`} style={evidenceLink}>{row.document_name}</a>
+
+                        ))}
+
+                      </div>
+
+                      <label style={evidenceUploadLabel}>
+
+                        {evidenceBusyId === item.id ? "Uploading..." : "Upload evidence"}
+
+                        <input type="file" disabled={evidenceBusyId === item.id} style={{ display: "none" }} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadEvidence(item, file); event.currentTarget.value = ""; }} />
+
+                      </label>
+
+                    </div>
+
+                  ) : null}
+
+                </div>
+
+                {!dependency && item.item_type !== "review" && item.item_type !== "submission" ? (
+
+                  <button
+
+                    type="button"
+
+                    onClick={() =>
+
+                      updateChecklist(
+
+                        item,
+
+                        notApplicable ? "outstanding" : "not_applicable"
+
+                      )
+
+                    }
+
+                    style={naButton}
+
+                  >
+
+                    {notApplicable ? "Undo N/A" : "N/A"}
+
+                  </button>
+
+                ) : item.item_type === "review" ? (
+
+                  <span style={reviewControlledBadge}>Reviewer</span>
+
+                ) : (
+
+                  <span style={linkedBadge}>Linked</span>
+
+                )}
+
+              </div>
+
+            );
+
+          })}
+
+        </div>
+
+        <form onSubmit={addChecklist} style={addChecklistRow}>
+
+          <input
+
+            value={newChecklistItem}
+
+            onChange={(event) => setNewChecklistItem(event.target.value)}
+
+            placeholder="Add another checklist item..."
+
+            style={input}
+
+          />
+
+          <button type="submit" style={secondaryButton}>
+
+            Add
+
+          </button>
+
+        </form>
+
+      </section>
+
+    </div>
 
   );
 
 }
 
-const page: React.CSSProperties = {
+const layout: React.CSSProperties = {
 
-  padding: "8px 10px 24px",
+  display: "grid",
 
-  color: "#10233a",
-
-  fontFamily: "'Aptos', 'Segoe UI', Arial, sans-serif",
+  gap: "12px",
 
 };
 
-const crumbBar: React.CSSProperties = {
+const timerBar: React.CSSProperties = {
 
-  minHeight: "32px",
+  minHeight: "46px",
+
+  padding: "6px 8px 6px 10px",
+
+  display: "grid",
+
+  gridTemplateColumns: "minmax(190px, 1fr) auto auto",
+
+  gap: "12px",
+
+  alignItems: "center",
+
+  background: "#10233a",
+
+  border: "1px solid #10233a",
+
+};
+
+const timerBarRunning: React.CSSProperties = {
+
+  background: "#102f28",
+
+  borderColor: "#245b4b",
+
+};
+
+const timerBarPaused: React.CSSProperties = {
+
+  background: "#26303c",
+
+  borderColor: "#3b4754",
+
+};
+
+const timerBarLeft: React.CSSProperties = {
+
+  minWidth: 0,
 
   display: "flex",
 
   alignItems: "center",
 
-  padding: "0 10px",
-
-  border: "1px solid #d7e0e8",
-
-  background: "#ffffff",
-
-  fontSize: "12px",
+  gap: "8px",
 
 };
 
-const backLink: React.CSSProperties = {
+const timerPlayMark: React.CSSProperties = {
 
-  color: "#174ea6",
+  width: "25px",
 
-  textDecoration: "none",
+  height: "25px",
 
-  fontSize: "9px",
-
-  fontWeight: 700,
-
-  letterSpacing: 0,
-
-};
-
-const hero: React.CSSProperties = {
-
-  marginTop: "6px",
-
-  minHeight: "64px",
-
-  padding: "9px 10px",
-
-  display: "flex",
-
-  alignItems: "center",
-
-  justifyContent: "space-between",
-
-  gap: "14px",
-
-  border: "1px solid #d7e0e8",
-
-  background: "#ffffff",
-
-};
-
-const title: React.CSSProperties = {
-
-  margin: "2px 0 3px",
-
-  color: "#10233a",
-
-  fontSize: "19px",
-
-  lineHeight: 1.15,
-
-  fontWeight: 900,
-
-};
-
-const meta: React.CSSProperties = {
-
-  display: "flex",
-
-  gap: "6px",
-
-  color: "#687b8b",
-
-  fontSize: "9px",
-
-};
-
-const secondaryAction: React.CSSProperties = {
-
-  minHeight: "28px",
-
-  padding: "0 9px",
+  flex: "0 0 25px",
 
   display: "inline-flex",
 
   alignItems: "center",
 
-  border: "1px solid #cbd6df",
+  justifyContent: "center",
 
-  background: "#ffffff",
+  border: "1px solid rgba(255,255,255,.22)",
 
-  color: "#10233a",
-
-  textDecoration: "none",
+  color: "#ffffff",
 
   fontSize: "9px",
 
-  fontWeight: 850,
+  fontWeight: 900,
 
 };
 
-const periodStrip: React.CSSProperties = {
+const timerPlayMarkRunning: React.CSSProperties = {
 
-  minHeight: "30px",
+  background: "#2f855a",
 
-  marginTop: "6px",
+  borderColor: "#58a779",
 
-  padding: "0 10px",
+};
+
+const timerPlayMarkPaused: React.CSSProperties = {
+
+  background: "#6b7280",
+
+};
+
+const timerCopy: React.CSSProperties = {
+
+  minWidth: 0,
+
+  display: "grid",
+
+  gap: "1px",
+
+};
+
+const timerBarText: React.CSSProperties = {
+
+  color: "#ffffff",
+
+  fontSize: "9px",
+
+  fontWeight: 900,
+
+};
+
+const timerBarSub: React.CSSProperties = {
+
+  color: "#aebdca",
+
+  fontSize: "7.5px",
+
+};
+
+const timerClock: React.CSSProperties = {
+
+  minWidth: "92px",
+
+  color: "#ffffff",
+
+  fontSize: "18px",
+
+  lineHeight: 1,
+
+  fontWeight: 900,
+
+  fontVariantNumeric: "tabular-nums",
+
+  textAlign: "right",
+
+};
+
+const timerActions: React.CSSProperties = {
+
+  flex: "0 0 auto",
 
   display: "flex",
 
   alignItems: "center",
 
-  gap: "10px",
-
-  border: "1px solid #d6e1e9",
-
-  background: "#f4f8fb",
-
-  color: "#526779",
-
-  fontSize: "9.5px",
+  gap: "5px",
 
 };
 
-const contentGrid: React.CSSProperties = {
+const timerStartButton: React.CSSProperties = {
 
-  marginTop: "6px",
+  minWidth: "94px",
 
-  display: "grid",
+  height: "28px",
 
-  gridTemplateColumns: "minmax(0, 1fr) 235px",
+  padding: "0 10px",
 
-  gap: "8px",
+  border: "1px solid #4da06a",
 
-  alignItems: "start",
+  background: "#3b8d59",
+
+  color: "#ffffff",
+
+  fontSize: "8.5px",
+
+  fontWeight: 900,
+
+  cursor: "pointer",
 
 };
 
-const activityPanel: React.CSSProperties = {
+const timerPauseButton: React.CSSProperties = {
+
+  minWidth: "58px",
+
+  height: "28px",
+
+  padding: "0 8px",
+
+  border: "1px solid #8fa1b1",
+
+  background: "#ffffff",
+
+  color: "#263746",
+
+  fontSize: "8.5px",
+
+  fontWeight: 900,
+
+  cursor: "pointer",
+
+};
+
+const timerEndButton: React.CSSProperties = {
+
+  minWidth: "52px",
+
+  height: "28px",
+
+  padding: "0 8px",
+
+  border: "1px solid #d3a29d",
+
+  background: "#ffffff",
+
+  color: "#9c4037",
+
+  fontSize: "8.5px",
+
+  fontWeight: 900,
+
+  cursor: "pointer",
+
+};
+
+const panel: React.CSSProperties = {
 
   background: "#ffffff",
 
@@ -739,66 +1935,427 @@ const activityPanel: React.CSSProperties = {
 
 };
 
-const activityHeader: React.CSSProperties = {
+const sectionHeader: React.CSSProperties = {
 
-  padding: "8px 10px",
+  minHeight: "44px",
 
-  borderBottom: "1px solid #e0e7ed",
+  padding: "7px 10px",
+
+  display: "flex",
+
+  justifyContent: "space-between",
+
+  alignItems: "center",
+
+  gap: "12px",
+
+  borderBottom: "1px solid #dfe6ec",
 
 };
 
-const activityTitle: React.CSSProperties = {
+const sectionTitle: React.CSSProperties = {
 
   color: "#10233a",
 
-  fontSize: "11px",
+  fontSize: "12px",
 
   fontWeight: 900,
 
 };
 
-const activitySub: React.CSSProperties = {
+const sectionSub: React.CSSProperties = {
 
   marginTop: "2px",
 
-  color: "#798893",
-
-  fontSize: "9px",
-
-};
-
-const activityRow: React.CSSProperties = {
-
-  padding: "8px 10px",
-
-  borderBottom: "1px solid #e6ebef",
-
-};
-
-const activitySummary: React.CSSProperties = {
-
-  color: "#32495b",
+  color: "#71808c",
 
   fontSize: "9.5px",
 
 };
 
-const activityDate: React.CSSProperties = {
+const checklistCount: React.CSSProperties = {
 
-  marginTop: "3px",
+  padding: "4px 7px",
 
-  color: "#8a969f",
+  border: "1px solid #cfdbe4",
 
-  fontSize: "8px",
+  background: "#f7fafc",
 
-};
-
-const empty: React.CSSProperties = {
-
-  padding: "20px 12px",
-
-  color: "#84919b",
+  color: "#53697a",
 
   fontSize: "9px",
 
+  fontWeight: 800,
+
 };
+
+const formGrid: React.CSSProperties = {
+
+  padding: "8px 10px",
+
+  display: "grid",
+
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+
+  gap: "7px",
+
+};
+
+const field: React.CSSProperties = {
+
+  display: "grid",
+
+  gap: "4px",
+
+};
+
+const wideField: React.CSSProperties = {
+
+  ...field,
+
+  gridColumn: "1 / -1",
+
+};
+
+const label: React.CSSProperties = {
+
+  color: "#53697a",
+
+  fontSize: "9px",
+
+  fontWeight: 800,
+
+};
+
+const input: React.CSSProperties = {
+
+  width: "100%",
+
+  minHeight: "30px",
+
+  padding: "4px 7px",
+
+  boxSizing: "border-box",
+
+  border: "1px solid #cfd9e2",
+
+  background: "#ffffff",
+
+  color: "#10233a",
+
+  fontSize: "10px",
+
+};
+
+const textarea: React.CSSProperties = {
+
+  ...input,
+
+  minHeight: "62px",
+
+  resize: "vertical",
+
+  fontFamily: "inherit",
+
+};
+
+const actions: React.CSSProperties = {
+
+  padding: "7px 10px",
+
+  display: "flex",
+
+  justifyContent: "flex-end",
+
+  borderTop: "1px solid #e2e8ee",
+
+};
+
+const saveButton: React.CSSProperties = {
+
+  minHeight: "30px",
+
+  padding: "0 11px",
+
+  border: "1px solid #1769e0",
+
+  background: "#1769e0",
+
+  color: "#ffffff",
+
+  fontSize: "10px",
+
+  fontWeight: 850,
+
+  cursor: "pointer",
+
+};
+
+const errorBox: React.CSSProperties = {
+
+  margin: "0 12px 10px",
+
+  padding: "8px 10px",
+
+  border: "1px solid #efb2aa",
+
+  background: "#fff2ef",
+
+  color: "#9c3d33",
+
+  fontSize: "9.5px",
+
+  fontWeight: 700,
+
+};
+
+const messageBox: React.CSSProperties = {
+
+  margin: "10px 12px 0",
+
+  padding: "8px 10px",
+
+  border: "1px solid #b7d8c3",
+
+  background: "#f2fbf5",
+
+  color: "#285c3a",
+
+  fontSize: "10px",
+
+  fontWeight: 700,
+
+};
+
+const checkRow: React.CSSProperties = {
+
+  minHeight: "50px",
+
+  padding: "7px 10px",
+
+  display: "grid",
+
+  gridTemplateColumns: "28px minmax(0, 1fr) auto",
+
+  gap: "8px",
+
+  alignItems: "center",
+
+  borderBottom: "1px solid #e5ebf0",
+
+};
+
+const checkButton: React.CSSProperties = {
+
+  width: "24px",
+
+  height: "24px",
+
+  border: "1px solid #bfcdd8",
+
+  background: "#ffffff",
+
+  color: "#ffffff",
+
+  cursor: "pointer",
+
+  fontSize: "12px",
+
+  fontWeight: 900,
+
+};
+
+const checkButtonComplete: React.CSSProperties = {
+
+  borderColor: "#62a978",
+
+  background: "#62a978",
+
+};
+
+const checkButtonDependency: React.CSSProperties = {
+
+  cursor: "default",
+
+};
+
+const checkContent: React.CSSProperties = {
+
+  minWidth: 0,
+
+};
+
+const checkLabel: React.CSSProperties = {
+
+  color: "#10233a",
+
+  fontSize: "10px",
+
+  fontWeight: 800,
+
+};
+
+const checkLabelDone: React.CSSProperties = {
+
+  color: "#74827b",
+
+  textDecoration: "line-through",
+
+};
+
+const checkMeta: React.CSSProperties = {
+
+  marginTop: "2px",
+
+  color: "#87949e",
+
+  fontSize: "8.5px",
+
+};
+
+const dependencyText: React.CSSProperties = {
+
+  marginTop: "2px",
+
+  color: "#5d7384",
+
+  fontSize: "8.5px",
+
+};
+
+const linkedBadge: React.CSSProperties = {
+
+  padding: "3px 6px",
+
+  border: "1px solid #c4d7e8",
+
+  background: "#eef6fc",
+
+  color: "#35658e",
+
+  fontSize: "8px",
+
+  fontWeight: 800,
+
+};
+
+const naButton: React.CSSProperties = {
+
+  minHeight: "26px",
+
+  padding: "0 7px",
+
+  border: "1px solid #d3dde5",
+
+  background: "#ffffff",
+
+  color: "#607385",
+
+  fontSize: "8px",
+
+  fontWeight: 800,
+
+  cursor: "pointer",
+
+};
+
+const addChecklistRow: React.CSSProperties = {
+
+  padding: "10px",
+
+  display: "grid",
+
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+
+  gap: "7px",
+
+};
+
+const secondaryButton: React.CSSProperties = {
+
+  minHeight: "30px",
+
+  padding: "0 9px",
+
+  border: "1px solid #c8d4de",
+
+  background: "#ffffff",
+
+  color: "#10233a",
+
+  fontSize: "9px",
+
+  fontWeight: 800,
+
+  cursor: "pointer",
+
+};
+
+const completeAllButton: React.CSSProperties = {
+
+  minHeight: "32px",
+
+  padding: "0 11px",
+
+  border: "1px solid #62a978",
+
+  background: "#f2fbf5",
+
+  color: "#285c3a",
+
+  fontSize: "9px",
+
+  fontWeight: 850,
+
+  cursor: "pointer",
+
+};
+
+const reviewPanel: React.CSSProperties = { background: "#ffffff", border: "1px solid #b8c7d3" };
+
+const reviewPanelHeader: React.CSSProperties = { minHeight: "44px", padding: "7px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", borderBottom: "1px solid #dde5eb", background: "#f6f9fb" };
+
+const reviewPanelTitle: React.CSSProperties = { color: "#10233a", fontSize: "12px", fontWeight: 900 };
+
+const reviewPanelSub: React.CSSProperties = { marginTop: "2px", color: "#71808c", fontSize: "9px" };
+
+const reviewStatusBadge: React.CSSProperties = { padding: "4px 7px", border: "1px solid #c7d5df", background: "#ffffff", color: "#4d6475", fontSize: "8px", fontWeight: 850, textTransform: "capitalize" };
+
+const reviewPanelBody: React.CSSProperties = { minHeight: "44px", padding: "7px 10px", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "6px" };
+
+const reviewPanelText: React.CSSProperties = { marginRight: "auto", color: "#526779", fontSize: "9.5px" };
+
+const reviewSendButton: React.CSSProperties = { minHeight: "30px", padding: "0 10px", border: "1px solid #1769e0", background: "#1769e0", color: "#ffffff", fontSize: "9px", fontWeight: 850, cursor: "pointer" };
+
+const reviewApproveButton: React.CSSProperties = { ...reviewSendButton, borderColor: "#3d8054", background: "#3d8054" };
+
+const reviewReturnButton: React.CSSProperties = { ...reviewSendButton, borderColor: "#b08a34", background: "#fff8e8", color: "#7b5711" };
+const reviewReopenButton: React.CSSProperties = { ...reviewSendButton, borderColor: "#8a98a8", background: "#ffffff", color: "#334155" };
+
+const evidenceWrap: React.CSSProperties = { marginTop: "6px", padding: "6px 7px", display: "grid", gap: "5px", borderLeft: "3px solid #2f6fa9", background: "#f4f8fc" };
+
+const evidenceRequirement: React.CSSProperties = { color: "#31536d", fontSize: "8.5px", fontWeight: 850 };
+
+const evidenceFiles: React.CSSProperties = { display: "flex", flexWrap: "wrap", gap: "4px" };
+
+const evidenceLink: React.CSSProperties = { padding: "3px 5px", border: "1px solid #bfd0df", background: "#ffffff", color: "#245f91", textDecoration: "none", fontSize: "8px", fontWeight: 750 };
+
+const evidenceUploadLabel: React.CSSProperties = { width: "fit-content", minHeight: "24px", padding: "0 7px", display: "inline-flex", alignItems: "center", border: "1px solid #bfcdd8", background: "#ffffff", color: "#425a6e", fontSize: "8px", fontWeight: 850, cursor: "pointer" };
+
+const reviewControlledBadge: React.CSSProperties = { padding: "3px 6px", border: "1px solid #c8b9e2", background: "#f5f0fb", color: "#65468f", fontSize: "8px", fontWeight: 800 };
+const submissionBadge: React.CSSProperties = { padding: "3px 6px", border: "1px solid #b8d3c0", background: "#f2fbf5", color: "#2f6d44", fontSize: "8px", fontWeight: 800 };
+const reviewPanelBodyColumn: React.CSSProperties = { padding: "10px", display: "grid", gap: "9px" };
+const reviewSetupGrid: React.CSSProperties = { display: "grid", gridTemplateColumns: "180px minmax(0, 1fr)", gap: "9px" };
+const workingPapersControl: React.CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: "6px" };
+const reviewActionRow: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "7px", flexWrap: "wrap" };
+const reviewFacts: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: "8px" };
+const reviewNotesField: React.CSSProperties = { display: "grid", gap: "4px", color: "#53697a", fontSize: "9px", fontWeight: 800 };
+const workingPapersLink: React.CSSProperties = { color: "#1758d5", textDecoration: "none", fontSize: "9px", fontWeight: 900 };
+const reviewApprovedText: React.CSSProperties = { marginRight: "auto", color: "#285c3a", fontSize: "10px", fontWeight: 850 };
+const reviewReturnedNote: React.CSSProperties = { display: "grid", gap: "3px", padding: "8px 9px", borderLeft: "3px solid #b08a34", background: "#fff8e8", color: "#6c531d", fontSize: "9px" };
+const folderPicker: React.CSSProperties = { border: "1px solid #cfd9e2", background: "#ffffff" };
+const folderPickerHeader: React.CSSProperties = { padding: "7px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", borderBottom: "1px solid #e2e8ee", fontSize: "9px" };
+const folderPickerList: React.CSSProperties = { maxHeight: "220px", overflowY: "auto" };
+const folderPickerRow: React.CSSProperties = { width: "100%", minHeight: "34px", padding: "0 9px", display: "flex", alignItems: "center", gap: "7px", border: 0, borderBottom: "1px solid #edf1f4", background: "#ffffff", color: "#10233a", textAlign: "left", cursor: "pointer", fontSize: "9px" };
+const folderPickerEmpty: React.CSSProperties = { padding: "12px", color: "#7b8994", fontSize: "9px" };
+

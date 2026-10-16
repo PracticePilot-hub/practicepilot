@@ -2858,9 +2858,9 @@ export default function SecretarialClientPage() {
 
               <div style={arFasQuestions}>
                 <div style={arFasHeader}>
-                  <div>
+                  <div style={{ display: "grid", gap: "3px" }}>
                     <strong>CIPC Financial Statements / FAS Questions</strong>
-                    <span>
+                    <span style={{ color: "#64748b" }}>
                       These answers determine whether CIPC requires AFS or permits the Financial Accountability Supplement.
                     </span>
                   </div>
@@ -5115,14 +5115,18 @@ const arDatePair: React.CSSProperties = {
 };
 
 const arFooter: React.CSSProperties = {
+  position: "sticky",
+  bottom: 0,
+  zIndex: 20,
   minHeight: "52px",
   padding: "8px 12px",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   gap: "14px",
-  borderTop: "1px solid #d8dee7",
-  background: "#fbfcfd",
+  borderTop: "1px solid #c7d2df",
+  background: "#ffffff",
+  boxShadow: "0 -4px 12px rgba(15, 35, 58, 0.08)",
 };
 
 const arFootNote: React.CSSProperties = {
@@ -5156,6 +5160,7 @@ const arFasHeader: React.CSSProperties = {
   gap: "16px",
   borderBottom: "1px solid #d8dee7",
   fontSize: "9px",
+  lineHeight: 1.4,
 };
 
 const arRouteResult: React.CSSProperties = {
