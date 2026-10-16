@@ -444,7 +444,7 @@ export function TaskDetailClient({
   const canMarkTaskCompleted =
     !hasReviewItems || (effectiveReviewStatus === "approved" && submissionComplete);
 
-  async function reviewAction(action: "send" | "approve" | "return") {
+  async function reviewAction(action: "send" | "approve" | "return" | "reopen") {
 
     setReviewBusy(true);
 
@@ -469,13 +469,15 @@ export function TaskDetailClient({
       if (action === "return") setMessage("Returned to the preparer.");
 
       if (action === "approve") {
-
-        setMessage("Review approved and task completed.");
-
-        await refreshClientWork(false);
-
+        setMessage("Review approved. The preparer has been notified.");
       }
 
+      if (action === "reopen") {
+        setMessage("Review workflow reopened.");
+        setReviewNotes("");
+      }
+
+      await loadReviewMeta();
       router.refresh();
 
     } catch (err) {
@@ -1337,6 +1339,14 @@ export function TaskDetailClient({
                   Open Working Papers
                 </a>
               ) : null}
+              <button
+                type="button"
+                disabled={reviewBusy}
+                onClick={() => void reviewAction("reopen")}
+                style={reviewReopenButton}
+              >
+                {reviewBusy ? "Reopening..." : "Reopen Workflow"}
+              </button>
             </div>
           ) : isPreparer ? (
             <>
@@ -2320,6 +2330,7 @@ const reviewSendButton: React.CSSProperties = { minHeight: "30px", padding: "0 1
 const reviewApproveButton: React.CSSProperties = { ...reviewSendButton, borderColor: "#3d8054", background: "#3d8054" };
 
 const reviewReturnButton: React.CSSProperties = { ...reviewSendButton, borderColor: "#b08a34", background: "#fff8e8", color: "#7b5711" };
+const reviewReopenButton: React.CSSProperties = { ...reviewSendButton, borderColor: "#8a98a8", background: "#ffffff", color: "#334155" };
 
 const evidenceWrap: React.CSSProperties = { marginTop: "6px", padding: "6px 7px", display: "grid", gap: "5px", borderLeft: "3px solid #2f6fa9", background: "#f4f8fc" };
 

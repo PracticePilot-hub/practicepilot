@@ -355,6 +355,7 @@ export default function SecretarialClientPage() {
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [beneficialOwners, setBeneficialOwners] = useState<BeneficialOwnerRecord[]>([]);
   const [annualReturns, setAnnualReturns] = useState<AnnualReturnRecord[]>([]);
+  const [selectedAnnualReturnId, setSelectedAnnualReturnId] = useState("");
   const [cipcAnnualReturnService, setCipcAnnualReturnService] = useState<ClientServiceRecord | null>(null);
   const [companyChanges, setCompanyChanges] = useState<CompanyChangeRecord[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
@@ -451,9 +452,32 @@ export default function SecretarialClientPage() {
     state_related: "",
     public_function: "",
     record_keeper_type: "",
+    record_keeper_first_names: "",
+    record_keeper_surname: "",
+    record_keeper_id_number: "",
+    record_keeper_entity_name: "",
+    record_keeper_registration_number: "",
     same_person_compiles: "",
+    compiler_type: "",
+    compiler_first_names: "",
+    compiler_surname: "",
+    compiler_id_number: "",
+    compiler_entity_name: "",
+    compiler_registration_number: "",
     financial_records_adviser: "",
+    adviser_type: "",
+    adviser_first_names: "",
+    adviser_surname: "",
+    adviser_id_number: "",
+    adviser_entity_name: "",
+    adviser_registration_number: "",
     independent_review: "",
+    reviewer_type: "",
+    reviewer_first_names: "",
+    reviewer_surname: "",
+    reviewer_id_number: "",
+    reviewer_entity_name: "",
+    reviewer_registration_number: "",
     deals_in_goods: "",
   });
 
@@ -1459,7 +1483,6 @@ export default function SecretarialClientPage() {
     setShowShareClassForm(true);
   }
 
-
   const fasDecisionKeys = [
     "fiduciary_over_5m",
     "internal_compiled_pis_100",
@@ -1489,21 +1512,149 @@ export default function SecretarialClientPage() {
   }, [recommendedFinancialType]);
 
   const currentAnnualReturn = useMemo(() => {
+    if (selectedAnnualReturnId) {
+      return annualReturns.find((row) => row.id === selectedAnnualReturnId) || null;
+    }
+
     if (!nextAnnualReturn) return null;
+
+  function fasPersonDetails(prefix: string, label: string) {
+    const typeKey = `${prefix}_type`;
+    const firstNamesKey = `${prefix}_first_names`;
+    const surnameKey = `${prefix}_surname`;
+    const idNumberKey = `${prefix}_id_number`;
+    const entityNameKey = `${prefix}_entity_name`;
+    const registrationNumberKey = `${prefix}_registration_number`;
+    const personType = annualFasAnswers[typeKey] || "";
+
     return (
+      <div style={arPersonDetails}>
+        <div style={arPersonDetailsTitle}>{label}</div>
+
+        <div style={arPersonGrid}>
+          <label style={field}>
+            <span style={labelStyleSmall}>Person type</span>
+            <select
+              value={personType}
+              onChange={(event) =>
+                setAnnualFasAnswers((current) => ({
+                  ...current,
+                  [typeKey]: event.target.value,
+                }))
+              }
+              style={input}
+            >
+              <option value="">Select...</option>
+              <option value="natural_person">Natural person</option>
+              <option value="juristic_person">Juristic person</option>
+            </select>
+          </label>
+
+          {personType === "natural_person" ? (
+            <>
+              <label style={field}>
+                <span style={labelStyleSmall}>Full names</span>
+                <input
+                  value={annualFasAnswers[firstNamesKey] || ""}
+                  onChange={(event) =>
+                    setAnnualFasAnswers((current) => ({
+                      ...current,
+                      [firstNamesKey]: event.target.value,
+                    }))
+                  }
+                  style={input}
+                />
+              </label>
+
+              <label style={field}>
+                <span style={labelStyleSmall}>Surname</span>
+                <input
+                  value={annualFasAnswers[surnameKey] || ""}
+                  onChange={(event) =>
+                    setAnnualFasAnswers((current) => ({
+                      ...current,
+                      [surnameKey]: event.target.value,
+                    }))
+                  }
+                  style={input}
+                />
+              </label>
+
+              <label style={field}>
+                <span style={labelStyleSmall}>ID / passport number</span>
+                <input
+                  value={annualFasAnswers[idNumberKey] || ""}
+                  onChange={(event) =>
+                    setAnnualFasAnswers((current) => ({
+                      ...current,
+                      [idNumberKey]: event.target.value,
+                    }))
+                  }
+                  style={input}
+                />
+              </label>
+            </>
+          ) : personType === "juristic_person" ? (
+            <>
+              <label style={field}>
+                <span style={labelStyleSmall}>Entity name</span>
+                <input
+                  value={annualFasAnswers[entityNameKey] || ""}
+                  onChange={(event) =>
+                    setAnnualFasAnswers((current) => ({
+                      ...current,
+                      [entityNameKey]: event.target.value,
+                    }))
+                  }
+                  style={input}
+                />
+              </label>
+
+              <label style={field}>
+                <span style={labelStyleSmall}>Registration number</span>
+                <input
+                  value={annualFasAnswers[registrationNumberKey] || ""}
+                  onChange={(event) =>
+                    setAnnualFasAnswers((current) => ({
+                      ...current,
+                      [registrationNumberKey]: event.target.value,
+                    }))
+                  }
+                  style={input}
+                />
+              </label>
+            </>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  return (
       annualReturns.find((row) => row.return_year === nextAnnualReturn.year) ||
       null
     );
-  }, [annualReturns, nextAnnualReturn]);
+  }, [annualReturns, nextAnnualReturn, selectedAnnualReturnId]);
+
+  const activeAnnualReturnYear =
+    currentAnnualReturn?.return_year || nextAnnualReturn?.year || null;
+
+  const activeAnnualReturnDueDate =
+    currentAnnualReturn?.due_date || nextAnnualReturn?.dueDate || null;
+
+  const activeAnnualReturnAnniversaryDate =
+    currentAnnualReturn?.anniversary_date ||
+    nextAnnualReturn?.anniversaryDate ||
+    null;
 
   const annualFeePreview = useMemo(() => {
     const turnover = parseWholeNumberInput(annualTurnover);
-    const filingDeadline = nextAnnualReturn?.dueDate
-      ? new Date(`${nextAnnualReturn.dueDate}T23:59:59`)
+    const filingDeadline = activeAnnualReturnDueDate
+      ? new Date(`${activeAnnualReturnDueDate}T23:59:59`)
       : null;
     const late = filingDeadline ? new Date() > filingDeadline : false;
     return annualReturnFee(turnover, client?.entity_type || null, late);
-  }, [annualTurnover, client?.entity_type, nextAnnualReturn?.dueDate]);
+  }, [annualTurnover, client?.entity_type, activeAnnualReturnDueDate]);
 
   useEffect(() => {
     if (!currentAnnualReturn) return;
@@ -1539,7 +1690,7 @@ export default function SecretarialClientPage() {
   }, [currentAnnualReturn?.id]);
 
   async function saveAnnualReturnControl() {
-    if (!client || !nextAnnualReturn) {
+    if (!client || !activeAnnualReturnYear || !activeAnnualReturnDueDate) {
       setMessage("The annual-return cycle cannot be calculated.");
       return;
     }
@@ -1550,9 +1701,9 @@ export default function SecretarialClientPage() {
     }
 
     const values = {
-      return_year: nextAnnualReturn.year,
-      anniversary_date: nextAnnualReturn.anniversaryDate,
-      due_date: nextAnnualReturn.dueDate,
+      return_year: activeAnnualReturnYear,
+      anniversary_date: activeAnnualReturnAnniversaryDate,
+      due_date: activeAnnualReturnDueDate,
       annual_turnover: parseWholeNumberInput(annualTurnover),
       annual_return_fee: annualFeePreview.baseFee,
       penalty_amount: annualFeePreview.penalty,
@@ -1578,6 +1729,9 @@ export default function SecretarialClientPage() {
 
     if (ok) {
       setMessage("Annual Return control updated.");
+      if (currentAnnualReturn?.id) {
+        setSelectedAnnualReturnId(currentAnnualReturn.id);
+      }
     }
   }
 
@@ -2119,6 +2273,15 @@ export default function SecretarialClientPage() {
                   ) : null}
                 </div>
                 <div style={rowActions}>
+                  {selectedAnnualReturnId ? (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAnnualReturnId("")}
+                      style={secondaryButton}
+                    >
+                      Back to Current Cycle
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => {
@@ -2920,20 +3083,21 @@ export default function SecretarialClientPage() {
                       </select>
                     </div>
 
-                    {[
-                      ["same_person_compiles", "Is the person who compiles financial information and prepares reports/statements the same person who records the day-to-day financial transactions?"],
-                      ["financial_records_adviser", "Is there a person who provides advice to the company concerning the maintenance of financial records?"],
-                      ["independent_review", "Is there a person performing an independent review of the Annual Financial Statements?"],
-                      ["deals_in_goods", "Does the company deal in goods?"],
-                    ].map(([key, question]) => (
-                      <div key={key} style={arQuestionRow}>
-                        <span style={arQuestionText}>{question}</span>
+                    {annualFasAnswers.record_keeper_type
+                      ? fasPersonDetails("record_keeper", "Financial records responsible person")
+                      : null}
+
+                    <>
+                      <div style={arQuestionRow}>
+                        <span style={arQuestionText}>
+                          Is the person who compiles financial information and prepares reports/statements the same person who records the day-to-day financial transactions?
+                        </span>
                         <select
-                          value={annualFasAnswers[key] || ""}
+                          value={annualFasAnswers.same_person_compiles || ""}
                           onChange={(event) =>
                             setAnnualFasAnswers((current) => ({
                               ...current,
-                              [key]: event.target.value,
+                              same_person_compiles: event.target.value,
                             }))
                           }
                           style={arQuestionSelect}
@@ -2943,7 +3107,77 @@ export default function SecretarialClientPage() {
                           <option value="no">No</option>
                         </select>
                       </div>
-                    ))}
+
+                      {annualFasAnswers.same_person_compiles === "no"
+                        ? fasPersonDetails("compiler", "Financial information compiler")
+                        : null}
+
+                      <div style={arQuestionRow}>
+                        <span style={arQuestionText}>
+                          Is there a person who provides advice to the company concerning the maintenance of financial records?
+                        </span>
+                        <select
+                          value={annualFasAnswers.financial_records_adviser || ""}
+                          onChange={(event) =>
+                            setAnnualFasAnswers((current) => ({
+                              ...current,
+                              financial_records_adviser: event.target.value,
+                            }))
+                          }
+                          style={arQuestionSelect}
+                        >
+                          <option value="">Select...</option>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </div>
+
+                      {annualFasAnswers.financial_records_adviser === "yes"
+                        ? fasPersonDetails("adviser", "Financial records adviser")
+                        : null}
+
+                      <div style={arQuestionRow}>
+                        <span style={arQuestionText}>
+                          Is there a person performing an independent review of the Annual Financial Statements?
+                        </span>
+                        <select
+                          value={annualFasAnswers.independent_review || ""}
+                          onChange={(event) =>
+                            setAnnualFasAnswers((current) => ({
+                              ...current,
+                              independent_review: event.target.value,
+                            }))
+                          }
+                          style={arQuestionSelect}
+                        >
+                          <option value="">Select...</option>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </div>
+
+                      {annualFasAnswers.independent_review === "yes"
+                        ? fasPersonDetails("reviewer", "Independent reviewer")
+                        : null}
+
+                      <div style={arQuestionRow}>
+                        <span style={arQuestionText}>Does the company deal in goods?</span>
+                        <select
+                          value={annualFasAnswers.deals_in_goods || ""}
+                          onChange={(event) =>
+                            setAnnualFasAnswers((current) => ({
+                              ...current,
+                              deals_in_goods: event.target.value,
+                            }))
+                          }
+                          style={arQuestionSelect}
+                        >
+                          <option value="">Select...</option>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </div>
+                    </>
                   </div>
                 ) : null}
               </div>
@@ -2995,14 +3229,14 @@ export default function SecretarialClientPage() {
           </div>
 
           <TableHeader
-            columns="90px 130px 180px 140px 150px 150px 1fr"
-            labels={["YEAR", "DEADLINE", "TURNOVER / FEE", "BO", "AFS / FAS", "STATUS", "CIPC REFERENCE"]}
+            columns="90px 130px 180px 140px 150px 150px 1fr 90px"
+            labels={["YEAR", "DEADLINE", "TURNOVER / FEE", "BO", "AFS / FAS", "STATUS", "CIPC REFERENCE", "ACTION"]}
           />
           {annualReturns.length ? (
             annualReturns.map((row) => (
               <TableRow
                 key={row.id}
-                columns="90px 130px 180px 140px 150px 150px 1fr"
+                columns="90px 130px 180px 140px 150px 150px 1fr 90px"
               >
                 <strong>{row.return_year}</strong>
                 <div>{formatDate(row.due_date)}</div>
@@ -3016,6 +3250,16 @@ export default function SecretarialClientPage() {
                 <StatusPill text={formatStatus(row.financial_submission_status)} />
                 <StatusPill text={formatStatus(row.return_status)} />
                 <div>{clean(row.cipc_reference)}</div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedAnnualReturnId(row.id);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  style={secondaryButton}
+                >
+                  Open
+                </button>
               </TableRow>
             ))
           ) : (
@@ -5146,7 +5390,6 @@ const arHistoryHeading: React.CSSProperties = {
   color: "#10233a",
 };
 
-
 const arFasQuestions: React.CSSProperties = {
   borderTop: "1px solid #d8dee7",
   background: "#fbfcfd",
@@ -5212,6 +5455,33 @@ const arFasCaptureTitle: React.CSSProperties = {
   color: "#10233a",
   fontSize: "9px",
   fontWeight: 900,
+};
+
+const arPersonDetails: React.CSSProperties = {
+  margin: "8px 12px",
+  border: "1px solid #d7e0e8",
+  background: "#f8fafc",
+};
+
+const arPersonDetailsTitle: React.CSSProperties = {
+  padding: "7px 9px",
+  borderBottom: "1px solid #d7e0e8",
+  color: "#10233a",
+  fontSize: "9px",
+  fontWeight: 900,
+};
+
+const arPersonGrid: React.CSSProperties = {
+  padding: "8px",
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: "8px",
+};
+
+const labelStyleSmall: React.CSSProperties = {
+  color: "#53697a",
+  fontSize: "8.5px",
+  fontWeight: 800,
 };
 
 const tileArrow: React.CSSProperties = {
