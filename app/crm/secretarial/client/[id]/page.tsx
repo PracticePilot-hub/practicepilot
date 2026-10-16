@@ -1518,118 +1518,6 @@ export default function SecretarialClientPage() {
 
     if (!nextAnnualReturn) return null;
 
-  function fasPersonDetails(prefix: string, label: string) {
-    const typeKey = `${prefix}_type`;
-    const firstNamesKey = `${prefix}_first_names`;
-    const surnameKey = `${prefix}_surname`;
-    const idNumberKey = `${prefix}_id_number`;
-    const entityNameKey = `${prefix}_entity_name`;
-    const registrationNumberKey = `${prefix}_registration_number`;
-    const personType = annualFasAnswers[typeKey] || "";
-
-    return (
-      <div style={arPersonDetails}>
-        <div style={arPersonDetailsTitle}>{label}</div>
-
-        <div style={arPersonGrid}>
-          <label style={field}>
-            <span style={labelStyleSmall}>Person type</span>
-            <select
-              value={personType}
-              onChange={(event) =>
-                setAnnualFasAnswers((current) => ({
-                  ...current,
-                  [typeKey]: event.target.value,
-                }))
-              }
-              style={input}
-            >
-              <option value="">Select...</option>
-              <option value="natural_person">Natural person</option>
-              <option value="juristic_person">Juristic person</option>
-            </select>
-          </label>
-
-          {personType === "natural_person" ? (
-            <>
-              <label style={field}>
-                <span style={labelStyleSmall}>Full names</span>
-                <input
-                  value={annualFasAnswers[firstNamesKey] || ""}
-                  onChange={(event) =>
-                    setAnnualFasAnswers((current) => ({
-                      ...current,
-                      [firstNamesKey]: event.target.value,
-                    }))
-                  }
-                  style={input}
-                />
-              </label>
-
-              <label style={field}>
-                <span style={labelStyleSmall}>Surname</span>
-                <input
-                  value={annualFasAnswers[surnameKey] || ""}
-                  onChange={(event) =>
-                    setAnnualFasAnswers((current) => ({
-                      ...current,
-                      [surnameKey]: event.target.value,
-                    }))
-                  }
-                  style={input}
-                />
-              </label>
-
-              <label style={field}>
-                <span style={labelStyleSmall}>ID / passport number</span>
-                <input
-                  value={annualFasAnswers[idNumberKey] || ""}
-                  onChange={(event) =>
-                    setAnnualFasAnswers((current) => ({
-                      ...current,
-                      [idNumberKey]: event.target.value,
-                    }))
-                  }
-                  style={input}
-                />
-              </label>
-            </>
-          ) : personType === "juristic_person" ? (
-            <>
-              <label style={field}>
-                <span style={labelStyleSmall}>Entity name</span>
-                <input
-                  value={annualFasAnswers[entityNameKey] || ""}
-                  onChange={(event) =>
-                    setAnnualFasAnswers((current) => ({
-                      ...current,
-                      [entityNameKey]: event.target.value,
-                    }))
-                  }
-                  style={input}
-                />
-              </label>
-
-              <label style={field}>
-                <span style={labelStyleSmall}>Registration number</span>
-                <input
-                  value={annualFasAnswers[registrationNumberKey] || ""}
-                  onChange={(event) =>
-                    setAnnualFasAnswers((current) => ({
-                      ...current,
-                      [registrationNumberKey]: event.target.value,
-                    }))
-                  }
-                  style={input}
-                />
-              </label>
-            </>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
   return (
       annualReturns.find((row) => row.return_year === nextAnnualReturn.year) ||
       null
@@ -1836,6 +1724,118 @@ export default function SecretarialClientPage() {
       </div>
     );
   }
+
+  const fasPersonDetails = (prefix: string, label: string) => {
+    const typeKey = `${prefix}_type`;
+    const firstNamesKey = `${prefix}_first_names`;
+    const surnameKey = `${prefix}_surname`;
+    const idNumberKey = `${prefix}_id_number`;
+    const entityNameKey = `${prefix}_entity_name`;
+    const registrationNumberKey = `${prefix}_registration_number`;
+    const personType = annualFasAnswers[typeKey] || "";
+
+    return (
+      <div style={arPersonDetails}>
+        <div style={arPersonDetailsTitle}>{label}</div>
+
+        <div style={arPersonGrid}>
+          <label style={field}>
+            <span style={labelStyleSmall}>Person type</span>
+            <select
+              value={personType}
+              onChange={(event) =>
+                setAnnualFasAnswers((current) => ({
+                  ...current,
+                  [typeKey]: event.target.value,
+                }))
+              }
+              style={input}
+            >
+              <option value="">Select...</option>
+              <option value="natural_person">Natural person</option>
+              <option value="juristic_person">Juristic person</option>
+            </select>
+          </label>
+
+          {personType === "natural_person" ? (
+            <>
+              <label style={field}>
+                <span style={labelStyleSmall}>Full names</span>
+                <input
+                  value={annualFasAnswers[firstNamesKey] || ""}
+                  onChange={(event) =>
+                    setAnnualFasAnswers((current) => ({
+                      ...current,
+                      [firstNamesKey]: event.target.value,
+                    }))
+                  }
+                  style={input}
+                />
+              </label>
+
+              <label style={field}>
+                <span style={labelStyleSmall}>Surname</span>
+                <input
+                  value={annualFasAnswers[surnameKey] || ""}
+                  onChange={(event) =>
+                    setAnnualFasAnswers((current) => ({
+                      ...current,
+                      [surnameKey]: event.target.value,
+                    }))
+                  }
+                  style={input}
+                />
+              </label>
+
+              <label style={field}>
+                <span style={labelStyleSmall}>ID / passport number</span>
+                <input
+                  value={annualFasAnswers[idNumberKey] || ""}
+                  onChange={(event) =>
+                    setAnnualFasAnswers((current) => ({
+                      ...current,
+                      [idNumberKey]: event.target.value,
+                    }))
+                  }
+                  style={input}
+                />
+              </label>
+            </>
+          ) : personType === "juristic_person" ? (
+            <>
+              <label style={field}>
+                <span style={labelStyleSmall}>Entity name</span>
+                <input
+                  value={annualFasAnswers[entityNameKey] || ""}
+                  onChange={(event) =>
+                    setAnnualFasAnswers((current) => ({
+                      ...current,
+                      [entityNameKey]: event.target.value,
+                    }))
+                  }
+                  style={input}
+                />
+              </label>
+
+              <label style={field}>
+                <span style={labelStyleSmall}>Registration number</span>
+                <input
+                  value={annualFasAnswers[registrationNumberKey] || ""}
+                  onChange={(event) =>
+                    setAnnualFasAnswers((current) => ({
+                      ...current,
+                      [registrationNumberKey]: event.target.value,
+                    }))
+                  }
+                  style={input}
+                />
+              </label>
+            </>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div style={page}>
