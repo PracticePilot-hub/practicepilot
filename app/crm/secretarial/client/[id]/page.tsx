@@ -1511,6 +1511,34 @@ export default function SecretarialClientPage() {
     }
   }, [recommendedFinancialType]);
 
+  useEffect(() => {
+    if (annualFasAnswers.same_person_compiles !== "yes") return;
+
+    setAnnualFasAnswers((current) => {
+      const next = {
+        ...current,
+        compiler_type: current.record_keeper_type || "",
+        compiler_first_names: current.record_keeper_first_names || "",
+        compiler_surname: current.record_keeper_surname || "",
+        compiler_id_number: current.record_keeper_id_number || "",
+        compiler_entity_name: current.record_keeper_entity_name || "",
+        compiler_registration_number:
+          current.record_keeper_registration_number || "",
+      };
+
+      if (JSON.stringify(next) === JSON.stringify(current)) return current;
+      return next;
+    });
+  }, [
+    annualFasAnswers.same_person_compiles,
+    annualFasAnswers.record_keeper_type,
+    annualFasAnswers.record_keeper_first_names,
+    annualFasAnswers.record_keeper_surname,
+    annualFasAnswers.record_keeper_id_number,
+    annualFasAnswers.record_keeper_entity_name,
+    annualFasAnswers.record_keeper_registration_number,
+  ]);
+
   const currentAnnualReturn = useMemo(() => {
     if (selectedAnnualReturnId) {
       return annualReturns.find((row) => row.id === selectedAnnualReturnId) || null;
@@ -3108,8 +3136,15 @@ export default function SecretarialClientPage() {
                         </select>
                       </div>
 
-                      {annualFasAnswers.same_person_compiles === "no"
-                        ? fasPersonDetails("compiler", "Financial information compiler")
+                      {["yes", "no"].includes(
+                        annualFasAnswers.same_person_compiles || ""
+                      )
+                        ? fasPersonDetails(
+                            "compiler",
+                            annualFasAnswers.same_person_compiles === "yes"
+                              ? "Financial information compiler — same person as records responsible person"
+                              : "Financial information compiler"
+                          )
                         : null}
 
                       <div style={arQuestionRow}>
