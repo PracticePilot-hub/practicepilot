@@ -2908,216 +2908,396 @@ export default function SecretarialClientPage() {
 
       {activeView === "annual-returns" ? (
         <section style={panel}>
-          <PanelHeading
-            title="Annual Returns"
-            subtitle="One annual control record: turnover, CIPC fee, filing readiness, filing result and permanent history."
-          />
-
           {!client.registration_date || !nextAnnualReturn ? (
-            <div style={warningBar}>
-              Registration date is missing from the client record. Add it in the Client Database so PracticePilot can calculate the Annual Return cycle.
-            </div>
+            <>
+              <PanelHeading
+                title="Annual Returns"
+                subtitle="Manage the annual CIPC filing cycle from turnover through filing result."
+              />
+              <div style={warningBar}>
+                Registration date is missing from the client record. Add it in the Client Database so PracticePilot can calculate the Annual Return cycle.
+              </div>
+            </>
           ) : (
-            <div style={arWorkspace}>
-              <div style={arTitleRow}>
+            <div style={ar2Workspace}>
+              <div style={ar2TitleRow}>
                 <div>
-                  <div style={arYearLine}>{nextAnnualReturn.year} Annual Return</div>
-                  <div style={arWindowLine}>
-                    Filing window: {formatDate(nextAnnualReturn.anniversaryDate)} – {formatDate(nextAnnualReturn.dueDate)}
-                  </div>
-                </div>
-                <StatusPill text={formatStatus(currentAnnualReturn?.return_status || "not_started")} />
-              </div>
-
-              <div style={arGridHeader}>
-                <span style={arGridHeaderCell}><b style={arStepNo}>01</b> TURNOVER &amp; CIPC</span>
-                <span style={arGridHeaderCell}><b style={arStepNo}>02</b> FILING READINESS</span>
-                <span style={arGridHeaderCell}><b style={arStepNo}>03</b> CIPC FILING RESULT</span>
-              </div>
-
-              <div style={arThreePanel}>
-                <div style={arColumn}>
-                  <Field label="ANNUAL TURNOVER">
-                    <div style={arMoneyInput}>
-                      <span style={arCurrencyPrefix}>R</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={annualTurnover}
-                        onChange={(event) =>
-                          setAnnualTurnover(formatWholeNumberInput(event.target.value))
-                        }
-                        placeholder="0"
-                        style={arMoneyField}
-                      />
-                    </div>
-                    <div style={arInputHelpRow}>
-                      <span>Latest approved financial statements · whole rand amount</span>
-                      {annualTurnover ? (
-                        <button type="button" onClick={() => setAnnualTurnover("")} style={arClearTurnover}>
-                          Clear
-                        </button>
-                      ) : null}
-                    </div>
-                  </Field>
-
-                  <div style={arFeeTable}>
-                    <div style={arFeeLine}><span>CIPC fee</span><strong>{money(annualFeePreview.baseFee)}</strong></div>
-                    <div style={arFeeLine}><span>Late amount</span><strong>{money(annualFeePreview.penalty)}</strong></div>
-                    <div style={{ ...arFeeLine, ...arFeeTotal }}><span>Total payable</span><strong>{money(annualFeePreview.totalFee)}</strong></div>
-                  </div>
-
-                  <div style={arBandLine}>
-                    <span>Fee band</span>
-                    <strong>{annualFeePreview.bandLabel}</strong>
-                  </div>
-                </div>
-
-                <div style={arColumn}>
-                  <Field label="BENEFICIAL OWNERSHIP">
-                    <div style={arReadOnlyLine}>
-                      <StatusPill text={formatStatus(annualBOLiveStatus)} />
-                      <Link
-                        href={`/crm/secretarial/client/${client.id}?view=beneficial-ownership`}
-                        style={arInlineAction}
-                      >
-                        Manage BO →
-                      </Link>
-                    </div>
-                  </Field>
-
-                  <Field label="FINANCIAL SUBMISSION TYPE">
-                    <select
-                      value={annualFinancialType}
-                      onChange={(event) => setAnnualFinancialType(event.target.value)}
-                      style={input}
-                    >
-                      <option value="FAS">FAS</option>
-                      <option value="AFS">AFS</option>
-                      <option value="not_required">Not required</option>
-                    </select>
-                  </Field>
-
-                  <Field label="AFS / FAS STATUS">
-                    <select
-                      value={annualFinancialStatus}
-                      onChange={(event) => setAnnualFinancialStatus(event.target.value)}
-                      style={input}
-                    >
-                      <option value="outstanding">Outstanding</option>
-                      <option value="submitted">Submitted</option>
-                      <option value="not_required">Not required</option>
-                    </select>
-                  </Field>
-                </div>
-
-                <div style={arColumn}>
-                  <Field label="RETURN STATUS">
-                    <select
-                      value={annualReturnStatus}
-                      onChange={(event) => setAnnualReturnStatus(event.target.value)}
-                      style={input}
-                    >
-                      <option value="not_started">Not started</option>
-                      <option value="in_progress">In progress</option>
-                      <option value="submitted">Submitted</option>
-                      <option value="paid">Paid</option>
-                      <option value="completed">Completed</option>
-                      <option value="overdue">Overdue</option>
-                    </select>
-                  </Field>
-
-                  <div style={arDatePair}>
-                    <Field label="SUBMITTED DATE">
-                      <input type="date" value={annualSubmittedDate} onChange={(event) => setAnnualSubmittedDate(event.target.value)} style={input} />
-                    </Field>
-                    <Field label="PAID DATE">
-                      <input type="date" value={annualPaidDate} onChange={(event) => setAnnualPaidDate(event.target.value)} style={input} />
-                    </Field>
-                  </div>
-
-                  <Field label="CIPC REFERENCE NUMBER">
-                    <input
-                      value={annualCipcReference}
-                      onChange={(event) => setAnnualCipcReference(event.target.value)}
-                      placeholder="Capture after CIPC filing"
-                      style={input}
+                  <div style={ar2TitleLine}>
+                    <strong>{activeAnnualReturnYear} Annual Return</strong>
+                    <StatusPill
+                      text={formatStatus(
+                        currentAnnualReturn?.return_status || "not_started"
+                      )}
                     />
-                  </Field>
+                  </div>
+                  <div style={ar2Subtitle}>
+                    Filing window: {formatDate(activeAnnualReturnAnniversaryDate)} – {formatDate(activeAnnualReturnDueDate)}
+                  </div>
+                </div>
+
+                {selectedAnnualReturnId ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAnnualReturnId("")}
+                    style={ar2GhostButton}
+                  >
+                    Back to Current Cycle
+                  </button>
+                ) : null}
+              </div>
+
+              <div style={ar2SummaryStrip}>
+                <div style={ar2SummaryCell}>
+                  <span style={ar2SummaryLabel}>TURNOVER</span>
+                  <strong style={ar2SummaryValue}>
+                    {money(parseWholeNumberInput(annualTurnover))}
+                  </strong>
+                  <span style={ar2SummaryMeta}>Annual return turnover</span>
+                </div>
+
+                <div style={ar2SummaryCell}>
+                  <span style={ar2SummaryLabel}>AMOUNT PAYABLE</span>
+                  <strong style={ar2SummaryValue}>{money(annualFeePreview.totalFee)}</strong>
+                  <span style={ar2SummaryMeta}>Current CIPC amount</span>
+                </div>
+
+                <div style={ar2SummaryCell}>
+                  <span style={ar2SummaryLabel}>BO STATUS</span>
+                  <strong style={ar2SummaryStatusValue}>
+                    <span style={ar2GreenDot} /> {formatStatus(annualBOLiveStatus)}
+                  </strong>
+                  <span style={ar2SummaryMeta}>Beneficial ownership readiness</span>
+                </div>
+
+                <div style={ar2SummaryCell}>
+                  <span style={ar2SummaryLabel}>AFS / FAS ROUTE</span>
+                  <strong style={ar2SummaryValue}>
+                    {recommendedFinancialType || annualFinancialType || "—"}
+                  </strong>
+                  <span style={ar2SummaryMeta}>
+                    {recommendedFinancialType === "FAS"
+                      ? "Financial Accountability Supplement"
+                      : recommendedFinancialType === "AFS"
+                        ? "Annual Financial Statements"
+                        : "Complete the decision questions"}
+                  </span>
+                </div>
+
+                <div style={ar2SummaryCell}>
+                  <span style={ar2SummaryLabel}>FILING STATUS</span>
+                  <strong style={ar2SummaryStatusValue}>
+                    <span style={ar2GreyDot} /> {formatStatus(annualReturnStatus)}
+                  </strong>
+                  <span style={ar2SummaryMeta}>CIPC filing progress</span>
+                </div>
+
+                <div style={{ ...ar2SummaryCell, borderRight: 0 }}>
+                  <span style={ar2SummaryLabel}>DEADLINE</span>
+                  <strong style={ar2SummaryValue}>{formatDate(activeAnnualReturnDueDate)}</strong>
+                  <span style={ar2SummaryMeta}>Annual Return due date</span>
                 </div>
               </div>
 
-              <div style={arFasQuestions}>
-                <div style={arFasHeader}>
-                  <div style={{ display: "grid", gap: "3px" }}>
-                    <strong>CIPC Financial Statements / FAS Questions</strong>
-                    <span style={{ color: "#64748b" }}>
-                      These answers determine whether CIPC requires AFS or permits the Financial Accountability Supplement.
-                    </span>
+              <div style={ar2WorkflowGrid}>
+                <div style={ar2StepPanel}>
+                  <div style={ar2StepHeader}>
+                    <span style={ar2StepNumber}>1</span>
+                    <div>
+                      <strong style={ar2StepTitle}>Turnover &amp; CIPC fee</strong>
+                      <div style={ar2StepSub}>Confirm turnover and view the amount payable.</div>
+                    </div>
                   </div>
-                  <div style={arRouteResult}>
-                    <span>Recommended route</span>
-                    <strong>{recommendedFinancialType || "Answer all 5 questions"}</strong>
+
+                  <div style={ar2StepBody}>
+                    <Field label="ANNUAL TURNOVER">
+                      <div style={arMoneyInput}>
+                        <span style={arCurrencyPrefix}>R</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={annualTurnover}
+                          onChange={(event) =>
+                            setAnnualTurnover(
+                              formatWholeNumberInput(event.target.value)
+                            )
+                          }
+                          placeholder="0"
+                          style={arMoneyField}
+                        />
+                      </div>
+                      <div style={arInputHelpRow}>
+                        <span>Whole rand amount from approved financial information.</span>
+                        {annualTurnover ? (
+                          <button
+                            type="button"
+                            onClick={() => setAnnualTurnover("")}
+                            style={arClearTurnover}
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                      </div>
+                    </Field>
+
+                    <div style={ar2FeeHero}>
+                      <span>Amount payable to CIPC</span>
+                      <strong>{money(annualFeePreview.totalFee)}</strong>
+                      <small>{annualFeePreview.bandLabel}</small>
+                    </div>
+
+                    <div style={ar2FeeMiniGrid}>
+                      <div>
+                        <span>Base fee</span>
+                        <strong>{money(annualFeePreview.baseFee)}</strong>
+                      </div>
+                      <div>
+                        <span>Internal late amount</span>
+                        <strong>{money(annualFeePreview.penalty)}</strong>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        previewSecretarialDocument(
+                          "annual-return-payment-instruction",
+                          currentAnnualReturn?.id || null
+                        )
+                      }
+                      style={ar2OutlineButton}
+                      disabled={!currentAnnualReturn}
+                    >
+                      Generate Payment Instruction
+                    </button>
                   </div>
                 </div>
 
-                {[
-                  ["fiduciary_over_5m", "Does the entity hold assets in a fiduciary capacity for unrelated persons exceeding R5 million at any time during the financial year?"],
-                  ["internal_compiled_pis_100", "Are the Annual Financial Statements compiled internally and is the Public Interest Score 100 or more?"],
-                  ["independent_compiled_pis_350", "Are the Annual Financial Statements compiled by an independent party and is the Public Interest Score 350 or more?"],
-                  ["state_related", "Was the company incorporated directly or indirectly by the state, an organ of state, a state-owned company, international entity, foreign state entity or foreign company?"],
-                  ["public_function", "Was the company incorporated primarily to perform a statutory, regulatory or public function?"],
-                ].map(([key, question]) => (
-                  <div key={key} style={arQuestionRow}>
-                    <span style={arQuestionText}>{question}</span>
-                    <select
-                      value={annualFasAnswers[key] || ""}
-                      onChange={(event) =>
-                        setAnnualFasAnswers((current) => ({
-                          ...current,
-                          [key]: event.target.value,
-                        }))
-                      }
-                      style={arQuestionSelect}
-                    >
-                      <option value="">Select...</option>
-                      <option value="yes">Yes</option>
-                      <option value="no">No</option>
-                    </select>
+                <div style={ar2StepPanel}>
+                  <div style={ar2StepHeader}>
+                    <span style={ar2StepNumber}>2</span>
+                    <div>
+                      <strong style={ar2StepTitle}>Filing readiness</strong>
+                      <div style={ar2StepSub}>Complete the route decision and filing details.</div>
+                    </div>
                   </div>
-                ))}
 
-                {annualFinancialType === "FAS" ? (
-                  <div style={arFasCapture}>
-                    <div style={arFasCaptureTitle}>Financial Accountability Supplement capture</div>
+                  <div style={ar2ReadinessTop}>
+                    <div>
+                      <span style={ar2ReadinessLabel}>Beneficial Ownership</span>
+                      <strong style={ar2ReadyText}>
+                        <span style={ar2GreenDot} /> {formatStatus(annualBOLiveStatus)}
+                      </strong>
+                    </div>
+                    <Link
+                      href={`/crm/secretarial/client/${client.id}?view=beneficial-ownership`}
+                      style={ar2InlineLink}
+                    >
+                      Manage BO →
+                    </Link>
+                  </div>
 
-                    <div style={arQuestionRow}>
-                      <span style={arQuestionText}>
-                        Person primarily responsible for recording day-to-day financial transactions and maintaining the financial records
+                  <div style={ar2DecisionList}>
+                    {[
+                      ["fiduciary_over_5m", "Fiduciary assets over R5 million"],
+                      ["internal_compiled_pis_100", "Internally compiled AFS / PIS 100+"],
+                      ["independent_compiled_pis_350", "Independently compiled AFS / PIS 350+"],
+                      ["state_related", "State / public-sector related entity"],
+                      ["public_function", "Statutory, regulatory or public function"],
+                    ].map(([key, shortLabel], index) => {
+                      const value = annualFasAnswers[key] || "";
+                      return (
+                        <div key={key} style={ar2DecisionRow}>
+                          <span style={ar2DecisionIndex}>{index + 1}</span>
+                          <span style={ar2DecisionLabel}>{shortLabel}</span>
+                          <div style={ar2YesNoGroup}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setAnnualFasAnswers((current) => ({
+                                  ...current,
+                                  [key]: "yes",
+                                }))
+                              }
+                              style={{
+                                ...ar2YesNoButton,
+                                ...(value === "yes" ? ar2YesNoButtonActive : {}),
+                              }}
+                            >
+                              Yes
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setAnnualFasAnswers((current) => ({
+                                  ...current,
+                                  [key]: "no",
+                                }))
+                              }
+                              style={{
+                                ...ar2YesNoButton,
+                                ...(value === "no" ? ar2YesNoButtonActive : {}),
+                              }}
+                            >
+                              No
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div style={ar2ReadinessFooter}>
+                    <div>
+                      <strong>
+                        {fasDecisionKeys.filter((key) =>
+                          ["yes", "no"].includes(annualFasAnswers[key] || "")
+                        ).length} of 5 questions answered
+                      </strong>
+                      <span>
+                        {fasDecisionComplete
+                          ? "Financial submission route determined."
+                          : "Complete all five decision questions."}
                       </span>
+                    </div>
+                    <strong style={ar2RouteBadge}>
+                      {recommendedFinancialType || "Pending"}
+                    </strong>
+                  </div>
+                </div>
+
+                <div style={ar2StepPanel}>
+                  <div style={ar2StepHeader}>
+                    <span style={ar2StepNumber}>3</span>
+                    <div>
+                      <strong style={ar2StepTitle}>CIPC filing result</strong>
+                      <div style={ar2StepSub}>Track filing, payment and the CIPC result.</div>
+                    </div>
+                  </div>
+
+                  <div style={ar2RouteHero}>
+                    <span style={ar2RouteHeroKicker}>RECOMMENDED ROUTE</span>
+                    <strong>{recommendedFinancialType || annualFinancialType || "—"}</strong>
+                    <small>
+                      {recommendedFinancialType === "FAS"
+                        ? "Financial Accountability Supplement"
+                        : recommendedFinancialType === "AFS"
+                          ? "Annual Financial Statements"
+                          : "Awaiting decision questions"}
+                    </small>
+                  </div>
+
+                  <div style={ar2StepBodyCompact}>
+                    <Field label="RETURN STATUS">
                       <select
-                        value={annualFasAnswers.record_keeper_type || ""}
-                        onChange={(event) =>
-                          setAnnualFasAnswers((current) => ({
-                            ...current,
-                            record_keeper_type: event.target.value,
-                          }))
-                        }
-                        style={arQuestionSelect}
+                        value={annualReturnStatus}
+                        onChange={(event) => setAnnualReturnStatus(event.target.value)}
+                        style={input}
                       >
-                        <option value="">Select...</option>
-                        <option value="natural_person">Natural person</option>
-                        <option value="juristic_person">Juristic person</option>
+                        <option value="not_started">Not started</option>
+                        <option value="in_progress">In progress</option>
+                        <option value="submitted">Submitted</option>
+                        <option value="paid">Paid</option>
+                        <option value="completed">Completed</option>
+                        <option value="overdue">Overdue</option>
                       </select>
+                    </Field>
+
+                    <div style={arDatePair}>
+                      <Field label="SUBMITTED DATE">
+                        <input
+                          type="date"
+                          value={annualSubmittedDate}
+                          onChange={(event) => setAnnualSubmittedDate(event.target.value)}
+                          style={input}
+                        />
+                      </Field>
+                      <Field label="PAID DATE">
+                        <input
+                          type="date"
+                          value={annualPaidDate}
+                          onChange={(event) => setAnnualPaidDate(event.target.value)}
+                          style={input}
+                        />
+                      </Field>
                     </div>
 
-                    {annualFasAnswers.record_keeper_type
-                      ? fasPersonDetails("record_keeper", "Financial records responsible person")
-                      : null}
+                    <Field label="CIPC REFERENCE NUMBER">
+                      <input
+                        value={annualCipcReference}
+                        onChange={(event) => setAnnualCipcReference(event.target.value)}
+                        placeholder="Capture after CIPC filing"
+                        style={input}
+                      />
+                    </Field>
 
-                    <>
-                      <div style={arQuestionRow}>
-                        <span style={arQuestionText}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        previewSecretarialDocument(
+                          "annual-return-authority",
+                          currentAnnualReturn?.id || null
+                        )
+                      }
+                      style={ar2OutlineButton}
+                      disabled={!currentAnnualReturn}
+                    >
+                      Preview Client Authority
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div style={ar2LowerGrid}>
+                <div style={ar2MainSection}>
+                  <div style={ar2SectionHeader}>
+                    <div>
+                      <strong>
+                        {annualFinancialType === "FAS"
+                          ? "Financial Accountability Supplement (FAS)"
+                          : "Financial Submission Details"}
+                      </strong>
+                      <span>
+                        {annualFinancialType === "FAS"
+                          ? "Capture only the additional information required for the FAS filing."
+                          : "Complete the financial submission information for this Annual Return."}
+                      </span>
+                    </div>
+                    <div style={ar2RouteBadge}>
+                      {recommendedFinancialType || annualFinancialType || "Pending"}
+                    </div>
+                  </div>
+
+                  {annualFinancialType === "FAS" ? (
+                    <div style={ar2FasBody}>
+                      <div style={ar2FasQuestionRow}>
+                        <span>
+                          Person primarily responsible for recording day-to-day financial transactions and maintaining the financial records
+                        </span>
+                        <select
+                          value={annualFasAnswers.record_keeper_type || ""}
+                          onChange={(event) =>
+                            setAnnualFasAnswers((current) => ({
+                              ...current,
+                              record_keeper_type: event.target.value,
+                            }))
+                          }
+                          style={ar2CompactSelect}
+                        >
+                          <option value="">Select...</option>
+                          <option value="natural_person">Natural person</option>
+                          <option value="juristic_person">Juristic person</option>
+                        </select>
+                      </div>
+
+                      {annualFasAnswers.record_keeper_type
+                        ? fasPersonDetails(
+                            "record_keeper",
+                            "Financial records responsible person"
+                          )
+                        : null}
+
+                      <div style={ar2FasQuestionRow}>
+                        <span>
                           Is the person who compiles financial information and prepares reports/statements the same person who records the day-to-day financial transactions?
                         </span>
                         <select
@@ -3128,7 +3308,7 @@ export default function SecretarialClientPage() {
                               same_person_compiles: event.target.value,
                             }))
                           }
-                          style={arQuestionSelect}
+                          style={ar2CompactSelect}
                         >
                           <option value="">Select...</option>
                           <option value="yes">Yes</option>
@@ -3143,8 +3323,8 @@ export default function SecretarialClientPage() {
                           )
                         : null}
 
-                      <div style={arQuestionRow}>
-                        <span style={arQuestionText}>
+                      <div style={ar2FasQuestionRow}>
+                        <span>
                           Is there a person who provides advice to the company concerning the maintenance of financial records?
                         </span>
                         <select
@@ -3155,7 +3335,7 @@ export default function SecretarialClientPage() {
                               financial_records_adviser: event.target.value,
                             }))
                           }
-                          style={arQuestionSelect}
+                          style={ar2CompactSelect}
                         >
                           <option value="">Select...</option>
                           <option value="yes">Yes</option>
@@ -3167,8 +3347,8 @@ export default function SecretarialClientPage() {
                         ? fasPersonDetails("adviser", "Financial records adviser")
                         : null}
 
-                      <div style={arQuestionRow}>
-                        <span style={arQuestionText}>
+                      <div style={ar2FasQuestionRow}>
+                        <span>
                           Is there a person performing an independent review of the Annual Financial Statements?
                         </span>
                         <select
@@ -3179,7 +3359,7 @@ export default function SecretarialClientPage() {
                               independent_review: event.target.value,
                             }))
                           }
-                          style={arQuestionSelect}
+                          style={ar2CompactSelect}
                         >
                           <option value="">Select...</option>
                           <option value="yes">Yes</option>
@@ -3191,8 +3371,8 @@ export default function SecretarialClientPage() {
                         ? fasPersonDetails("reviewer", "Independent reviewer")
                         : null}
 
-                      <div style={arQuestionRow}>
-                        <span style={arQuestionText}>Does the company deal in goods?</span>
+                      <div style={ar2FasQuestionRow}>
+                        <span>Does the company deal in goods?</span>
                         <select
                           value={annualFasAnswers.deals_in_goods || ""}
                           onChange={(event) =>
@@ -3201,23 +3381,54 @@ export default function SecretarialClientPage() {
                               deals_in_goods: event.target.value,
                             }))
                           }
-                          style={arQuestionSelect}
+                          style={ar2CompactSelect}
                         >
                           <option value="">Select...</option>
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
                         </select>
                       </div>
-                    </>
-                  </div>
-                ) : null}
-              </div>
-
-              <div style={arFooter}>
-                <div style={arFootNote}>
-                  Turnover drives the statutory CIPC fee. The filed year remains in history and is never overwritten by the next cycle.
+                    </div>
+                  ) : (
+                    <div style={ar2AfsBody}>
+                      <Field label="FINANCIAL SUBMISSION TYPE">
+                        <select
+                          value={annualFinancialType}
+                          onChange={(event) => setAnnualFinancialType(event.target.value)}
+                          style={input}
+                        >
+                          <option value="FAS">FAS</option>
+                          <option value="AFS">AFS</option>
+                          <option value="not_required">Not required</option>
+                        </select>
+                      </Field>
+                      <Field label="AFS / FAS STATUS">
+                        <select
+                          value={annualFinancialStatus}
+                          onChange={(event) => setAnnualFinancialStatus(event.target.value)}
+                          style={input}
+                        >
+                          <option value="outstanding">Outstanding</option>
+                          <option value="submitted">Submitted</option>
+                          <option value="not_required">Not required</option>
+                        </select>
+                      </Field>
+                    </div>
+                  )}
                 </div>
-                <div style={rowActions}>
+
+                <aside style={ar2SupportPanel}>
+                  <div style={ar2SupportHeader}>Support &amp; next steps</div>
+
+                  <div style={ar2SupportItem}>
+                    <div>
+                      <strong>Recommended route</strong>
+                      <span>
+                        {recommendedFinancialType || annualFinancialType || "Pending"}
+                      </span>
+                    </div>
+                  </div>
+
                   <button
                     type="button"
                     onClick={() =>
@@ -3226,11 +3437,16 @@ export default function SecretarialClientPage() {
                         currentAnnualReturn?.id || null
                       )
                     }
-                    style={secondaryButton}
                     disabled={!currentAnnualReturn}
+                    style={ar2SupportButton}
                   >
-                    Payment Instruction
+                    <span>
+                      <strong>CIPC payment instruction</strong>
+                      <small>Generate the client-ready amount payable notice.</small>
+                    </span>
+                    <b>→</b>
                   </button>
+
                   <button
                     type="button"
                     onClick={() =>
@@ -3239,62 +3455,106 @@ export default function SecretarialClientPage() {
                         currentAnnualReturn?.id || null
                       )
                     }
-                    style={secondaryButton}
                     disabled={!currentAnnualReturn}
+                    style={ar2SupportButton}
                   >
-                    Preview Client Authority
+                    <span>
+                      <strong>Preview client authority</strong>
+                      <small>View the Annual Return authority for signature.</small>
+                    </span>
+                    <b>→</b>
                   </button>
-                  <SaveButton
-                    onClick={saveAnnualReturnControl}
-                    saving={saving}
-                    label={currentAnnualReturn ? "Save Annual Return" : "Create Annual Return"}
-                  />
+
+                  <Link
+                    href={`/crm/secretarial/client/${client.id}?view=beneficial-ownership`}
+                    style={ar2SupportLink}
+                  >
+                    <span>
+                      <strong>Beneficial Ownership</strong>
+                      <small>Review or update the BO position.</small>
+                    </span>
+                    <b>→</b>
+                  </Link>
+
+                  <div style={ar2SaveBlock}>
+                    <SaveButton
+                      onClick={saveAnnualReturnControl}
+                      saving={saving}
+                      label={
+                        currentAnnualReturn
+                          ? "Save Annual Return"
+                          : "Create Annual Return"
+                      }
+                    />
+                  </div>
+                </aside>
+              </div>
+
+              <div style={ar2HistorySection}>
+                <div style={ar2HistoryHeader}>
+                  <div>
+                    <strong>Annual Return History</strong>
+                    <span>Open any saved year to review or update the permanent filing record.</span>
+                  </div>
+                  <span style={ar2HistoryCount}>{annualReturns.length} saved</span>
                 </div>
+
+                <TableHeader
+                  columns="90px 130px 180px 140px 150px 150px 1fr 90px"
+                  labels={[
+                    "YEAR",
+                    "DEADLINE",
+                    "TURNOVER / FEE",
+                    "BO",
+                    "AFS / FAS",
+                    "STATUS",
+                    "CIPC REFERENCE",
+                    "ACTION",
+                  ]}
+                />
+
+                {annualReturns.length ? (
+                  annualReturns.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      columns="90px 130px 180px 140px 150px 150px 1fr 90px"
+                    >
+                      <strong>{row.return_year}</strong>
+                      <div>{formatDate(row.due_date)}</div>
+                      <div>
+                        <strong>{money(row.annual_turnover)}</strong>
+                        <div style={mutedSmall}>
+                          CIPC {money(
+                            Number(row.annual_return_fee || 0) +
+                              Number(row.penalty_amount || 0)
+                          )}
+                        </div>
+                      </div>
+                      <StatusPill
+                        text={formatStatus(row.beneficial_ownership_status)}
+                      />
+                      <StatusPill
+                        text={formatStatus(row.financial_submission_status)}
+                      />
+                      <StatusPill text={formatStatus(row.return_status)} />
+                      <div>{clean(row.cipc_reference)}</div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedAnnualReturnId(row.id);
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                        style={ar2OpenButton}
+                      >
+                        Open
+                      </button>
+                    </TableRow>
+                  ))
+                ) : (
+                  <Empty text="No Annual Return history yet." />
+                )}
               </div>
             </div>
-          )}
-
-          <div style={arHistoryHeading}>
-            <strong>Annual Return History</strong>
-            <span>Permanent CIPC filing history by year.</span>
-          </div>
-
-          <TableHeader
-            columns="90px 130px 180px 140px 150px 150px 1fr 90px"
-            labels={["YEAR", "DEADLINE", "TURNOVER / FEE", "BO", "AFS / FAS", "STATUS", "CIPC REFERENCE", "ACTION"]}
-          />
-          {annualReturns.length ? (
-            annualReturns.map((row) => (
-              <TableRow
-                key={row.id}
-                columns="90px 130px 180px 140px 150px 150px 1fr 90px"
-              >
-                <strong>{row.return_year}</strong>
-                <div>{formatDate(row.due_date)}</div>
-                <div>
-                  <strong>{money(row.annual_turnover)}</strong>
-                  <div style={mutedSmall}>
-                    CIPC {money(Number(row.annual_return_fee || 0) + Number(row.penalty_amount || 0))}
-                  </div>
-                </div>
-                <StatusPill text={formatStatus(row.beneficial_ownership_status)} />
-                <StatusPill text={formatStatus(row.financial_submission_status)} />
-                <StatusPill text={formatStatus(row.return_status)} />
-                <div>{clean(row.cipc_reference)}</div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedAnnualReturnId(row.id);
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
-                  style={secondaryButton}
-                >
-                  Open
-                </button>
-              </TableRow>
-            ))
-          ) : (
-            <Empty text="No Annual Return history yet." />
           )}
         </section>
       ) : null}
@@ -5513,6 +5773,468 @@ const labelStyleSmall: React.CSSProperties = {
   color: "#53697a",
   fontSize: "8.5px",
   fontWeight: 800,
+};
+
+const ar2Workspace: React.CSSProperties = {
+  background: "#f5f8fb",
+  borderTop: "1px solid #d7e0e8",
+};
+
+const ar2TitleRow: React.CSSProperties = {
+  padding: "14px 16px 10px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "14px",
+  background: "#ffffff",
+};
+
+const ar2TitleLine: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  color: "#10233a",
+  fontSize: "20px",
+};
+
+const ar2Subtitle: React.CSSProperties = {
+  marginTop: "3px",
+  color: "#64748b",
+  fontSize: "9.5px",
+};
+
+const ar2GhostButton: React.CSSProperties = {
+  minHeight: "30px",
+  padding: "0 10px",
+  border: "1px solid #c7d4df",
+  background: "#ffffff",
+  color: "#334155",
+  fontSize: "9px",
+  fontWeight: 850,
+  cursor: "pointer",
+};
+
+const ar2SummaryStrip: React.CSSProperties = {
+  margin: "0 16px 12px",
+  display: "grid",
+  gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+  border: "1px solid #d6e0e8",
+  background: "#ffffff",
+};
+
+const ar2SummaryCell: React.CSSProperties = {
+  minWidth: 0,
+  padding: "10px 12px",
+  display: "grid",
+  gap: "3px",
+  borderRight: "1px solid #e0e7ed",
+};
+
+const ar2SummaryLabel: React.CSSProperties = {
+  color: "#607385",
+  fontSize: "7.5px",
+  fontWeight: 900,
+  letterSpacing: ".03em",
+};
+
+const ar2SummaryValue: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "15px",
+  lineHeight: 1.15,
+  fontWeight: 900,
+};
+
+const ar2SummaryStatusValue: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "6px",
+  color: "#10233a",
+  fontSize: "11px",
+  fontWeight: 900,
+};
+
+const ar2SummaryMeta: React.CSSProperties = {
+  color: "#87949e",
+  fontSize: "7.5px",
+  lineHeight: 1.3,
+};
+
+const ar2GreenDot: React.CSSProperties = {
+  width: "7px",
+  height: "7px",
+  borderRadius: "50%",
+  background: "#16a34a",
+  display: "inline-block",
+  flex: "0 0 auto",
+};
+
+const ar2GreyDot: React.CSSProperties = {
+  ...ar2GreenDot,
+  background: "#94a3b8",
+};
+
+const ar2WorkflowGrid: React.CSSProperties = {
+  margin: "0 16px 12px",
+  display: "grid",
+  gridTemplateColumns: "0.95fr 1.25fr 0.9fr",
+  gap: "12px",
+  alignItems: "stretch",
+};
+
+const ar2StepPanel: React.CSSProperties = {
+  minWidth: 0,
+  border: "1px solid #d6e0e8",
+  background: "#ffffff",
+};
+
+const ar2StepHeader: React.CSSProperties = {
+  minHeight: "58px",
+  padding: "9px 10px",
+  display: "flex",
+  alignItems: "center",
+  gap: "9px",
+  borderBottom: "1px solid #dce4ea",
+  background: "#f8fafc",
+};
+
+const ar2StepNumber: React.CSSProperties = {
+  width: "30px",
+  height: "30px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flex: "0 0 30px",
+  borderRadius: "50%",
+  background: "#1769e0",
+  color: "#ffffff",
+  fontSize: "13px",
+  fontWeight: 900,
+};
+
+const ar2StepTitle: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "12px",
+  fontWeight: 900,
+};
+
+const ar2StepSub: React.CSSProperties = {
+  marginTop: "2px",
+  color: "#71808c",
+  fontSize: "8.5px",
+  lineHeight: 1.3,
+};
+
+const ar2StepBody: React.CSSProperties = {
+  padding: "10px",
+  display: "grid",
+  gap: "10px",
+};
+
+const ar2StepBodyCompact: React.CSSProperties = {
+  ...ar2StepBody,
+  gap: "8px",
+};
+
+const ar2FeeHero: React.CSSProperties = {
+  padding: "12px",
+  display: "grid",
+  gap: "2px",
+  border: "1px solid #d7e2ed",
+  background: "#f3f7fb",
+  color: "#53697a",
+  fontSize: "8.5px",
+};
+
+const ar2FeeHeroStrong: React.CSSProperties = {
+  color: "#10233a",
+};
+
+const ar2FeeMiniGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "7px",
+};
+
+const ar2OutlineButton: React.CSSProperties = {
+  minHeight: "32px",
+  padding: "0 10px",
+  border: "1px solid #1769e0",
+  background: "#ffffff",
+  color: "#1758d5",
+  fontSize: "9px",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const ar2ReadinessTop: React.CSSProperties = {
+  padding: "8px 10px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "10px",
+  borderBottom: "1px solid #e3e8ed",
+  background: "#f2fbf5",
+};
+
+const ar2ReadinessLabel: React.CSSProperties = {
+  display: "block",
+  color: "#64748b",
+  fontSize: "7.5px",
+  fontWeight: 850,
+};
+
+const ar2ReadyText: React.CSSProperties = {
+  marginTop: "2px",
+  display: "flex",
+  alignItems: "center",
+  gap: "5px",
+  color: "#285c3a",
+  fontSize: "9.5px",
+};
+
+const ar2InlineLink: React.CSSProperties = {
+  color: "#1758d5",
+  fontSize: "8.5px",
+  fontWeight: 900,
+  textDecoration: "none",
+};
+
+const ar2DecisionList: React.CSSProperties = {
+  padding: "8px",
+  display: "grid",
+  gap: "6px",
+};
+
+const ar2DecisionRow: React.CSSProperties = {
+  minHeight: "36px",
+  display: "grid",
+  gridTemplateColumns: "28px minmax(0, 1fr) auto",
+  alignItems: "center",
+  border: "1px solid #dfe6ec",
+  background: "#ffffff",
+};
+
+const ar2DecisionIndex: React.CSSProperties = {
+  height: "100%",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRight: "1px solid #e2e8ee",
+  color: "#607385",
+  fontSize: "8px",
+  fontWeight: 900,
+  background: "#f7fafc",
+};
+
+const ar2DecisionLabel: React.CSSProperties = {
+  padding: "0 8px",
+  color: "#22384c",
+  fontSize: "8.5px",
+  fontWeight: 750,
+};
+
+const ar2YesNoGroup: React.CSSProperties = {
+  padding: "4px",
+  display: "flex",
+  gap: "3px",
+};
+
+const ar2YesNoButton: React.CSSProperties = {
+  minWidth: "46px",
+  minHeight: "26px",
+  border: "1px solid #cbd5df",
+  background: "#ffffff",
+  color: "#526779",
+  fontSize: "8px",
+  fontWeight: 850,
+  cursor: "pointer",
+};
+
+const ar2YesNoButtonActive: React.CSSProperties = {
+  borderColor: "#1769e0",
+  background: "#1769e0",
+  color: "#ffffff",
+};
+
+const ar2ReadinessFooter: React.CSSProperties = {
+  margin: "0 8px 8px",
+  padding: "8px 9px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "10px",
+  border: "1px solid #cce1d3",
+  background: "#f2fbf5",
+};
+
+const ar2RouteBadge: React.CSSProperties = {
+  minWidth: "54px",
+  padding: "5px 8px",
+  border: "1px solid #b9d8c3",
+  background: "#eaf8ef",
+  color: "#1d6b3a",
+  fontSize: "9px",
+  fontWeight: 900,
+  textAlign: "center",
+};
+
+const ar2RouteHero: React.CSSProperties = {
+  margin: "10px 10px 0",
+  padding: "12px",
+  display: "grid",
+  gap: "2px",
+  border: "1px solid #cce1d3",
+  background: "#edf9f1",
+  color: "#1d6b3a",
+};
+
+const ar2RouteHeroKicker: React.CSSProperties = {
+  fontSize: "7.5px",
+  fontWeight: 900,
+  letterSpacing: ".03em",
+};
+
+const ar2LowerGrid: React.CSSProperties = {
+  margin: "0 16px 12px",
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) 310px",
+  gap: "12px",
+  alignItems: "start",
+};
+
+const ar2MainSection: React.CSSProperties = {
+  minWidth: 0,
+  border: "1px solid #d6e0e8",
+  background: "#ffffff",
+};
+
+const ar2SectionHeader: React.CSSProperties = {
+  minHeight: "50px",
+  padding: "8px 10px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  borderBottom: "1px solid #dce4ea",
+  background: "#f8fafc",
+  color: "#10233a",
+};
+
+const ar2FasBody: React.CSSProperties = {
+  display: "grid",
+};
+
+const ar2FasQuestionRow: React.CSSProperties = {
+  minHeight: "42px",
+  padding: "7px 10px",
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) 190px",
+  gap: "12px",
+  alignItems: "center",
+  borderBottom: "1px solid #e5ebf0",
+  color: "#334155",
+  fontSize: "8.5px",
+};
+
+const ar2CompactSelect: React.CSSProperties = {
+  width: "100%",
+  minHeight: "28px",
+  padding: "3px 6px",
+  border: "1px solid #cbd5df",
+  background: "#ffffff",
+  color: "#10233a",
+  fontSize: "8.5px",
+};
+
+const ar2AfsBody: React.CSSProperties = {
+  padding: "10px",
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "10px",
+};
+
+const ar2SupportPanel: React.CSSProperties = {
+  border: "1px solid #d6e0e8",
+  background: "#ffffff",
+};
+
+const ar2SupportHeader: React.CSSProperties = {
+  padding: "9px 10px",
+  borderBottom: "1px solid #dce4ea",
+  background: "#f8fafc",
+  color: "#10233a",
+  fontSize: "10px",
+  fontWeight: 900,
+};
+
+const ar2SupportItem: React.CSSProperties = {
+  padding: "9px 10px",
+  borderBottom: "1px solid #e5ebf0",
+  color: "#334155",
+  fontSize: "8.5px",
+};
+
+const ar2SupportButton: React.CSSProperties = {
+  width: "100%",
+  minHeight: "50px",
+  padding: "8px 10px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "10px",
+  border: 0,
+  borderBottom: "1px solid #e5ebf0",
+  background: "#ffffff",
+  color: "#334155",
+  textAlign: "left",
+  cursor: "pointer",
+};
+
+const ar2SupportLink: React.CSSProperties = {
+  ...ar2SupportButton,
+  boxSizing: "border-box",
+  textDecoration: "none",
+};
+
+const ar2SaveBlock: React.CSSProperties = {
+  padding: "10px",
+  display: "flex",
+  justifyContent: "flex-end",
+};
+
+const ar2HistorySection: React.CSSProperties = {
+  margin: "0 16px 16px",
+  border: "1px solid #d6e0e8",
+  background: "#ffffff",
+};
+
+const ar2HistoryHeader: React.CSSProperties = {
+  minHeight: "48px",
+  padding: "8px 10px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  borderBottom: "1px solid #dce4ea",
+  background: "#f8fafc",
+  color: "#10233a",
+};
+
+const ar2HistoryCount: React.CSSProperties = {
+  color: "#64748b",
+  fontSize: "8px",
+  fontWeight: 850,
+};
+
+const ar2OpenButton: React.CSSProperties = {
+  minHeight: "26px",
+  padding: "0 8px",
+  border: "1px solid #c7d4df",
+  background: "#ffffff",
+  color: "#1758d5",
+  fontSize: "8px",
+  fontWeight: 900,
+  cursor: "pointer",
 };
 
 const tileArrow: React.CSSProperties = {
