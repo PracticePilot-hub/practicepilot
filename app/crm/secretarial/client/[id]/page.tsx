@@ -3136,14 +3136,10 @@ export default function SecretarialClientPage() {
                         </select>
                       </div>
 
-                      {["yes", "no"].includes(
-                        annualFasAnswers.same_person_compiles || ""
-                      )
+                      {annualFasAnswers.same_person_compiles === "yes"
                         ? fasPersonDetails(
                             "compiler",
-                            annualFasAnswers.same_person_compiles === "yes"
-                              ? "Financial information compiler — same person as records responsible person"
-                              : "Financial information compiler"
+                            "Financial information compiler — same person as records responsible person"
                           )
                         : null}
 
