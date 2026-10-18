@@ -3045,12 +3045,12 @@ export default function SecretarialClientPage() {
                       <small>{annualFeePreview.bandLabel}</small>
                     </div>
 
-                    <div style={ar2FeeMiniGrid}>
-                      <div>
+                    <div style={ar2FeeBreakdown}>
+                      <div style={ar2FeeBreakdownRow}>
                         <span>Base fee</span>
                         <strong>{money(annualFeePreview.baseFee)}</strong>
                       </div>
-                      <div>
+                      <div style={ar2FeeBreakdownRow}>
                         <span>Internal late amount</span>
                         <strong>{money(annualFeePreview.penalty)}</strong>
                       </div>
@@ -3147,7 +3147,7 @@ export default function SecretarialClientPage() {
                   </div>
 
                   <div style={ar2ReadinessFooter}>
-                    <div>
+                    <div style={ar2ReadinessFooterCopy}>
                       <strong>
                         {fasDecisionKeys.filter((key) =>
                           ["yes", "no"].includes(annualFasAnswers[key] || "")
@@ -3250,7 +3250,7 @@ export default function SecretarialClientPage() {
               <div style={ar2LowerGrid}>
                 <div style={ar2MainSection}>
                   <div style={ar2SectionHeader}>
-                    <div>
+                    <div style={ar2SectionHeaderCopy}>
                       <strong>
                         {annualFinancialType === "FAS"
                           ? "Financial Accountability Supplement (FAS)"
@@ -3269,32 +3269,15 @@ export default function SecretarialClientPage() {
 
                   {annualFinancialType === "FAS" ? (
                     <div style={ar2FasBody}>
-                      <div style={ar2FasQuestionRow}>
-                        <span>
-                          Person primarily responsible for recording day-to-day financial transactions and maintaining the financial records
-                        </span>
-                        <select
-                          value={annualFasAnswers.record_keeper_type || ""}
-                          onChange={(event) =>
-                            setAnnualFasAnswers((current) => ({
-                              ...current,
-                              record_keeper_type: event.target.value,
-                            }))
-                          }
-                          style={ar2CompactSelect}
-                        >
-                          <option value="">Select...</option>
-                          <option value="natural_person">Natural person</option>
-                          <option value="juristic_person">Juristic person</option>
-                        </select>
+                      <div style={ar2FasGroup}>
+                        <div style={ar2FasGroupHeader}>
+                          <div style={ar2FasGroupTitle}>Financial records responsible person</div>
+                          <div style={ar2FasGroupSub}>
+                            Person primarily responsible for recording day-to-day financial transactions and maintaining the financial records.
+                          </div>
+                        </div>
+                        {fasPersonDetails("record_keeper", "Responsible person details")}
                       </div>
-
-                      {annualFasAnswers.record_keeper_type
-                        ? fasPersonDetails(
-                            "record_keeper",
-                            "Financial records responsible person"
-                          )
-                        : null}
 
                       <div style={ar2FasQuestionRow}>
                         <span>
@@ -3316,12 +3299,14 @@ export default function SecretarialClientPage() {
                         </select>
                       </div>
 
-                      {annualFasAnswers.same_person_compiles === "yes"
-                        ? fasPersonDetails(
+                      {annualFasAnswers.same_person_compiles === "yes" ? (
+                        <div style={ar2FasGroup}>
+                          {fasPersonDetails(
                             "compiler",
                             "Financial information compiler — same person as records responsible person"
-                          )
-                        : null}
+                          )}
+                        </div>
+                      ) : null}
 
                       <div style={ar2FasQuestionRow}>
                         <span>
@@ -3343,9 +3328,11 @@ export default function SecretarialClientPage() {
                         </select>
                       </div>
 
-                      {annualFasAnswers.financial_records_adviser === "yes"
-                        ? fasPersonDetails("adviser", "Financial records adviser")
-                        : null}
+                      {annualFasAnswers.financial_records_adviser === "yes" ? (
+                        <div style={ar2FasGroup}>
+                          {fasPersonDetails("adviser", "Financial records adviser")}
+                        </div>
+                      ) : null}
 
                       <div style={ar2FasQuestionRow}>
                         <span>
@@ -3367,9 +3354,11 @@ export default function SecretarialClientPage() {
                         </select>
                       </div>
 
-                      {annualFasAnswers.independent_review === "yes"
-                        ? fasPersonDetails("reviewer", "Independent reviewer")
-                        : null}
+                      {annualFasAnswers.independent_review === "yes" ? (
+                        <div style={ar2FasGroup}>
+                          {fasPersonDetails("reviewer", "Independent reviewer")}
+                        </div>
+                      ) : null}
 
                       <div style={ar2FasQuestionRow}>
                         <span>Does the company deal in goods?</span>
@@ -3421,7 +3410,7 @@ export default function SecretarialClientPage() {
                   <div style={ar2SupportHeader}>Support &amp; next steps</div>
 
                   <div style={ar2SupportItem}>
-                    <div>
+                    <div style={ar2SupportCopy}>
                       <strong>Recommended route</strong>
                       <span>
                         {recommendedFinancialType || annualFinancialType || "Pending"}
@@ -3440,7 +3429,7 @@ export default function SecretarialClientPage() {
                     disabled={!currentAnnualReturn}
                     style={ar2SupportButton}
                   >
-                    <span>
+                    <span style={ar2SupportCopy}>
                       <strong>CIPC payment instruction</strong>
                       <small>Generate the client-ready amount payable notice.</small>
                     </span>
@@ -3458,7 +3447,7 @@ export default function SecretarialClientPage() {
                     disabled={!currentAnnualReturn}
                     style={ar2SupportButton}
                   >
-                    <span>
+                    <span style={ar2SupportCopy}>
                       <strong>Preview client authority</strong>
                       <small>View the Annual Return authority for signature.</small>
                     </span>
@@ -3469,7 +3458,7 @@ export default function SecretarialClientPage() {
                     href={`/crm/secretarial/client/${client.id}?view=beneficial-ownership`}
                     style={ar2SupportLink}
                   >
-                    <span>
+                    <span style={ar2SupportCopy}>
                       <strong>Beneficial Ownership</strong>
                       <small>Review or update the BO position.</small>
                     </span>
@@ -5749,24 +5738,25 @@ const arFasCaptureTitle: React.CSSProperties = {
 };
 
 const arPersonDetails: React.CSSProperties = {
-  margin: "8px 12px",
-  border: "1px solid #d7e0e8",
-  background: "#f8fafc",
+  margin: 0,
+  border: 0,
+  background: "#ffffff",
 };
 
 const arPersonDetailsTitle: React.CSSProperties = {
   padding: "7px 9px",
-  borderBottom: "1px solid #d7e0e8",
+  borderBottom: "1px solid #e5ebf0",
+  background: "#fbfcfd",
   color: "#10233a",
-  fontSize: "9px",
+  fontSize: "8.5px",
   fontWeight: 900,
 };
 
 const arPersonGrid: React.CSSProperties = {
-  padding: "8px",
+  padding: "8px 9px",
   display: "grid",
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: "8px",
+  gap: "7px 9px",
 };
 
 const labelStyleSmall: React.CSSProperties = {
@@ -5776,7 +5766,7 @@ const labelStyleSmall: React.CSSProperties = {
 };
 
 const ar2Workspace: React.CSSProperties = {
-  background: "#f5f8fb",
+  background: "#f4f7fa",
   borderTop: "1px solid #d7e0e8",
 };
 
@@ -5949,10 +5939,64 @@ const ar2FeeHeroStrong: React.CSSProperties = {
   color: "#10233a",
 };
 
-const ar2FeeMiniGrid: React.CSSProperties = {
+const ar2FeeBreakdown: React.CSSProperties = {
+  borderTop: "1px solid #e3e8ee",
+  borderBottom: "1px solid #e3e8ee",
+  background: "#fbfcfd",
+};
+
+const ar2FeeBreakdownRow: React.CSSProperties = {
+  minHeight: "30px",
+  padding: "0 8px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "10px",
+  color: "#607385",
+  fontSize: "8px",
+};
+
+const ar2ReadinessFooterCopy: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: "7px",
+  gap: "2px",
+  color: "#607385",
+  fontSize: "8px",
+};
+
+const ar2SectionHeaderCopy: React.CSSProperties = {
+  display: "grid",
+  gap: "2px",
+};
+
+const ar2FasGroup: React.CSSProperties = {
+  margin: "8px 10px",
+  border: "1px solid #dbe3ea",
+  background: "#ffffff",
+};
+
+const ar2FasGroupHeader: React.CSSProperties = {
+  padding: "8px 10px",
+  borderBottom: "1px solid #e5ebf0",
+  background: "#f8fafc",
+};
+
+const ar2FasGroupTitle: React.CSSProperties = {
+  color: "#10233a",
+  fontSize: "9px",
+  fontWeight: 900,
+};
+
+const ar2FasGroupSub: React.CSSProperties = {
+  marginTop: "2px",
+  color: "#71808c",
+  fontSize: "8px",
+  lineHeight: 1.35,
+};
+
+const ar2SupportCopy: React.CSSProperties = {
+  minWidth: 0,
+  display: "grid",
+  gap: "2px",
 };
 
 const ar2OutlineButton: React.CSSProperties = {
