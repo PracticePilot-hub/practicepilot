@@ -1017,7 +1017,10 @@ export default async function ClientWorkingFilePage({
     });
   }
 
-  const issuedHoldings = Array.from(issuedHoldingsMap.values());
+  const issuedHoldings = Array.from(issuedHoldingsMap.values()).sort(
+    (a, b) => b.shares - a.shares
+  );
+  const ownershipMapHeight = Math.max(issuedHoldings.length * 78 - 8, 70);
   const totalIssuedShares = issuedHoldings.reduce(
     (sum, holding) => sum + holding.shares,
     0
@@ -3051,119 +3054,82 @@ export default async function ClientWorkingFilePage({
 
                         <div style={ownershipPrettyCanvas}>
                           <div style={ownershipPrettyHolders}>
-                            {issuedHoldings
-                              .map((holding) => ({
-                                ...holding,
-                                percentage:
-                                  totalIssuedShares > 0
-                                    ? (holding.shares / totalIssuedShares) * 100
-                                    : 0,
-                              }))
-                              .sort((a, b) => b.percentage - a.percentage)
-                              .map((holding, index) => {
-                                const initials = holding.shareholderName
-                                  .split(/\s+/)
-                                  .filter(Boolean)
-                                  .slice(0, 2)
-                                  .map((part) => part.charAt(0).toUpperCase())
-                                  .join("");
+                            {issuedHoldings.map((holding) => {
+                              const initials = holding.shareholderName
+                                .split(/\s+/)
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .map((part) => part.charAt(0).toUpperCase())
+                                .join("");
 
-                                const shareholderCertificates = (certificates as any[]).filter(
-                                  (certificate) =>
-                                    String(certificate.shareholder_id || "") ===
-                                      holding.shareholderId &&
-                                    ["issued", "draft"].includes(
-                                      String(certificate.certificate_status || "").toLowerCase()
-                                    )
-                                );
-
-                                const certificateNumbers = shareholderCertificates
-                                  .map((certificate) =>
-                                    String(certificate.certificate_number || "").trim()
+                              const shareholderCertificates = (certificates as any[]).filter(
+                                (certificate) =>
+                                  String(certificate.shareholder_id || "") ===
+                                    holding.shareholderId &&
+                                  ["issued", "draft"].includes(
+                                    String(certificate.certificate_status || "").toLowerCase()
                                   )
-                                  .filter(Boolean);
+                              );
 
-                                return (
-                                  <div
-                                    key={`pretty-holder-${holding.shareholderId}-${holding.className}`}
-                                    style={ownershipPrettyHolder}
-                                  >
-                                    <div style={ownershipPrettyAvatar}>
-                                      {initials || "SH"}
-                                    </div>
+                              const certificateNumbers = shareholderCertificates
+                                .map((certificate) =>
+                                  String(certificate.certificate_number || "").trim()
+                                )
+                                .filter(Boolean);
 
-                                    <div style={ownershipPrettyHolderText}>
-                                      <strong>{holding.shareholderName}</strong>
-                                      <span>{holding.className}</span>
-                                      <small>
-                                        {holding.shares.toLocaleString("en-ZA")} shares
-                                        {certificateNumbers.length
-                                          ? ` · Cert ${certificateNumbers.join(", ")}`
-                                          : ""}
-                                      </small>
-                                    </div>
-
-                                    <div style={ownershipPrettyHolderDot} />
+                              return (
+                                <div
+                                  key={`pretty-holder-${holding.shareholderId}-${holding.className}`}
+                                  style={ownershipPrettyHolder}
+                                >
+                                  <div style={ownershipPrettyAvatar}>
+                                    {initials || "SH"}
                                   </div>
-                                );
-                              })}
+
+                                  <div style={ownershipPrettyHolderText}>
+                                    <strong>{holding.shareholderName}</strong>
+                                    <span>{holding.className}</span>
+                                    <small>
+                                      {holding.shares.toLocaleString("en-ZA")} shares
+                                      {certificateNumbers.length
+                                        ? ` · Cert ${certificateNumbers.join(", ")}`
+                                        : ""}
+                                    </small>
+                                  </div>
+
+                                  <div style={ownershipPrettyHolderDot} />
+                                </div>
+                              );
+                            })}
                           </div>
 
-                          <div style={ownershipCurvedMap}>
+                          <div style={{ ...ownershipCurvedMap, height: ownershipMapHeight }}>
                             <svg
-                              viewBox="0 0 420 210"
+                              viewBox={`0 0 420 ${ownershipMapHeight}`}
                               preserveAspectRatio="none"
                               style={ownershipCurvedSvg}
                               aria-hidden="true"
                             >
-                              <path
-                                d="M 0 35 C 150 35, 210 35, 250 62 C 285 85, 278 104, 330 105"
-                                fill="none"
-                                stroke="#b8c6d2"
-                                strokeWidth="1.6"
-                              />
-                              <path
-                                d="M 0 105 C 150 105, 235 105, 330 105"
-                                fill="none"
-                                stroke="#b8c6d2"
-                                strokeWidth="1.6"
-                              />
-                              <path
-                                d="M 0 175 C 150 175, 210 175, 250 148 C 285 125, 278 106, 330 105"
-                                fill="none"
-                                stroke="#b8c6d2"
-                                strokeWidth="1.6"
-                              />
-                              <circle cx="330" cy="105" r="4.5" fill="#1d4ed8" />
+                              {issuedHoldings.map((holding, index) => (
+                                <path
+                                  key={`ownership-path-${holding.shareholderId}-${holding.className}`}
+                                  d={`M 0 ${index * 78 + 35} C 200 ${index * 78 + 35}, 250 ${ownershipMapHeight / 2}, 330 ${ownershipMapHeight / 2}`}
+                                  fill="none"
+                                  stroke="#b8c6d2"
+                                  strokeWidth="1.6"
+                                />
+                              ))}
+                              <circle cx="330" cy={ownershipMapHeight / 2} r="4.5" fill="#1d4ed8" />
                             </svg>
 
-                            <div style={{ ...ownershipCurveChip, top: "18px" }}>
-                              {issuedHoldings[0]
-                                ? (
-                                    (issuedHoldings[0].shares / Math.max(totalIssuedShares, 1)) *
-                                    100
-                                  ).toFixed(2)
-                                : "0.00"}
-                              %
-                            </div>
-                            <div style={{ ...ownershipCurveChip, top: "88px" }}>
-                              {issuedHoldings[1]
-                                ? (
-                                    (issuedHoldings[1].shares / Math.max(totalIssuedShares, 1)) *
-                                    100
-                                  ).toFixed(2)
-                                : "0.00"}
-                              %
-                            </div>
-                            <div style={{ ...ownershipCurveChip, top: "158px" }}>
-                              {issuedHoldings[2]
-                                ? (
-                                    (issuedHoldings[2].shares / Math.max(totalIssuedShares, 1)) *
-                                    100
-                                  ).toFixed(2)
-                                : "0.00"}
-                              %
-                            </div>
+                            {issuedHoldings.map((holding, index) => (
+                              <div
+                                key={`ownership-percent-${holding.shareholderId}-${holding.className}`}
+                                style={{ ...ownershipCurveChip, top: index * 78 + 35 }}
+                              >
+                                {((holding.shares / Math.max(totalIssuedShares, 1)) * 100).toFixed(2)}%
+                              </div>
+                            ))}
                           </div>
 
                           <div style={ownershipPrettyCompanyWrap}>
@@ -5317,7 +5283,7 @@ const ownershipPrettyCanvas: React.CSSProperties = {
 
 const ownershipPrettyHolders: React.CSSProperties = {
   display: "grid",
-  gridTemplateRows: "repeat(3, 62px)",
+  gridAutoRows: "70px",
   rowGap: "8px",
 };
 
@@ -5327,6 +5293,7 @@ const ownershipPrettyRow: React.CSSProperties = {
 
 const ownershipPrettyHolder: React.CSSProperties = {
   position: "relative",
+  boxSizing: "border-box",
   minHeight: "62px",
   display: "grid",
   gridTemplateColumns: "42px minmax(0, 1fr)",
@@ -5422,7 +5389,7 @@ const ownershipCurvedSvg: React.CSSProperties = {
 const ownershipCurveChip: React.CSSProperties = {
   position: "absolute",
   left: "30%",
-  transform: "translateX(-50%)",
+  transform: "translate(-50%, -50%)",
   padding: "4px 9px",
   border: "1px solid #b9d0ff",
   background: "#ffffff",
