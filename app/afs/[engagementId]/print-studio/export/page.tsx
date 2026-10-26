@@ -3268,18 +3268,15 @@ const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
       effectiveStatementOverrides.cashTaxPaidPrior || 0,
     );
 
-    /*
-      Blank workbench inputs are persisted as zero. A saved zero must not
-      suppress a real tax payment calculated from the exact current-tax
-      mappings. A non-zero workbench amount remains an explicit override.
-    */
+    // An explicit zero is also a valid workbench override.
     const taxPaidCurrent =
-      Math.abs(manualTaxPaidCurrent) > 0
+      effectiveStatementOverrides.cashTaxPaidCurrent !== null &&
+      effectiveStatementOverrides.cashTaxPaidCurrent !== undefined
         ? manualTaxPaidCurrent
         : mappedTaxPaidCurrent;
-
     const taxPaidPrior =
-      Math.abs(manualTaxPaidPrior) > 0
+      effectiveStatementOverrides.cashTaxPaidPrior !== null &&
+      effectiveStatementOverrides.cashTaxPaidPrior !== undefined
         ? manualTaxPaidPrior
         : mappedTaxPaidPrior;
 
@@ -3708,22 +3705,20 @@ if (closingCashRow) {
           : noteInterestReceived("prior");
 
       const directFinanceCostsPaidCurrent =
-        -Math.abs(
-          storedAmount(
-            "financeCosts",
-            "current",
-            financeCostsCurrent,
-          ),
-        );
+        effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== null &&
+        effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== undefined
+          ? financeCostsPaidCurrent
+          : -Math.abs(
+              storedAmount("financeCosts", "current", financeCostsCurrent),
+            );
 
       const directFinanceCostsPaidPrior =
-        -Math.abs(
-          storedAmount(
-            "financeCosts",
-            "prior",
-            financeCostsPrior,
-          ),
-        );
+        effectiveStatementOverrides.cashFinanceCostsPaidPrior !== null &&
+        effectiveStatementOverrides.cashFinanceCostsPaidPrior !== undefined
+          ? financeCostsPaidPrior
+          : -Math.abs(
+              storedAmount("financeCosts", "prior", financeCostsPrior),
+            );
 
       const directOtherOperatingCurrent = 0;
       const directOtherOperatingPrior = 0;

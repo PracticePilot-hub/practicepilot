@@ -4997,61 +4997,9 @@ const effectiveStructuredNotesState = useMemo(() => {
       effectiveStatementOverrides.cashTaxPaidPrior || 0,
     );
 
-    /*
-      Blank workbench inputs are persisted as zero. A saved zero must not
-      suppress a real tax payment calculated from the exact current-tax
-      mappings. A non-zero workbench amount remains an explicit override.
-    */
-    /*
-      If current-tax mappings exist, they are authoritative. This prevents a
-      stale Workbench value (for example a deferred-tax asset movement) from
-      being presented as cash taxation paid. A manual amount is only a fallback
-      when the TB contains no current-tax mapping data at all.
-    */
-    const hasCurrentTaxMappingData = (trialBalanceLines || []).some((line) => {
-      const code = String(line.mapping_code || "").trim();
-      return (
-        code === "795.10" ||
-        code.startsWith("795.10.") ||
-        code === "495.10" ||
-        code.startsWith("495.10.") ||
-        code === "695.10" ||
-        code.startsWith("695.10.")
-      );
-    });
-
-    /*
-      Cash taxation paid is mapping-driven only.
-
-      IMPORTANT: cashTaxPaidCurrent / cashTaxPaidPrior can contain stale values
-      carried forward from older Workbench saves or a rollover. Those values
-      must never become cash tax automatically — especially where the source
-      balance is deferred tax.
-
-      Only the dedicated CURRENT-tax mappings may create a taxation-paid cash
-      flow. If there is no current-tax mapping data, taxation paid is zero.
-      Deferred tax mappings (395.10 / 595.10 / 795.20) therefore remain
-      entirely non-cash.
-    */
-    /*
-      CASH TAX FAIL-SAFE
-
-      Do not infer cash taxation paid from tax expense, current-tax balances,
-      deferred-tax balances, or rolled-forward Workbench values. Those are
-      accounting balances and can be entirely non-cash.
-
-      Until PP has a separately proven cash-tax-payment source, the printable
-      cash-flow statement must show zero taxation paid rather than manufacture
-      a cash outflow. This also prevents deferred tax from entering cash flow
-      on rollover/comparatives.
-    */
-    /*
-      Current-year cash tax is not inferred from a deferred/current tax balance.
-      Comparative tax paid may be reconstructed from TB History using the exact
-      current-tax mapping categories only. This preserves genuine prior cash tax
-      without allowing deferred tax to leak into cash.
-    */
-    const taxPaidCurrent = 0;
+    // Explicit workbench cash payments take priority over automatic calculations.
+    // With no entry, do not infer current cash tax from non-cash tax balances.
+    const taxPaidCurrent = manualTaxPaidCurrent;
 
     /*
       Comparative cash tax is only allowed when the comparative TB actually
@@ -5109,7 +5057,10 @@ const effectiveStructuredNotesState = useMemo(() => {
       : Number.POSITIVE_INFINITY;
 
     const taxPaidPrior =
-      hasPriorCurrentTaxExpense &&
+      effectiveStatementOverrides.cashTaxPaidPrior !== null &&
+      effectiveStatementOverrides.cashTaxPaidPrior !== undefined
+        ? manualTaxPaidPrior
+        : hasPriorCurrentTaxExpense &&
       (!hasHistoricalPriorMovement ||
         priorDifferenceWithMappedTax < priorDifferenceWithZeroTax)
         ? mappedTaxPaidPrior
@@ -5609,22 +5560,20 @@ if (closingCashRow) {
           : noteInterestReceived("prior");
 
       const directFinanceCostsPaidCurrent =
-        -Math.abs(
-          storedAmount(
-            "financeCosts",
-            "current",
-            financeCostsCurrent,
-          ),
-        );
+        effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== null &&
+        effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== undefined
+          ? financeCostsPaidCurrent
+          : -Math.abs(
+              storedAmount("financeCosts", "current", financeCostsCurrent),
+            );
 
       const directFinanceCostsPaidPrior =
-        -Math.abs(
-          storedAmount(
-            "financeCosts",
-            "prior",
-            financeCostsPrior,
-          ),
-        );
+        effectiveStatementOverrides.cashFinanceCostsPaidPrior !== null &&
+        effectiveStatementOverrides.cashFinanceCostsPaidPrior !== undefined
+          ? financeCostsPaidPrior
+          : -Math.abs(
+              storedAmount("financeCosts", "prior", financeCostsPrior),
+            );
 
       const directOtherOperatingCurrent = 0;
       const directOtherOperatingPrior = 0;
