@@ -4555,17 +4555,12 @@ const effectiveStructuredNotesState = useMemo(() => {
     const manualOtherFinancingCurrent =
       Number(effectiveStatementOverrides.cashOtherFinancingCurrent || 0);
 
-    const manualOtherFinancingPrior =
-      Number(effectiveStatementOverrides.cashOtherFinancingPrior || 0);
-
     const totalOtherFinancingCurrent =
       mappedOtherFinancingCurrent + manualOtherFinancingCurrent;
 
-    const mappedOtherFinancingPrior =
-      Number(otherFinancingRow?.prior || 0);
-
-    const totalOtherFinancingPrior =
-      mappedOtherFinancingPrior + manualOtherFinancingPrior;
+    // The comparative row above already contains the explicit workbench amount.
+    // Use that amount once; it is not an additional mapped financing movement.
+    const totalOtherFinancingPrior = explicitOtherFinancingPrior;
 
     if (loansRaisedRow) {
       loansRaisedRow.current = Math.round(manualLoanMovementCurrent);
