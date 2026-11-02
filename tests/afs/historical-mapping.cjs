@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict'),{load}=require('./load.cjs'),h=load('app/afs/[engagementId]/historicalTbImport.ts');
+const current=[{account_code:'1000',mapping_code:'420.10'},{account_code:'5300',mapping_code:'795.10'}];
+assert.equal(h.historicalMappingColumn(['Account code','Account name',2026,2025,2024]),-1);
+assert.equal(h.historicalMappingColumn(['Account code','Account name','2024','PP mapping code']),3);
+assert.equal(h.historicalMappingCode('1000',56000,-1,current),'420.10');
+assert.equal(h.historicalMappingCode(' 5 300 ',88425,-1,current),'795.10');
+assert.equal(h.historicalMappingCode('NEW',2000,-1,current),'');
+assert.equal(h.historicalMappingCode('1000','430.10',3,current),'430.10');
+assert.equal(h.historicalMappingCode('1000','',3,current),'');
+assert.deepEqual(current,[{account_code:'1000',mapping_code:'420.10'},{account_code:'5300',mapping_code:'795.10'}]);
+console.log('PASS optional historical mapping: balance columns never guessed; existing account mappings reused; explicit mappings respected; unknown accounts not invented.');

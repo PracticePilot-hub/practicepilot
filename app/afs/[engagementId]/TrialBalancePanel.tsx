@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 import { getAfsMappingForImport } from "./MappingPanel";
+import { historicalMappingColumn, historicalMappingCode } from "./historicalTbImport";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -153,7 +154,7 @@ export default function TrialBalancePanel({
   const [historyCodeColumn, setHistoryCodeColumn] = useState(0);
   const [historyNameColumn, setHistoryNameColumn] = useState(1);
   const [historyAmountColumn, setHistoryAmountColumn] = useState(2);
-  const [historyMappingColumn, setHistoryMappingColumn] = useState(5);
+  const [historyMappingColumn, setHistoryMappingColumn] = useState(-1);
   const [historyMappingDialog, setHistoryMappingDialog] = useState(false);
   const [historySaving, setHistorySaving] = useState(false);
 
@@ -273,13 +274,13 @@ export default function TrialBalancePanel({
     const findYear = (year: string) => header.findIndex((value: string) => value.includes(year));
     const code = find(["account number", "account code", "account"]);
     const name = find(["description", "account name"]);
-    const mapping = find(["pp mapping code", "mapping code", "mapping_code"]);
+    const mapping = historicalMappingColumn(rows[0] || []);
     const year = yearEnd.slice(0, 4);
     const amount = findYear(year);
     setHistorySheetName(sheetName);
     setHistoryCodeColumn(code >= 0 ? code : 0);
     setHistoryNameColumn(name >= 0 ? name : 1);
-    setHistoryMappingColumn(mapping >= 0 ? mapping : Math.max(0, header.length - 1));
+    setHistoryMappingColumn(mapping);
     setHistoryAmountColumn(amount >= 0 ? amount : 2);
     setHistoryStartRow(header.some((item: string) => item.includes("account")) ? 1 : 0);
     setHistoryPreview([]);
@@ -309,9 +310,9 @@ export default function TrialBalancePanel({
 
   function previewHistoricalColumnMapping() {
     const rows = historyWorkbookRows[historySheetName] || [];
-    const fields = [historyCodeColumn, historyNameColumn, historyAmountColumn, historyMappingColumn];
+    const fields = [historyCodeColumn, historyNameColumn, historyAmountColumn, ...(historyMappingColumn >= 0 ? [historyMappingColumn] : [])];
     if (new Set(fields).size !== fields.length || fields.some((field) => field < 0)) {
-      alert("Choose four different columns for account, description, balance and PP mapping code."); return;
+      alert("Choose different columns for account, description and balance. If you supply a mapping column, choose a separate column for it."); return;
     }
     const invalid: string[] = [];
     const seen = new Set<string>();
@@ -322,11 +323,13 @@ export default function TrialBalancePanel({
       const raw = String(row[historyAmountColumn] ?? "").trim();
       const cleaned = raw.replace(/,/g, "").replace(/\s/g, "").replace(/[Rr]/g, "").replace(/^\((.*)\)$/, "-$1");
       const balance = Number(cleaned);
-      const mapping_code = String(row[historyMappingColumn] ?? "").trim();
+      const mapping_code = historicalMappingCode(account_code, row[historyMappingColumn], historyMappingColumn, trialBalanceLines);
       const mapped = getAfsMappingForImport(mapping_code);
       if (!account_code || !account_name) invalid.push(`Row ${historyStartRow + i + 1}: missing account or description`);
       if (!raw || !Number.isFinite(balance)) invalid.push(`Row ${historyStartRow + i + 1}: invalid amount`);
-      if (!mapped) invalid.push(`Row ${historyStartRow + i + 1}: unknown PP code ${mapping_code}`);
+      if (!mapped) invalid.push(historyMappingColumn < 0
+        ? `Row ${historyStartRow + i + 1}: account ${account_code} has no valid current-TB mapping. Map this account first, or select a PP mapping code column.`
+        : `Row ${historyStartRow + i + 1}: unknown PP code ${mapping_code || "(blank)"}`);
       if (seen.has(account_code)) invalid.push(`Row ${historyStartRow + i + 1}: duplicate account ${account_code}`);
       seen.add(account_code);
       return {
@@ -356,7 +359,7 @@ export default function TrialBalancePanel({
       alert("Historical year must precede the current period."); return;
     }
     const overwrite = historyLines.some((line) => line.financial_year_end === yearEnd);
-    if (!confirm(`${overwrite ? "REPLACE existing" : "Import"} historical TB for ${yearEnd} (${historyPreview.length} accounts)?\n\nThe active 2026 TB is NOT changed.`)) return;
+    if (!confirm(`${overwrite ? "REPLACE existing" : "Import"} historical TB for ${yearEnd} (${historyPreview.length} accounts)?\n\nThe current TB and its mappings are NOT changed.`)) return;
     setHistorySaving(true);
     try {
       const { data: { session } } = await supabase!.auth.getSession();
@@ -1211,7 +1214,7 @@ export default function TrialBalancePanel({
           <div style={{ ...styles.modal, maxHeight: "85vh", overflowY: "auto" }}>
             <div style={styles.modalHeader}>
               <div><h3 style={styles.modalTitle}>Import Historical Trial Balance</h3>
-                <p style={styles.text}>Same mapping workflow as Current TB. Choose the financial year, worksheet, and Excel columns.</p>
+                <p style={styles.text}>Choose the financial year, worksheet and balance column. The optional mapping column can be ignored to reuse current TB mappings by account code.</p>
               </div>
               <button style={styles.closeButton} onClick={() => setHistoryMappingDialog(false)}>×</button>
             </div>
@@ -1235,10 +1238,11 @@ export default function TrialBalancePanel({
                 ["Account number column",historyCodeColumn,setHistoryCodeColumn],
                 ["Account description column",historyNameColumn,setHistoryNameColumn],
                 ["Historical closing balance column",historyAmountColumn,setHistoryAmountColumn],
-                ["PP mapping code column",historyMappingColumn,setHistoryMappingColumn],
+                ["PP mapping code column (optional)",historyMappingColumn,setHistoryMappingColumn],
               ] as Array<[string,number,(value:number)=>void]>).map(([label, value, setter]) => (
                 <label key={label} style={styles.label}>{label}
                   <select style={styles.input} value={value} onChange={(e) => setter(Number(e.target.value))}>
+                    {label === "PP mapping code column (optional)" && <option value={-1}>Ignore — use current TB mappings by account code</option>}
                     {historyColumns.map((col) => <option key={col.index} value={col.index}>{col.label}</option>)}
                   </select>
                 </label>
@@ -1247,7 +1251,8 @@ export default function TrialBalancePanel({
             <div style={{ ...styles.sampleBox, marginTop: 14 }}><strong>Sample rows — selected columns</strong>
               <table style={styles.table}><thead><tr>{["Account","Description","Balance","Mapping"].map((h)=><th key={h} style={styles.th}>{h}</th>)}</tr></thead>
                 <tbody>{historyExcelRows.slice(historyStartRow, historyStartRow+8).map((row,i)=><tr key={i}>
-                  {[historyCodeColumn,historyNameColumn,historyAmountColumn,historyMappingColumn].map((col,j)=><td key={j} style={styles.td}>{String(row[col] ?? "")}</td>)}
+                  {[historyCodeColumn,historyNameColumn,historyAmountColumn].map((col,j)=><td key={j} style={styles.td}>{String(row[col] ?? "")}</td>)}
+                  <td style={styles.td}>{historyMappingColumn >= 0 ? String(row[historyMappingColumn] ?? "") : historicalMappingCode(row[historyCodeColumn], null, -1, trialBalanceLines) || "No current mapping — map account first"}</td>
                 </tr>)}</tbody>
               </table>
             </div>
