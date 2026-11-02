@@ -6,9 +6,12 @@ import {
   EditableDisclosureTextMap,
 } from "./AfsPolicyNoteDefaults";
 
+import { getStandardsReference, type StandardsContext } from "../print-studio/afsStandardsCoverage";
+
 type ToggleReportOption = (key: string, checked: boolean) => void;
 
 type Props = {
+  standardsContext?: StandardsContext;
   sections: EditableDisclosureSection[];
   reportOptions: Record<string, boolean>;
   toggleReportOption: ToggleReportOption;
@@ -85,6 +88,7 @@ function sectionLabel(section: EditableDisclosureSection) {
 
 export default function AfsEditableDisclosureSettings({
   sections,
+  standardsContext,
   reportOptions,
   toggleReportOption,
   texts,
@@ -254,6 +258,7 @@ export default function AfsEditableDisclosureSettings({
                       text: section.defaultText || "",
                     };
                   const isEditing = Boolean(editing[section.key]);
+                  const source = standardsContext ? getStandardsReference(section.key, standardsContext) : null;
 
                   return (
                     <div
@@ -318,6 +323,7 @@ export default function AfsEditableDisclosureSettings({
                         </button>
                       </div>
 
+                      {source && <p style={{fontSize:10,margin:"5px 0"}}><a href={source.url} target="_blank" rel="noreferrer">{source.label}</a></p>}
                       {isEditing ? (
                         <div style={{ display: "grid", gap: 5, marginTop: 6 }}>
                           <input

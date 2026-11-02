@@ -1,6 +1,6 @@
 "use client";
 
-import React, { ReactNode, useEffect, useMemo, useState } from "react";
+import React, { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import AfsSectionSignoffBar from "./AfsSectionSignoffBar";
 
 export type AfsStudioSection = {
@@ -26,6 +26,8 @@ type AfsPrintStudioShellProps = {
   sections: AfsStudioSection[];
   onSectionChange: (sectionId: string) => void;
   exportDisabled?: boolean;
+  finalisationIssues?: string[];
+  arithmeticIssues?: string[];
   reportOptions?: AfsReportOption[];
   reportOptionsTitle?: string;
   reportOptionsDescription?: string;
@@ -111,6 +113,8 @@ export default function AfsPrintStudioShell({
   sections,
   onSectionChange,
   exportDisabled = false,
+  finalisationIssues = [],
+  arithmeticIssues = [],
   reportOptions = [],
   reportOptionsTitle = "Section settings",
   reportOptionsDescription = "Turn report sections on or off.",
@@ -121,8 +125,18 @@ export default function AfsPrintStudioShell({
 }: AfsPrintStudioShellProps) {
   const [showOptions, setShowOptions] = useState(true);
   const [zoom, setZoom] = useState("fit");
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [reportHeight,setReportHeight]=useState(0);
+  const previewScale=zoom==="fit"?.96:Number(zoom)/100;
+  useEffect(()=>{
+    const report=reportRef.current;if(!report)return;
+    const measure=()=>setReportHeight(report.offsetHeight);
+    measure();const observer=new ResizeObserver(measure);observer.observe(report);
+    return ()=>observer.disconnect();
+  },[]);
   const [isExporting, setIsExporting] = useState(false);
   const [exportAsDraft, setExportAsDraft] = useState(false);
+  const finalExportBlocked = arithmeticIssues.length > 0 || (!exportAsDraft && finalisationIssues.length > 0);
   const [engagementId, setEngagementId] = useState("");
 
   const visibleSections = useMemo(
@@ -174,7 +188,7 @@ export default function AfsPrintStudioShell({
   }
 
   async function exportPdf() {
-    if (exportDisabled || isExporting) return;
+    if (exportDisabled || isExporting || finalExportBlocked) return;
 
     const idMatch = window.location.pathname.match(/\/afs\/([^/]+)(?:\/|$)/);
     const engagementId = idMatch?.[1];
@@ -255,7 +269,7 @@ export default function AfsPrintStudioShell({
   }
 
   return (
-    <main className="afsStudioRoot" style={styles.root}>
+    <main className="afsStudioRoot" data-afs-entity-name={engagementName} data-afs-year-end={yearEndLabel} style={styles.root}>
       <aside className="afsStudioLeftNav" style={styles.leftNav}>
         <div style={styles.leftHeader}>
           <div style={styles.leftTitle}>PracticePilot AFS</div>
@@ -339,6 +353,8 @@ export default function AfsPrintStudioShell({
               <option value="150">150%</option>
             </select>
 
+ <span data-afs-arithmetic-blockers={arithmeticIssues.length} className="afs-screen-only" title={arithmeticIssues.join("\n")} style={{fontSize:10,color:"#9f1239"}}>{arithmeticIssues.length ? `${arithmeticIssues.length} schedules must reconcile before PDF export` : ""}</span>
+ <span hidden data-afs-finalisation-blockers={finalisationIssues.length} />
  <label style={styles.draftToggle}>
               <input
                 type="checkbox"
@@ -351,12 +367,13 @@ export default function AfsPrintStudioShell({
 
             <button
               type="button"
-              disabled={exportDisabled || isExporting}
+              disabled={exportDisabled || isExporting || finalExportBlocked}
+              title={finalExportBlocked ? "Final export requires review. See Final export review in the settings panel, or choose Draft PDF." : undefined}
               onClick={exportPdf}
               style={{
                 ...styles.exportButton,
-                opacity: exportDisabled || isExporting ? 0.55 : 1,
-                cursor: exportDisabled || isExporting ? "not-allowed" : "pointer",
+                opacity: exportDisabled || isExporting || finalExportBlocked ? 0.55 : 1,
+                cursor: exportDisabled || isExporting || finalExportBlocked ? "not-allowed" : "pointer",
               }}
             >
               {isExporting
@@ -444,6 +461,12 @@ export default function AfsPrintStudioShell({
                 ) : (
                   <p style={styles.emptyOptions}>{emptyOptionsMessage}</p>
                 )}
+                {finalisationIssues.length>0 && <details className="afs-screen-only" style={{marginTop:18,borderTop:"1px solid #dbe3ed",paddingTop:12,fontSize:11,color:"#475569"}}>
+                  <summary style={{cursor:"pointer",fontWeight:700}}>Final export review</summary>
+                  <p>Statement calculations and final disclosure review are separate. These review points must be cleared for a final PDF; a draft remains available.</p>
+                  <ul style={{paddingLeft:16}}>{finalisationIssues.map((issue,index)=><li key={index} style={{marginBottom:8}}>{issue}</li>)}</ul>
+                </details>}
+
               </aside>
             ) : null}
 
@@ -451,11 +474,14 @@ export default function AfsPrintStudioShell({
               <div className="afsStudioCanvasLabel" style={styles.canvasLabel}>
                 A4 print-aware canvas
               </div>
+              <div className="afsStudioPreviewSizer" style={{height:reportHeight?reportHeight*previewScale:undefined}}>
               <div
+                ref={reportRef}
                 style={styles.canvasViewport}
                 className={`${zoomClass} afsPrintableReport`}
               >
                 {children}
+              </div>
               </div>
             </section>
           </section>
@@ -463,31 +489,31 @@ export default function AfsPrintStudioShell({
       </section>
 
       <style jsx global>{`
-        .afsZoomFit > * {
+        .afsZoomFit {
           transform: scale(0.96);
           transform-origin: top center;
         }
-        .afsZoom85 > * {
+        .afsZoom85 {
           transform: scale(0.85);
           transform-origin: top center;
         }
-        .afsZoom90 > * {
+        .afsZoom90 {
           transform: scale(0.9);
           transform-origin: top center;
         }
-        .afsZoom100 > * {
+        .afsZoom100 {
           transform: scale(1);
           transform-origin: top center;
         }
-        .afsZoom110 > * {
+        .afsZoom110 {
           transform: scale(1.1);
           transform-origin: top center;
         }
-        .afsZoom125 > * {
+        .afsZoom125 {
           transform: scale(1.25);
           transform-origin: top center;
         }
-        .afsZoom150 > * {
+        .afsZoom150 {
           transform: scale(1.5);
           transform-origin: top center;
         }
@@ -762,7 +788,9 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: "1px solid #d7dde7",
   },
   quickButton: {
-    border: "1px solid #cbd5e1",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "#cbd5e1",
     background: "#ffffff",
     padding: "4px 8px",
     fontSize: 10.5,
@@ -839,7 +867,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   canvasLabel: { fontSize: 10.5, color: "#475569", margin: "7px 0" },
   canvasViewport: {
-    minHeight: "100%",
+    minHeight: 0,
     display: "grid",
     justifyItems: "center",
     alignContent: "start",

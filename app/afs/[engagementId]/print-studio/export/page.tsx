@@ -1,5 +1,23 @@
 "use client";
+import {reportingTaxRate} from '../../tax/taxEntityRates';
 
+import {distinctPolicySections} from '../afsPolicyPresentation';
+import {taxNotesState,taxCashDefaults} from "../../tax/afsTaxIntegration";
+import TaxWorkbookSummary from "../../tax/TaxWorkbookSummary";
+import { taxAfsIssues } from "../../tax/taxWorkpaper";
+import { withComprehensivePresentation, comprehensivePresentationIssues } from "../../components/AfsComprehensivePresentation";
+import AfsPaginatedNotes from "../../components/AfsPaginatedNotes";
+import { buildCashFlowPresentation, prepareCashFlowWorkState, resolveSavedStatementOverrides } from "../afsCashFlowPresentation";
+import { taxReconciliationReview } from "../afsTaxReconciliation";
+import { noteDisclosureIssues, POLICY_DISCLOSURE_KEYS } from "../afsNoteDisclosureRequirements";
+import AfsNoteDisclosureContent from "../AfsNoteDisclosureContent";
+
+import { directCashAmount } from "../afsDirectCashOverrides";
+import { reviewAllMovementNotes } from "../afsMovementReview";
+import { standardsContext, reviewStandardsCoverage } from "../afsStandardsCoverage";
+import AfsStandardsReviewPanel from "../AfsStandardsReviewPanel";
+import { relatedPartyReviewIssues } from "../afsRelatedPartyDisclosure";
+import AfsCompleteEquityStatement, { withComparativeHistory, buildEquityMovementTable } from "../../components/AfsCompleteEquityStatement";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -7,6 +25,7 @@ import AfsPrintStudioShell, {
   AfsReportOption,
   AfsStudioSection,
 } from "../../components/AfsPrintStudioShell";
+import a4PageStyles from "../../components/AfsA4Page.module.css";
 import AfsA4Page from "../../components/AfsA4Page";
 import AfsStatementTable, {
   AfsStatementRow,
@@ -15,7 +34,7 @@ import AfsDirectorsReportSettings from "../../components/AfsDirectorsReportSetti
 import AfsEditableDisclosureSettings from "../../components/AfsEditableDisclosureSettings";
 
 import AfsStatementOverrideSettings from "../../components/AfsStatementOverrideSettings";
-import AfsStructuredNotesPanel from "../AfsStructuredNotesPanel";
+import AfsStructuredNotesPanel, { reviewPpeNote } from "../AfsStructuredNotesPanel";
 import AfsFlightDeck, {
   buildAfsFlightDeckIssuesFromEngine,
 } from "../AfsFlightDeck";
@@ -35,6 +54,7 @@ import {
   accountingPolicySections,
   noteSections,
   buildDefaultAccountingPolicyTexts,
+  buildAccountingPolicyTextsForEdition,
   buildDefaultNoteTexts,
   renderDisclosureText,
   EditableDisclosureTextMap,
@@ -1291,8 +1311,8 @@ function historyCategory(line: TrialBalanceHistoryLine) {
   }
 
   if (
-    mappingIdentifierStartsWith(mappingCode, ["500"]) ||
-    mappingIdentifierStartsWith(mappingLeafId, ["500"]) ||
+    mappingIdentifierStartsWith(mappingCode, ["805"]) ||
+    mappingIdentifierStartsWith(mappingLeafId, ["805"]) ||
     leadScheduleKey === "share-capital"
   ) {
     return "shareCapital";
@@ -1410,13 +1430,12 @@ function buildHistoricalCashFlowData(
       cashPriorOpeningBalance: openingCash,
       cashWorkingCapitalPrior:
         inventoryPrior + receivablesPrior + payablesPrior,
-      cashLoansRaisedPrior:
-        closingShareholderLoans - openingShareholderLoans,
+
       /*
         Do not infer "Other financing cash flows" from SFP balances.
         That row is reserved for an explicit workbench amount.
       */
-      cashPriorMovement: closingCash - openingCash,
+
     },
     inventoryPrior,
     receivablesPrior,
@@ -1580,6 +1599,8 @@ export default function AfsPrintStudioPage() {
     "idle" | "saving" | "saved" | "error"
   >("idle");
 
+  const [taxCalculation,setTaxCalculation]=useState<any>(null);
+  const [priorTaxCalculation,setPriorTaxCalculation]=useState<any>(null);
   async function loadPrintStudioData() {
     if (!engagementId) return;
 
@@ -1651,6 +1672,10 @@ export default function AfsPrintStudioPage() {
             []
         );
       }
+
+      const taxResponse=await fetch(`/api/afs/engagements/${engagementId}/tax-calculation`,{cache:"no-store"});
+      if(!taxResponse.ok)throw new Error("The saved tax workpaper could not be loaded.");
+      const taxData=await taxResponse.json();setTaxCalculation(taxData.taxCalculation||null);setPriorTaxCalculation(taxData.priorTaxCalculation||null);
 
       const settingsRes = await fetch(
         `/api/afs/engagements/${engagementId}/print-studio-settings`,
@@ -1754,13 +1779,9 @@ export default function AfsPrintStudioPage() {
           localStatementOverrides = {};
         }
 
-        const mergedStatementOverrides = {
-          ...(savedStatementOverrides &&
-          typeof savedStatementOverrides === "object"
-            ? savedStatementOverrides
-            : {}),
-          ...localStatementOverrides,
-        };
+        // Server-saved engagement data is authoritative. A browser cache from
+        // an earlier fixture/import must not overwrite a newer saved cash amount.
+        const mergedStatementOverrides = resolveSavedStatementOverrides(savedStatementOverrides,localStatementOverrides);
 
         if (
           mergedStatementOverrides.cashFlowMethod !== "direct" &&
@@ -2279,8 +2300,7 @@ const clientLogoUrl = cleanString(
     []
   );
 
-  const activeAccountingPolicyTexts =
-    accountingPolicyTexts || defaultAccountingPolicyTexts;
+  const activeAccountingPolicyTexts = buildAccountingPolicyTextsForEdition(standardsContext(clientSetup).edition, accountingPolicyTexts, standardsContext(clientSetup).framework === "full" ? "full" : "smes");
 
   const activeAccountingPolicyEditorTexts =
     accountingPolicyEditorTexts ||
@@ -2620,22 +2640,16 @@ useEffect(() => {
     return map;
   }, [reportOptions]);
 
+  const comparativeHistory = useMemo(
+    () => withComparativeHistory(trialBalanceHistory, trialBalanceLines, yearEnd),
+    [trialBalanceHistory, trialBalanceLines, yearEnd],
+  );
   const historicalCashFlowData = useMemo(
-    () => buildHistoricalCashFlowData(trialBalanceHistory),
-    [trialBalanceHistory],
+    () => buildHistoricalCashFlowData(comparativeHistory),
+    [comparativeHistory],
   );
 
-  const effectiveStatementOverrides = useMemo(
-    () => ({
-      /*
-        Historical values are fallbacks only. A value deliberately captured
-        in the workbench must always take priority.
-      */
-      ...historicalCashFlowData.overrides,
-      ...statementOverrides,
-    }),
-    [statementOverrides, historicalCashFlowData],
-  );
+  const effectiveStatementOverrides = useMemo(() => ({...taxCashDefaults(taxCalculation,priorTaxCalculation,trialBalanceLines,structuredNotesState.presentationReview?.scope==="consolidated"),...Object.fromEntries(Object.entries(statementOverrides).filter(([,value])=>value!==null&&value!==undefined&&value!==''))}),[statementOverrides,taxCalculation,priorTaxCalculation,trialBalanceLines,structuredNotesState.presentationReview?.scope]);
 
   const baseStatementEngine = useMemo(
     () =>
@@ -2647,1490 +2661,20 @@ useEffect(() => {
     [trialBalanceLines, effectiveStatementOverrides, noteNumberMap]
   );
 
-const effectiveStructuredNotesState = useMemo(() => {
-  const currentState =
-    structuredNotesState && typeof structuredNotesState === "object"
-      ? structuredNotesState
-      : {};
+const effectiveStructuredNotesState = useMemo<Record<string,any>>(() => taxNotesState(prepareCashFlowWorkState(baseStatementEngine,trialBalanceLines,structuredNotesState || {},comparativeHistory,yearEnd,effectiveStatementOverrides),taxCalculation,priorTaxCalculation,trialBalanceLines,clientSetup),[baseStatementEngine,trialBalanceLines,structuredNotesState,comparativeHistory,yearEnd,effectiveStatementOverrides,taxCalculation,priorTaxCalculation,clientSetup]);
 
-  const currentCashGenerated =
-    currentState.cashGeneratedFromOperations &&
-    typeof currentState.cashGeneratedFromOperations === "object"
-      ? currentState.cashGeneratedFromOperations
-      : {};
+  const statementEngine = useMemo(() => buildCashFlowPresentation(baseStatementEngine,trialBalanceLines,effectiveStructuredNotesState,effectiveStatementOverrides,comparativeHistory,yearEnd),[baseStatementEngine,trialBalanceLines,effectiveStructuredNotesState,effectiveStatementOverrides,comparativeHistory,yearEnd]);
 
-  const currentValues =
-    currentCashGenerated.values &&
-    typeof currentCashGenerated.values === "object"
-      ? currentCashGenerated.values
-      : {};
-
-  const ppeInputs =
-    currentState.ppeInputs &&
-    typeof currentState.ppeInputs === "object"
-      ? currentState.ppeInputs
-      : {};
-
-  const ppeDepreciation = (
-    side: "current" | "prior",
-  ) =>
-    Object.values(ppeInputs).reduce((sum: number, row: any) => {
-      return (
-        sum +
-        Math.abs(
-          Number(
-            row?.[side]?.depreciation ??
-              row?.[side]?.depreciationCharge ??
-              0,
-          ),
-        )
-      );
-    }, 0);
-
-  const mappedNoteTotal = (
-    lines: any[] | undefined,
-    side: "current" | "prior",
-  ) =>
-    (lines || []).reduce(
-      (sum: number, line: any) =>
-        sum + Number(line?.[side] || 0),
-      0,
-    );
-
-  const mappedDepreciationCurrent =
-    ppeDepreciation("current");
-
-  const mappedDepreciationPrior =
-    ppeDepreciation("prior");
-
-  const existingDepreciation =
-    currentValues.depreciationAmortisationImpairment || {};
-
-  return {
-    ...currentState,
-    cashGeneratedFromOperations: {
-      ...currentCashGenerated,
-      values: {
-        ...currentValues,
-
-        depreciationAmortisationImpairment: {
-          ...existingDepreciation,
-
-          current:
-            existingDepreciation.current !== undefined &&
-            existingDepreciation.current !== null &&
-            existingDepreciation.current !== ""
-              ? existingDepreciation.current
-              : mappedDepreciationCurrent,
-
-          prior:
-            existingDepreciation.prior !== undefined &&
-            existingDepreciation.prior !== null &&
-            existingDepreciation.prior !== ""
-              ? existingDepreciation.prior
-              : mappedDepreciationPrior,
-        },
-
-        inventories: {
-          ...(currentValues.inventories || {}),
-          current:
-            currentValues.inventories?.current !== undefined &&
-            currentValues.inventories?.current !== null &&
-            currentValues.inventories?.current !== ""
-              ? currentValues.inventories.current
-              : Number(
-                  baseStatementEngine.cashFlowRows?.find(
-                    (row: any) =>
-                      String(row?.id || "") === "cfs-inventories",
-                  )?.current || 0,
-                ),
-          prior:
-            currentValues.inventories?.prior !== undefined &&
-            currentValues.inventories?.prior !== null &&
-            currentValues.inventories?.prior !== ""
-              ? currentValues.inventories.prior
-              : historicalCashFlowData.inventoryPrior,
-        },
-
-        tradeReceivables: {
-          ...(currentValues.tradeReceivables || {}),
-          current:
-            currentValues.tradeReceivables?.current !== undefined &&
-            currentValues.tradeReceivables?.current !== null &&
-            currentValues.tradeReceivables?.current !== ""
-              ? currentValues.tradeReceivables.current
-              : Number(
-                  baseStatementEngine.cashFlowRows?.find(
-                    (row: any) =>
-                      String(row?.id || "") ===
-                      "cfs-trade-receivables",
-                  )?.current || 0,
-                ),
-          prior:
-            currentValues.tradeReceivables?.prior !== undefined &&
-            currentValues.tradeReceivables?.prior !== null &&
-            currentValues.tradeReceivables?.prior !== ""
-              ? currentValues.tradeReceivables.prior
-              : historicalCashFlowData.receivablesPrior,
-        },
-
-        tradePayables: {
-          ...(currentValues.tradePayables || {}),
-          current:
-            currentValues.tradePayables?.current !== undefined &&
-            currentValues.tradePayables?.current !== null &&
-            currentValues.tradePayables?.current !== ""
-              ? currentValues.tradePayables.current
-              : Number(
-                  baseStatementEngine.cashFlowRows?.find(
-                    (row: any) =>
-                      String(row?.id || "") ===
-                      "cfs-trade-payables",
-                  )?.current || 0,
-                ),
-          prior:
-            currentValues.tradePayables?.prior !== undefined &&
-            currentValues.tradePayables?.prior !== null &&
-            currentValues.tradePayables?.prior !== ""
-              ? currentValues.tradePayables.prior
-              : historicalCashFlowData.payablesPrior,
-        },
-
-        investmentIncome: {
-          ...(currentValues.investmentIncome || {}),
-          current:
-            currentValues.investmentIncome?.current !== undefined &&
-            currentValues.investmentIncome?.current !== null &&
-            currentValues.investmentIncome?.current !== ""
-              ? currentValues.investmentIncome.current
-              : Math.abs(
-                  mappedNoteTotal(
-                    baseStatementEngine.noteData.otherIncome,
-                    "current",
-                  ),
-                ),
-          prior:
-            currentValues.investmentIncome?.prior !== undefined &&
-            currentValues.investmentIncome?.prior !== null &&
-            currentValues.investmentIncome?.prior !== ""
-              ? currentValues.investmentIncome.prior
-              : Math.abs(
-                  mappedNoteTotal(
-                    baseStatementEngine.noteData.otherIncome,
-                    "prior",
-                  ),
-                ),
-        },
-
-        financeCosts: {
-          ...(currentValues.financeCosts || {}),
-          current:
-            currentValues.financeCosts?.current !== undefined &&
-            currentValues.financeCosts?.current !== null &&
-            currentValues.financeCosts?.current !== ""
-              ? currentValues.financeCosts.current
-              : Math.abs(
-                  mappedNoteTotal(
-                    baseStatementEngine.noteData.financeCosts,
-                    "current",
-                  ),
-                ),
-          prior:
-            currentValues.financeCosts?.prior !== undefined &&
-            currentValues.financeCosts?.prior !== null &&
-            currentValues.financeCosts?.prior !== ""
-              ? currentValues.financeCosts.prior
-              : Math.abs(
-                  mappedNoteTotal(
-                    baseStatementEngine.noteData.financeCosts,
-                    "prior",
-                  ),
-                ),
-        },
-      },
-    },
+  const correctedEquityStatements = {
+    sfpRows: statementEngine.sfpRows,
+    sceRows: statementEngine.sceRows,
   };
-}, [
-  structuredNotesState,
-  baseStatementEngine,
-  historicalCashFlowData,
-]);
-
-  const statementEngine = useMemo(() => {
-    const values =
-  effectiveStructuredNotesState?.cashGeneratedFromOperations?.values || {};
-
-    const hasStoredValue = (key: string, side: "current" | "prior") => {
-      const value = values?.[key]?.[side];
-      return value !== undefined && value !== null && value !== "";
-    };
-
-    const storedAmount = (
-      key: string,
-      side: "current" | "prior",
-      fallback: number,
-    ) => {
-      if (!hasStoredValue(key, side)) return fallback;
-      const parsed = Number(values[key][side]);
-      return Number.isFinite(parsed) ? parsed : fallback;
-    };
-
-    const rows = (baseStatementEngine.cashFlowRows || []).map((row: any) => ({ ...row }));
-    const findById = (id: string) => rows.find((row: any) => String(row?.id || "") === id);
-    const findByLabel = (terms: string[]) => rows.find((row: any) => {
-      const label = String(row?.label || "").toLowerCase();
-      return terms.every((term) => label.includes(term));
-    });
-
-    const adjustmentKeys = [
-      "adjustments",
-      "depreciationAmortisationImpairment",
-      "lossOnSaleAssetsLiabilities",
-      "fairValueGainsLosses",
-      "movementProvisions",
-      "otherNonCash1",
-      "investmentIncome",
-      "financeCosts",
-    ];
-
-    const adjustmentsCurrent = adjustmentKeys.reduce(
-  (sum, key) => sum + storedAmount(key, "current", 0),
-  0,
-);
-
-const adjustmentsPrior = adjustmentKeys.reduce(
-  (sum, key) => sum + storedAmount(key, "prior", 0),
-  0,
-);
-
-    const profitRow = findById("cfs-profit-before-tax") || findByLabel(["profit", "before taxation"]);
-    const adjustmentsRow = findById("cfs-adjustments") || findByLabel(["adjustments", "non-cash"]);
-    const inventoryRow = findById("cfs-inventories") || findByLabel(["inventor"]);
-    const receivablesRow = findById("cfs-trade-receivables") || findByLabel(["trade", "receivables"]);
-    const payablesRow = findById("cfs-trade-payables") || findByLabel(["trade", "payables"]);
-    const generatedRow = findById("cfs-cash-generated-operations") || findByLabel(["cash generated", "operations"]);
-    const interestReceivedRow =
-      findById("cfs-interest-received") ||
-      findByLabel(["interest received"]);
-    const financeCostsPaidRow =
-      findById("cfs-finance-costs-paid") ||
-      findByLabel(["finance costs paid"]);
-    const taxPaidRow =
-      findById("cfs-tax-paid") ||
-      findByLabel(["taxation paid"]) ||
-      findByLabel(["tax paid"]);
-    const otherOperatingRow = findById("cfs-other-operating") || findByLabel(["other operating cash flows"]);
-    const netOperatingRow = findById("cfs-net-operating") || findByLabel(["net cash", "operating activities"]);
-    const purchasePpeRow =
-      findById("cfs-purchase-ppe") ||
-      findByLabel(["purchase", "property", "plant", "equipment"]);
-
-    const disposalPpeRow =
-      findById("cfs-disposal-ppe") ||
-      findByLabel(["proceeds", "disposal", "property", "plant", "equipment"]);
-
-    const otherInvestingRow =
-      findById("cfs-other-investing") ||
-      findByLabel(["other investing cash flows"]);
-
-    const netInvestingRow =
-      findById("cfs-net-investing") ||
-      findByLabel(["net cash", "investing activities"]);
-
-    const netFinancingRow =
-      findById("cfs-net-financing") ||
-      findByLabel(["net cash", "financing activities"]);
-
-    /*
-      Prior-year financing must represent movements, not closing balances.
-      The statement engine may carry a legacy prior closing liability into
-      Other financing cash flows. Replace that comparative with explicit
-      movement values only.
-    */
-    const loansRaisedRow =
-      findById("cfs-loans-raised") ||
-      findByLabel(["shareholder loans raised"]);
-
-    const dividendsPaidRow =
-      findById("cfs-dividends-paid") ||
-      findByLabel(["dividends paid"]);
-
-    const otherFinancingRow =
-      findById("cfs-other-financing") ||
-      findByLabel(["other financing cash flows"]);
-
-    const explicitOtherFinancingPrior =
-      effectiveStatementOverrides.cashOtherFinancingPrior !== null &&
-      effectiveStatementOverrides.cashOtherFinancingPrior !== undefined
-        ? Number(effectiveStatementOverrides.cashOtherFinancingPrior || 0)
-        : 0;
-
-    if (otherFinancingRow) {
-      otherFinancingRow.prior = Math.round(explicitOtherFinancingPrior);
-    }
-
-    const correctedNetFinancingPrior =
-      Number(loansRaisedRow?.prior || 0) +
-      Number(dividendsPaidRow?.prior || 0) +
-      explicitOtherFinancingPrior;
-
-    if (netFinancingRow) {
-      netFinancingRow.prior = Math.round(correctedNetFinancingPrior);
-    }
-
-    const ppeAdditionsFromNote = (side: "current" | "prior") => {
-  const savedRows = Array.isArray(structuredNotesState?.ppeRows)
-    ? structuredNotesState.ppeRows
-    : [];
-
-  const savedInputs =
-    structuredNotesState?.ppeInputs &&
-    typeof structuredNotesState.ppeInputs === "object"
-      ? Object.values(structuredNotesState.ppeInputs)
-      : [];
-
-  const rows = savedRows.length > 0 ? savedRows : savedInputs;
-
-  return rows.reduce(
-    (sum: number, row: any) =>
-      sum + Number(row?.[side]?.additions || 0),
-    0,
-  );
-};
-
-const ppeAdditionsCurrent = ppeAdditionsFromNote("current");
-const ppeAdditionsPrior = ppeAdditionsFromNote("prior");
-
-const purchasePpeCurrent = -Math.abs(ppeAdditionsCurrent);
-const purchasePpePrior = -Math.abs(ppeAdditionsPrior);
-
-    if (purchasePpeRow) {
-      purchasePpeRow.current = Math.round(purchasePpeCurrent);
-      purchasePpeRow.prior = Math.round(purchasePpePrior);
-    }
-    const netMovementRow = findById("cfs-net-movement") || findByLabel(["net increase"]);
-    const openingCashRow = findById("cfs-opening-cash") || findByLabel(["cash and cash equivalents at beginning"]);
-    const closingCashRow = findById("cfs-closing-cash") || findByLabel(["cash and cash equivalents at end"]);
-
-    const inventoryCurrent = storedAmount("inventories", "current", Number(inventoryRow?.current || 0));
-    const inventoryPrior = storedAmount(
-      "inventories",
-      "prior",
-      trialBalanceHistory.length >= 2
-        ? historicalCashFlowData.inventoryPrior
-        : Number(inventoryRow?.prior || 0),
-    );
-
-    const receivablesCurrent =
-      storedAmount(
-        "tradeReceivables",
-        "current",
-        Number(receivablesRow?.current || 0),
-      ) +
-      storedAmount("prepayments", "current", 0);
-
-    const receivablesPrior =
-      storedAmount(
-        "tradeReceivables",
-        "prior",
-        trialBalanceHistory.length >= 2
-          ? historicalCashFlowData.receivablesPrior
-          : Number(receivablesRow?.prior || 0),
-      ) +
-      storedAmount("prepayments", "prior", 0);
-
-    const payablesCurrent =
-      storedAmount(
-        "tradePayables",
-        "current",
-        Number(payablesRow?.current || 0),
-      ) +
-      storedAmount("deferredIncome", "current", 0);
-
-    const payablesPrior =
-      storedAmount(
-        "tradePayables",
-        "prior",
-        trialBalanceHistory.length >= 2
-          ? historicalCashFlowData.payablesPrior
-          : Number(payablesRow?.prior || 0),
-      ) +
-      storedAmount("deferredIncome", "prior", 0);
-
-    const sociProfitBeforeTaxRow = (baseStatementEngine.sociRows || []).find(
-      (row: any) =>
-        String(row?.label || "").trim().toLowerCase() ===
-        "profit / (loss) before taxation",
-    );
-
-    /*
-      The cash-flow statement starts from profit before taxation. Do not trust
-      a legacy cash-flow row here because it may contain profit after tax when
-      deferred tax is present. The SOCI subtotal is the source of truth.
-    */
-    const cashFlowProfitBeforeTaxCurrent = Number(
-      sociProfitBeforeTaxRow?.current || 0,
-    );
-    const cashFlowProfitBeforeTaxPrior = Number(
-      sociProfitBeforeTaxRow?.prior || 0,
-    );
-
-    if (profitRow) {
-      profitRow.current = Math.round(cashFlowProfitBeforeTaxCurrent);
-      profitRow.prior = Math.round(cashFlowProfitBeforeTaxPrior);
-    }
-
-    const generatedCurrent =
-      cashFlowProfitBeforeTaxCurrent +
-      adjustmentsCurrent +
-      inventoryCurrent +
-      receivablesCurrent +
-      payablesCurrent;
-
-    const generatedPrior =
-      cashFlowProfitBeforeTaxPrior +
-      adjustmentsPrior +
-      inventoryPrior +
-      receivablesPrior +
-      payablesPrior;
-
-    if (adjustmentsRow) {
-      adjustmentsRow.current = Math.round(adjustmentsCurrent);
-      adjustmentsRow.prior = Math.round(adjustmentsPrior);
-    }
-    if (inventoryRow) {
-      inventoryRow.current = Math.round(inventoryCurrent);
-      inventoryRow.prior = Math.round(inventoryPrior);
-    }
-    if (receivablesRow) {
-      receivablesRow.current = Math.round(receivablesCurrent);
-      receivablesRow.prior = Math.round(receivablesPrior);
-    }
-    if (payablesRow) {
-      payablesRow.current = Math.round(payablesCurrent);
-      payablesRow.prior = Math.round(payablesPrior);
-    }
-    if (generatedRow) {
-      generatedRow.current = Math.round(generatedCurrent);
-      generatedRow.prior = Math.round(generatedPrior);
-    }
-
-    const mappedNoteTotal = (
-      lines: any[] | undefined,
-      side: "current" | "prior",
-    ) =>
-      (lines || []).reduce(
-        (sum: number, line: any) =>
-          sum + Number(line?.[side] || 0),
-        0,
-      );
-
-    const mappedInterestReceivedCurrent = Math.abs(
-      mappedNoteTotal(
-        baseStatementEngine.noteData.otherIncome,
-        "current",
-      ),
-    );
-
-    const mappedInterestReceivedPrior = Math.abs(
-      mappedNoteTotal(
-        baseStatementEngine.noteData.otherIncome,
-        "prior",
-      ),
-    );
-
-    const mappedFinanceCostsPaidCurrent = -Math.abs(
-      mappedNoteTotal(
-        baseStatementEngine.noteData.financeCosts,
-        "current",
-      ),
-    );
-
-    const mappedFinanceCostsPaidPrior = -Math.abs(
-      mappedNoteTotal(
-        baseStatementEngine.noteData.financeCosts,
-        "prior",
-      ),
-    );
-
-    /*
-      Taxation in the SOCI is already presented with the correct cash-flow
-      sign: an expense is negative and a tax credit is positive.
-
-      A workbench amount remains an explicit override. When no override has
-      been captured, use the mapped taxation amount automatically.
-    */
-    const exactMappedRawTotal = (
-      mappingCode: string,
-      side: "current" | "prior",
-    ) =>
-      (trialBalanceLines || [])
-        .filter(
-          (line) =>
-            normaliseMappingIdentifier(line.mapping_code) ===
-            normaliseMappingIdentifier(mappingCode),
-        )
-        .reduce(
-          (sum, line) =>
-            sum +
-            (side === "current"
-              ? rawCurrent(line)
-              : rawPrior(line)),
-          0,
-        );
-
-    /*
-      Current tax paid is calculated from current-tax mappings only.
-      Deferred tax mappings 395.10 and 795.20 are deliberately excluded.
-
-      Tax paid =
-        opening current-tax payable
-        - opening current-tax receivable
-        + current-tax expense
-        - closing current-tax payable
-        + closing current-tax receivable
-
-      The cash-flow line is presented as a negative outflow.
-    */
-    const currentTaxExpenseCurrent = Math.abs(
-      exactMappedRawTotal("795.10", "current"),
-    );
-
-    const openingCurrentTaxReceivable = Math.abs(
-      exactMappedRawTotal("495.10", "prior"),
-    );
-    const closingCurrentTaxReceivable = Math.abs(
-      exactMappedRawTotal("495.10", "current"),
-    );
-
-    const openingCurrentTaxPayable = Math.abs(
-      exactMappedRawTotal("695.10", "prior"),
-    );
-    const closingCurrentTaxPayable = Math.abs(
-      exactMappedRawTotal("695.10", "current"),
-    );
-
-    const calculatedCurrentTaxPaid =
-      openingCurrentTaxPayable -
-      openingCurrentTaxReceivable +
-      currentTaxExpenseCurrent -
-      closingCurrentTaxPayable +
-      closingCurrentTaxReceivable;
-
-    const mappedTaxPaidCurrent =
-      calculatedCurrentTaxPaid === 0
-        ? 0
-        : -Math.abs(calculatedCurrentTaxPaid);
-
-    /*
-      The opening comparative tax balances are not available from the active
-      two-column TB alone, so prior-year tax paid remains an explicit
-      workbench amount unless historical tax-control data is added later.
-    */
-    const mappedTaxPaidPrior = 0;
-
-    const interestReceivedCurrent =
-      effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
-      effectiveStatementOverrides.cashInterestReceivedCurrent !== undefined
-        ? Number(
-            effectiveStatementOverrides.cashInterestReceivedCurrent || 0,
-          )
-        : mappedInterestReceivedCurrent;
-
-    const interestReceivedPrior =
-      effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
-      effectiveStatementOverrides.cashInterestReceivedPrior !== undefined
-        ? Number(
-            effectiveStatementOverrides.cashInterestReceivedPrior || 0,
-          )
-        : mappedInterestReceivedPrior;
-
-    const financeCostsPaidCurrent =
-      effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== null &&
-      effectiveStatementOverrides.cashFinanceCostsPaidCurrent !== undefined
-        ? Number(
-            effectiveStatementOverrides.cashFinanceCostsPaidCurrent || 0,
-          )
-        : mappedFinanceCostsPaidCurrent;
-
-    const financeCostsPaidPrior =
-      effectiveStatementOverrides.cashFinanceCostsPaidPrior !== null &&
-      effectiveStatementOverrides.cashFinanceCostsPaidPrior !== undefined
-        ? Number(
-            effectiveStatementOverrides.cashFinanceCostsPaidPrior || 0,
-          )
-        : mappedFinanceCostsPaidPrior;
-
-    const manualTaxPaidCurrent = Number(
-      effectiveStatementOverrides.cashTaxPaidCurrent || 0,
-    );
-    const manualTaxPaidPrior = Number(
-      effectiveStatementOverrides.cashTaxPaidPrior || 0,
-    );
-
-    /*
-      Blank workbench inputs are persisted as zero. A saved zero must not
-      suppress a real tax payment calculated from the exact current-tax
-      mappings. A non-zero workbench amount remains an explicit override.
-    */
-    const taxPaidCurrent =
-      Math.abs(manualTaxPaidCurrent) > 0
-        ? manualTaxPaidCurrent
-        : mappedTaxPaidCurrent;
-
-    const taxPaidPrior =
-      Math.abs(manualTaxPaidPrior) > 0
-        ? manualTaxPaidPrior
-        : mappedTaxPaidPrior;
-
-    if (interestReceivedRow) {
-      interestReceivedRow.current = Math.round(interestReceivedCurrent);
-      interestReceivedRow.prior = Math.round(interestReceivedPrior);
-    }
-
-    if (financeCostsPaidRow) {
-      financeCostsPaidRow.current = Math.round(financeCostsPaidCurrent);
-      financeCostsPaidRow.prior = Math.round(financeCostsPaidPrior);
-    }
-
-    if (taxPaidRow) {
-      taxPaidRow.current = Math.round(taxPaidCurrent);
-      taxPaidRow.prior = Math.round(taxPaidPrior);
-    }
-
-    const otherOperatingCurrent =
-      Number(effectiveStatementOverrides.cashOtherOperatingCurrent || 0) +
-      Number(effectiveStatementOverrides.cashOtherOperating2Current || 0) +
-      Number(effectiveStatementOverrides.cashOtherOperating3Current || 0);
-    const otherOperatingPrior =
-      Number(effectiveStatementOverrides.cashOtherOperatingPrior || 0) +
-      Number(effectiveStatementOverrides.cashOtherOperating2Prior || 0) +
-      Number(effectiveStatementOverrides.cashOtherOperating3Prior || 0);
-
-    if (otherOperatingRow) {
-      otherOperatingRow.current = Math.round(otherOperatingCurrent);
-      otherOperatingRow.prior = Math.round(otherOperatingPrior);
-    }
-
-    const netOperatingCurrent =
-      generatedCurrent +
-      interestReceivedCurrent +
-      financeCostsPaidCurrent +
-      taxPaidCurrent +
-      otherOperatingCurrent;
-    const netOperatingPrior =
-      generatedPrior +
-      interestReceivedPrior +
-      financeCostsPaidPrior +
-      taxPaidPrior +
-      otherOperatingPrior;
-
-    if (netOperatingRow) {
-      netOperatingRow.current = Math.round(netOperatingCurrent);
-      netOperatingRow.prior = Math.round(netOperatingPrior);
-    }
-
-  const otherInvestingCurrent =
-  Number(effectiveStatementOverrides.cashOtherInvestingCurrent || 0) +
-  Number(effectiveStatementOverrides.cashOtherInvesting2Current || 0) +
-  Number(effectiveStatementOverrides.cashOtherInvesting3Current || 0);
-
-const otherInvestingPrior =
-  Number(effectiveStatementOverrides.cashOtherInvestingPrior || 0) +
-  Number(effectiveStatementOverrides.cashOtherInvesting2Prior || 0) +
-  Number(effectiveStatementOverrides.cashOtherInvesting3Prior || 0);
-
-if (otherInvestingRow) {
-  otherInvestingRow.current = Math.round(otherInvestingCurrent);
-  otherInvestingRow.prior = Math.round(otherInvestingPrior);
-}
-
-const netInvestingCurrent =
-  purchasePpeCurrent +
-  Number(disposalPpeRow?.current || 0) +
-  otherInvestingCurrent;
-
-const netInvestingPrior =
-  purchasePpePrior +
-  Number(disposalPpeRow?.prior || 0) +
-  otherInvestingPrior;
-
-    if (netInvestingRow) {
-      netInvestingRow.current = Math.round(netInvestingCurrent);
-      netInvestingRow.prior = Math.round(netInvestingPrior);
-    }
-
-    const netMovementCurrent =
-      netOperatingCurrent +
-      netInvestingCurrent +
-      Number(netFinancingRow?.current || 0);
-
-    const netMovementPrior =
-      netOperatingPrior +
-      netInvestingPrior +
-      Number(netFinancingRow?.prior || 0);
-
-    if (netMovementRow) {
-      netMovementRow.current = Math.round(netMovementCurrent);
-      netMovementRow.prior = Math.round(netMovementPrior);
-    }
-
-    const openingCurrent = Number(
-      baseStatementEngine.checks.cashClosingPriorFromSfp || 0,
-    );
-    const openingPrior =
-      effectiveStatementOverrides.cashPriorOpeningBalance !== null &&
-      effectiveStatementOverrides.cashPriorOpeningBalance !== undefined
-        ? Number(effectiveStatementOverrides.cashPriorOpeningBalance || 0)
-        : 0;
-
-    if (openingCashRow) {
-      openingCashRow.current = Math.round(openingCurrent);
-      openingCashRow.prior = Math.round(openingPrior);
-    }
-
-    const calculatedClosingCurrent = openingCurrent + netMovementCurrent;
-const calculatedClosingPrior = openingPrior + netMovementPrior;
-
-const sfpClosingCurrent = Number(
-  baseStatementEngine.checks.cashClosingFromSfp || 0,
-);
-const sfpClosingPrior = Number(
-  baseStatementEngine.checks.cashClosingPriorFromSfp || 0,
-);
-
-const rawRoundingCurrent =
-  Math.round(sfpClosingCurrent) - Math.round(calculatedClosingCurrent);
-
-const rawRoundingPrior =
-  Math.round(sfpClosingPrior) - Math.round(calculatedClosingPrior);
-
-const roundingCurrent =
-  Math.abs(rawRoundingCurrent) <= 1 ? rawRoundingCurrent : 0;
-
-const roundingPrior =
-  Math.abs(rawRoundingPrior) <= 1 ? rawRoundingPrior : 0;
-
-const closingRowIndex = rows.findIndex((row: any) => {
-  const id = String(row?.id || "").toLowerCase();
-  const label = String(row?.label || "").toLowerCase();
-
-  return (
-    id === "cfs-closing-cash" ||
-    label.includes("cash and cash equivalents at end of year")
-  );
-});
-
-const existingRoundingRow = rows.find(
-  (row: any) => String(row?.id || "") === "cfs-rounding-adjustment",
-);
-
-if (existingRoundingRow) {
-  existingRoundingRow.current = roundingCurrent;
-  existingRoundingRow.prior = roundingPrior;
-} else if (
-  closingRowIndex >= 0 &&
-  (roundingCurrent !== 0 || roundingPrior !== 0)
-) {
-  rows.splice(closingRowIndex, 0, {
-    id: "cfs-rounding-adjustment",
-    label: "Rounding adjustment",
-    note: "",
-    current: roundingCurrent,
-    prior: roundingPrior,
-    type: "line",
-    kind: "line",
-    indent: 0,
-  });
-}
-
-const finalClosingCurrent =
-  calculatedClosingCurrent + roundingCurrent;
-
-const finalClosingPrior =
-  calculatedClosingPrior + roundingPrior;
-
-if (closingCashRow) {
-  closingCashRow.current = Math.round(finalClosingCurrent);
-  closingCashRow.prior = Math.round(finalClosingPrior);
-}
-
-    const checks = {
-      ...baseStatementEngine.checks,
-      cashMovementFromCashFlow: Math.round(netMovementCurrent),
-      cashClosingFromCashFlow: Math.round(finalClosingCurrent),
-      cashFlowMovementDifference: Math.round(
-        netMovementCurrent - Number(baseStatementEngine.checks.cashMovementFromSfp || 0),
-      ),
-      cashFlowClosingDifference: Math.round(
-  finalClosingCurrent - sfpClosingCurrent,
-),
-      cashOpeningPrior: Math.round(openingPrior),
-      cashMovementPriorFromCashFlow: Math.round(netMovementPrior),
-      cashClosingPriorFromCashFlow: Math.round(finalClosingPrior),
-      cashFlowPriorClosingDifference: Math.round(
-  finalClosingPrior - sfpClosingPrior,
-),
-    };
-
-    const cashFlowMethod =
-      effectiveStatementOverrides.cashFlowMethod || "indirect";
-
-    if (cashFlowMethod === "direct") {
-      const noteTotal = (
-        lines: any[] | undefined,
-        side: "current" | "prior",
-      ) =>
-        (lines || []).reduce(
-          (sum: number, line: any) =>
-            sum + Number(line?.[side] || 0),
-          0,
-        );
-
-      const mappedRawTotal = (
-        requiredTerms: string[],
-        side: "current" | "prior",
-      ) =>
-        (trialBalanceLines || [])
-          .filter((line) => {
-            const mappingText = lineSearchText(line);
-
-            return requiredTerms.every((term) =>
-              mappingText.includes(term),
-            );
-          })
-          .reduce(
-            (sum, line) =>
-              sum +
-              (side === "current"
-                ? rawCurrent(line)
-                : rawPrior(line)),
-            0,
-          );
-
-      const revenueCurrent = noteTotal(
-        baseStatementEngine.noteData.revenue,
-        "current",
-      );
-
-      const revenuePrior = noteTotal(
-        baseStatementEngine.noteData.revenue,
-        "prior",
-      );
-
-      const otherIncomeCurrent = noteTotal(
-        baseStatementEngine.noteData.otherIncome,
-        "current",
-      );
-
-      const otherIncomePrior = noteTotal(
-        baseStatementEngine.noteData.otherIncome,
-        "prior",
-      );
-
-      const financeCostsCurrent = Math.abs(
-        noteTotal(
-          baseStatementEngine.noteData.financeCosts,
-          "current",
-        ),
-      );
-
-      const financeCostsPrior = Math.abs(
-        noteTotal(
-          baseStatementEngine.noteData.financeCosts,
-          "prior",
-        ),
-      );
-
-      const profitBeforeTaxCurrent =
-        Number(profitRow?.current || 0);
-
-      const profitBeforeTaxPrior =
-        Number(profitRow?.prior || 0);
-
-      /*
-        Profit before tax =
-          revenue
-          + other income
-          - cost of sales
-          - operating expenses
-          - finance costs
-
-        Therefore cost of sales plus operating expenses =
-          profit before tax
-          - revenue
-          - other income
-          + finance costs
-      */
-      const tradingAndOperatingExpensesCurrent =
-        profitBeforeTaxCurrent -
-        revenueCurrent -
-        otherIncomeCurrent +
-        financeCostsCurrent;
-
-      const tradingAndOperatingExpensesPrior =
-        profitBeforeTaxPrior -
-        revenuePrior -
-        otherIncomePrior +
-        financeCostsPrior;
-
-      const mappedNonCashExpense = (
-        side: "current" | "prior",
-      ) =>
-        (trialBalanceLines || [])
-          .filter((line) => {
-            const mappingText = lineSearchText(line);
-
-            return [
-              "depreciation",
-              "amortisation",
-              "amortization",
-              "impairment",
-            ].some((term) => mappingText.includes(term));
-          })
-          .reduce((sum, line) => {
-            const amount =
-              side === "current"
-                ? rawCurrent(line)
-                : rawPrior(line);
-
-            return sum + Math.abs(amount);
-          }, 0);
-
-      /*
-        Non-cash expenses are added back to the negative expense total.
-        Use the mapped TB amounts automatically instead of relying on a
-        manually completed cash-flow note.
-      */
-      const operatingNonCashAdjustmentCurrent =
-        mappedNonCashExpense("current") +
-        storedAmount("lossOnSaleAssetsLiabilities", "current", 0) +
-        storedAmount("fairValueGainsLosses", "current", 0) +
-        storedAmount("movementProvisions", "current", 0) +
-        storedAmount("otherNonCash1", "current", 0);
-
-      const operatingNonCashAdjustmentPrior =
-        mappedNonCashExpense("prior") +
-        storedAmount("lossOnSaleAssetsLiabilities", "prior", 0) +
-        storedAmount("fairValueGainsLosses", "prior", 0) +
-        storedAmount("movementProvisions", "prior", 0) +
-        storedAmount("otherNonCash1", "prior", 0);
-
-      /*
-        Direct Method:
-
-        Cash receipts from customers
-        = revenue + decrease / (increase) in receivables
-
-        Cash paid to suppliers and employees
-        = cost of sales and operating expenses
-          + non-cash adjustments
-          + inventory movement
-          + payables movement
-      */
-      const tradeReceivablesCurrentBalance = noteTotal(
-        baseStatementEngine.noteData.tradeReceivables,
-        "current",
-      );
-
-      const tradeReceivablesPriorBalance = noteTotal(
-        baseStatementEngine.noteData.tradeReceivables,
-        "prior",
-      );
-
-      /*
-        Current-year receivables movement is calculated directly from
-        the mapped SFP balances.
-
-        Prior comparative movement comes from the stored historical TB,
-        because the opening comparative balance is not in the current TB.
-      */
-      const directReceivablesMovementCurrent =
-        tradeReceivablesPriorBalance -
-        tradeReceivablesCurrentBalance;
-
-      const directReceivablesMovementPrior =
-        historicalCashFlowData.receivablesPrior;
-
-      /*
-        Customer receipts use the working-capital movement already
-        controlled by the Cash generated from operations note.
-      */
-      const directReceiptsCurrent =
-        revenueCurrent + receivablesCurrent;
-
-      const directReceiptsPrior =
-        revenuePrior + receivablesPrior;
-
-      /*
-        Cash paid to suppliers and employees is derived from the completed
-        Cash generated from operations note.
-
-        Cash generated from operations =
-          cash receipts from customers
-          + cash paid to suppliers and employees
-      */
-      const directPaymentsCurrent =
-        generatedCurrent - directReceiptsCurrent;
-
-      const directPaymentsPrior =
-        generatedPrior - directReceiptsPrior;
-
-      const noteInterestReceived = (
-        side: "current" | "prior",
-      ) =>
-        (baseStatementEngine.noteData.otherIncome || [])
-          .filter((line: any) =>
-            String(line?.label || "")
-              .toLowerCase()
-              .includes("interest"),
-          )
-          .reduce(
-            (sum: number, line: any) =>
-              sum + Math.abs(Number(line?.[side] || 0)),
-            0,
-          );
-
-      const directInterestReceivedCurrent =
-        effectiveStatementOverrides.cashInterestReceivedCurrent !== null &&
-        effectiveStatementOverrides.cashInterestReceivedCurrent !== undefined
-          ? Number(
-              effectiveStatementOverrides.cashInterestReceivedCurrent || 0,
-            )
-          : noteInterestReceived("current");
-
-      const directInterestReceivedPrior =
-        effectiveStatementOverrides.cashInterestReceivedPrior !== null &&
-        effectiveStatementOverrides.cashInterestReceivedPrior !== undefined
-          ? Number(
-              effectiveStatementOverrides.cashInterestReceivedPrior || 0,
-            )
-          : noteInterestReceived("prior");
-
-      const directFinanceCostsPaidCurrent =
-        -Math.abs(
-          storedAmount(
-            "financeCosts",
-            "current",
-            financeCostsCurrent,
-          ),
-        );
-
-      const directFinanceCostsPaidPrior =
-        -Math.abs(
-          storedAmount(
-            "financeCosts",
-            "prior",
-            financeCostsPrior,
-          ),
-        );
-
-      const directOtherOperatingCurrent = 0;
-      const directOtherOperatingPrior = 0;
-
-      const directNetOperatingCurrent =
-        directReceiptsCurrent +
-        directPaymentsCurrent +
-        directOtherOperatingCurrent +
-        directInterestReceivedCurrent +
-        directFinanceCostsPaidCurrent +
-        taxPaidCurrent +
-        otherOperatingCurrent;
-
-      const directNetOperatingPrior =
-        directReceiptsPrior +
-        directPaymentsPrior +
-        directOtherOperatingPrior +
-        directInterestReceivedPrior +
-        directFinanceCostsPaidPrior +
-        taxPaidPrior +
-        otherOperatingPrior;
-
-      /*
-        The direct-method net cash movement must equal the three subtotals
-        displayed on the statement:
-
-          operating activities
-          + investing activities
-          + financing activities
-
-        Use the completed section totals directly so that finance costs and
-        every other operating cash-flow item cannot be omitted from the final
-        movement calculation.
-      */
-      const calculatedDirectNetMovementCurrent =
-  directNetOperatingCurrent +
-  Number(netInvestingRow?.current || 0) +
-  Number(netFinancingRow?.current || 0);
-
-const calculatedDirectNetMovementPrior =
-  directNetOperatingPrior +
-  Number(netInvestingRow?.prior || 0) +
-  Number(netFinancingRow?.prior || 0);
-
-const directRawDifferenceCurrent =
-  Math.round(sfpClosingCurrent) -
-  Math.round(openingCurrent + calculatedDirectNetMovementCurrent);
-
-const directRawDifferencePrior =
-  Math.round(sfpClosingPrior) -
-  Math.round(openingPrior + calculatedDirectNetMovementPrior);
-
-const directRoundingTolerance = Math.max(
-  0,
-  Math.round(Number(effectiveStatementOverrides.roundingTolerance ?? 5)),
-);
-
-/*
-  A rounding line may only absorb a genuinely small difference. Large
-  differences remain visible through FlightDeck instead of being hidden as
-  rounding adjustments.
-*/
-const directRoundingCurrent =
-  Math.abs(directRawDifferenceCurrent) <= directRoundingTolerance
-    ? directRawDifferenceCurrent
-    : 0;
-
-const directRoundingPrior =
-  Math.abs(directRawDifferencePrior) <= directRoundingTolerance
-    ? directRawDifferencePrior
-    : 0;
-
-const directNetMovementCurrent =
-  calculatedDirectNetMovementCurrent + directRoundingCurrent;
-
-const directNetMovementPrior =
-  calculatedDirectNetMovementPrior + directRoundingPrior;
-
-const directClosingCurrent =
-  openingCurrent + directNetMovementCurrent;
-
-const directClosingPrior =
-  openingPrior + directNetMovementPrior;
-
-      const directRows = rows.filter((row: any) => {
-        const id = String(row?.id || "");
-
-        return ![
-          "cfs-profit-before-tax",
-          "cfs-adjustments",
-          "cfs-inventories",
-          "cfs-trade-receivables",
-          "cfs-trade-payables",
-          "cfs-cash-generated-operations",
-          "cfs-rounding-adjustment",
-          "cfs-direct-rounding-adjustment",
-        ].includes(id);
-      });
-
-      const operatingIndex = directRows.findIndex(
-        (row: any) => String(row?.id || "") === "cfs-operating",
-      );
-
-      directRows.splice(operatingIndex + 1, 0,
-        {
-          id: "cfs-direct-receipts-customers",
-          label: "Cash receipts from customers",
-          current: Math.round(directReceiptsCurrent),
-          prior: Math.round(directReceiptsPrior),
-          type: "line",
-        },
-        {
-          id: "cfs-direct-payments-suppliers-employees",
-          label: "Cash paid to suppliers and employees",
-          current: Math.round(directPaymentsCurrent),
-          prior: Math.round(directPaymentsPrior),
-          type: "line",
-        },
-        {
-          id: "cfs-direct-other-operating",
-          label: "Other direct operating cash flows",
-          current: Math.round(directOtherOperatingCurrent),
-          prior: Math.round(directOtherOperatingPrior),
-          type: "line",
-        },
-      );
-
-      const directNetMovementIndex = directRows.findIndex((row: any) => {
-  const id = String(row?.id || "");
-  const label = String(row?.label || "").toLowerCase();
-
-  return (
-    id === "cfs-net-movement" ||
-    id === "cfs-cash-movement" ||
-    label.includes(
-      "net increase / (decrease) in cash and cash equivalents",
-    )
-  );
-});
-
-if (
-  directNetMovementIndex >= 0 &&
-  (directRoundingCurrent !== 0 || directRoundingPrior !== 0)
-) {
-  directRows.splice(directNetMovementIndex, 0, {
-    id: "cfs-direct-rounding-adjustment",
-    label: "Rounding adjustment",
-    current: Math.round(directRoundingCurrent),
-    prior: Math.round(directRoundingPrior),
-    type: "line",
-  });
-}
-
-      const directInterestReceivedRow = directRows.find(
-        (row: any) =>
-          String(row?.id || "") === "cfs-interest-received",
-      );
-
-      const directFinanceCostsPaidRow = directRows.find(
-        (row: any) =>
-          String(row?.id || "") === "cfs-finance-costs-paid",
-      );
-
-      if (directInterestReceivedRow) {
-        directInterestReceivedRow.current = Math.round(
-          directInterestReceivedCurrent,
-        );
-        directInterestReceivedRow.prior = Math.round(
-          directInterestReceivedPrior,
-        );
-      }
-
-      if (directFinanceCostsPaidRow) {
-        directFinanceCostsPaidRow.current = Math.round(
-          directFinanceCostsPaidCurrent,
-        );
-        directFinanceCostsPaidRow.prior = Math.round(
-          directFinanceCostsPaidPrior,
-        );
-      }
-
-      const directNetOperatingRow = directRows.find(
-        (row: any) => String(row?.id || "") === "cfs-net-operating",
-      );
-
-      const directNetMovementRow =
-        directRows.find(
-          (row: any) => String(row?.id || "") === "cfs-net-movement",
-        ) ||
-        directRows.find((row: any) =>
-          String(row?.label || "")
-            .toLowerCase()
-            .includes("net increase / (decrease) in cash and cash equivalents"),
-        );
-
-      const directOpeningRow =
-        directRows.find(
-          (row: any) => String(row?.id || "") === "cfs-opening-cash",
-        ) ||
-        directRows.find((row: any) =>
-          String(row?.label || "")
-            .toLowerCase()
-            .includes("cash and cash equivalents at beginning of year"),
-        );
-
-      const directClosingRow =
-        directRows.find(
-          (row: any) => String(row?.id || "") === "cfs-closing-cash",
-        ) ||
-        directRows.find((row: any) =>
-          String(row?.label || "")
-            .toLowerCase()
-            .includes("cash and cash equivalents at end of year"),
-        );
-
-      if (directNetOperatingRow) {
-        directNetOperatingRow.current = Math.round(
-          directNetOperatingCurrent,
-        );
-        directNetOperatingRow.prior = Math.round(
-          directNetOperatingPrior,
-        );
-      }
-
-      if (directNetMovementRow) {
-        directNetMovementRow.current = Math.round(
-          directNetMovementCurrent,
-        );
-        directNetMovementRow.prior = Math.round(
-          directNetMovementPrior,
-        );
-      }
-
-      if (directOpeningRow) {
-        directOpeningRow.current = Math.round(openingCurrent);
-        directOpeningRow.prior = Math.round(openingPrior);
-      }
-
-      if (directClosingRow) {
-        directClosingRow.current = Math.round(directClosingCurrent);
-        directClosingRow.prior = Math.round(directClosingPrior);
-      }
-
-      return {
-        ...baseStatementEngine,
-        cashFlowRows: directRows,
-        checks: {
-          ...checks,
-          cashMovementFromCashFlow: Math.round(
-            directNetMovementCurrent,
-          ),
-          cashClosingFromCashFlow: Math.round(
-            directClosingCurrent,
-          ),
-          cashFlowMovementDifference: Math.round(
-            directNetMovementCurrent -
-              Number(
-                baseStatementEngine.checks.cashMovementFromSfp || 0,
-              ),
-          ),
-          cashFlowClosingDifference: Math.round(
-            directClosingCurrent - sfpClosingCurrent,
-          ),
-          cashMovementPriorFromCashFlow: Math.round(
-            directNetMovementPrior,
-          ),
-          cashClosingPriorFromCashFlow: Math.round(
-            directClosingPrior,
-          ),
-          cashFlowPriorClosingDifference: Math.round(
-            directClosingPrior - sfpClosingPrior,
-          ),
-        },
-      };
-    }
-
-    return {
-      ...baseStatementEngine,
-      cashFlowRows: rows,
-      checks,
-    };
-  }, [
-    baseStatementEngine,
-    effectiveStructuredNotesState,
-    effectiveStatementOverrides,
-    trialBalanceHistory,
-    historicalCashFlowData,
-  ]);
-
-  const correctedEquityStatements = useMemo(() => {
-  const sfpRows = (statementEngine.sfpRows || []).map((row: any) => ({
-    ...row,
-  }));
-
-  const sceRows = (statementEngine.sceRows || []).map((row: any) => ({
-    ...row,
-  }));
-
-  const retainedIncomeRow = sfpRows.find((row: any) =>
-    String(row?.label || "")
-      .toLowerCase()
-      .includes("retained income"),
-  );
-
-  const totalEquityRow = sfpRows.find(
-    (row: any) =>
-      String(row?.label || "").trim().toLowerCase() === "total equity",
-  );
-
-  const totalEquityAndLiabilitiesRow = sfpRows.find(
-    (row: any) =>
-      String(row?.label || "").trim().toLowerCase() ===
-      "total equity and liabilities",
-  );
-
-  const currentProfitRow = sceRows.find(
-    (row: any) => String(row?.id || "") === "sce-current-profit",
-  );
-
-  const priorClosingRetainedRow = sceRows.find(
-    (row: any) =>
-      String(row?.id || "") === "sce-prior-closing-retained",
-  );
-
-  const currentOtherMovementRow = sceRows.find(
-    (row: any) =>
-      String(row?.id || "") === "sce-current-other-movement",
-  );
-
-  const currentClosingRetainedRow = sceRows.find(
-    (row: any) => String(row?.id || "") === "sce-retained-closing",
-  );
-
-  const mappedCurrentRetained = Number(
-    retainedIncomeRow?.current || 0,
-  );
-
-  const priorClosingRetained = Number(
-    priorClosingRetainedRow?.current ||
-      retainedIncomeRow?.prior ||
-      0,
-  );
-
-  const currentProfit = Number(currentProfitRow?.current || 0);
-
-  /*
-    The mapped retained-income account represents the accumulated
-    retained-income balance before the current-year profit is transferred.
-
-    Any movement between the prior closing retained income and the mapped
-    current retained-income account is therefore a genuine other movement,
-    such as a distribution or prior-period adjustment.
-  */
-  const currentOtherMovement =
-    mappedCurrentRetained - priorClosingRetained;
-
-  const correctedCurrentClosingRetained =
-    priorClosingRetained +
-    currentProfit +
-    currentOtherMovement;
-
-  const retainedIncomeAdjustment =
-    correctedCurrentClosingRetained - mappedCurrentRetained;
-
-  if (retainedIncomeRow) {
-    retainedIncomeRow.current = Math.round(
-      correctedCurrentClosingRetained,
-    );
-  }
-
-  if (totalEquityRow) {
-    totalEquityRow.current = Math.round(
-      Number(totalEquityRow.current || 0) +
-        retainedIncomeAdjustment,
-    );
-  }
-
-  if (totalEquityAndLiabilitiesRow) {
-    totalEquityAndLiabilitiesRow.current = Math.round(
-      Number(totalEquityAndLiabilitiesRow.current || 0) +
-        retainedIncomeAdjustment,
-    );
-  }
-
-  if (currentOtherMovementRow) {
-    currentOtherMovementRow.current = Math.round(
-      currentOtherMovement,
-    );
-  }
-
-  if (currentClosingRetainedRow) {
-    currentClosingRetainedRow.current = Math.round(
-      correctedCurrentClosingRetained,
-    );
-  }
-
-  return {
-    sfpRows,
-    sceRows,
-  };
-}, [statementEngine.sfpRows, statementEngine.sceRows]);
 
 const sfpRows = applyProfessionalStatementLabels(
   correctedEquityStatements.sfpRows,
 );
 const sociRows = applyProfessionalStatementLabels(
-  statementEngine.sociRows,
+  withComprehensivePresentation(statementEngine.sociRows,trialBalanceLines,effectiveStructuredNotesState),
 );
 const sceRows = applyProfessionalStatementLabels(
   correctedEquityStatements.sceRows,
@@ -4166,6 +2710,19 @@ const renderedSfpBalanceDifference = useMemo(() => {
 
 const flightDeckIssues = useMemo(() => {
   const issues = buildAfsFlightDeckIssuesFromEngine(statementEngine);
+  const context = standardsContext(clientSetup);
+  for (const row of reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory)) {
+    if (row.difference === null || Math.abs(row.difference) > 0.005 || row.openingConflict || row.invalid) issues.push({id:`work-movement-${row.sectionKey}-${row.id}-${row.side}`,severity:"caution",title:`${row.label}: ${row.side} Work schedule`,message: row.invalid ? "Invalid amount in the movement schedule." : row.difference === null ? "Comparative opening is not supplied; zero is not assumed." : `Closing balance less opening and recorded changes leaves an unexplained difference of ${row.difference.toLocaleString("en-ZA")}.${row.openingConflict ? " The saved opening also conflicts with the source history." : ""} Classify only from supporting evidence.`,target:"notes",targetLabel:"Work schedules"});
+  }
+
+  const disclosureChecks = reviewStandardsCoverage(trialBalanceLines, accountingPolicySections, noteSections, reportOptions, effectiveStructuredNotesState, context);
+  for (const item of disclosureChecks.filter(item => item.applicable && item.issues.length)) {
+    issues.push({id:`disclosure-${item.topic.id}`,severity:"caution",title:item.topic.label,message:item.issues.join(" "),target:item.topic.id === "related" ? "notes" : "accounting-policies",targetLabel:"Review disclosures"});
+  }
+  for (const [index,message] of relatedPartyReviewIssues(effectiveStructuredNotesState,trialBalanceLines,context.framework === "full" ? "full" : "smes").entries()) {
+    issues.push({id:`related-party-${index}`,severity:"caution",title:"Related parties",message,target:"notes",targetLabel:"Related-party Work note"});
+  }
+
 
   if (
     renderedSfpBalanceDifference.current !== 0 ||
@@ -4182,7 +2739,7 @@ const flightDeckIssues = useMemo(() => {
 
     return !isStatementOfFinancialPositionIssue;
   });
-}, [statementEngine, renderedSfpBalanceDifference]);
+}, [statementEngine, renderedSfpBalanceDifference, clientSetup, trialBalanceLines, reportOptions, effectiveStructuredNotesState, comparativeHistory]);
 
   function consolidateDetailedIncomeRows(rows: AfsStatementRow[]) {
     const result: AfsStatementRow[] = [];
@@ -4873,7 +3430,15 @@ const flightDeckIssues = useMemo(() => {
     const seenGroups = new Set<string>();
     let nextPolicyNumber = 1;
 
-    accountingPolicySections.forEach((section: any) => {
+    // A topic's sub-policies must be contiguous, even when the catalogue appends new selections.
+    const printedGroups=new Set<string>();
+    const selectedSections=distinctPolicySections(accountingPolicySections,reportOptions,{...defaultAccountingPolicyTexts,...activeAccountingPolicyTexts},effectiveStructuredNotesState.disclosureContent);
+    const orderedSections=selectedSections.flatMap(section=>{
+      const group=section.group||"";if(!combinedGroups.has(group))return [section];
+      if(printedGroups.has(group))return [];printedGroups.add(group);
+      return selectedSections.filter(candidate=>candidate.group===group);
+    });
+    orderedSections.forEach((section: any) => {
       const isSelected = Boolean(
         reportOptions[section.optionKey as keyof ReportOptions],
       );
@@ -5092,6 +3657,12 @@ const flightDeckIssues = useMemo(() => {
   }
 
   function renderSceCustomTable() {
+    const extraEquity = ["reserves", "nonControllingInterests", "otherEquity", "otherComprehensiveIncome"].some(key =>
+      (statementEngine.noteData[key as keyof typeof statementEngine.noteData] || []).some(row => Number(row.current || 0) !== 0 || Number(row.prior || 0) !== 0));
+    return extraEquity ? <AfsCompleteEquityStatement engine={statementEngine} history={comparativeHistory} transactions={effectiveStructuredNotesState.equityTransactions||[]} attribution={effectiveStructuredNotesState.comprehensiveIncomeAttribution||{}} /> : renderLegacySceCustomTable();
+  }
+
+  function renderLegacySceCustomTable() {
     const openingShare = sceValue("sce-share-opening");
     const openingRetained = sceValue("sce-retained-opening");
     const priorProfit = sceValue("sce-prior-profit");
@@ -5554,6 +4125,7 @@ const flightDeckIssues = useMemo(() => {
         options: [],
         content: (
           <AfsStatementOverrideSettings
+                    financialYearEnd={yearEnd}
             mode="sce"
             overrides={statementOverrides}
             onChange={updateStatementOverride}
@@ -5658,6 +4230,7 @@ const flightDeckIssues = useMemo(() => {
             }}
           >
             <AfsEditableDisclosureSettings
+              standardsContext={standardsContext(clientSetup)}
               sections={accountingPolicySections}
               reportOptions={reportOptions}
               toggleReportOption={toggleReportOption}
@@ -5694,6 +4267,7 @@ const flightDeckIssues = useMemo(() => {
         options: [],
         content: (
           <AfsEditableDisclosureSettings
+              standardsContext={standardsContext(clientSetup)}
             sections={noteSections}
             reportOptions={reportOptions}
             toggleReportOption={toggleReportOption}
@@ -5780,7 +4354,7 @@ function elementOuterHeight(element: HTMLElement | null) {
 
   const style = window.getComputedStyle(element);
   return (
-    element.getBoundingClientRect().height +
+    element.offsetHeight +
     Number.parseFloat(style.marginTop || "0") +
     Number.parseFloat(style.marginBottom || "0")
   );
@@ -5805,6 +4379,9 @@ function elementOuterHeight(element: HTMLElement | null) {
 
   const notesPaginationSignature = [
     activeNoteSectionKeys.join("|"),
+    JSON.stringify(effectiveStructuredNotesState),
+    JSON.stringify(noteData),
+    JSON.stringify(activeNoteTexts),
     currentHeading,
     priorHeading,
     hideComparatives ? "1" : "0",
@@ -5824,6 +4401,7 @@ function elementOuterHeight(element: HTMLElement | null) {
         item.showGroupHeading ? "1" : "0",
         current.title || "",
         current.text || "",
+        JSON.stringify(effectiveStructuredNotesState.disclosureContent?.[item.section.key] || {}),
       ].join(":");
     })
     .join("@@");
@@ -5887,6 +4465,7 @@ function elementOuterHeight(element: HTMLElement | null) {
   return pages;
 })();
 
+  const [notesPrintPageCount,setNotesPrintPageCount]=useState(0);
   const notesPageGroups =
     measuredNotesPagination.signature === notesPaginationSignature
       ? measuredNotesPagination.pages
@@ -5930,7 +4509,7 @@ function elementOuterHeight(element: HTMLElement | null) {
       reportOptions.accountingPolicies,
       accountingPolicyPageGroups.length,
     );
-    addSection("notes", reportOptions.notes, notesPageGroups.length);
+    addSection("notes", reportOptions.notes, notesPrintPageCount || notesPageGroups.length);
     addSection(
       "detailed-income",
       reportOptions.detailedIncomeStatement,
@@ -5943,6 +4522,7 @@ function elementOuterHeight(element: HTMLElement | null) {
     balancedDirectorsReportPageGroups.length,
     accountingPolicyPageGroups.length,
     notesPageGroups.length,
+    notesPrintPageCount,
   ]);
 
   const [pdfReadinessFallback, setPdfReadinessFallback] = useState(false);
@@ -6007,7 +4587,7 @@ function elementOuterHeight(element: HTMLElement | null) {
 
         const contentStyle = window.getComputedStyle(content);
         const innerHeight =
-          content.getBoundingClientRect().height -
+          content.clientHeight -
           Number.parseFloat(contentStyle.paddingTop || "0") -
           Number.parseFloat(contentStyle.paddingBottom || "0");
 
@@ -6019,7 +4599,7 @@ function elementOuterHeight(element: HTMLElement | null) {
         );
 
         const printSafetyReserve =
-          kind === "directors" ? 110 : kind === "policies" ? 32 : 12;
+          kind === "directors" ? 110 : 32;
 
 return Math.max(
   200,
@@ -6036,7 +4616,7 @@ return Math.max(
         .forEach((element) => {
           const key = element.dataset
             .measureDirectorKey as DirectorsReportSectionKey;
-          directorsHeights.set(key, element.getBoundingClientRect().height);
+          directorsHeights.set(key, element.offsetHeight);
         });
 
       const noteHeights = new Map<string, number>();
@@ -6044,7 +4624,7 @@ return Math.max(
         .querySelectorAll<HTMLElement>("[data-measure-note-key]")
         .forEach((element) => {
           const key = element.dataset.measureNoteKey || "";
-          noteHeights.set(key, element.getBoundingClientRect().height);
+          noteHeights.set(key, elementOuterHeight(element));
         });
 
       const accountingPolicyHeights = new Map<number, number>();
@@ -6296,10 +4876,7 @@ return Math.max(
     return (
       <div
         key={`${section.key}-${index}`}
-        style={{
-          breakInside: "avoid",
-          pageBreakInside: "avoid",
-        }}
+        style={{display:"flow-root",breakInside:"auto",pageBreakInside:"auto"}}
       >
         {item.showGroupHeading ? (
           <h2 style={sectionHeadingStyle()}>
@@ -6326,6 +4903,8 @@ return Math.max(
             </p>
           ),
         )}
+
+        {POLICY_DISCLOSURE_KEYS.includes(section.key) && <AfsNoteDisclosureContent sectionKey={section.key} edit={false} state={effectiveStructuredNotesState} setup={clientSetup} update={()=>{}}/>}
 
         {section.key === "policyPpeDepreciation" &&
         ppePolicyDisclosureRows.length > 0 ? (
@@ -6404,6 +4983,8 @@ return Math.max(
       sections={sections}
       onSectionChange={goToSection}
       exportDisabled={false}
+      arithmeticIssues={[...comprehensivePresentationIssues(trialBalanceLines,effectiveStructuredNotesState),...buildEquityMovementTable(statementEngine,comparativeHistory,effectiveStructuredNotesState.equityTransactions||[],effectiveStructuredNotesState.comprehensiveIncomeAttribution||{}).rows.filter(row=>row.unclassified && row.amounts.some(value=>value===null||Math.abs(value)>0.005)).map(()=>"Unclassified equity movement"),...Object.entries(statementEngine.checks).filter(([key,value])=>/Difference|OpeningMissing/.test(key) && (typeof value === "number" ? !Number.isFinite(value)||Math.abs(value)>0.005 : value===true)).map(([key])=>key), ...reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory).map(row=>row.label+" PPE movement"), ...reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.openingConflict || row.invalid).map(row=>row.label+" movement"), ...taxReconciliationReview(statementEngine.noteData,effectiveStructuredNotesState,clientSetup).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.invalid).map(row=>"Tax "+row.side)]}
+      finalisationIssues={[...taxAfsIssues(taxCalculation,priorTaxCalculation,trialBalanceLines,effectiveStructuredNotesState.presentationReview?.scope==="consolidated"),...noteDisclosureIssues([...noteSections,...accountingPolicySections.filter(p=>POLICY_DISCLOSURE_KEYS.includes(p.key))],reportOptions,effectiveStructuredNotesState,standardsContext(clientSetup)).map(item=>`${item.title}: ${item.missing.join("; ")}`), ...flightDeckIssues.filter(item=>item.severity === "critical").map(item=>item.title), ...taxReconciliationReview(statementEngine.noteData,effectiveStructuredNotesState,clientSetup).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.invalid || row.rateAssumed).map(row=>`Tax ${row.side}: supported rate and reconciliation required`), ...reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory).map(row=>`${row.label}: ${row.side} PPE cost/depreciation movements require reconciliation`), ...reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory).filter(row=>row.difference === null || Math.abs(row.difference)>0.005 || row.openingConflict || row.invalid).map(row=>`${row.label}: ${row.side} movement does not reconcile`), ...relatedPartyReviewIssues(effectiveStructuredNotesState,trialBalanceLines,standardsContext(clientSetup).framework === "full"?"full":"smes"), ...(!effectiveStructuredNotesState.presentationReview?.scope?["Presentation scope is not assessed"]:[]), ...(standardsContext(clientSetup).framework === "unknown"?["Reporting framework is not selected"]:[]), ...(trialBalanceLines.some(line=>String(line.mapping_code||"").split(".")[0] === "830" && (Number(line.current_year_balance||0)!==0 || Number(line.prior_year_balance||0)!==0)) && effectiveStructuredNotesState.presentationReview?.scope !== "consolidated"?["NCI mapping requires supported consolidated scope or correction"]:[])]}
       reportOptions={currentContextualOptions.options}
       reportOptionsTitle={currentContextualOptions.title}
       reportOptionsDescription={currentContextualOptions.description}
@@ -6411,6 +4992,8 @@ return Math.max(
       reportOptionsContent={currentContextualOptions.content}
       flightDeckContent={
         !loading ? (
+          <>
+          <AfsStandardsReviewPanel people={clientPeople} engine={statementEngine} history={comparativeHistory} lines={trialBalanceLines} policies={accountingPolicySections} notes={noteSections} options={reportOptions} state={effectiveStructuredNotesState} setup={clientSetup} onChange={saveStructuredNotesStateEverywhere}/>
           <AfsFlightDeck
             issues={flightDeckIssues}
             onJump={(target) => {
@@ -6423,6 +5006,7 @@ return Math.max(
               }
             }}
           />
+          </>
         ) : null
       }
     >
@@ -6522,8 +5106,9 @@ return Math.max(
           </div>
 
           <div
+            className={a4PageStyles.content}
             style={{
-              width: "178mm",
+              width: "178mm", height:"auto", minHeight:0, maxHeight:"none", padding:0, overflow:"visible",
               fontFamily: "Arial, Helvetica, sans-serif",
               fontSize: 11,
               lineHeight: 1.45,
@@ -6544,8 +5129,9 @@ return Math.max(
           </div>
 
           <div
+            className={a4PageStyles.content}
             style={{
-              width: "178mm",
+              width: "178mm", height:"auto", minHeight:0, maxHeight:"none", padding:0, overflow:"visible",
               fontFamily: "Arial, Helvetica, sans-serif",
               fontSize: 11,
               lineHeight: 1.45,
@@ -6562,11 +5148,12 @@ return Math.max(
             ))}
           </div>
 
-          <div style={{ width: "178mm" }}>
+          <div className={a4PageStyles.content} style={{ width: "178mm",height:"auto",minHeight:0,maxHeight:"none",padding:0,overflow:"visible" }}>
             {activeNoteSectionKeys.map((key) => (
               <div
                 key={`measure-note-${key}`}
                 data-measure-note-key={key}
+                style={{display:"flow-root"}}
               >
                 <AfsStructuredNotesPanel
                   engagementId={engagementId}
@@ -6575,6 +5162,7 @@ return Math.max(
                   toggleReportOption={() => undefined}
                   noteData={noteData as any}
                   trialBalanceLines={trialBalanceLines}
+                  trialBalanceHistory={comparativeHistory}
                   clientSetup={clientSetup}
                   currentHeading={currentHeading}
                   priorHeading={priorHeading}
@@ -7027,6 +5615,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                   </p>
 
                   <AfsStatementOverrideSettings
+                    financialYearEnd={yearEnd}
                     mode="cashFlow"
                     overrides={effectiveStatementOverrides}
                     onChange={updateStatementOverride}
@@ -7124,6 +5713,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                         }
                         noteData={noteData as any}
                         trialBalanceLines={trialBalanceLines}
+                  trialBalanceHistory={comparativeHistory}
                         clientSetup={clientSetup}
                         currentHeading={currentHeading}
                         priorHeading={priorHeading}
@@ -7156,17 +5746,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                   justifyItems: "center",
                 }}
               >
-                {notesPageGroups.map((sectionKeys, pageIndex) => (
-                  <div
-                    key={`notes-page-${pageIndex}`}
-                    data-notes-page-index={pageIndex}
-                    style={{
-                      width: "210mm",
-                      minHeight: "297mm",
-                    }}
-                  >
-                    <AfsA4Page {...reportHeaderProps}>
-                      <AfsStructuredNotesPanel
+                <AfsPaginatedNotes signature={notesPaginationSignature} header={reportHeaderProps} onPageCount={setNotesPrintPageCount}><AfsStructuredNotesPanel
                       engagementId={engagementId}
                       noteSections={noteSections}
                       reportOptions={reportOptions as any}
@@ -7178,6 +5758,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       }
                       noteData={noteData as any}
                       trialBalanceLines={trialBalanceLines}
+                  trialBalanceHistory={comparativeHistory}
                       clientSetup={clientSetup}
                       currentHeading={currentHeading}
                       priorHeading={priorHeading}
@@ -7187,14 +5768,11 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       hideComparatives={hideComparatives}
                       structuredNotesState={effectiveStructuredNotesState}
                       onStructuredNotesStateChange={saveStructuredNotesStateEverywhere}
-                      forceReviewMode={isPdfExportMode}
-                      sectionKeys={sectionKeys}
-                      headingMode={pageIndex === 0 ? "main" : "continued"}
-                      rootId={`print-notes-page-${pageIndex + 1}`}
-                    />
-                    </AfsA4Page>
-                  </div>
-                ))}
+                      forceReviewMode={true}
+                      sectionKeys={activeNoteSectionKeys}
+                      headingMode="none"
+                      rootId="print-notes-source"
+                    /></AfsPaginatedNotes>
               </div>
             )
           ) : null}
@@ -7216,6 +5794,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                   <h1 style={pageHeadingStyle()}>Tax Computation</h1>
 
                   {(() => {
+                    if(taxCalculation?.worksheet)return <TaxWorkbookSummary saved={taxCalculation} lines={trialBalanceLines} consolidated={effectiveStructuredNotesState.presentationReview?.scope==="consolidated"}/>;
                     const profitBeforeTax = Math.round(
                       Number(engineChecks.profitBeforeTax || 0)
                     );
@@ -7236,7 +5815,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                       "assessedLossBroughtForward",
                     ]);
 
-                    const taxRate = Number(taxRateRaw || 27);
+                    const taxRate = reportingTaxRate(clientSetup);
                     const assessedLossBroughtForward = Math.abs(
                       Number(assessedLossRaw || 0)
                     );

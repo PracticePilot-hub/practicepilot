@@ -203,7 +203,8 @@ function numberedExpenseLeaves() {
 function numberedStakeholderLoanLeaves() {
   return Array.from({ length: 10 }, (_, index) => {
     const number = index + 1;
-    const codeSuffix = String(number).padStart(2, "0");
+    // Keep codes 01–09 stable; the old tenth code collided with general 548.10.
+    const codeSuffix = number === 10 ? "010" : String(number).padStart(2, "0");
 
     return leaf(
       "SFP",
@@ -678,6 +679,31 @@ const mappingTree: MappingNode[] = [
         leaf("P/L", "Operating expenses", ["Selling and marketing"], "Gifts", "750.44", "operating-expenses"),
       ]),
 
+      // Additional standard South African operating expenses.
+      // Existing mapping codes are deliberately preserved.
+      folder("pl-expenses-vehicle-extra", "Vehicle costs - additional", [
+        leaf("P/L", "Operating expenses", ["Vehicle costs"], "Fuel and lubricants", "750.45", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Vehicle costs"], "Vehicle licences and tracking", "750.46", "operating-expenses"),
+      ]),
+      folder("pl-expenses-it-extra", "Information technology", [
+        leaf("P/L", "Operating expenses", ["Information technology"], "Computer repairs and IT support", "750.47", "operating-expenses"),
+      ]),
+      folder("pl-expenses-staff-extra", "Additional staff costs", [
+        leaf("P/L", "Operating expenses", ["Staff costs"], "Staff training", "750.48", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Staff costs"], "Staff welfare", "750.49", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Staff costs"], "Recruitment and labour broker fees", "750.50", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Staff costs"], "Workmen's compensation (COIDA)", "750.51", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Staff costs"], "Protective clothing and safety equipment", "750.52", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Staff costs"], "Staff travel and subsistence allowances", "750.53", "operating-expenses"),
+      ]),
+      folder("pl-expenses-general-extra", "Additional general and administration", [
+        leaf("P/L", "Operating expenses", ["Administration"], "Membership fees and non-software subscriptions", "750.54", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Administration"], "Donations", "750.55", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Administration"], "Royalties and franchise fees", "750.56", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Premises"], "Refuse and waste removal", "750.57", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Administration"], "Office consumables", "750.58", "operating-expenses"),
+        leaf("P/L", "Operating expenses", ["Professional fees"], "Consulting and management fees", "750.59", "operating-expenses"),
+      ]),
       folder("pl-expenses-other", "Other expenses", numberedExpenseLeaves()),
       leaf("P/L", "Operating expenses", ["Operating expenses"], "Other operating expenses", "750.90", "operating-expenses"),
     ]),
@@ -734,7 +760,15 @@ function getAllLeaves(nodes: MappingNode[]): MappingLeaf[] {
   });
 }
 
-const allMappingLeaves = getAllLeaves(mappingTree);
+export const allMappingLeaves = getAllLeaves(mappingTree);
+
+// Shared lookup for the TB import. The existing mapping tree remains the single
+// source of truth: no second list of codes is maintained.
+export function getAfsMappingForImport(code: string, legacyLeafId?: string) {
+  const value = code === "548.10" && String(legacyLeafId||"").endsWith("shareholder-director-member-loan-10") ? "548.010" : String(code || "").trim();
+  return allMappingLeaves.find((item) => item.mappingCode === value) || null;
+}
+
 
 export default function MappingPanel({ trialBalanceLines, onTrialBalanceLinesChanged, onDataChanged }: Props) {
   const params = useParams();
@@ -867,7 +901,7 @@ const [openNodes, setOpenNodes] = useState<Record<string, boolean>>({});
     setSelectedLineKey(line.lineKey);
 
     const mappedLeaf =
-      findLeafByCode(String(line.mapping_code || "")) ||
+      getAfsMappingForImport(String(line.mapping_code || ""),String(line.mapping_leaf_id || "")) ||
       allMappingLeaves.find((item) => item.id === line.mapping_leaf_id) ||
       null;
 

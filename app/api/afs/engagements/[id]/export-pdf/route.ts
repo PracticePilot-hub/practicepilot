@@ -1,4 +1,5 @@
 import { existsSync } from "fs";
+import { afsExportIdentity } from "../../../../../afs/afsExportIdentity";
 import { NextRequest, NextResponse } from "next/server";
 import puppeteer from "puppeteer-core";
 
@@ -282,14 +283,47 @@ export async function GET(request: NextRequest, context: RouteContext) {
       */
     }
 
-    await page.waitForSelector("#print-sfp", {
-      visible: true,
-      timeout: 12_000,
+    try {
+      await page.waitForSelector("#print-sfp", {visible:true,timeout:45_000});
+    } catch {
+      throw new Error("The AFS data did not finish loading. Refresh Print Studio and retry the export.");
+    }
+
+    const arithmetic = await page.evaluate(() => {
+      const marker=document.querySelector("[data-afs-arithmetic-blockers]");
+      return marker ? Number(marker.getAttribute("data-afs-arithmetic-blockers")) : -1;
     });
+    if (arithmetic !== 0) return NextResponse.json({success:false,error:arithmetic<0
+      ? "Arithmetic verification is unavailable. Refresh Print Studio before exporting."
+      : `${arithmetic} statement or note schedules do not reconcile. Correct them in Work before exporting.`},{status:422});
+
+    await page.waitForFunction(() => {
+      const notes=document.querySelector("#print-notes");
+      return !notes || !!notes.querySelector('[data-afs-notes-pagination-ready="true"]');
+    },{timeout:45000});
+
+    // Refuse an unqualified final PDF while the rendered note package identifies missing content.
+    // Drafts retain the existing watermark and remain available for review.
+    if (!isDraft) {
+      const incomplete = await page.evaluate(() => {
+        const element=document.querySelector("[data-afs-finalisation-blockers]");
+        return element ? Number(element.getAttribute("data-afs-finalisation-blockers") || "0") : -1;
+      });
+      if (incomplete !== 0) return NextResponse.json({success:false,error:incomplete < 0
+        ? "Disclosure readiness could not be verified. Open Print Studio and use Draft PDF for review."
+        : `${incomplete} disclosure areas are incomplete. Complete Notes Work and entity-specific policy disclosures, or export a Draft PDF for review.`},{status:422});
+    }
 
     await page.emulateMediaType("print");
 
-    const exportInfo = await withTimeout(page.evaluate(async () => {
+    const identity = afsExportIdentity(
+      await page.$eval(".afsStudioRoot", (element) => ({
+        entityName: element.getAttribute("data-afs-entity-name"),
+        yearEnd: element.getAttribute("data-afs-year-end"),
+      })),
+    );
+
+    const exportInfo = await withTimeout(page.evaluate(async (identity) => {
       if (document.fonts?.ready) {
         await Promise.race([
           document.fonts.ready.catch(() => undefined),
@@ -297,22 +331,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
         ]);
       }
 
-      const bodyText = document.body?.innerText || "";
-      const lines = bodyText
-        .split(/\n+/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-
-      const entityLine =
-        lines.find((line) => /\(PTY\)\s+LTD/i.test(line)) ||
-        lines.find((line) => /\bLTD\b/i.test(line)) ||
-        "annual-financial-statements";
-
-      const yearEndMatch =
-        bodyText.match(/financial year end\s+([^\n]+)/i) ||
-        bodyText.match(/year ended\s+([^\n]+)/i);
-
-      const yearEnd = String(yearEndMatch?.[1] || "").trim();
+      const entityLine = identity.entityName;
+      const yearEnd = identity.yearEnd;
       const title = [entityLine, "AFS", yearEnd].filter(Boolean).join(" _ ");
 
       /*
@@ -416,7 +436,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         entityName: entityLine,
         yearEnd,
       };
-    }), 12_000, "The rendered report could not be prepared for printing in time.");
+    }, identity), 12_000, "The rendered report could not be prepared for printing in time.");
 
     await page.waitForFunction(
       () => {

@@ -26,6 +26,7 @@ export type AfsStatementOverrides = {
   roundingTolerance?: number | null;
   roundingAccountMappingCode?: string | null;
   roundingAccountLabel?: string | null;
+  cashDirectOverridesPeriod?: number | null;
   cashReceiptsCustomersCurrent?: number | null;
   cashReceiptsCustomersPrior?: number | null;
   cashPaymentsSuppliersEmployeesCurrent?: number | null;
@@ -150,6 +151,7 @@ export type AfsEngineChecks = {
   sfpAssetsTotal: number;
   sfpEquityAndLiabilitiesTotal: number;
   sfpDifference: number;
+  sfpPriorDifference: number;
   profitForYear: number;
   profitBeforeTax: number;
   sfpEquityTotal: number;
@@ -1343,6 +1345,26 @@ export function buildAfsPrintStatementEngine(
     (item) => !shareCapitalRaw.includes(item) && !retainedIncomeRaw.includes(item)
   );
 
+  // An unclosed signed TB includes OCI in its income accounts. Transfer it
+  // once to equity, keeping profit in retained income and OCI in reserves.
+  // A non-balancing TB is left for review; it is never plugged here.
+  const unclosedOci = (side: "current" | "prior") => {
+    const signedTotal = lines.reduce((sum, line) => sum + (side === "current"
+      ? rawCurrent(line) : rawPrior(line)), 0);
+    return Math.abs(signedTotal) < 0.005 ? otherComprehensiveIncomeTotal[side] : 0;
+  };
+  const ociTransfer = { current: unclosedOci("current"), prior: unclosedOci("prior") };
+  if (ociTransfer.current !== 0 || ociTransfer.prior !== 0) {
+    const reserve = otherEquity.find(item => item.noteKey === "reserves");
+    if (reserve) {
+      reserve.current += ociTransfer.current;
+      reserve.prior += ociTransfer.prior;
+    } else {
+      otherEquity.push({ key: "oci-equity-transfer", label: "Other comprehensive income reserve",
+        note: noteNumbers.reserves || null, noteKey: "reserves", ...ociTransfer });
+    }
+  }
+
   const shareCapitalTotal = sumBuckets(shareCapitalRaw);
   const retainedIncomeTotal = sumBuckets(retainedIncomeRaw);
   const otherEquityTotal = sumBuckets(otherEquity);
@@ -1575,6 +1597,19 @@ export function buildAfsPrintStatementEngine(
     priorClosingRetainedIncome +
     profitForYear.current +
     currentOtherMovements;
+
+  // The current ledger may contain brought-forward retained income or an
+  // already closed balance. Compare only these two accounting candidates;
+  // do not replace the ledger with a residual balancing figure.
+  if (retainedIncomeRaw.length > 0) {
+    const expected = sumBuckets(nonCurrentAssets).current + sumBuckets(currentAssets).current
+      - sumBuckets(nonCurrentLiabilities).current - sumBuckets(currentLiabilities).current
+      - shareCapitalTotal.current - otherEquityTotal.current;
+    const mapped = retainedIncomeTotal.current;
+    const unclosed = mapped + profitForYear.current + currentOtherMovements;
+    currentClosingRetainedIncome = Math.abs(expected - unclosed) < Math.abs(expected - mapped)
+      ? unclosed : mapped;
+  }
 
   const shareCapital: StatementBucket[] =
   shareCapitalRaw.length > 0
@@ -2130,8 +2165,8 @@ export function buildAfsPrintStatementEngine(
     Do not infer other financing cash flows from movements in share capital
     or financial-liability balances. Those movements are not proof of cash.
   */
-  const otherFinancingCurrent = 0;
-  const otherFinancingPrior = 0;
+  const otherFinancingCurrent = overrideAmount(overrides, "cashOtherFinancingCurrent", 0);
+  const otherFinancingPrior = overrideAmount(overrides, "cashOtherFinancingPrior", 0);
 
   const otherFinancing2Current = overrideAmount(overrides, "cashOtherFinancing2Current", 0);
   const otherFinancing2Prior = overrideAmount(overrides, "cashOtherFinancing2Prior", 0);
@@ -2171,9 +2206,7 @@ export function buildAfsPrintStatementEngine(
   const cashMovementFromCashFlow =
     netOperatingCashCurrent + netInvestingCashCurrent + netFinancingCashCurrent;
   const cashMovementPriorFromCashFlow =
-    overrides.cashPriorMovement !== null && overrides.cashPriorMovement !== undefined
-      ? Number(overrides.cashPriorMovement)
-      : netOperatingCashPrior + netInvestingCashPrior + netFinancingCashPrior;
+    netOperatingCashPrior + netInvestingCashPrior + netFinancingCashPrior;
 
   const cashClosingFromCashFlow = cashOpening + cashMovementFromCashFlow;
   const cashClosingPriorFromCashFlow = priorCashOpening + cashMovementPriorFromCashFlow;
@@ -2462,6 +2495,7 @@ export function buildAfsPrintStatementEngine(
         rowAmount(sfpRows, "eql-total", "current"),
       roundingTolerance,
     ),
+    sfpPriorDifference: checkDifference(rowAmount(sfpRows,"assets-total","prior") - rowAmount(sfpRows,"eql-total","prior"), roundingTolerance),
     profitForYear: Math.round(profitForYear.current),
     profitBeforeTax: Math.round(beforeTax.current),
     sfpEquityTotal: Math.round(equityTotal.current),

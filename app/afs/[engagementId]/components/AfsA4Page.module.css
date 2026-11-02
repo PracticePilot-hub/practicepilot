@@ -261,7 +261,7 @@
 
 .content :global(#print-notes section),
 .content :global(#afs-notes section) {
-  margin-bottom: 7mm !important;
+  margin-bottom: 3mm !important;
   break-inside: avoid;
   page-break-inside: avoid;
 }
@@ -276,7 +276,7 @@
 }
 
 /* Automatic physical page numbering */
-:global(body) {
+:global(body):has(.page) {
   counter-reset: afs-page;
 }
 
@@ -305,8 +305,8 @@
 }
 
 @media print {
-  :global(html),
-  :global(body) {
+  :global(html):has(.page),
+  :global(body):has(.page) {
     width: 210mm !important;
     margin: 0 !important;
     padding: 0 !important;

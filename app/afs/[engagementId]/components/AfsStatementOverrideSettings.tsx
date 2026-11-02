@@ -3,6 +3,7 @@
 import { AfsStatementOverrides } from "./AfsPrintStatementEngine";
 
 type Props = {
+  financialYearEnd?: string;
   mode: "sce" | "cashFlow";
   overrides: AfsStatementOverrides;
   onChange: (key: keyof AfsStatementOverrides, value: number | null) => void;
@@ -167,6 +168,7 @@ function isCloseCorporationEntity(value: unknown) {
 
 export default function AfsStatementOverrideSettings({
   mode,
+  financialYearEnd = "",
   overrides,
   onChange,
   engineChecks,
@@ -514,23 +516,13 @@ export default function AfsStatementOverrideSettings({
                 />
               </>
             ) : (
-              <div
-                style={{
-                  border: "1px solid #bfdbfe",
-                  background: "#eff6ff",
-                  color: "#1e3a8a",
-                  padding: "8px",
-                  fontSize: 9,
-                  lineHeight: 1.4,
-                }}
-              >
-                <strong>Direct method calculated automatically</strong>
-                <div style={{ marginTop: 4 }}>
-                  Cash receipts, cash paid to suppliers and employees,
-                  and other operating receipts are derived from the mapped
-                  trial balance, working-capital movements and the Cash
-                  generated from operations note.
-                </div>
+              <div style={{border:"1px solid #bfdbfe",background:"#eff6ff",padding:8,fontSize:10,display:"grid",gap:7}}>
+                <strong>Direct-method cash receipts and payments</strong>
+                <p style={{margin:0}}>TB movements provide starting calculations. They may include non-cash changes and cannot establish actual cash receipts or payments. Enter supported cash amounts below; use negative amounts for payments. Blank amounts retain the starting calculation.</p>
+                <label><input type="checkbox" checked={!!financialYearEnd && Number(overrides.cashDirectOverridesPeriod) === Number(financialYearEnd.slice(0,10).replace(/-/g,""))} onChange={e=>onChange("cashDirectOverridesPeriod",e.target.checked?Number(financialYearEnd.slice(0,10).replace(/-/g,"")):null)}/>{" "}Use documented direct cash amounts for this reporting period ({financialYearEnd})</label>
+                <CashField label="Cash receipts from customers" currentKey="cashReceiptsCustomersCurrent" priorKey="cashReceiptsCustomersPrior" overrides={overrides} onChange={onChange}/>
+                <CashField label="Cash paid to suppliers and employees (negative)" currentKey="cashPaymentsSuppliersEmployeesCurrent" priorKey="cashPaymentsSuppliersEmployeesPrior" overrides={overrides} onChange={onChange}/>
+                <CashField label="Other direct operating cash flows" currentKey="cashOtherDirectOperatingCurrent" priorKey="cashOtherDirectOperatingPrior" overrides={overrides} onChange={onChange}/>
               </div>
             )}
             <CashField

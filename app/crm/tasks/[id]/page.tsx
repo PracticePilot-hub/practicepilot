@@ -13,7 +13,7 @@ if (!supabaseAnonKey) throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 type PageProps = {
-  params: Promise<{ id: string }> | { id: string };
+  params: Promise<{ id: string }>;
 };
 
 type TaskDetail = {
