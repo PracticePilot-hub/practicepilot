@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "../../../lib/supabaseServer";
+import { validateFrameworkSelection, defaultSmesEdition, type SmesEdition } from "@/app/afs/afsFrameworkEdition";
 
 async function getIdFromContext(context: any) {
   const params = await context?.params;
@@ -230,6 +231,33 @@ export async function PATCH(req: NextRequest, context: any) {
       );
     }
 
+    const basis = clean(body.basis_of_preparation) || "IFRS for SMEs";
+    const isSmes = basis === "IFRS for SMEs";
+    const requestedEdition = body.ifrs_smes_edition == null || body.ifrs_smes_edition === ""
+      ? (existingSetup?.ifrs_smes_edition || defaultSmesEdition(reportingPeriodStart))
+      : String(body.ifrs_smes_edition);
+    if (isSmes && requestedEdition !== "2015" && requestedEdition !== "2025") {
+      return NextResponse.json({ error: "Invalid IFRS for SMEs edition." }, { status: 400 });
+    }
+    const edition = (isSmes ? requestedEdition : (existingSetup?.ifrs_smes_edition || defaultSmesEdition(reportingPeriodStart))) as SmesEdition;
+    // Preserve existing confirmations when saving a different reporting framework.
+    const adoptionConfirmed = isSmes ? body.ifrs_smes_early_adoption_confirmed === true : Boolean(existingSetup?.ifrs_smes_early_adoption_confirmed);
+    const transitionConfirmed = isSmes ? body.ifrs_smes_transition_assessment_completed === true : Boolean(existingSetup?.ifrs_smes_transition_assessment_completed);
+    const comparativesConfirmed = isSmes ? body.ifrs_smes_comparatives_assessed === true : Boolean(existingSetup?.ifrs_smes_comparatives_assessed);
+    if (isSmes || basis === "IFRS") {
+      const checked = validateFrameworkSelection({
+        framework: isSmes ? "ifrs_smes" : "full_ifrs",
+        smesEdition: isSmes ? edition : null,
+        periodStart: reportingPeriodStart,
+        earlyAdoptionConfirmed: adoptionConfirmed,
+        transitionAssessmentCompleted: transitionConfirmed,
+        comparativesAssessed: comparativesConfirmed,
+      });
+      if (!checked.valid) {
+        return NextResponse.json({ error: checked.blockers.join(" "), blockers: checked.blockers }, { status: 400 });
+      }
+    }
+
     const setupData = {
       engagement_id: engagementId,
 
@@ -248,6 +276,10 @@ export async function PATCH(req: NextRequest, context: any) {
       type_of_trust: clean(body.type_of_trust),
 
       basis_of_preparation: clean(body.basis_of_preparation) || "IFRS for SMEs",
+      ifrs_smes_edition: edition,
+      ifrs_smes_early_adoption_confirmed: adoptionConfirmed,
+      ifrs_smes_transition_assessment_completed: transitionConfirmed,
+      ifrs_smes_comparatives_assessed: comparativesConfirmed,
       type_of_engagement: clean(body.type_of_engagement) || "Compilation",
       report_required:
         clean(body.report_required) || "Practitioner compilation report",
@@ -262,8 +294,8 @@ export async function PATCH(req: NextRequest, context: any) {
       uif_number: clean(body.uif_number),
       tax_loss_current_year: moneyOrNull(body.tax_loss_current_year),
       tax_loss_prior_year: moneyOrNull(body.tax_loss_prior_year),
-      tax_rate_current_year: numberOrDefault(body.tax_rate_current_year, 27),
-      tax_rate_prior_year: numberOrDefault(body.tax_rate_prior_year, 27),
+      tax_rate_current_year: /trust/i.test(String(body.entity_type || "")) ? 45 : numberOrDefault(body.tax_rate_current_year, 27),
+      tax_rate_prior_year: /trust/i.test(String(body.entity_type || "")) ? 45 : numberOrDefault(body.tax_rate_prior_year, 27),
 
       registered_office_line_1: clean(body.registered_office_line_1),
       registered_office_line_2: clean(body.registered_office_line_2),

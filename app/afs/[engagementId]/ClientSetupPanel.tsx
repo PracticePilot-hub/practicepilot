@@ -1,7 +1,9 @@
 "use client";
+import {reportingTaxRate} from './tax/taxEntityRates';
 
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { defaultSmesEdition, validateFrameworkSelection, type SmesEdition } from "../afsFrameworkEdition";
 
 type ClientSetup = {
   registered_name: string | null;
@@ -19,6 +21,11 @@ type ClientSetup = {
   reporting_period_start: string | null;
 
   basis_of_preparation: string | null;
+  // Edition fields must also be supported by the client-setup API/database.
+  ifrs_smes_edition?: SmesEdition | null;
+  ifrs_smes_early_adoption_confirmed?: boolean | null;
+  ifrs_smes_transition_assessment_completed?: boolean | null;
+  ifrs_smes_comparatives_assessed?: boolean | null;
   type_of_engagement: string | null;
   report_required: string | null;
   industry: string | null;
@@ -149,6 +156,10 @@ const blankSetup: ClientSetup = {
   reporting_period_start: "",
 
   basis_of_preparation: "IFRS for SMEs",
+  ifrs_smes_edition: "2015",
+  ifrs_smes_early_adoption_confirmed: false,
+  ifrs_smes_transition_assessment_completed: false,
+  ifrs_smes_comparatives_assessed: false,
   type_of_engagement: "Compilation",
   report_required: "Practitioner compilation report",
   industry: "",
@@ -378,6 +389,8 @@ export default function ClientSetupPanel({
     ...blankSetup,
     registered_name: clientName,
     entity_type: entityType || "Company",
+    tax_rate_current_year: isTrustEntity(entityType) ? 45 : 27,
+    tax_rate_prior_year: isTrustEntity(entityType) ? 45 : 27,
     practitioner_name: preparedBy || "",
     financial_year_end: financialYearEnd || "",
     current_period_heading: makeCurrentPeriodHeading(financialYearEnd),
@@ -413,6 +426,7 @@ export default function ClientSetupPanel({
         setSetup({
           ...blankSetup,
           ...data.setup,
+          ifrs_smes_edition: data.setup.ifrs_smes_edition || defaultSmesEdition(String(data.setup.reporting_period_start || "")),
           financial_year_end: savedYearEnd,
           current_period_heading: makeCurrentPeriodHeading(savedYearEnd),
           prior_period_heading: makePriorPeriodHeading(savedYearEnd),
@@ -469,6 +483,20 @@ export default function ClientSetupPanel({
         throw new Error("A Close Corporation reporting period may not exceed 18 months.");
       }
 
+      if (setup.basis_of_preparation === "IFRS for SMEs" || setup.basis_of_preparation === "IFRS") {
+        const selection = validateFrameworkSelection({
+          framework: setup.basis_of_preparation === "IFRS" ? "full_ifrs" : "ifrs_smes",
+          smesEdition: setup.basis_of_preparation === "IFRS" ? null : (setup.ifrs_smes_edition || "2015"),
+          periodStart,
+          earlyAdoptionConfirmed: Boolean(setup.ifrs_smes_early_adoption_confirmed),
+          transitionAssessmentCompleted: Boolean(setup.ifrs_smes_transition_assessment_completed),
+          comparativesAssessed: Boolean(setup.ifrs_smes_comparatives_assessed),
+        });
+        if (!selection.valid) {
+          throw new Error(selection.blockers.join("\n"));
+        }
+      }
+
       const setupToSave: ClientSetup = {
         ...setup,
         financial_year_end: masterYearEnd,
@@ -488,6 +516,16 @@ export default function ClientSetupPanel({
 
       if (!res.ok) {
         throw new Error(data.error || "Failed to save client setup.");
+      }
+
+      if (setup.basis_of_preparation === "IFRS for SMEs") {
+        const returned = data.setup || {};
+        if (returned.ifrs_smes_edition !== setupToSave.ifrs_smes_edition ||
+            Boolean(returned.ifrs_smes_early_adoption_confirmed) !== Boolean(setupToSave.ifrs_smes_early_adoption_confirmed) ||
+            Boolean(returned.ifrs_smes_transition_assessment_completed) !== Boolean(setupToSave.ifrs_smes_transition_assessment_completed) ||
+            Boolean(returned.ifrs_smes_comparatives_assessed) !== Boolean(setupToSave.ifrs_smes_comparatives_assessed)) {
+          throw new Error("The client-setup API did not confirm that the IFRS for SMEs edition and transition choices were saved. The API/database needs updating before this selection can be relied upon.");
+        }
       }
 
       const savedYearEnd =
@@ -728,7 +766,7 @@ export default function ClientSetupPanel({
     }
   }
 
-  function update(field: keyof ClientSetup, value: string | number) {
+  function update(field: keyof ClientSetup, value: string | number | boolean) {
     setSetup((current) => {
       const next = {
         ...current,
@@ -740,7 +778,15 @@ export default function ClientSetupPanel({
         next.prior_period_heading = makePriorPeriodHeading(String(value || ""));
       }
 
+      if (field === "ifrs_smes_edition" && value !== current.ifrs_smes_edition) {
+        next.ifrs_smes_early_adoption_confirmed = false;
+        next.ifrs_smes_transition_assessment_completed = false;
+        next.ifrs_smes_comparatives_assessed = false;
+      }
+
       if (field === "entity_type") {
+        next.tax_rate_current_year = isTrustEntity(value) ? 45 : 27;
+        next.tax_rate_prior_year = isTrustEntity(value) ? 45 : 27;
         if (isGenericLegalFramework(current.legal_framework)) {
           next.legal_framework = defaultLegalFrameworkForEntity(value);
         }
@@ -1034,6 +1080,44 @@ export default function ClientSetupPanel({
           </select>
         </Field>
 
+        {setup.basis_of_preparation === "IFRS for SMEs" ? (
+          <div style={{ gridColumn: "1 / -1", border: "1px solid #cbd5e1", padding: 12, background: "#f8fafc", display: "grid", gap: 10 }}>
+            <strong>IFRS for SMEs edition and transition</strong>
+            <span style={styles.fieldHelp}>
+              The 2025 Third Edition can be adopted early. Selecting the edition does not itself complete the accounting policy, recognition, measurement and comparative transition work.
+            </span>
+            <Field label="IFRS for SMEs edition">
+              <select style={styles.input} value={setup.ifrs_smes_edition || "2015"}
+                onChange={(e) => update("ifrs_smes_edition", e.target.value)}>
+                <option value="2015">2015 Edition (existing)</option>
+                <option value="2025">2025 Third Edition</option>
+              </select>
+            </Field>
+            {setup.ifrs_smes_edition === "2025" ? (
+              <div style={{ display: "grid", gap: 10 }}>
+                {String(setup.reporting_period_start || "") < "2027-01-01" ? (
+                  <label style={{ fontSize: 12 }}>
+                    <input type="checkbox" checked={Boolean(setup.ifrs_smes_early_adoption_confirmed)}
+                      onChange={(e) => update("ifrs_smes_early_adoption_confirmed", e.target.checked)} />
+                    {" "}The entity elects to apply the complete 2025 Third Edition early.
+                  </label>
+                ) : null}
+                <label style={{ fontSize: 12 }}>
+                  <input type="checkbox" checked={Boolean(setup.ifrs_smes_transition_assessment_completed)}
+                    onChange={(e) => update("ifrs_smes_transition_assessment_completed", e.target.checked)} />
+                  {" "}Appendix A transition requirements, exemptions and exceptions have been assessed.
+                </label>
+                <label style={{ fontSize: 12 }}>
+                  <input type="checkbox" checked={Boolean(setup.ifrs_smes_comparatives_assessed)}
+                    onChange={(e) => update("ifrs_smes_comparatives_assessed", e.target.checked)} />
+                  {" "}Comparatives and required retrospective adjustments have been assessed.
+                </label>
+                <span style={styles.fieldHelp}>These confirmations document the preparer's assessment; they do not automatically apply accounting adjustments or publish an early-adoption disclosure.</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <Field label="Type of engagement">
           <select
             style={styles.input}
@@ -1171,7 +1255,8 @@ export default function ClientSetupPanel({
           <input
             style={styles.input}
             type="number"
-            value={setup.tax_rate_current_year ?? 27}
+            value={reportingTaxRate(setup,"current")}
+            readOnly={isTrustEntity(setup.entity_type)}
             onChange={(e) => update("tax_rate_current_year", e.target.value)}
           />
         </Field>
@@ -1180,7 +1265,8 @@ export default function ClientSetupPanel({
           <input
             style={styles.input}
             type="number"
-            value={setup.tax_rate_prior_year ?? 27}
+            value={reportingTaxRate(setup,"prior")}
+            readOnly={isTrustEntity(setup.entity_type)}
             onChange={(e) => update("tax_rate_prior_year", e.target.value)}
           />
         </Field>

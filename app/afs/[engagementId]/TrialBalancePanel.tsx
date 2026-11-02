@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import { getAfsMappingForImport } from "./MappingPanel";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -48,6 +49,16 @@ import_basis?: string | null;
 amount_layout?: string | null;
 
   mapping_category: string | null;
+  mapping_leaf_id?: string | null;
+  mapping_label?: string | null;
+  mapping_statement?: string | null;
+  mapping_section?: string | null;
+  mapping_path?: string | null;
+  mapping_smart_rule?: string | null;
+  mapping_confidence?: string | null;
+  mapping_code?: string | null;
+  lead_schedule_number?: string | null;
+  lead_schedule_key?: string | null;
   note_number: string | null;
 };
 
@@ -114,6 +125,7 @@ export default function TrialBalancePanel({
   const [debitColumn, setDebitColumn] = useState(3);
   const [creditColumn, setCreditColumn] = useState(4);
   const [priorYearColumn, setPriorYearColumn] = useState(2);
+  const [importMappingColumn, setImportMappingColumn] = useState(-1);
   const [savingLineId, setSavingLineId] = useState<string | null>(null);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [creatingAccount, setCreatingAccount] = useState(false);
@@ -126,6 +138,25 @@ export default function TrialBalancePanel({
   const [historyLines, setHistoryLines] = useState<TrialBalanceHistoryLine[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
+  const [historyImportYear, setHistoryImportYear] = useState("2024-02-29");
+  const [historyPreview, setHistoryPreview] = useState<Array<{
+    account_code: string; account_name: string; closing_balance: number;
+    mapping_code: string; mapping_label: string; mapping_statement: string;
+    mapping_section: string; mapping_path: string; mapping_leaf_id: string;
+    lead_schedule_number: string; lead_schedule_key: string;
+  }>>([]);
+  const [historyImportName, setHistoryImportName] = useState("");
+  const [historySheetNames, setHistorySheetNames] = useState<string[]>([]);
+  const [historyWorkbookRows, setHistoryWorkbookRows] = useState<Record<string, any[][]>>({});
+  const [historySheetName, setHistorySheetName] = useState("");
+  const [historyStartRow, setHistoryStartRow] = useState(1);
+  const [historyCodeColumn, setHistoryCodeColumn] = useState(0);
+  const [historyNameColumn, setHistoryNameColumn] = useState(1);
+  const [historyAmountColumn, setHistoryAmountColumn] = useState(2);
+  const [historyMappingColumn, setHistoryMappingColumn] = useState(5);
+  const [historyMappingDialog, setHistoryMappingDialog] = useState(false);
+  const [historySaving, setHistorySaving] = useState(false);
+
   const [manualAdjustmentsEnabled, setManualAdjustmentsEnabled] = useState(false);
   const [manualAdjustmentsLoading, setManualAdjustmentsLoading] = useState(true);
 
@@ -234,6 +265,126 @@ export default function TrialBalancePanel({
       cancelled = true;
     };
   }, [engagementId]);
+
+  function selectHistorySheet(sheetName: string, allRows: Record<string, any[][]> = historyWorkbookRows, yearEnd: string = historyImportYear) {
+    const rows = allRows[sheetName] || [];
+    const header = (rows[0] || []).map((item: any) => String(item ?? "").trim().toLowerCase());
+    const find = (candidates: string[]) => header.findIndex((value: string) => candidates.some((candidate) => value === candidate || value.includes(candidate)));
+    const findYear = (year: string) => header.findIndex((value: string) => value.includes(year));
+    const code = find(["account number", "account code", "account"]);
+    const name = find(["description", "account name"]);
+    const mapping = find(["pp mapping code", "mapping code", "mapping_code"]);
+    const year = yearEnd.slice(0, 4);
+    const amount = findYear(year);
+    setHistorySheetName(sheetName);
+    setHistoryCodeColumn(code >= 0 ? code : 0);
+    setHistoryNameColumn(name >= 0 ? name : 1);
+    setHistoryMappingColumn(mapping >= 0 ? mapping : Math.max(0, header.length - 1));
+    setHistoryAmountColumn(amount >= 0 ? amount : 2);
+    setHistoryStartRow(header.some((item: string) => item.includes("account")) ? 1 : 0);
+    setHistoryPreview([]);
+  }
+
+  async function handleHistoryUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const allRows: Record<string, any[][]> = {};
+      for (const sheetName of workbook.SheetNames) {
+        allRows[sheetName] = XLSX.utils.sheet_to_json<any[]>(workbook.Sheets[sheetName], { header: 1, defval: "" });
+      }
+      const preferred = workbook.SheetNames.find((sheetName) => /THREE YEAR TB/i.test(sheetName)) || workbook.SheetNames[0];
+      if (!preferred || !allRows[preferred]?.length) throw new Error("No usable Excel data found.");
+      setHistoryWorkbookRows(allRows);
+      setHistorySheetNames(workbook.SheetNames);
+      setHistoryImportName(file.name);
+      selectHistorySheet(preferred, allRows);
+      setHistoryMappingDialog(true);
+    } catch (error: any) {
+      alert(error?.message || "Unable to open historical TB workbook.");
+    }
+  }
+
+  function previewHistoricalColumnMapping() {
+    const rows = historyWorkbookRows[historySheetName] || [];
+    const fields = [historyCodeColumn, historyNameColumn, historyAmountColumn, historyMappingColumn];
+    if (new Set(fields).size !== fields.length || fields.some((field) => field < 0)) {
+      alert("Choose four different columns for account, description, balance and PP mapping code."); return;
+    }
+    const invalid: string[] = [];
+    const seen = new Set<string>();
+    const next = rows.slice(historyStartRow).map((row, i) => {
+      const account_code = String(row[historyCodeColumn] ?? "").trim().replace(/\s+/g, "").toUpperCase();
+      const account_name = String(row[historyNameColumn] ?? "").trim();
+      if (!account_code && !account_name) return null;
+      const raw = String(row[historyAmountColumn] ?? "").trim();
+      const cleaned = raw.replace(/,/g, "").replace(/\s/g, "").replace(/[Rr]/g, "").replace(/^\((.*)\)$/, "-$1");
+      const balance = Number(cleaned);
+      const mapping_code = String(row[historyMappingColumn] ?? "").trim();
+      const mapped = getAfsMappingForImport(mapping_code);
+      if (!account_code || !account_name) invalid.push(`Row ${historyStartRow + i + 1}: missing account or description`);
+      if (!raw || !Number.isFinite(balance)) invalid.push(`Row ${historyStartRow + i + 1}: invalid amount`);
+      if (!mapped) invalid.push(`Row ${historyStartRow + i + 1}: unknown PP code ${mapping_code}`);
+      if (seen.has(account_code)) invalid.push(`Row ${historyStartRow + i + 1}: duplicate account ${account_code}`);
+      seen.add(account_code);
+      return {
+        account_code, account_name, closing_balance: balance, mapping_code,
+        mapping_label: mapped?.label || "", mapping_statement: mapped?.statement || "",
+        mapping_section: mapped?.section || "", mapping_path: mapped ? [...mapped.path, mapped.label].join(" > ") : "",
+        mapping_leaf_id: mapped?.id || "", lead_schedule_number: mapped?.leadScheduleNumber || "",
+        lead_schedule_key: mapped?.leadScheduleKey || "",
+      };
+    }).filter(Boolean) as typeof historyPreview;
+    const total = next.reduce((sum, line) => sum + line.closing_balance, 0);
+    if (!next.length) invalid.push("No accounts found");
+    if (Math.abs(total) > 0.01) invalid.push(`The selected year is not balanced: ${formatMoney(total)}`);
+    if (invalid.length) { alert(`Import cancelled.\n${invalid.slice(0, 12).join("\n")}`); return; }
+    setHistoryPreview(next);
+    setHistoryMappingDialog(false);
+  }
+
+  async function saveHistoricalTb() {
+    if (!historyPreview.length || historySaving) return;
+    const yearEnd = historyImportYear;
+    if (!/^20\d{2}-\d{2}-\d{2}$/.test(yearEnd)) {
+      alert("Select a valid historical financial year end."); return;
+    }
+    const currentFinancialYear = String(new Date().getFullYear());
+    if (yearEnd >= currentFinancialYear + "-12-31") {
+      alert("Historical year must precede the current period."); return;
+    }
+    const overwrite = historyLines.some((line) => line.financial_year_end === yearEnd);
+    if (!confirm(`${overwrite ? "REPLACE existing" : "Import"} historical TB for ${yearEnd} (${historyPreview.length} accounts)?\n\nThe active 2026 TB is NOT changed.`)) return;
+    setHistorySaving(true);
+    try {
+      const { data: { session } } = await supabase!.auth.getSession();
+      if (!session?.access_token) throw new Error("Please sign in again.");
+      const response = await fetch(`/api/afs/engagements/${engagementId}/trial-balance-history-import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ financialYearEnd: yearEnd, lines: historyPreview }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "History import failed.");
+      const latest = await fetch(`/api/afs/engagements/${engagementId}`, { cache: "no-store" });
+      if (!latest.ok) throw new Error("Imported, but history reload failed. Refresh this page.");
+      const detail = await latest.json();
+      setHistoryLines(detail.trialBalanceHistory || detail.trial_balance_history || []);
+      setHistoryPreview([]); setHistoryImportName("");
+      alert(`${result.inserted} historical accounts saved for ${yearEnd}. The current TB is unchanged.`);
+    } catch (error: any) {
+      alert(error?.message || "History import failed.");
+    } finally { setHistorySaving(false); }
+  }
+
+  const historyExcelRows = historyWorkbookRows[historySheetName] || [];
+  const historyMaxColumns = Math.max(0, ...historyExcelRows.slice(0, 20).map((row) => row.length));
+  const historyColumns = Array.from({ length: historyMaxColumns }, (_, index) => ({
+    index,
+    label: `${columnLetter(index)} — ${String(historyExcelRows[0]?.[index] ?? "").slice(0, 45)}`,
+  }));
 
   const historyYears = useMemo(
     () =>
@@ -399,6 +550,15 @@ export default function TrialBalancePanel({
       setDebitColumn(3);
       setCreditColumn(4);
       setPriorYearColumn(2);
+       // Optional mapping code column is chosen explicitly; normal TB imports are unchanged.
+       const header = cleanedRows[0].map((cell) => String(cell ?? "").trim().toLowerCase());
+       const mappingIndex = header.findIndex((cell) =>
+         ["pp mapping", "pp mapping code", "mapping code", "mapping_code", "afs mapping code"].includes(cell)
+       );
+      setImportMappingColumn(mappingIndex);
+       if (mappingIndex >= 0 && header.some((cell) => ["account", "account code", "code"].includes(cell))) {
+         setStartRowIndex(1);
+       }
       setPreviewLines([]);
       setShowMapping(true);
     } catch (error: any) {
@@ -409,6 +569,56 @@ export default function TrialBalancePanel({
   }
 
   function applyColumnMapping() {
+    // Reject the whole import before creating a preview if any supplied code is invalid.
+    // Descriptions are never used to guess the classification.
+    if (importMappingColumn >= 0) {
+      const invalid = rawRows.slice(startRowIndex).flatMap((row, index) => {
+        const name = getCell(row, nameColumn);
+        const code = getCell(row, importMappingColumn);
+        if (!name) return [];
+        if (!code) return [`Excel row ${startRowIndex + index + 1}: missing mapping code`];
+        if (getAfsMappingForImport(code)) return [];
+        return [`Excel row ${startRowIndex + index + 1}: ${code}`];
+      });
+      if (invalid.length > 0) {
+        alert(`Unknown PracticePilot mapping codes:\n${invalid.slice(0, 12).join("\n")}${invalid.length > 12 ? `\n...and ${invalid.length - 12} more` : ""}\n\nCorrect these codes in Excel before importing.`);
+        return;
+      }
+    }
+    // Never interpret a mapping identifier as a financial balance.
+    const amountColumns =
+      importMode === "Final TB — current and prior year"
+        ? amountLayout === "Debit and credit columns"
+          ? [debitColumn, creditColumn, priorYearColumn]
+          : [sourceBalanceColumn, priorYearColumn]
+        : importMode === "Current-year final TB only" ||
+            importMode === "Rolled-over figures + current-year final TB"
+          ? amountLayout === "Debit and credit columns"
+            ? [debitColumn, creditColumn]
+            : [sourceBalanceColumn]
+          : importMode === "Opening balance + annual movement"
+            ? [openingColumn, annualMovementColumn]
+            : [annualMovementColumn];
+
+    if (amountColumns.some((index) => index === codeColumn || index === nameColumn) ||
+        (importMappingColumn >= 0 && amountColumns.includes(importMappingColumn))) {
+      alert("Import cancelled: an amount column overlaps Account, Description or PP Mapping Code. Select the correct amount columns before proceeding.");
+      return;
+    }
+    const malformedAmounts = rawRows.slice(startRowIndex).flatMap((row, index) => {
+      if (!String(row[nameColumn] ?? "").trim()) return [];
+      return amountColumns.filter((column) => {
+        const raw = String(row[column] ?? "").trim();
+        if (!raw) return true;
+        const cleaned = raw.replace(/,/g, "").replace(/\s/g, "").replace(/[Rr]/g, "").replace(/^\((.*)\)$/, "-$1");
+        return !Number.isFinite(Number(cleaned));
+      }).map((column) => `Row ${startRowIndex + index + 1}, column ${columnLetter(column)}`);
+    });
+    if (malformedAmounts.length) {
+      alert(`Import cancelled: invalid or empty financial amounts at ${malformedAmounts.slice(0, 10).join(", ")}.`);
+      return;
+    }
+
     const importedLines = rawRows
       .slice(startRowIndex)
       .map((row) => buildLine(row))
@@ -417,6 +627,16 @@ export default function TrialBalancePanel({
     if (importedLines.length === 0) {
       alert("No valid trial balance lines were found from the selected columns.");
       return;
+    }
+
+    // Do not permit accidental wholesale corruption of the active TB.
+    if (importMode === "Final TB — current and prior year") {
+      const currentTotal = importedLines.reduce((sum, line) => sum + Number(line.current_year_balance || 0), 0);
+      const priorTotal = importedLines.reduce((sum, line) => sum + Number(line.prior_year_balance || 0), 0);
+      if (Math.abs(currentTotal) > 0.01 || Math.abs(priorTotal) > 0.01) {
+        alert(`Import cancelled. Trial balance does not balance: current ${formatMoney(currentTotal)}, prior ${formatMoney(priorTotal)}. Confirm that CURRENT is column D, PRIOR is C and mapping is E.`);
+        return;
+      }
     }
 
     /*
@@ -538,6 +758,12 @@ export default function TrialBalancePanel({
         numberOrZero(getCell(row, annualMovementColumn));
     }
 
+    const importedMappingCode =
+      importMappingColumn >= 0 ? getCell(row, importMappingColumn) : "";
+    const mappingLeaf = importedMappingCode
+      ? getAfsMappingForImport(importedMappingCode)
+      : null;
+
     return {
       account_code: accountCode || null,
       account_name: accountName,
@@ -583,7 +809,19 @@ export default function TrialBalancePanel({
           ? amountLayout
           : importMode,
 
-      mapping_category: existingLine?.mapping_category || null,
+      mapping_category: mappingLeaf?.label ?? existingLine?.mapping_category ?? null,
+      mapping_leaf_id: mappingLeaf?.id ?? (existingLine as any)?.mapping_leaf_id ?? null,
+      mapping_label: mappingLeaf?.label ?? (existingLine as any)?.mapping_label ?? null,
+      mapping_statement: mappingLeaf?.statement ?? (existingLine as any)?.mapping_statement ?? null,
+      mapping_section: mappingLeaf?.section ?? (existingLine as any)?.mapping_section ?? null,
+      mapping_path: mappingLeaf
+        ? [...mappingLeaf.path, mappingLeaf.label].join(" > ")
+        : (existingLine as any)?.mapping_path ?? null,
+      mapping_smart_rule: mappingLeaf?.smartRule ?? (existingLine as any)?.mapping_smart_rule ?? null,
+      mapping_confidence: mappingLeaf ? "Imported - validated" : (existingLine as any)?.mapping_confidence ?? null,
+      mapping_code: mappingLeaf?.mappingCode ?? (existingLine as any)?.mapping_code ?? null,
+      lead_schedule_number: mappingLeaf?.leadScheduleNumber ?? (existingLine as any)?.lead_schedule_number ?? null,
+      lead_schedule_key: mappingLeaf?.leadScheduleKey ?? (existingLine as any)?.lead_schedule_key ?? null,
       note_number: existingLine?.note_number || null,
     };
   }
@@ -927,13 +1165,27 @@ export default function TrialBalancePanel({
               </label>
             </>
           ) : (
-            <div style={styles.historyYearsLabel}>
+            <>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 8, whiteSpace: "nowrap" }}>
+                <label style={{ display: "grid", gap: 4, fontSize: 11, fontWeight: 700, color: "#334155" }}>
+                  Historical year end
+                  <input type="date" style={{ ...styles.input, width: 145, minWidth: 145, padding: "7px 6px" }} value={historyImportYear}
+                    onChange={(event) => { setHistoryImportYear(event.target.value); if (historySheetName) selectHistorySheet(historySheetName, historyWorkbookRows, event.target.value); }} />
+                </label>
+                <label style={{ ...styles.fileButton, display: "inline-flex", alignItems: "center", justifyContent: "center", height: 34, boxSizing: "border-box", whiteSpace: "nowrap", padding: "6px 10px" }}>
+                  Import historical TB
+                  <input type="file" accept=".xlsx,.xls" style={{ display: "none" }}
+                    onChange={handleHistoryUpload}/>
+                </label>
+              </div>
+              <div style={styles.historyYearsLabel}>
               {historyYears.length > 0
                 ? `${historyYears.length} historical year${
                     historyYears.length === 1 ? "" : "s"
                   }`
                 : "No history available"}
-            </div>
+              </div>
+            </>
           )}
 
           {viewMode === "current" && previewLines.length > 0 && (
@@ -953,6 +1205,69 @@ export default function TrialBalancePanel({
           )}
         </div>
       </div>
+
+      {viewMode === "history" && historyMappingDialog ? (
+        <div style={styles.modalOverlay}>
+          <div style={{ ...styles.modal, maxHeight: "85vh", overflowY: "auto" }}>
+            <div style={styles.modalHeader}>
+              <div><h3 style={styles.modalTitle}>Import Historical Trial Balance</h3>
+                <p style={styles.text}>Same mapping workflow as Current TB. Choose the financial year, worksheet, and Excel columns.</p>
+              </div>
+              <button style={styles.closeButton} onClick={() => setHistoryMappingDialog(false)}>×</button>
+            </div>
+            <div style={styles.mappingGrid}>
+              <label style={styles.label}>Financial year end
+                <input type="date" style={styles.input} value={historyImportYear}
+                  onChange={(e) => { setHistoryImportYear(e.target.value); selectHistorySheet(historySheetName, historyWorkbookRows, e.target.value); }} />
+              </label>
+              <label style={styles.label}>Worksheet
+                <select style={styles.input} value={historySheetName}
+                  onChange={(e) => selectHistorySheet(e.target.value)}>
+                  {historySheetNames.map((name) => <option key={name} value={name}>{name}</option>)}
+                </select>
+              </label>
+              <label style={styles.label}>Start importing from row
+                <select style={styles.input} value={historyStartRow} onChange={(e) => setHistoryStartRow(Number(e.target.value))}>
+                  {historyExcelRows.slice(0, 20).map((row, i) => <option key={i} value={i}>Row {i+1}: {row.slice(0,3).join(" | ")}</option>)}
+                </select>
+              </label>
+              {([
+                ["Account number column",historyCodeColumn,setHistoryCodeColumn],
+                ["Account description column",historyNameColumn,setHistoryNameColumn],
+                ["Historical closing balance column",historyAmountColumn,setHistoryAmountColumn],
+                ["PP mapping code column",historyMappingColumn,setHistoryMappingColumn],
+              ] as Array<[string,number,(value:number)=>void]>).map(([label, value, setter]) => (
+                <label key={label} style={styles.label}>{label}
+                  <select style={styles.input} value={value} onChange={(e) => setter(Number(e.target.value))}>
+                    {historyColumns.map((col) => <option key={col.index} value={col.index}>{col.label}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+            <div style={{ ...styles.sampleBox, marginTop: 14 }}><strong>Sample rows — selected columns</strong>
+              <table style={styles.table}><thead><tr>{["Account","Description","Balance","Mapping"].map((h)=><th key={h} style={styles.th}>{h}</th>)}</tr></thead>
+                <tbody>{historyExcelRows.slice(historyStartRow, historyStartRow+8).map((row,i)=><tr key={i}>
+                  {[historyCodeColumn,historyNameColumn,historyAmountColumn,historyMappingColumn].map((col,j)=><td key={j} style={styles.td}>{String(row[col] ?? "")}</td>)}
+                </tr>)}</tbody>
+              </table>
+            </div>
+            <div style={styles.modalActions}>
+              <button style={styles.secondaryButton} onClick={() => setHistoryMappingDialog(false)}>Cancel</button>
+              <button style={styles.primaryButton} onClick={previewHistoricalColumnMapping}>Validate &amp; preview historical TB</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {viewMode === "history" && historyPreview.length > 0 ? (
+        <div style={{ ...styles.previewBanner, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <span>{historyImportName}: {historyPreview.length} mapped accounts, signed TB difference R0.00. Target year {historyImportYear}.</span>
+          <button style={styles.primaryButton} disabled={historySaving} onClick={saveHistoricalTb}>
+            {historySaving ? "Saving historical TB..." : "Confirm historical import"}
+          </button>
+          <button style={styles.secondaryButton} onClick={() => setHistoryPreview([])}>Cancel</button>
+        </div>
+      ) : null}
 
       {viewMode === "current" ? (
         <div
@@ -1327,6 +1642,21 @@ export default function TrialBalancePanel({
               <div style={styles.sectionHeading}>2. Map the Excel columns</div>
 
               <div style={styles.mappingGrid}>
+                <label style={styles.label}>
+                  PracticePilot mapping code column (optional)
+                  <select
+                    style={styles.input}
+                    value={importMappingColumn}
+                    onChange={(e) => setImportMappingColumn(Number(e.target.value))}
+                  >
+                    <option value={-1}>No mapping column (existing mappings retained)</option>
+                    {columnOptions.map((column) => (
+                      <option key={column.index} value={column.index}>
+                        {column.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label style={styles.label}>
                   Start importing from row
                   <select

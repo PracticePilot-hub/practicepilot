@@ -1,0 +1,3 @@
+*.json
+!settings.json
+all-notes-render.html

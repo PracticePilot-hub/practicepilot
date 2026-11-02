@@ -258,7 +258,7 @@ export default function AfsFlightDeck({
       }
     : {
         label: "CLEAR",
-        detail: "ready to review",
+        detail: "calculations reconcile",
         tone: "clear" as const,
       };
 
@@ -297,7 +297,7 @@ export default function AfsFlightDeck({
             ? "Fix blockers before export"
             : counts.caution
             ? "Review caution items"
-            : "No current engine issues"}
+            : "No calculation differences"}
         </span>
 
         <span style={styles.countText}>
@@ -307,7 +307,7 @@ export default function AfsFlightDeck({
                 "review",
                 "reviews"
               )}`
-            : "All checks clear"}
+            : "Statement checks clear"}
         </span>
 
         <span style={styles.openText}>{open ? "Close" : "Open"}</span>

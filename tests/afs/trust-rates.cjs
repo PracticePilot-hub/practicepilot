@@ -1,0 +1,26 @@
+const {load}=require('./load.cjs'),assert=require('node:assert/strict');
+const {newEntity,calculateTax}=load('app/afs/[engagementId]/tax/taxWorkpaper.ts');
+const {reportingTaxRate,bindTrustWorkpaper,specialTrustTax}=load('app/afs/[engagementId]/tax/taxEntityRates.ts');
+const {taxReconciliationReview}=load('app/afs/[engagementId]/print-studio/afsTaxReconciliation.ts');
+const lines=[{mapping_code:'700.10',current_year_balance:-100000,prior_year_balance:-100000}];
+const wb={version:2,yearEnd:'2026-02-28',entities:[newEntity()],notes:'test supported trust case',reviewed:true,groupReconciliation:''};
+wb.entities[0].paymentSchedule=[{kind:'p1',amount:1000,date:'2025-08-28'}];
+const trustSetup={entity_type:'Trust',tax_rate_current_year:27,tax_rate_prior_year:27};
+const trust=bindTrustWorkpaper(wb,trustSetup);
+assert.equal(trust.entities[0].regime,'trust');assert.equal(trust.reviewed,false);assert.equal(wb.entities[0].regime,'normal');
+assert.deepEqual(trust.entities[0].paymentSchedule,wb.entities[0].paymentSchedule);
+assert.equal(calculateTax(trust,lines).current,45000);assert.equal(calculateTax(wb,lines).current,27000);
+assert.equal(reportingTaxRate(trustSetup),45);assert.equal(reportingTaxRate(trustSetup,'prior'),45);
+assert.equal(reportingTaxRate({entity_type:'Company',tax_rate_current_year:27}),27);
+assert.equal(reportingTaxRate({entity_type:'Company',tax_rate_current_year:0}),0);
+const special=structuredClone(trust);special.entities[0].regime='special-trust';special.entities[0].rateEvidence='Qualifying special trust: supporting classification retained';
+assert.equal(calculateTax(bindTrustWorkpaper(special,trustSetup),lines).current,18000);
+for(const [income,tax] of [[237100,42678],[370500,77362],[512800,121475],[673000,179147],[857900,251258],[1817000,644489]])assert.equal(specialTrustTax(income,'2026-02-28'),tax);
+assert.equal(specialTrustTax(245100,'2027-02-28'),44118);assert.equal(specialTrustTax(0,'2026-02-28'),0);
+assert.throws(()=>specialTrustTax(100000,'2028-02-29'));
+// Trusts do not inherit the company's R1m/80% assessed-loss restriction.
+const loss=structuredClone(trust);loss.entities[0].lossBf=5000000;loss.entities[0].tradeConfirmed=true;
+assert.equal(calculateTax(loss,[{mapping_code:'700.10',current_year_balance:-2000000}]).current,0);
+const recon=taxReconciliationReview({taxation:[{label:'Tax',current:-45000,prior:-45000}],cashUsedInOperations:[{label:'Profit before tax',current:100000,prior:100000}]},{},trustSetup);
+assert(recon.every(r=>r.rate===45&&r.difference===0&&!r.rateAssumed));
+console.log('PASS ordinary trusts 45%, stale 27% corrected without losing payments, companies unchanged, special-trust brackets/no rebates, trust loss rules and comparative tax notes.');

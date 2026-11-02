@@ -1283,6 +1283,7 @@ activeSection !== "lead-schedules" ? (
 
           {activeSection === "tax-calculator" && (
             <TaxCalculatorPanel
+              onApplied={loadEngagement}
               trialBalanceLines={trialBalanceLines}
               clientSetup={clientSetup}
             />
