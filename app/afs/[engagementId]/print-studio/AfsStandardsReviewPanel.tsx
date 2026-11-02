@@ -17,6 +17,8 @@ export default function AfsStandardsReviewPanel({people=[],engine,history,lines,
   const applicable=reviews.filter(r=>r.applicable);
   return <details data-work-only="true" className="afs-screen-only" style={{border:"1px solid #94a3b8",padding:10,marginTop:10,fontSize:11,background:"#fff"}}>
     <summary style={{cursor:"pointer",fontWeight:700}}>Whole AFS review · standards and disclosure sources</summary>
+    <div data-afs-review-scroll="true" style={{maxHeight:"45vh",overflowY:"auto",overscrollBehavior:"contain",padding:"0 2px"}}>
+    <div style={{position:"sticky",top:0,zIndex:1,background:"#fff",display:"flex",justifyContent:"flex-end",padding:"7px 0",borderBottom:"1px solid #dbe3ed"}}><button type="button" onClick={event=>{const panel=event.currentTarget.closest("details");if(panel){panel.open=false;panel.querySelector("summary")?.focus();}}} style={{padding:"5px 10px",border:"1px solid #94a3b8",background:"#fff",cursor:"pointer"}}>Close review</button></div>
     <p>Selected policies and notes are not a compliance sign-off. This checklist covers the current library and mapped accounts; use the standards to assess materiality, facts outside the TB, measurement and presentation.</p>
     <p>{context.framework==="smes"?`IFRS for SMEs (${context.edition})`:context.framework==="full"?"Full IFRS — check effective dates and early-adoption elections":"Reporting framework must be selected"}. {policies.length} policies, {notes.length} notes, {COVERAGE_TOPICS.length} review areas. {unmapped.length} library items lack a source link. {linked.size} accounts trigger review areas.</p>
     <label>Presentation scope<select aria-label="AFS presentation scope" value={state.presentationReview?.scope || ""} onChange={e=>onChange({...state,presentationReview:{...state.presentationReview,scope:e.target.value}})} style={{display:"block",fontSize:11,padding:5,margin:"4px 0 7px"}}>
@@ -45,5 +47,6 @@ export default function AfsStandardsReviewPanel({people=[],engine,history,lines,
     </details>})}
     <details><summary>Incomplete note wording</summary>{noteDisclosureIssues(notes,options,state,context).map(item=><p key={item.key}><strong>{item.title}:</strong> {item.missing.join("; ")}. Open Notes → Work → Required note wording.</p>)}</details>
     {unmapped.length>0&&<p style={{color:"#9f1239"}}>Source coverage missing: {unmapped.map(item=>item.key).join(", ")}.</p>}
+    </div>
   </details>;
 }

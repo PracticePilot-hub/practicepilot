@@ -4717,9 +4717,8 @@ const flightDeckIssues = useMemo(() => {
       (pageIndex + 1) * rowsPerPage,
     );
 
-    // Fill the available A4 height without clipping: spread the detail rows
-    // across the minimum safe number of pages and adapt line spacing.
-    const rowVerticalPadding = Math.min(7, Math.max(2, (800 / Math.max(1, sourceRows.length) - 12.5) / 2));
+    // Keep the same compact row spacing for small and large reports.
+    // Pagination controls the page count; rows are never stretched to fill a page.
 
     const hiddenSectionLabels = new Set([
       "revenue",
@@ -4811,9 +4810,7 @@ const flightDeckIssues = useMemo(() => {
                     : "minmax(0, 1fr) 90px 90px",
                   columnGap: 12,
                   alignItems: "start",
-                  padding: isHeading
-                    ? `${Math.min(8, rowVerticalPadding + 1)}px 0 ${Math.max(2, rowVerticalPadding - 1)}px`
-                    : `${rowVerticalPadding}px 0`,
+                  padding: isHeading ? "5px 0 2px" : "2px 0",
                   fontWeight: isHeading || isSubtotal ? 800 : 400,
                 }}
               >

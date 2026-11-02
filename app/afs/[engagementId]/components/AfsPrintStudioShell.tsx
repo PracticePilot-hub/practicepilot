@@ -353,7 +353,7 @@ export default function AfsPrintStudioShell({
               <option value="150">150%</option>
             </select>
 
- <span data-afs-arithmetic-blockers={arithmeticIssues.length} className="afs-screen-only" title={arithmeticIssues.join("\n")} style={{fontSize:10,color:"#9f1239"}}>{arithmeticIssues.length ? `${arithmeticIssues.length} schedules must reconcile before PDF export` : ""}</span>
+ <span hidden data-afs-arithmetic-blockers={arithmeticIssues.length} />
  <span hidden data-afs-finalisation-blockers={finalisationIssues.length} />
  <label style={styles.draftToggle}>
               <input
