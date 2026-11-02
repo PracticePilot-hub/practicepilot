@@ -11,7 +11,7 @@
   ],
   "functions": {
     "app/api/afs/engagements/[id]/export-pdf/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 180
     }
   }
 }

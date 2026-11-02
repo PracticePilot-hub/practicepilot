@@ -5,7 +5,8 @@ import puppeteer from "puppeteer-core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Allow cold Chromium startup and complete measured pagination of large reports.
+export const maxDuration = 180;
 
 type RouteContext = {
   params: Promise<{
