@@ -327,9 +327,7 @@ export default function TrialBalancePanel({
       const mapped = getAfsMappingForImport(mapping_code);
       if (!account_code || !account_name) invalid.push(`Row ${historyStartRow + i + 1}: missing account or description`);
       if (!raw || !Number.isFinite(balance)) invalid.push(`Row ${historyStartRow + i + 1}: invalid amount`);
-      if (!mapped) invalid.push(historyMappingColumn < 0
-        ? `Row ${historyStartRow + i + 1}: account ${account_code} has no valid current-TB mapping. Map this account first, or select a PP mapping code column.`
-        : `Row ${historyStartRow + i + 1}: unknown PP code ${mapping_code || "(blank)"}`);
+      if (!mapped && (historyMappingColumn >= 0 || mapping_code)) invalid.push(`Row ${historyStartRow + i + 1}: unknown PP code ${mapping_code || "(blank)"}`);
       if (seen.has(account_code)) invalid.push(`Row ${historyStartRow + i + 1}: duplicate account ${account_code}`);
       seen.add(account_code);
       return {
@@ -1214,7 +1212,7 @@ export default function TrialBalancePanel({
           <div style={{ ...styles.modal, maxHeight: "85vh", overflowY: "auto" }}>
             <div style={styles.modalHeader}>
               <div><h3 style={styles.modalTitle}>Import Historical Trial Balance</h3>
-                <p style={styles.text}>Choose the financial year, worksheet and balance column. The optional mapping column can be ignored to reuse current TB mappings by account code.</p>
+                <p style={styles.text}>Choose the financial year, worksheet and balance column. Ignore the mapping column to reuse existing account mappings, or import unmapped and map the accounts afterwards.</p>
               </div>
               <button style={styles.closeButton} onClick={() => setHistoryMappingDialog(false)}>×</button>
             </div>
@@ -1242,7 +1240,7 @@ export default function TrialBalancePanel({
               ] as Array<[string,number,(value:number)=>void]>).map(([label, value, setter]) => (
                 <label key={label} style={styles.label}>{label}
                   <select style={styles.input} value={value} onChange={(e) => setter(Number(e.target.value))}>
-                    {label === "PP mapping code column (optional)" && <option value={-1}>Ignore — use current TB mappings by account code</option>}
+                    {label === "PP mapping code column (optional)" && <option value={-1}>Ignore — reuse existing mappings or map later</option>}
                     {historyColumns.map((col) => <option key={col.index} value={col.index}>{col.label}</option>)}
                   </select>
                 </label>
@@ -1252,7 +1250,7 @@ export default function TrialBalancePanel({
               <table style={styles.table}><thead><tr>{["Account","Description","Balance","Mapping"].map((h)=><th key={h} style={styles.th}>{h}</th>)}</tr></thead>
                 <tbody>{historyExcelRows.slice(historyStartRow, historyStartRow+8).map((row,i)=><tr key={i}>
                   {[historyCodeColumn,historyNameColumn,historyAmountColumn].map((col,j)=><td key={j} style={styles.td}>{String(row[col] ?? "")}</td>)}
-                  <td style={styles.td}>{historyMappingColumn >= 0 ? String(row[historyMappingColumn] ?? "") : historicalMappingCode(row[historyCodeColumn], null, -1, trialBalanceLines) || "No current mapping — map account first"}</td>
+                  <td style={styles.td}>{historyMappingColumn >= 0 ? String(row[historyMappingColumn] ?? "") : historicalMappingCode(row[historyCodeColumn], null, -1, trialBalanceLines) || "Unmapped — import now, map later"}</td>
                 </tr>)}</tbody>
               </table>
             </div>
@@ -1266,7 +1264,7 @@ export default function TrialBalancePanel({
 
       {viewMode === "history" && historyPreview.length > 0 ? (
         <div style={{ ...styles.previewBanner, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <span>{historyImportName}: {historyPreview.length} mapped accounts, signed TB difference R0.00. Target year {historyImportYear}.</span>
+          <span>{historyImportName}: {historyPreview.length} accounts ({historyPreview.filter(line => !line.mapping_code).length} unmapped), signed TB difference R0.00. Target year {historyImportYear}.</span>
           <button style={styles.primaryButton} disabled={historySaving} onClick={saveHistoricalTb}>
             {historySaving ? "Saving historical TB..." : "Confirm historical import"}
           </button>

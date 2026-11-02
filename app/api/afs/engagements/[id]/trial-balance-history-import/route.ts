@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { validHistoricalMapping } from "../../../../../afs/[engagementId]/historicalTbImport";
 import { getSupabaseServer } from "../../../lib/supabaseServer";
 
 function clean(value: unknown) { return String(value ?? "").trim(); }
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest, context: any) {
       const amount = signed(line.closing_balance);
       const mappingCode = clean(line.mapping_code);
       if (!accountCode || !clean(line.account_name) || !Number.isFinite(amount) ||
-          !/^\d{3}(?:\.\d+)*$/.test(mappingCode) || seen.has(accountCode)) {
+          !validHistoricalMapping(mappingCode) || seen.has(accountCode)) {
         throw new Error(`Invalid or duplicate account at Excel row ${index + 2}.`);
       }
       seen.add(accountCode);
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest, context: any) {
         account_code: accountCode,
         account_name: clean(line.account_name),
         closing_balance: amount,
-        mapping_code: mappingCode,
+        mapping_code: mappingCode || null,
         mapping_label: clean(line.mapping_label) || null,
         mapping_statement: clean(line.mapping_statement) || null,
         mapping_section: clean(line.mapping_section) || null,

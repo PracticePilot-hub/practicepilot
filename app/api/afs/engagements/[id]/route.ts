@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveHistoricalMappings } from "../../../../afs/[engagementId]/historicalTbImport";
 import { getSupabaseServer } from "../../lib/supabaseServer";
 
 async function getIdFromContext(context: any) {
@@ -392,7 +393,7 @@ export async function GET(req: NextRequest, context: any) {
     return NextResponse.json({
       engagement,
       trialBalanceLines: trialBalanceResult.data || [],
-      trialBalanceHistory: trialBalanceHistoryResult.data || [],
+      trialBalanceHistory: resolveHistoricalMappings(trialBalanceHistoryResult.data || [], trialBalanceResult.data || []),
       notes: notesResult.data || [],
       workingPapers: workingPapersResult.data || [],
     });
