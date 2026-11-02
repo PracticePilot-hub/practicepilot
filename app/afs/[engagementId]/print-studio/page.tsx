@@ -4222,7 +4222,7 @@ const flightDeckIssues = useMemo(() => {
 
   const disclosureChecks = reviewStandardsCoverage(trialBalanceLines, accountingPolicySections, noteSections, reportOptions, effectiveStructuredNotesState, context);
   for (const item of disclosureChecks.filter(item => item.applicable && item.issues.length)) {
-    issues.push({id:`disclosure-${item.topic.id}`,severity:"caution",title:item.topic.label,message:item.issues.join(" "),target:item.topic.id === "related" ? "notes" : "accounting-policies",targetLabel:"Review disclosures"});
+    issues.push({id:`disclosure-${item.topic.id}`,severity:"caution",title:item.topic.label,message:item.issues.join(" "),target:item.issueTarget,targetLabel:item.issueTarget === "notes" ? "Open Notes" : "Open Policies"});
   }
   for (const [index,message] of relatedPartyReviewIssues(effectiveStructuredNotesState,trialBalanceLines,context.framework === "full" ? "full" : "smes").entries()) {
     issues.push({id:`related-party-${index}`,severity:"caution",title:"Related parties",message,target:"notes",targetLabel:"Related-party Work note"});

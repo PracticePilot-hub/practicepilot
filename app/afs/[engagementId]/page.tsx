@@ -155,76 +155,70 @@ type LeadScheduleSubPage =
 
 const sections: { key: SectionKey; number: string; title: string; description: string }[] = [
   {
-    key: "client-setup",
+    key: "review",
     number: "01",
+    title: "Flight Control",
+    description: "Preparation, review points, sign-offs and file readiness.",
+  },
+  {
+    key: "client-setup",
+    number: "02",
     title: "Client Setup",
     description: "Entity details, year end and engagement information.",
   },
   {
     key: "trial-balance",
-    number: "02",
+    number: "03",
     title: "Trial Balance",
     description: "Import and review the trial balance.",
   },
   {
     key: "adjusting-journals",
-    number: "03",
+    number: "04",
     title: "Adjusting Journals",
     description: "Post AFS adjusting journals and review journal effects.",
   },
   {
     key: "mapping",
-    number: "04",
+    number: "05",
     title: "Mapping",
     description: "Map accounts to AFS sections and notes.",
   },
   {
     key: "lead-schedules",
-    number: "05",
+    number: "06",
     title: "Lead Schedules",
     description: "Prepare lead schedules and linked working papers.",
   },
   {
     key: "tax-calculator",
-    number: "06",
+    number: "07",
     title: "Tax Calculator",
     description: "Prepare the current tax computation and select the applicable tax regime.",
   },
   {
     key: "financial-statements",
-    number: "07",
+    number: "08",
     title: "Financial Statements",
     description: "AFS report, compilation report, tax computation and statement output.",
   },
   {
     key: "minutes",
-    number: "08",
+    number: "09",
     title: "Year-end Documents",
     description: "AFS approval documents, minutes, loan certificates and supporting resolutions.",
   },
   {
     key: "export-print",
-    number: "09",
+    number: "10",
     title: "Working File Pack",
     description: "Print or export the final TB, journals and working-paper schedules.",
   },
   {
     key: "finalisation",
-    number: "10",
+    number: "11",
     title: "Finalisation",
     description: "Final checks, sign-off and lock file.",
-  },
-  {
-    key: "review",
-    number: "11",
-    title: "Flight Control",
-    description: "Preparation, review points, sign-offs and file readiness.",
-  },
-  {
-    key: "flight-settings",
-    number: "12",
-    title: "Settings",
-    description: "Workflow structure and crew for this AFS file.",
   },
 ];
 
@@ -401,7 +395,7 @@ const [reopenReason, setReopenReason] = useState("");
   const [clientSetup, setClientSetup] = useState<ClientSetupData | null>(null);
   const [clientPeople, setClientPeople] = useState<ClientPerson[]>([]);
   const [trialBalanceLines, setTrialBalanceLines] = useState<TrialBalanceLine[]>([]);
-  const [activeSection, setActiveSection] = useState<SectionKey>("client-setup");
+  const [activeSection, setActiveSection] = useState<SectionKey>("review");
   const [activeLeadSchedule, setActiveLeadSchedule] = useState<LeadScheduleKey | null>(null);
   const [activeLeadSubPage, setActiveLeadSubPage] =
     useState<LeadScheduleSubPage>("lead-schedule");
@@ -611,6 +605,7 @@ const [reopenReason, setReopenReason] = useState("");
   }
 
   function openSection(sectionKey: SectionKey) {
+    if (sectionKey === "flight-settings") sectionKey = "review";
     if (sectionKey === "financial-statements") {
       window.open(
         `/afs/${String(engagementId)}/print-studio`,
@@ -1210,14 +1205,6 @@ activeSection !== "lead-schedules" ? (
             </div>
           ) : null}
 
-          {activeSection === "flight-settings" && (
-            <AfsFlightSettingsPanel
-              engagementId={engagementId}
-              engagementStatus={engagement.status || "Draft"}
-              onChanged={loadEngagement}
-            />
-          )}
-
           {activeSection === "client-setup" && (
             <ClientSetupPanel
               engagementId={engagementId}
@@ -1314,10 +1301,17 @@ activeSection !== "lead-schedules" ? (
           )}
 
           {activeSection === "review" && (
+            <>
+            <AfsFlightSettingsPanel
+              engagementId={engagementId}
+              engagementStatus={engagement.status || "Draft"}
+              onChanged={loadEngagement}
+            />
             <AfsFlightControlOverview
               engagementId={engagementId}
-              onJump={(section) => setActiveSection(section as SectionKey)}
+              onJump={(section) => openSection(section as SectionKey)}
             />
+            </>
           )}
 
           {activeSection === "minutes" && (

@@ -105,7 +105,7 @@ export default function TaxCalculatorPanel({ trialBalanceLines = [], clientSetup
         throw Error(data.error); notify(data.taxCalculation); return data; }
     async function saveClick() { setBusy(true); try {
         await save();
-        setMessage('Draft saved. Your financial statements change only when the balanced adjustment is applied.');
+        setMessage(workbook?.reviewed ? 'Reviewed tax calculation saved. The AFS tax note and checks now use this calculation.' : 'Tax calculation saved as a draft. Complete the review before finalising the AFS.');
     }
     catch (e) {
         setMessage((e as Error).message);
@@ -125,7 +125,8 @@ export default function TaxCalculatorPanel({ trialBalanceLines = [], clientSetup
             if (journal.errors.length)
                 throw Error(journal.errors.join('\n'));
             if (!journal.entries.length) {
-                setMessage('No tax adjustment is required; the workpaper already agrees to the ledger.');
+                await save();
+                setMessage('Tax calculation saved. No journal is required because it already agrees to the AFS.');
                 setLines(fresh);
                 return;
             }
@@ -172,7 +173,7 @@ export default function TaxCalculatorPanel({ trialBalanceLines = [], clientSetup
     return <div className={ui.workspace}>
       <header className={ui.header}>
         <div><div className={ui.eyebrow}>PROFIT TO TAX <span className={ui.draftBadge}>{workbook.reviewed?'Reviewed':'Draft calculation'}</span></div><h2>Tax computation</h2><p>Your calculation, from profit to tax owing. Open a line only when you need to change its workings.</p></div>
-        <div className={ui.headerActions}><label className={ui.period}>Financial year<select aria-label="Financial year" value={period} onChange={event=>{setPeriod(event.target.value);setMessage('');}}><option value={yearEnd}>{yearEnd.slice(0,4)} · Current</option><option value={priorTaxYearEnd(yearEnd)}>{Number(yearEnd.slice(0,4))-1} · Comparative</option></select></label><button className={ui.primary} onClick={saveClick} disabled={busy||!result}>{busy?'Saving…':'Save draft'}</button></div>
+        <div className={ui.headerActions}><label className={ui.period}>Financial year<select aria-label="Financial year" value={period} onChange={event=>{setPeriod(event.target.value);setMessage('');}}><option value={yearEnd}>{yearEnd.slice(0,4)} · Current</option><option value={priorTaxYearEnd(yearEnd)}>{Number(yearEnd.slice(0,4))-1} · Comparative</option></select></label><button className={ui.primary} onClick={saveClick} disabled={busy||!result}>{busy?'Saving…':workbook.reviewed?'Save reviewed calculation':'Save draft'}</button></div>
       </header>
       {message&&<div role="status" className={ui.notice}>{message}</div>}
       {computed.error&&<div role="alert" className={ui.notice}>{computed.error}</div>}
@@ -242,10 +243,10 @@ export default function TaxCalculatorPanel({ trialBalanceLines = [], clientSetup
           {view==='review'&&<details className={ui.card}><summary className={ui.settingsSummary}>Prior-year & other tax</summary><div className={ui.settingsContent}>{field('Prior-year under / (over) provision','priorTax')}{field('Other current income tax','otherTax')}<details className={ui.detail}><summary>Discontinued operation — tax allocation</summary><p>Include this operation’s pre-tax profit in the taxable-income calculation, then allocate its supported tax charge to the net discontinued result.</p>{field('Discontinued operation profit before tax','discontinuedProfit')}{field('Current tax allocated to discontinued operations','discontinuedTax')}{field('Allocation source and support','discontinuedEvidence')}</details></div></details>}
           {view==='review'&&<section className={ui.card}><div className={ui.cardHeader}><div><h3>Compare with your financials</h3><p>Check the difference between this calculation and the amounts already in your AFS.</p></div></div>
             <div className={ui.reviewTotals}><div><span>Calculated expense</span><strong>{result?money(result.taxExpense):'—'}</strong></div><div><span>Already in the AFS</span><strong>{money(ledgerExpense)}</strong></div><div><span>Difference</span><strong>{result?money(result.taxExpense-ledgerExpense):'—'}</strong></div></div>
-            {outstanding.length>0?<div className={ui.attention}><h4>Before you update the AFS</h4><ul>{outstanding.map(issue=><li key={issue}><span>{issue}</span> <button className={ui.textButton} onClick={()=>setTab(issueStep(issue))}>Open {steps.find(step=>step.key===issueStep(issue))?.label.toLowerCase()} →</button></li>)}</ul></div>:<div className={ui.ready}>The proposed adjustment balances.</div>}
+            {outstanding.length>0?<div className={ui.attention}><h4>Before you update the AFS</h4><ul>{outstanding.map(issue=><li key={issue}><span>{issue}</span> <button className={ui.textButton} onClick={()=>setTab(issueStep(issue))}>Open {steps.find(step=>step.key===issueStep(issue))?.label.toLowerCase()} →</button></li>)}</ul></div>:<div className={ui.ready}>{journal?.entries.length ? "The proposed adjustment balances." : "Tax already agrees to the AFS. Save this calculation to link the tax note and checks."}</div>}
             <details className={ui.detail}><summary>View accounts & proposed adjustment <span>{journal?.entries.length||0} lines</span></summary><table className={ui.accountTable}><thead><tr><th>Account</th><th>Calculated</th><th>In AFS</th><th>Change</th></tr></thead><tbody>{differences.map(row=><tr key={row.code}><td>{labels[row.code]}<small>{row.code}</small>{periodLines.filter(line=>line.mapping_code===row.code).length>1&&<select aria-label={`Posting account for ${row.code}`} value={accounts[row.code]||''} onChange={e=>setAccounts({...accounts,[row.code]:e.target.value})}><option value="">Select posting account</option>{periodLines.filter(line=>line.mapping_code===row.code).map(line=><option key={line.account_code} value={line.account_code}>{line.account_code} · {line.account_name}</option>)}</select>}</td><td>{money(row.target)}</td><td>{money(row.booked)}</td><td>{money(row.difference)}</td></tr>)}</tbody></table></details>
             <label>Tax review notes<textarea placeholder="Explain the tax basis, key judgements and supporting schedules." value={workbook.notes} onChange={e=>setWorkbook({...workbook,reviewed:false,notes:e.target.value})}/></label>
-            <div className={ui.applyBar}><div><strong>Update the AFS</strong><p>Posts the balanced adjustment. Your tax note and financial balances follow it.</p></div><button className={ui.primary} disabled={busy||!journal?.entries.length||!!journal.errors.length} onClick={post}>Update AFS</button></div>
+            <div className={ui.applyBar}><div><strong>{journal?.entries.length ? "Update the AFS" : "Save the tax calculation"}</strong><p>{journal?.entries.length ? "Posts the balanced adjustment. Your tax note and financial balances follow it." : "No journal is needed. Save the calculation so your AFS tax note and checks can use it."}</p></div><button className={ui.primary} disabled={busy||!result||!!journal?.errors.length} onClick={journal?.entries.length ? post : saveClick}>{busy ? "Saving…" : journal?.entries.length ? "Update AFS" : "Save tax calculation"}</button></div>
             <label className={ui.check}><input type="checkbox" checked={workbook.reviewed} disabled={!!workbook.taxBasisReviewRequired||!result||!!journal?.errors.length||differences.some(row=>Math.abs(row.difference)>.5)||workbook.notes.trim().length<20} onChange={e=>setWorkbook({...workbook,reviewed:e.target.checked})}/>I have reviewed this calculation and agreed it to the AFS</label><p className={ui.hint}>Save after review. Final AFS checks include the comparative year.</p>
           </section>}
           {view!=='computation'&&<div className={ui.stepFooter}><span>Your entries are kept when you return to the computation.</span><button className={ui.primary} onClick={()=>setTab('computation')}>Done — back to computation</button></div>}

@@ -59,7 +59,7 @@ export function reviewStandardsCoverage(lines:readonly any[],policies:readonly a
     const applicable=mapped.length>0||selectedPolicies.length>0||selectedNotes.length>0||["basis","going","related","events","provisions"].includes(topic.id);
     const issues:string[]=[];
     if(applicable&&policyKeys.length&&!selectedPolicies.length)issues.push("No policy in this area is selected; assess material policy information.");
-    if(mapped.length&&noteKeys.length&&!selectedNotes.length)issues.push("Mapped balances exist but no note in this area is selected.");
+    if(mapped.length&&noteKeys.length&&!selectedNotes.length)issues.push(topic.id==="borrowing" ? "Select Finance costs in Notes to disclose the mapped interest. The Borrowing costs policy is a separate selection." : "Mapped balances exist but no applicable note is selected. Open Notes to select and complete the relevant disclosure.");
     if(["going","related","events","provisions"].includes(topic.id) && noteDisclosureIssues(notes.filter(note=>topic.notes.includes(note.key)),options,state,context).length)issues.push("Entity-specific evidence and disclosure wording remain incomplete; selection alone does not supply these facts.");
     if(topic.id==="related"&&!state.relatedPartyRows?.length&&!state.relatedPartyAccounts?.length&&!state.relatedPartyDisclosure?.controlText)issues.push("Related-party note has no supported content and may be omitted from the printed set.");
     if(topic.id==="going"&&!Object.values(state.goingConcernAssessment || {}).some(Boolean))issues.push("Going-concern assessment is not captured.");
@@ -67,6 +67,7 @@ export function reviewStandardsCoverage(lines:readonly any[],policies:readonly a
     if(topic.id==="disposals"&&context.framework==="smes"&&mapped.some(line=>matches(line,"499")||matches(line,"699")))issues.push("Full-IFRS held-for-sale mappings require SME classification review.");
     if(topic.id==="leases"&&context.framework==="smes"&&mapped.some(line=>matches(line,"306")))issues.push("ROU mapping requires a Section 20 assessment; do not assume IFRS 16.");
     if(topic.id==="investment-property"&&mapped.length&&!options.policyInvestmentPropertyCostModel&&!options.policyInvestmentPropertyFairValueModel)issues.push(String(state.investmentPropertyMovements?.policyText||"").trim()?"Measurement text is captured in the Work note; check the main policy section agrees and the selected model is supported.":"Recognition policy is selected but no measurement-model policy or note text is captured.");
-    return {topic,applicable,mapped,selectedPolicies,selectedNotes,issues};
+    const issueTarget = applicable&&policyKeys.length&&!selectedPolicies.length ? "accounting-policies" as const : noteKeys.length ? "notes" as const : "accounting-policies" as const;
+    return {topic,applicable,mapped,selectedPolicies,selectedNotes,issues,issueTarget};
   });
 }
