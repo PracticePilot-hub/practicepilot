@@ -27,12 +27,12 @@ export function taxNotesState(base: any, saved: any, prior: any, lines: any[], s
         fill(previous, 'prior', priorLines);
     }
     const set = (section: string, field: string, text: string) => { next.disclosureContent ||= {}; next.disclosureContent[section] ||= {}; next.disclosureContent[section][field] = { text, context, source: 'Reviewed Tax Calculator workpaper ' + saved.worksheet.yearEnd, requiresReview: false }; };
-    const details = (r: TaxResult) => r.entities.map(entity => entity.name + ': taxable income ' + money(entity.taxable) + ', current tax ' + money(entity.current) + ', prior adjustment ' + money(entity.prior) + ', other current tax ' + money(entity.other) + ', deferred tax in profit ' + money(entity.deferredProfit) + ', OCI ' + money(entity.deferredOci) + ', direct equity ' + money(entity.deferredEquity) + '.').join(' ');
+    const details = (r: TaxResult) => r.entities.map(entity => entity.name + ': taxable income ' + money(entity.taxable) + ', continuing current tax ' + money(entity.current-entity.discontinuedTax) + ', discontinued current tax ' + money(entity.discontinuedTax) + ', prior adjustment ' + money(entity.prior) + ', other current tax ' + money(entity.other) + ', deferred tax in profit ' + money(entity.deferredProfit) + ', OCI ' + money(entity.deferredOci) + ', direct equity ' + money(entity.deferredEquity) + '.').join(' ');
     set('notesTaxation', 'components', saved.worksheet.yearEnd + ': ' + details(result) + (previous ? ' Comparative: ' + details(previous) : ' Comparative tax components remain as recorded in the comparative ledger; no reviewed comparative workpaper is linked.'));
     set('notesTaxation', 'reconciliation', 'The rate reconciliation is derived from the reviewed entity workpapers: permanent adjustments, assessed-loss availability/utilisation, temporary differences and deferred-tax recognition, entity/SBC rate differences, eligible credits, prior adjustments and other current income tax. Whole-Rand rounding is separately identified. No unexplained amount is classified as deferred tax.');
     set('notesTaxation', 'uncertainty', saved.worksheet.notes);
     const sources = result.entities.map(entity => entity.name + ': ' + entity.deferred.map(row => row.description + ' — carrying ' + money(value(row.carrying)) + ', tax base ' + money(value(row.taxBase)) + ', rate ' + row.rate + '%, opening tax ' + money(value(row.openingTax)) + ', closing ' + money(row.closing) + ', movement ' + money(row.movement) + ' in ' + row.allocation + '. ' + row.evidence).join(' ') + ' Loss DTA opening ' + money(entity.lossOpening) + ', recognised closing ' + money(entity.lossClosing) + ', potential ' + money(entity.lossPotential) + '.');
-    set('notesDeferredTaxLiability', 'temporary', sources.join('\n\n') + '\n\nCurrent deferred tax assets ' + money(result.dta) + ' and liabilities ' + money(result.dtl) + ' are presented separately; amounts are not offset between taxable entities.');
+    set('notesDeferredTaxLiability', 'temporary', sources.join('\n\n') + '\n\nCurrent presented deferred tax assets ' + money(result.dta) + ' and liabilities ' + money(result.dtl) + ' reflect documented IAS 12 offset criteria within each taxable entity only; amounts are not offset between different taxable entities.');
     set('notesDeferredTaxLiability', 'recovery', saved.worksheet.entities.map((entity: any) => entity.name + ': ' + entity.lossDtaEvidence + ' ' + entity.deferred.filter((row: any) => row.recognise).map((row: any) => row.evidence).join(' ')).join('\n\n') + ' Deferred tax uses the enacted rates expected on recovery or settlement; recognition is supported in the retained workpaper.');
     if (previous) {
         next.deferredTaxReconciliation = { priorOpening: previous.entities.reduce((n, row) => n + row.openingNet, 0), priorMovement: previous.deferredProfit + previous.deferredOci + previous.deferredEquity };
@@ -46,6 +46,7 @@ export function taxCashDefaults(saved: any, prior: any, lines: any[], consolidat
             continue;
         const calculated = calculateTax(row.worksheet, source, consolidated);
         result['cashTaxPaid' + side] = -(calculated.payments - calculated.refunds) || 0;
+        result['cashDiscontinuedTax' + side] = calculated.discontinuedTax;
     }
     return result;
 }

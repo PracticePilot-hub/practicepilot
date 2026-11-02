@@ -90,3 +90,5 @@ exports.applyTechnicalReview=function(f,facts,settings){
  settings.accountingPolicyTexts.policyRevenueRental&&(settings.accountingPolicyTexts.policyRevenueRental.text='Rental income from the group’s operating property leases is recognised on a straight-line basis over the lease term under IFRS 16. The retained property is accounted for under IAS 40; finance-lease income, where relevant, follows the net-investment effective-return method. Lease and non-lease components are separated.');
  require('./ca_review_case.cjs').applyCaReview(facts,settings);
 };
+
+const originalTechnicalReview=exports.applyTechnicalReview;exports.applyTechnicalReview=function(f,facts,settings){const result=originalTechnicalReview(f,facts,settings);require('./sa_case_facts.cjs').applySaCase(f,settings,facts);return result;};

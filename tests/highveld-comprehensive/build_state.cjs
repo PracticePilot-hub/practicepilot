@@ -25,8 +25,8 @@ for(const [section,family]of Object.entries(movement.MOVEMENT_FAMILIES)){
   }
  }
 }
-state.taxationReconciliation={nonDeductibleExpenses:{},priorYearAdjustments:{current:-100,prior:-100},otherTaxCharges:{current:-50,prior:-50}};
-for(const [year,side]of [[2026,'current'],[2025,'prior']])state.taxationReconciliation.nonDeductibleExpenses[side]=-Math.round(f.periods[year].permanentDifferences*.27);
+const taxPapers=require('./sa_tax_workpapers.cjs').buildSaTaxWorkpapers(f,load(p+'tax/taxWorkpaper.ts'));state.taxationReconciliation={};for(const [year,side]of [[2026,'current'],[2025,'prior']])for(const[key,amount]of Object.entries(taxPapers[year].reconciliation)){state.taxationReconciliation[key]||={};state.taxationReconciliation[key][side]=amount;}
+fs.writeFileSync('tests/highveld-comprehensive/tax-workpapers.json',JSON.stringify(taxPapers,null,2));
 state.shareCapital={authorisedShares:'2000000',priorAuthorisedShares:'2000000',issuedShares:'1000000',priorIssuedShares:'1000000',issuedPar:'',priorIssuedPar:'',rightsText:'The company has 1,000,000 ordinary no-par-value shares in issue throughout both years, each carrying one vote and equal dividend and residual rights. Authorised ordinary shares total 2,000,000. Preference capital of R2,000 is non-redeemable and distributions are wholly discretionary. Share premium is R2,000. Treasury shares cost R200 and are deducted from equity. No shares are reserved for options or issue under contracts.'};
 const bad=movement.reviewAllMovementNotes(f.lines,cash.engine.noteData,state,history).filter(r=>r.difference===null||Math.abs(r.difference)>.005||r.openingConflict||r.invalid);
 assert.equal(bad.length,0,JSON.stringify(bad));assert.equal(notes.reviewPpeNote(f.lines,state,history).length,0,JSON.stringify(notes.reviewPpeNote(f.lines,state,history)));

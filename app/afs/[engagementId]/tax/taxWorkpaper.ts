@@ -52,6 +52,11 @@ export type TaxEntity = {
     lossDtaClosing: Value;
     lossDtaRate: Value;
     lossDtaEvidence: string;
+    deferredOffsetConfirmed?: boolean;
+    deferredOffsetEvidence?: string;
+    discontinuedProfit?: Value;
+    discontinuedTax?: Value;
+    discontinuedEvidence?: string;
 };
 export type TaxWorkbook = {
     version: 2;
@@ -149,7 +154,9 @@ export function calculateTax(workbook: TaxWorkbook, lines: any[], consolidated =
             else
                 throw Error('Unknown tax adjustment category.');
         }
-        const beforeLoss = round(profit + permanent + temporary), lossBf = value(entity.lossBf, 'Assessed loss');
+        const discontinuedProfit = value(entity.discontinuedProfit), discontinuedTax = value(entity.discontinuedTax);
+        if (discontinuedProfit || discontinuedTax) required((entity.discontinuedEvidence || '').trim().length >= 12, 'support the discontinued-operation profit and tax allocation.');
+        const beforeLoss = round(profit + discontinuedProfit + permanent + temporary), lossBf = value(entity.lossBf, 'Assessed loss');
         if (lossBf < 0)
             throw Error('Brought-forward losses must be positive.');
         if (lossBf > 0 && (entity.jurisdiction !== 'ZA' || entity.regime === 'custom'))
@@ -211,8 +218,13 @@ export function calculateTax(workbook: TaxWorkbook, lines: any[], consolidated =
         dta += lossClosing;
         openingNet -= lossOpening;
         deferredProfit += lossOpening - lossClosing;
+        const grossDta = dta, grossDtl = dtl;
+        if (entity.deferredOffsetConfirmed) {
+            required((entity.deferredOffsetEvidence || '').trim().length >= 12, 'document the legally enforceable current-tax offset right and same-authority/entity deferred-tax criteria.');
+            const offset = Math.min(dta, dtl); dta -= offset; dtl -= offset;
+        }
         const closingControl = round(opening + current + prior + other - payments + refunds + controlOther);
-        return { id: entity.id, name: entity.name, adjustments: entity.adjustments, profit, rate, permanent: round(permanent), temporary: round(temporary), beforeLoss, lossBf, lossUsed, lossCf, taxable, gross, credit, current, prior, other, payments, afterYearPayments, refunds, opening, controlOther, closingControl, dta: round(dta), dtl: round(dtl), openingNet: round(openingNet), deferredProfit: round(deferredProfit), deferredOci: round(deferredOci), deferredEquity: round(deferredEquity), taxExpense: round(current + prior + other + deferredProfit), lossPotential, lossOpening, lossClosing, deferred };
+        return { id: entity.id, name: entity.name, discontinuedProfit, discontinuedTax, grossDta, grossDtl, adjustments: entity.adjustments, profit, rate, permanent: round(permanent), temporary: round(temporary), beforeLoss, lossBf, lossUsed, lossCf, taxable, gross, credit, current, prior, other, payments, afterYearPayments, refunds, opening, controlOther, closingControl, dta: round(dta), dtl: round(dtl), openingNet: round(openingNet), deferredProfit: round(deferredProfit), deferredOci: round(deferredOci), deferredEquity: round(deferredEquity), taxExpense: round(current + prior + other + deferredProfit - discontinuedTax), lossPotential, lossOpening, lossClosing, deferred };
     });
     if ((mapped(lines,'395.10')||mapped(lines,'395.10','prior'))&&!entities.some(entity=>entity.lossOpening||entity.lossClosing||entity.deferred.some(item=>item.openingTax&&value(item.openingTax)<0||item.potential<0)))issues.push('Complete the deferred-tax asset recognition or derecognition schedule for the existing mapped balance before posting.');
  if ((mapped(lines,'595.10')||mapped(lines,'595.10','prior'))&&!entities.some(entity=>entity.deferred.some(item=>value(item.openingTax)>0||item.potential>0)))issues.push('Complete the deferred-tax liability reversal schedule for the existing mapped balance before posting.');
@@ -222,11 +234,11 @@ export function calculateTax(workbook: TaxWorkbook, lines: any[], consolidated =
         issues.push('Allocated accounting profit must agree to the standalone AFS profit before tax.');
     if (consolidated && Math.abs(groupDifference) > .01 && workbook.groupReconciliation.trim().length < 12)
         issues.push('Explain the entity-profit to consolidated-profit reconciliation.');
-    const result = { entities, issues, profit, groupDifference, permanent: sum('permanent'), temporary: sum('temporary'), lossBf: sum('lossBf'), lossUsed: sum('lossUsed'), lossCf: sum('lossCf'), taxable: sum('taxable'), current: sum('current'), prior: sum('prior'), other: sum('other'), deferredProfit: sum('deferredProfit'), deferredOci: sum('deferredOci'), deferredEquity: sum('deferredEquity'), dta: sum('dta'), dtl: sum('dtl'), taxExpense: sum('taxExpense'), payments: sum('payments'), afterYearPayments:sum('afterYearPayments'), refunds: sum('refunds'), opening: sum('opening'), controlOther: sum('controlOther'), currentReceivable: round(entities.reduce((n, row) => n + Math.max(0, -row.closingControl), 0)), currentPayable: round(entities.reduce((n, row) => n + Math.max(0, row.closingControl), 0)) };
+    const result = { entities, issues, profit, groupDifference, permanent: sum('permanent'), temporary: sum('temporary'), lossBf: sum('lossBf'), lossUsed: sum('lossUsed'), lossCf: sum('lossCf'), taxable: sum('taxable'), current: sum('current'), discontinuedProfit: sum('discontinuedProfit'), discontinuedTax: sum('discontinuedTax'), prior: sum('prior'), other: sum('other'), deferredProfit: sum('deferredProfit'), deferredOci: sum('deferredOci'), deferredEquity: sum('deferredEquity'), dta: sum('dta'), dtl: sum('dtl'), taxExpense: sum('taxExpense'), payments: sum('payments'), afterYearPayments:sum('afterYearPayments'), refunds: sum('refunds'), opening: sum('opening'), controlOther: sum('controlOther'), currentReceivable: round(entities.reduce((n, row) => n + Math.max(0, -row.closingControl), 0)), currentPayable: round(entities.reduce((n, row) => n + Math.max(0, row.closingControl), 0)) };
     return result;
 }
 export type TaxResult = ReturnType<typeof calculateTax>;
-export function taxTargets(result: TaxResult) { return { '795.10': result.current, '795.20': result.deferredProfit, '795.30': result.prior, '795.90': result.other, '395.10': result.dta, '595.10': -result.dtl || 0, '495.10': result.currentReceivable, '695.10': -result.currentPayable || 0 }; }
+export function taxTargets(result: TaxResult) { return { '795.10': result.current - result.discontinuedTax, '795.20': result.deferredProfit, '795.30': result.prior, '795.90': result.other, '395.10': result.dta, '595.10': -result.dtl || 0, '495.10': result.currentReceivable, '695.10': -result.currentPayable || 0, ...(result.discontinuedProfit || result.discontinuedTax ? {'799.10':-result.discontinuedProfit + result.discontinuedTax} : {}) }; }
 /** A difference is a journal/review item, never an unexplained deferred-tax amount. */
 export function taxDifferences(result: TaxResult, lines: any[]) { return Object.entries(taxTargets(result)).map(([code, target]) => ({ code, target, booked: mapped(lines, code), difference: round(target - mapped(lines, code)) })); }
 export function taxJournal(result: TaxResult, lines: any[], accounts: Record<string, string>, allocations: {
