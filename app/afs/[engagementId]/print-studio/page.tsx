@@ -1,4 +1,6 @@
 "use client";
+import { automaticCashDraft } from "./afsAutomaticCashDraft";
+import { paginateSfpRows } from "./afsStatementPagination";
 import {distinctPolicySections} from './afsPolicyPresentation';
 import {taxNotesState,taxCashDefaults} from "../tax/afsTaxIntegration";
 import TaxWorkbookSummary from "../tax/TaxWorkbookSummary";
@@ -173,8 +175,8 @@ function professionalStatementLabel(value: unknown) {
   const exactLabels: Record<string, string> = {
     "Cost Of Sales": "Cost of sales",
     "Share Capital": "Share capital",
-    "Retained Income / Accumulated Loss": "Accumulated loss",
-    "Retained income / accumulated loss": "Accumulated loss",
+    "Retained Income / Accumulated Loss": "Retained income / (accumulated loss)",
+    "Retained income / accumulated loss": "Retained income / (accumulated loss)",
   };
 
   return exactLabels[label] || label;
@@ -3803,7 +3805,9 @@ useEffect(() => {
 
   // Cash history is read by the shared presentation calculation. Historical
   // balance-sheet deltas must not overwrite captured Work cash amounts.
-  const effectiveStatementOverrides = useMemo(() => ({...taxCashDefaults(taxCalculation,priorTaxCalculation,trialBalanceLines,structuredNotesState.presentationReview?.scope==="consolidated"),...Object.fromEntries(Object.entries(statementOverrides).filter(([,value])=>value!==null&&value!==undefined&&value!==''))}),[statementOverrides,taxCalculation,priorTaxCalculation,trialBalanceLines,structuredNotesState.presentationReview?.scope]);
+  const capturedStatementOverrides = useMemo(() => ({...taxCashDefaults(taxCalculation,priorTaxCalculation,trialBalanceLines,structuredNotesState.presentationReview?.scope==="consolidated"),...Object.fromEntries(Object.entries(statementOverrides).filter(([,value])=>value!==null&&value!==undefined&&value!==''))}),[statementOverrides,taxCalculation,priorTaxCalculation,trialBalanceLines,structuredNotesState.presentationReview?.scope]);
+  const automaticCash = useMemo(() => automaticCashDraft(trialBalanceLines,comparativeHistory,yearEnd,capturedStatementOverrides),[trialBalanceLines,comparativeHistory,yearEnd,capturedStatementOverrides]);
+  const effectiveStatementOverrides = useMemo(() => ({...automaticCash.values,...capturedStatementOverrides}),[automaticCash,capturedStatementOverrides]);
 
   /*
     Build once without note numbers so numbering can be driven by actual
@@ -4220,6 +4224,7 @@ const flightDeckIssues = useMemo(() => {
     if (row.difference === null || Math.abs(row.difference) > 0.005 || row.openingConflict || row.invalid) issues.push({id:`work-movement-${row.sectionKey}-${row.id}-${row.side}`,severity:"caution",title:`${row.label}: ${row.side} Work schedule`,message: row.invalid ? "Invalid amount in the movement schedule." : row.difference === null ? "Comparative opening is not supplied; zero is not assumed." : `Closing balance less opening and recorded changes leaves an unexplained difference of ${row.difference.toLocaleString("en-ZA")}.${row.openingConflict ? " The saved opening also conflicts with the source history." : ""} Classify only from supporting evidence.`,target:"notes",targetLabel:"Work schedules"});
   }
 
+  if(automaticCash.sources.length && !automaticCash.reviewed) issues.push({id:"automatic-cash-review",severity:"caution",title:"Review calculated cash movements",message:"Interest, tax or net loan cash movements were calculated from the mapped balances. Check non-cash changes and gross movements in Cash Flow Work.",target:"cash-flow-work",targetLabel:"Cash Flow Work"});
   const disclosureChecks = reviewStandardsCoverage(trialBalanceLines, accountingPolicySections, noteSections, reportOptions, effectiveStructuredNotesState, context);
   for (const item of disclosureChecks.filter(item => item.applicable && item.issues.length)) {
     issues.push({id:`disclosure-${item.topic.id}`,severity:"caution",title:item.topic.label,message:item.issues.join(" "),target:item.issueTarget,targetLabel:item.issueTarget === "notes" ? "Open Notes" : "Open Policies"});
@@ -4247,7 +4252,7 @@ const flightDeckIssues = useMemo(() => {
 
     return !isStatementOfFinancialPositionIssue;
   });
-}, [statementEngine, renderedSfpBalanceDifference, clientSetup, trialBalanceLines, reportOptions, effectiveStructuredNotesState, taxCalculation, comparativeHistory]);
+}, [statementEngine, renderedSfpBalanceDifference, clientSetup, trialBalanceLines, reportOptions, effectiveStructuredNotesState, taxCalculation, comparativeHistory, automaticCash]);
 
   function consolidateDetailedIncomeRows(rows: AfsStatementRow[]) {
     const result: AfsStatementRow[] = [];
@@ -5920,7 +5925,7 @@ const flightDeckIssues = useMemo(() => {
                   width: 110,
                 }}
               >
-                {isTrust ? "Accumulated funds" : "Accumulated loss"}
+                {isTrust ? "Accumulated funds" : "Retained income / (accumulated loss)"}
               </th>
               <th
                 style={{
@@ -6659,44 +6664,7 @@ function elementOuterHeight(element: HTMLElement | null) {
   const sfpPrintableRows = sfpRows.filter(
     (row: any) => String(row?.label || "").trim().toLowerCase() !== "rounding",
   );
-  const sfpPageGroups = (() => {
-    const equityStart = sfpPrintableRows.findIndex((row: any) => {
-      const label = String(row?.label || "").trim().toLowerCase();
-      return label === "equity and liabilities" || label === "equity & liabilities";
-    });
-    const sections = equityStart > 0
-      ? [sfpPrintableRows.slice(0, equityStart), sfpPrintableRows.slice(equityStart)]
-      : [sfpPrintableRows];
-    const pages: AfsStatementRow[][] = [];
-    // The SFP is a compact table: up to 44 mapped rows fit on an A4 page.
-    // The previous 29-row cap created nearly empty continuation pages.
-    // Split at the Assets / Equity and Liabilities boundary, then only
-    // paginate within a section if that section genuinely exceeds one page.
-    const maxRows = 48;
-    for (const section of sections) {
-      for (let start = 0; start < section.length;) {
-        let end = Math.min(section.length, start + maxRows);
-        // Do not leave a group heading stranded at the bottom of a page.
-        if (end < section.length && end > start + 1) {
-          const last = section[end - 1] as any;
-          const next = section[end] as any;
-          const lastType = String(last?.type || last?.kind || "").toLowerCase();
-          const lastLabel = String(last?.label || "").trim().toLowerCase();
-          const nextType = String(next?.type || next?.kind || "").toLowerCase();
-          if (
-            lastType.includes("heading") || lastType === "section" ||
-            ["assets", "non-current assets", "current assets", "equity", "liabilities", "non-current liabilities", "current liabilities"].includes(lastLabel)
-          ) end -= 1;
-          // Keep a total next to its preceding content where possible.
-          else if ((nextType === "total" || nextType === "subtotal") && end - start > 2) end -= 1;
-        }
-        if (end <= start) end = Math.min(section.length, start + maxRows);
-        pages.push(section.slice(start, end));
-        start = end;
-      }
-    }
-    return pages.length ? pages : [[]];
-  })();
+  const sfpPageGroups = paginateSfpRows(sfpPrintableRows);
 
   const reportPageNumberMap = useMemo(() => {
     const pageMap: Record<string, number> = {};
@@ -7234,7 +7202,7 @@ return Math.max(
       onSectionChange={goToSection}
       exportDisabled={false}
       arithmeticIssues={[...comprehensivePresentationIssues(trialBalanceLines,effectiveStructuredNotesState),...buildEquityMovementTable(statementEngine,comparativeHistory,effectiveStructuredNotesState.equityTransactions||[],effectiveStructuredNotesState.comprehensiveIncomeAttribution||{}).rows.filter(row=>row.unclassified && row.amounts.some(value=>value===null||Math.abs(value)>0.005)).map(()=>"Unclassified equity movement"),...Object.entries(statementEngine.checks).filter(([key,value])=>/Difference|OpeningMissing/.test(key) && (typeof value === "number" ? !Number.isFinite(value)||Math.abs(value)>0.005 : value===true)).map(([key])=>key), ...reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory).map(row=>row.label+" PPE movement"), ...reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.openingConflict || row.invalid).map(row=>row.label+" movement"), ...taxReconciliationReview(statementEngine.noteData,effectiveStructuredNotesState,clientSetup).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.invalid).map(row=>"Tax "+row.side)]}
-      finalisationIssues={[...taxAfsIssues(taxCalculation,priorTaxCalculation,trialBalanceLines,effectiveStructuredNotesState.presentationReview?.scope==="consolidated"),...noteDisclosureIssues([...noteSections,...accountingPolicySections.filter(p=>POLICY_DISCLOSURE_KEYS.includes(p.key))],reportOptions,effectiveStructuredNotesState,standardsContext(clientSetup)).map(item=>`${item.title}: ${item.missing.join("; ")}`), ...flightDeckIssues.filter(item=>item.severity === "critical").map(item=>item.title), ...taxReconciliationReview(statementEngine.noteData,effectiveStructuredNotesState,clientSetup).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.invalid || row.rateAssumed).map(row=>`Tax ${row.side}: supported rate and reconciliation required`), ...reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory).map(row=>`${row.label}: ${row.side} PPE cost/depreciation movements require reconciliation`), ...reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory).filter(row=>row.difference === null || Math.abs(row.difference)>0.005 || row.openingConflict || row.invalid).map(row=>`${row.label}: ${row.side} movement does not reconcile`), ...relatedPartyReviewIssues(effectiveStructuredNotesState,trialBalanceLines,standardsContext(clientSetup).framework === "full"?"full":"smes"), ...(!effectiveStructuredNotesState.presentationReview?.scope?["Presentation scope is not assessed"]:[]), ...(standardsContext(clientSetup).framework === "unknown"?["Reporting framework is not selected"]:[]), ...(trialBalanceLines.some(line=>String(line.mapping_code||"").split(".")[0] === "830" && (Number(line.current_year_balance||0)!==0 || Number(line.prior_year_balance||0)!==0)) && effectiveStructuredNotesState.presentationReview?.scope !== "consolidated"?["NCI mapping requires supported consolidated scope or correction"]:[])]}
+      finalisationIssues={[...(automaticCash.sources.length&&!automaticCash.reviewed?["Review calculated cash movements in Cash Flow Work"]:[]),...taxAfsIssues(taxCalculation,priorTaxCalculation,trialBalanceLines,effectiveStructuredNotesState.presentationReview?.scope==="consolidated"),...noteDisclosureIssues([...noteSections,...accountingPolicySections.filter(p=>POLICY_DISCLOSURE_KEYS.includes(p.key))],reportOptions,effectiveStructuredNotesState,standardsContext(clientSetup)).map(item=>`${item.title}: ${item.missing.join("; ")}`), ...flightDeckIssues.filter(item=>item.severity === "critical").map(item=>item.title), ...taxReconciliationReview(statementEngine.noteData,effectiveStructuredNotesState,clientSetup).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.invalid || row.rateAssumed).map(row=>`Tax ${row.side}: supported rate and reconciliation required`), ...reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory).map(row=>`${row.label}: ${row.side} PPE cost/depreciation movements require reconciliation`), ...reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory).filter(row=>row.difference === null || Math.abs(row.difference)>0.005 || row.openingConflict || row.invalid).map(row=>`${row.label}: ${row.side} movement does not reconcile`), ...relatedPartyReviewIssues(effectiveStructuredNotesState,trialBalanceLines,standardsContext(clientSetup).framework === "full"?"full":"smes"), ...(!effectiveStructuredNotesState.presentationReview?.scope?["Presentation scope is not assessed"]:[]), ...(standardsContext(clientSetup).framework === "unknown"?["Reporting framework is not selected"]:[]), ...(trialBalanceLines.some(line=>String(line.mapping_code||"").split(".")[0] === "830" && (Number(line.current_year_balance||0)!==0 || Number(line.prior_year_balance||0)!==0)) && effectiveStructuredNotesState.presentationReview?.scope !== "consolidated"?["NCI mapping requires supported consolidated scope or correction"]:[])]}
       reportOptions={currentContextualOptions.options}
       reportOptionsTitle={currentContextualOptions.title}
       reportOptionsDescription={currentContextualOptions.description}
@@ -7247,6 +7215,11 @@ return Math.max(
           <AfsFlightDeck
             issues={flightDeckIssues}
             onJump={(target) => {
+              if (target === "cash-flow-work") {
+                setCashFlowViewMode("work");
+                goToSection("cash-flow");
+                return;
+              }
               const element =
                 document.getElementById(target) ||
                 document.getElementById(`print-${target}`);
@@ -7982,6 +7955,11 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
                     adjustment. The AFS view remains the printable statement.
                   </p>
 
+                  {automaticCash.sources.length>0 && <div style={{border:"1px solid #cbd5e1",padding:12,marginBottom:12,fontSize:11}}>
+                    <strong>Calculated cash movements</strong><p>These draft amounts come from the mapped balances. Check them against cash records, including unpaid interest, tax transfers, gross loan movements and non-cash settlements. Enter corrections below where needed.</p>
+                    {automaticCash.sources.map(source=><p key={source.key}><strong>{source.label}: {source.amount.toLocaleString("en-ZA")}</strong><br/>{source.basis}</p>)}
+                    <label><input type="checkbox" checked={automaticCash.reviewed} onChange={event=>{const next={...statementOverrides,cashFlowDraftReviewSignature:event.target.checked?automaticCash.signature:""} as AfsStatementOverrides;setStatementOverrides(next);saveStatementOverridesEverywhere(next);}}/> I have checked these cash movements and their non-cash adjustments.</label>
+                  </div>}
                   <AfsStatementOverrideSettings
                     financialYearEnd={yearEnd}
                     mode="cashFlow"
