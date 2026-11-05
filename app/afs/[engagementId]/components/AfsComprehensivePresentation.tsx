@@ -11,7 +11,7 @@ export function comprehensivePresentationIssues(lines:any[],state:any={}){
  if(nci&&state.presentationReview?.scope==='consolidated')for(const key of ['profitCurrent','profitPrior','ociCurrent','ociPrior'])if(state.comprehensiveIncomeAttribution?.[key]==null||state.comprehensiveIncomeAttribution[key]==='')issues.push('Capture the NCI '+key+' allocation, including an explicit zero, in NCI Work.');
  return issues;
 }
-export function withComprehensivePresentation(rows:AfsStatementRow[],lines:any[],state:any={}):AfsStatementRow[]{
+export function withComprehensivePresentation(rows:AfsStatementRow[],lines:any[],state:any={},note?:string|number|null):AfsStatementRow[]{
  const detail=ociDetail(lines,state);let result=[...rows];
  if(detail.length){
   const index=result.findIndex(row=>row.id==='total-comprehensive-income');const first=result.findIndex(row=>/other-comprehensive-income|otherComprehensiveIncome/.test(row.id));
@@ -20,9 +20,9 @@ export function withComprehensivePresentation(rows:AfsStatementRow[],lines:any[]
   const sections:AfsStatementRow[]=[];
   for(const [classification,label] of [['never','Items that will not be reclassified to profit or loss'],['may','Items that may be reclassified to profit or loss'],['unreviewed','OCI classification requiring review']]){
    const selected=detail.filter(row=>row.classification===classification);if(!selected.length)continue;
-   sections.push({id:'oci-'+classification,label,type:'subsection'},...selected.map(row=>({...row,type:'line' as const})));
+   sections.push({id:'oci-'+classification,label,type:'subsection'},...selected.map(row=>({...row,note,type:'line' as const})));
   }
-  sections.push({id:'oci-total',label:'Other comprehensive income, net of tax',current:detail.reduce((n,row)=>n+row.current,0),prior:detail.reduce((n,row)=>n+row.prior,0),type:'subtotal'});
+  sections.push({id:'oci-total',label:'Other comprehensive income, net of tax',note,current:detail.reduce((n,row)=>n+row.current,0),prior:detail.reduce((n,row)=>n+row.prior,0),type:'subtotal'});
   if(index>=0)result.splice(start,index-start,...sections);
  }
  if(state.presentationReview?.scope==='consolidated'&&lines.some(row=>row.mapping_code==='830.10'&&(Number(row.current_year_balance)||Number(row.prior_year_balance)))){

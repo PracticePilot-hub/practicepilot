@@ -30,6 +30,7 @@ facts.notesBorrowings.terms=facts.notesBorrowings.terms.replace('External bank a
 facts.notesGroupRelatedPartyBorrowings.terms=facts.notesGroupRelatedPartyBorrowings.terms.replace('External related-party debt','Non-current external related-party debt');
 const prepared=JSON.parse(fs.readFileSync(root+'fixture-settings.json'));
 require('./technical_case_facts.cjs').applyTechnicalReview(f,facts,prepared);
+require('./paragraph_review_case.cjs').applyParagraphReview(f,prepared,facts);
 fs.writeFileSync(root+'disclosure-facts-final.json',JSON.stringify(facts,null,2));
 const currentTerms='Principal is past due and payable on demand. Contractual interest of 5% on opening principal has been paid annually. Receivables are fully cash collateralised; current borrowing principal repayments are R100 per account per year. No waiver or refinancing is assumed.';
 for(const link of prepared.state.relatedPartyAccounts){const line=f.lines.find(line=>'account:'+line.account_code===link.accountKey);if(line?.mapping_section.toLowerCase().startsWith('current'))link.terms=currentTerms;}

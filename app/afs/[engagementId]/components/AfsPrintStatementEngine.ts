@@ -2272,6 +2272,7 @@ export function buildAfsPrintStatementEngine(
     },
     {
       id: "cfs-cash-generated-operations",
+      note: noteNumbers.cashUsedInOperations || null,
       label: "Cash generated from / (used in) operations",
       current: Math.round(cashGeneratedFromOperationsCurrent),
       prior: Math.round(cashGeneratedFromOperationsPrior),
@@ -2307,6 +2308,7 @@ export function buildAfsPrintStatementEngine(
     },
     {
       id: "cfs-net-operating",
+      note: noteNumbers.cashUsedInOperations || null,
       label: "Net cash from / (used in) operating activities",
       current: Math.round(netOperatingCashCurrent),
       prior: Math.round(netOperatingCashPrior),
@@ -2380,6 +2382,7 @@ export function buildAfsPrintStatementEngine(
     },
     {
       id: "cfs-cash-beginning",
+      note: noteNumbers.cashAndCashEquivalents || null,
       label: "Cash and cash equivalents at beginning of year",
       current: Math.round(cashOpening),
       prior: Math.round(priorCashOpening),
@@ -2387,6 +2390,7 @@ export function buildAfsPrintStatementEngine(
     },
     {
       id: "cfs-cash-end",
+      note: noteNumbers.cashAndCashEquivalents || null,
       label: "Cash and cash equivalents at end of year",
       current: Math.round(cashClosingFromCashFlow),
       prior: Math.round(cashClosingPriorFromCashFlow),
@@ -2394,6 +2398,9 @@ export function buildAfsPrintStatementEngine(
     },
   ];
 
+  if (lines.some(line => mappingStartsWith(line, ["590.20"]) && (Number(line.current_year_balance) || Number(line.prior_year_balance)))) {
+    for (const row of sfpRows) if (/^sfp-.*otherFinancialLiabilities/.test(row.id) || row.label === "Other financial liabilities") row.label = "Other liabilities";
+  }
   const noteData = emptyNoteData();
 
   function addNoteLine(noteKey: AfsNoteKey | undefined, source: StatementBucket) {

@@ -17,6 +17,8 @@ import { reviewAllMovementNotes } from "./afsMovementReview";
 import { standardsContext, reviewStandardsCoverage } from "./afsStandardsCoverage";
 import AfsStandardsReviewPanel from "./AfsStandardsReviewPanel";
 import { relatedPartyReviewIssues } from "./afsRelatedPartyDisclosure";
+import AfsDisclosureTables from "./AfsDisclosureTables";
+import {equityComponentTables} from "../components/afsEquityComponents";
 import AfsCompleteEquityStatement, { withComparativeHistory, buildEquityMovementTable } from "../components/AfsCompleteEquityStatement";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
@@ -4184,7 +4186,7 @@ const sfpRows = applyEntityPresentationToRows(
   correctedEquityStatements.sfpRows,
 );
 const sociRows = applyEntityPresentationToRows(
-  withComprehensivePresentation(statementEngine.sociRows,trialBalanceLines,effectiveStructuredNotesState),
+  withComprehensivePresentation(statementEngine.sociRows,trialBalanceLines,effectiveStructuredNotesState,noteNumberMap.otherComprehensiveIncome),
 );
 const sceRows = applyEntityPresentationToRows(
   correctedEquityStatements.sceRows,
@@ -5613,7 +5615,7 @@ const flightDeckIssues = useMemo(() => {
   function renderSceCustomTable() {
     const extraEquity = ["reserves", "nonControllingInterests", "otherEquity", "otherComprehensiveIncome"].some(key =>
       (statementEngine.noteData[key as keyof typeof statementEngine.noteData] || []).some(row => Number(row.current || 0) !== 0 || Number(row.prior || 0) !== 0));
-    return extraEquity ? <AfsCompleteEquityStatement engine={statementEngine} history={comparativeHistory} transactions={effectiveStructuredNotesState.equityTransactions||[]} attribution={effectiveStructuredNotesState.comprehensiveIncomeAttribution||{}} /> : renderLegacySceCustomTable();
+    return extraEquity ? <AfsCompleteEquityStatement lines={trialBalanceLines} state={effectiveStructuredNotesState} engine={statementEngine} history={comparativeHistory} transactions={effectiveStructuredNotesState.equityTransactions||[]} attribution={effectiveStructuredNotesState.comprehensiveIncomeAttribution||{}} /> : renderLegacySceCustomTable();
   }
 
   function renderLegacySceCustomTable() {
@@ -6668,6 +6670,11 @@ function elementOuterHeight(element: HTMLElement | null) {
   );
   const sfpPageGroups = paginateSfpRows(sfpPrintableRows);
 
+  const sceComponentPages = useMemo(() => {
+    const tables=equityComponentTables(trialBalanceLines,comparativeHistory,effectiveStructuredNotesState).filter(t=>t.rows.length>1);
+    const pages=[];for(let i=0;i<tables.length;i+=2)pages.push(tables.slice(i,i+2));return pages;
+  },[trialBalanceLines,comparativeHistory,effectiveStructuredNotesState]);
+
   const reportPageNumberMap = useMemo(() => {
     const pageMap: Record<string, number> = {};
     let physicalPage = 1;
@@ -6693,7 +6700,7 @@ function elementOuterHeight(element: HTMLElement | null) {
     addSection("compiler-report", reportOptions.compilerReport);
     addSection("sfp", reportOptions.sfp, sfpPageGroups.length);
     addSection("soci", reportOptions.soci);
-    addSection("sce", reportOptions.sce);
+    addSection("sce", reportOptions.sce,1+sceComponentPages.length);
     addSection("cash-flow", reportOptions.cashFlow);
     addSection(
       "accounting-policies",
@@ -6717,6 +6724,7 @@ function elementOuterHeight(element: HTMLElement | null) {
     notesPrintPageCount,
     sfpPageGroups.length,
     detailedIncomePageCount,
+    sceComponentPages.length,
   ]);
 
   const [pdfReadinessFallback, setPdfReadinessFallback] = useState(false);
@@ -7929,6 +7937,7 @@ tradingName.toLowerCase() !== clientName.toLowerCase() ? (
               <AfsA4Page {...reportHeaderProps}>
                 {renderSceCustomTable()}
               </AfsA4Page>
+              {sceComponentPages.map((tables,index)=><AfsA4Page key={index} {...reportHeaderProps}><h1>Statement of Changes in Equity — continued</h1><p>Reconciliation of contributed classes and accumulated OCI reserves. Amounts in Rand.</p><AfsDisclosureTables tables={tables}/></AfsA4Page>)}
             </div>
           ) : null}
 

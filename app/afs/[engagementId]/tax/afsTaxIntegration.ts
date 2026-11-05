@@ -1,3 +1,4 @@
+import type {DisclosureTable} from "../print-studio/disclosureTableData";
 import {reportingTaxRate} from './taxEntityRates';
 import { calculateTax, profitFromTb, taxReconciliation, taxWorkbookIssues, TaxResult, value } from './taxWorkpaper';
 import { TAX_RECONCILING_ITEMS } from '../print-studio/afsTaxReconciliation';
@@ -30,10 +31,19 @@ export function taxNotesState(base: any, saved: any, prior: any, lines: any[], s
     const details = (r: TaxResult) => r.entities.map(entity => entity.name + ': taxable income ' + money(entity.taxable) + ', continuing current tax ' + money(entity.current-entity.discontinuedTax) + ', discontinued current tax ' + money(entity.discontinuedTax) + ', prior adjustment ' + money(entity.prior) + ', other current tax ' + money(entity.other) + ', deferred tax in profit ' + money(entity.deferredProfit) + ', OCI ' + money(entity.deferredOci) + ', direct equity ' + money(entity.deferredEquity) + '.').join(' ');
     set('notesTaxation', 'components', saved.worksheet.yearEnd + ': ' + details(result) + (previous ? ' Comparative: ' + details(previous) : ' Comparative tax components remain as recorded in the comparative ledger; no reviewed comparative workpaper is linked.'));
     set('notesTaxation', 'reconciliation', 'The rate reconciliation is derived from the reviewed entity workpapers: permanent adjustments, assessed-loss availability/utilisation, temporary differences and deferred-tax recognition, entity/SBC rate differences, eligible credits, prior adjustments and other current income tax. Whole-Rand rounding is separately identified. No unexplained amount is classified as deferred tax.');
-    set('notesTaxation', 'uncertainty', saved.worksheet.notes);
-    const sources = result.entities.map(entity => entity.name + ': ' + entity.deferred.map(row => row.description + ' — carrying ' + money(value(row.carrying)) + ', tax base ' + money(value(row.taxBase)) + ', rate ' + row.rate + '%, opening tax ' + money(value(row.openingTax)) + ', closing ' + money(row.closing) + ', movement ' + money(row.movement) + ' in ' + row.allocation + '. ' + row.evidence).join('\n\n') + '\n\nLoss DTA opening ' + money(entity.lossOpening) + ', recognised closing ' + money(entity.lossClosing) + ', potential ' + money(entity.lossPotential) + '.');
-    set('notesDeferredTaxLiability', 'temporary', sources.join('\n\n') + '\n\nCurrent presented deferred tax assets ' + money(result.dta) + ' and liabilities ' + money(result.dtl) + ' reflect documented IAS 12 offset criteria within each taxable entity only; amounts are not offset between different taxable entities.');
-    set('notesDeferredTaxLiability', 'recovery', saved.worksheet.entities.map((entity: any) => entity.name + ': ' + (entity.lossDtaEvidence || 'Recognised deductible differences and their recovery evidence are listed individually above.') + (entity.deferredOffsetConfirmed ? ' ' + entity.deferredOffsetEvidence : '')).join('\n\n') + ' Deferred tax uses the enacted rates expected on recovery or settlement; recognition is supported in the retained workpaper.');
+    if (!next.disclosureContent?.notesTaxation?.uncertainty?.text?.trim()) set('notesTaxation', 'uncertainty', saved.worksheet.notes);
+    const deferredTables:DisclosureTable[]=[];
+    for(const [r,period] of [[result,saved.worksheet.yearEnd],[previous,prior?.worksheet?.yearEnd]] as const){
+      if(!r)continue;
+      for(const entity of r.entities){
+        const rows=entity.deferred.map(row=>({label:row.description,cells:[value(row.openingTax),row.allocation==='profit'?row.movement:0,row.allocation==='oci'?row.movement:0,row.allocation==='equity'?row.movement:0,row.closing]}));
+        if(entity.lossOpening||entity.lossClosing)rows.push({label:'Tax losses',cells:[-entity.lossOpening,-entity.lossClosing+entity.lossOpening,0,0,-entity.lossClosing]});
+        if(rows.length)deferredTables.push({title:entity.name+' — deferred tax '+period,reference:'Liabilities positive; assets in brackets. Tax-base and recovery evidence is retained in the tax workpaper.',columns:['Opening','Profit or loss','OCI','Direct equity','Closing'],rows});
+      }
+    }
+    set('notesDeferredTaxLiability','temporary','Deferred tax is analysed by type of temporary difference for both periods. Movements are allocated to profit or loss, OCI or direct equity as shown. Current presented deferred tax assets '+money(result.dta)+' and liabilities '+money(result.dtl)+' apply the documented same-taxpayer offset criteria; different taxable entities are not offset.');
+    next.disclosureContent.notesDeferredTaxLiability.temporary.tables=deferredTables;
+    if (!next.disclosureContent?.notesDeferredTaxLiability?.recovery?.text?.trim()) set('notesDeferredTaxLiability', 'recovery', saved.worksheet.entities.map((entity: any) => entity.name + ': ' + (entity.lossDtaEvidence || 'Recognised deductible differences and their recovery evidence are listed individually above.') + (entity.deferredOffsetConfirmed ? ' ' + entity.deferredOffsetEvidence : '')).join('\n\n') + ' Deferred tax uses the enacted rates expected on recovery or settlement; recognition is supported in the retained workpaper.');
     if (previous) {
         next.deferredTaxReconciliation = { priorOpening: previous.entities.reduce((n, row) => n + row.openingNet, 0), priorMovement: previous.deferredProfit + previous.deferredOci + previous.deferredEquity };
     }

@@ -1,6 +1,7 @@
+import { disclosureTableComplete, type DisclosureTable } from "./disclosureTableData";
 import type { StandardsContext } from "./afsStandardsCoverage";
 export type DisclosureField = {id:string;label:string;prompt:string;conditional:boolean};
-export type DisclosureEntry = {text?:string;notApplicable?:boolean;reason?:string;context?:string;requiresReview?:boolean;reviewReason?:string};
+export type DisclosureEntry = {text?:string;notApplicable?:boolean;reason?:string;context?:string;requiresReview?:boolean;reviewReason?:string;tables?:DisclosureTable[]};
 export const disclosureContext=(context:StandardsContext)=>context.framework === "full"?"full":`${context.framework}:${context.edition}`;
 export const NOTE_DISCLOSURE_FIELDS:Record<string,DisclosureField[]> = {
   "notesPropertyPlantEquipment": [
@@ -932,7 +933,7 @@ export function fieldComplete(field:DisclosureField,entry:DisclosureEntry|undefi
  if(entry?.requiresReview) return false;
  if(context && entry?.context !== disclosureContext(context)) return false;
  if(entry?.notApplicable) return field.conditional && supportedDisclosureText(entry.reason).length>=12;
- return supportedDisclosureText(entry?.text).length>=12;
+ return supportedDisclosureText(entry?.text).length>=12 && (!entry?.tables || (Array.isArray(entry.tables) && entry.tables.every(disclosureTableComplete)));
 }
 export function noteDisclosureIssues(notes:readonly {key:string;optionKey:string;defaultTitle?:string;title?:string}[],options:Record<string,any>,state:Record<string,any>,context:StandardsContext) {
  const entries=state.disclosureContent||{};

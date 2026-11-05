@@ -5971,6 +5971,8 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
                   ? "Member loans"
                   : section.key === "notesShareholdersLoans" && effectiveIsTrust
                     ? "Trustee loans"
+                    : section.key === "notesOtherFinancialLiabilities" && trialBalanceLines.some((line:any)=>line.mapping_code==="590.20" && (Number(line.current_year_balance)||Number(line.prior_year_balance)))
+                      ? "Other liabilities"
                     : section.key === "notesCashUsedInOperations"
                   ? "Cash generated from operations"
                   : section.key === "notesDeferredTaxLiability"

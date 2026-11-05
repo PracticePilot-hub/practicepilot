@@ -1,4 +1,5 @@
 "use client";
+import AfsDisclosureTables from "./AfsDisclosureTables";
 import { disclosureContext, disclosureFields, fieldComplete, supportedDisclosureText } from "./afsNoteDisclosureRequirements";
 import { getStandardsReference, standardsContext } from "./afsStandardsCoverage";
 
@@ -19,11 +20,13 @@ export default function AfsNoteDisclosureContent({sectionKey,edit,state,setup,up
      {entry.requiresReview&&<p style={{color:"#9f1239",fontSize:11}}>Sourced draft: {entry.reviewReason || "Complete the entity-specific information before finalisation."}</p>}
      <label htmlFor={id}>{entry.notApplicable?"Reason (Work only)":"Wording included in the AFS"}</label>
      <textarea id={id} aria-label={`${field.label} — ${sectionKey}`} value={entry.notApplicable?entry.reason||"":entry.text||""} onChange={e=>update(["disclosureContent",sectionKey,field.id],{...entry,requiresReview:false,[entry.notApplicable?"reason":"text"]:e.target.value,context:disclosureContext(context)})} style={{display:"block",boxSizing:"border-box",width:"100%",minHeight:85,fontSize:11,padding:7}}/>
+     <button type="button" onClick={()=>update(["disclosureContent",sectionKey,field.id],{...entry,tables:[...(entry.tables||[]),{title:field.label,columns:["Current year","Prior year"],rows:[{label:"Description",cells:[0,0]}]}],requiresReview:false,context:disclosureContext(context)})}>Add disclosure table</button>
+     <AfsDisclosureTables tables={entry.tables||[]} edit onChange={tables=>update(["disclosureContent",sectionKey,field.id],{...entry,tables,requiresReview:false,context:disclosureContext(context)})}/>
      {!fieldComplete(field,entry,context)&&<p style={{color:"#9f1239",fontSize:10}}>Financial-statement wording or a supported conditional exclusion is still required.</p>}
    </fieldset>})}
  </details>;
  return <div data-afs-disclosure-content={sectionKey}>
    {customText?.trim()?paragraphs(customText):null}
-   {fields.map(field=>{const entry=entries[field.id];const text=entry?.notApplicable || entry?.context !== disclosureContext(context)?"":supportedDisclosureText(entry?.text);return text?<div key={field.id}><h3 style={{fontSize:"inherit",fontWeight:600,margin:"8px 0 3px",breakAfter:"avoid"}}>{field.label}</h3>{paragraphs(text)}</div>:null;})}
+   {fields.map(field=>{const entry=entries[field.id];const text=entry?.notApplicable || entry?.context !== disclosureContext(context)?"":supportedDisclosureText(entry?.text); const existing=sectionKey==="notesGoingConcern"?(field.id==="assessment"?state.goingConcernAssessment?.forecast:field.id==="basis"?state.goingConcernAssessment?.conclusion:undefined):sectionKey==="notesRelatedParties"&&field.id==="population"?state.relatedPartyDisclosure?.controlText:undefined; if(existing&&String(existing).trim()===text.trim()&&!entry?.tables?.length)return null;return text?<div key={field.id}><h3 style={{fontSize:"inherit",fontWeight:600,margin:"8px 0 3px",breakAfter:"avoid"}}>{field.label}</h3>{paragraphs(text)}<AfsDisclosureTables tables={entry.tables||[]}/></div>:null;})}
  </div>;
 }

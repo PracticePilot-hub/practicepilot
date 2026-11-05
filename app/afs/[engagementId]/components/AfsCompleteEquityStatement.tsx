@@ -2,7 +2,7 @@ import { buildAfsPrintStatementEngine, type AfsPrintStatementEngineResult } from
 
 type Amount = number | null;
 const keys = ["shareCapital", "retainedIncome", "reserves", "nonControllingInterests", "otherEquity"] as const;
-const captions = ["Share capital", "Retained income / (loss)", "Reserves", "Non-controlling interests", "Other equity"];
+const captions = ["Contributed equity", "Retained income / (loss)", "Reserves", "Non-controlling interests", "Other equity"];
 
 // The active TB already supplies the comparative closing year. A historical
 // opening year plus that comparative is sufficient; a duplicate history import
@@ -25,7 +25,7 @@ export function withComparativeHistory(history: any[], lines: any[], yearEnd: st
   }))];
 }
 
-export function buildEquityMovementTable(engine: AfsPrintStatementEngineResult, history: any[] = [], transactions: {label:string;side:"current"|"prior";amounts:number[]}[] = [], attribution:Record<string,any> = {}) {
+export function buildEquityMovementTable(engine: AfsPrintStatementEngineResult, history: any[] = [], transactions: {label:string;side:"current"|"prior";amounts:number[];mappingAmounts?:Record<string,number>}[] = [], attribution:Record<string,any> = {}) {
   const total = (key: keyof AfsPrintStatementEngineResult["noteData"], side: "current" | "prior") =>
     (engine.noteData[key] || []).reduce((sum, row) => sum + Number(row[side] || 0), 0);
   const balance = (side: "current" | "prior") => keys.map(key => total(key, side));
@@ -57,11 +57,13 @@ export function buildEquityMovementTable(engine: AfsPrintStatementEngineResult, 
       { label: "Balance at beginning of prior year", amounts: opening, strong: true },
       { label: "Profit / (loss) for prior year", amounts: profitPrior },
       { label: "Other comprehensive income for prior year", amounts: ociPrior },
+      { label: "Total comprehensive income for prior year", amounts: profitPrior.map((v,i)=>v+ociPrior[i]), strong:true },
       ...ownerRows("prior"),
       { label: "Unclassified equity movements", amounts: remaining("prior",prior,opening,profitPrior,ociPrior), unclassified:true },
       { label: "Balance at end of prior year", amounts: prior, strong: true },
       { label: "Profit / (loss) for current year", amounts: profitCurrent },
       { label: "Other comprehensive income for current year", amounts: ociCurrent },
+      { label: "Total comprehensive income for current year", amounts: profitCurrent.map((v,i)=>v+ociCurrent[i]), strong:true },
       ...ownerRows("current"),
       { label: "Unclassified equity movements", amounts: remaining("current",current,prior,profitCurrent,ociCurrent), unclassified:true },
       { label: "Balance at end of current year", amounts: current, strong: true },
@@ -69,7 +71,7 @@ export function buildEquityMovementTable(engine: AfsPrintStatementEngineResult, 
   };
 }
 
-export default function AfsCompleteEquityStatement({engine, history, transactions=[], attribution={}}: {engine: AfsPrintStatementEngineResult; history: any[]; transactions?:{label:string;side:"current"|"prior";amounts:number[]}[];attribution?:Record<string,any>}) {
+export default function AfsCompleteEquityStatement({engine, history, transactions=[], attribution={}, lines=[], state={}}: {engine: AfsPrintStatementEngineResult; history: any[]; transactions?:{label:string;side:"current"|"prior";amounts:number[]}[];attribution?:Record<string,any>;lines?:any[];state?:Record<string,any>}) {
   const {rows, visible} = buildEquityMovementTable(engine, history,transactions,attribution);
   const amount = (value: Amount) => value === null ? "Not provided" : value === 0 ? "–" :
     (value < 0 ? `(${Math.abs(Math.round(value)).toLocaleString("en-ZA")})` : Math.round(value).toLocaleString("en-ZA"));

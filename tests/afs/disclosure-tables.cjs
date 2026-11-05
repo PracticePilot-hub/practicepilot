@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict'),{load,r}=require('./load.cjs');
+const p='app/afs/[engagementId]/',d=load(p+'print-studio/disclosureTableData.ts'),requirements=load(p+'print-studio/afsNoteDisclosureRequirements.ts');
+const table={title:'Allowance reconciliation',columns:['2026','2025'],rows:[{label:'Opening',cells:[210,200]},{label:'Charge',cells:[10,10]},{label:'Closing',cells:[220,210]}]};
+assert(d.disclosureTableComplete(table));for(const bad of [null,{...table,rows:[]},{...table,rows:[{label:'Closing',cells:[220]}]},{...table,rows:[{label:'Closing',cells:[null,210]}]},{...table,rows:[{label:'Closing',cells:[NaN,210]}]}])assert(!d.disclosureTableComplete(bad));
+assert.equal(d.disclosureCell(-.1),'–');assert.equal(d.disclosureCell(-220),'(220)');
+const field={id:'test',label:'Test',prompt:'',conditional:false},context={framework:'full',edition:'2025'};
+assert(requirements.fieldComplete(field,{context:'full',text:'Supported disclosure.',tables:[table]},context));assert(!requirements.fieldComplete(field,{context:'full',text:'Supported disclosure.',tables:[{...table,rows:[]}]},context));
+const React=r('react'),render=r('react-dom/server').renderToStaticMarkup,Tables=load(p+'print-studio/AfsDisclosureTables.tsx').default;
+const output=render(React.createElement(Tables,{tables:[{...table,title:'<script>bad()</script>'}]}));assert(output.includes('<thead>'));assert(output.includes('&lt;script&gt;'));assert(!output.includes('<input'));assert(!output.includes('<script>'));
+const eq=load(p+'components/afsEquityComponents.ts');
+const lines=[{mapping_code:'805.10',mapping_label:'Ordinary shares',current_year_balance:-100,prior_year_balance:-100},{mapping_code:'820.40',mapping_label:'Hedge reserve',current_year_balance:-40,prior_year_balance:-30},{mapping_code:'797.40',current_year_balance:-10,prior_year_balance:-10},{mapping_code:'420.10',current_year_balance:150,prior_year_balance:140}];
+const history=[{mapping_code:'820.40',closing_balance:-30,financial_year_end:'2024-02-29'},{mapping_code:'805.10',closing_balance:-100,financial_year_end:'2024-02-29'},{mapping_code:'820.40',closing_balance:-30,financial_year_end:'2025-02-28'}];
+let tables=eq.equityComponentTables(lines,history,{ociReserveAllocation:{'797.40':'820.40'}});assert.equal(tables[1].rows[0].cells.at(-1),40);assert.equal(tables[3].rows[0].cells.at(-1),50);assert(!tables[3].columns.includes('Unclassified movements'));
+lines[1].current_year_balance=-45;lines[3].current_year_balance=155;tables=eq.equityComponentTables(lines,history,{ociReserveAllocation:{'797.40':'820.40'}});assert(tables[3].columns.includes('Unclassified movements'));assert.equal(tables[3].rows[0].cells[2],0);assert.equal(tables[3].rows[0].cells[3],5);
+console.log('PASS disclosure tables reject incomplete/non-finite data, escape content, repeat semantic headers, and equity residuals are never labelled as owner movements.');
