@@ -79,8 +79,8 @@ export default function AfsCompleteEquityStatement({engine, history, transaction
     <h1 style={{fontSize:18,margin:"0 0 14px"}}>Statement of Changes in Equity</h1>
     <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",fontSize:9}}>
       <thead><tr><th style={{textAlign:"left",width:"30%",padding:"5px 2px"}}>Figures in Rand</th>
-        {captions.map((caption,i) => visible[i] && <th key={caption} style={{textAlign:"right",padding:"5px 2px"}}>{caption}</th>)}
-        <th style={{textAlign:"right",padding:"5px 2px"}}>Total equity</th></tr></thead>
+        {captions.map((caption,i) => visible[i] && <th key={caption} style={{textAlign:"right",padding:"5px 4px",whiteSpace:"normal",overflowWrap:"anywhere",verticalAlign:"bottom",lineHeight:1.25}}>{caption}</th>)}
+        <th style={{textAlign:"right",padding:"5px 4px",whiteSpace:"normal",verticalAlign:"bottom"}}>Total equity</th></tr></thead>
       <tbody>{rows.filter(row=>!row.unclassified||row.amounts.some(value=>value===null||Math.abs(value)>0.005)).map((row,index) => <tr key={index} style={{fontWeight:row.strong ? 700 : 400}}>
         <td style={{padding:"5px 2px"}}>{row.label}</td>
         {row.amounts.map((value,i) => visible[i] && <td key={i} style={{textAlign:"right",padding:"5px 2px",borderTop:row.strong ? "1px solid #111827" : undefined}}>{amount(value)}</td>)}
