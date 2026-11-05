@@ -33,6 +33,7 @@ import AfsStatementTable, {
 import AfsDirectorsReportSettings from "../components/AfsDirectorsReportSettings";
 import AfsEditableDisclosureSettings from "../components/AfsEditableDisclosureSettings";
 import AfsStatementOverrideSettings from "../components/AfsStatementOverrideSettings";
+import { ppeWorkScheduleIssues } from "./afsWorkScheduleIssues";
 import AfsStructuredNotesPanel, { reviewPpeNote } from "./AfsStructuredNotesPanel";
 
 import AfsFlightDeck, {
@@ -4220,8 +4221,9 @@ const renderedSfpBalanceDifference = useMemo(() => {
 const flightDeckIssues = useMemo(() => {
   const issues = buildAfsFlightDeckIssuesFromEngine(statementEngine);
   const context = standardsContext(clientSetup);
+  issues.push(...ppeWorkScheduleIssues(reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory)));
   for (const row of reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory)) {
-    if (row.difference === null || Math.abs(row.difference) > 0.005 || row.openingConflict || row.invalid) issues.push({id:`work-movement-${row.sectionKey}-${row.id}-${row.side}`,severity:"caution",title:`${row.label}: ${row.side} Work schedule`,message: row.invalid ? "Invalid amount in the movement schedule." : row.difference === null ? "Comparative opening is not supplied; zero is not assumed." : `Closing balance less opening and recorded changes leaves an unexplained difference of ${row.difference.toLocaleString("en-ZA")}.${row.openingConflict ? " The saved opening also conflicts with the source history." : ""} Classify only from supporting evidence.`,target:"notes",targetLabel:"Work schedules"});
+    if (row.difference === null || Math.abs(row.difference) > 0.005 || row.openingConflict || row.invalid) issues.push({id:`work-movement-${row.sectionKey}-${row.id}-${row.side}`,severity:"critical",title:`${row.label}: ${row.side} Work schedule`,message: row.invalid ? "Invalid amount in the movement schedule." : row.difference === null ? "Comparative opening is not supplied; zero is not assumed." : `Closing balance less opening and recorded changes leaves an unexplained difference of ${row.difference.toLocaleString("en-ZA")}.${row.openingConflict ? " The saved opening also conflicts with the source history." : ""} Classify only from supporting evidence.`,target:"notes-work",targetLabel:"Notes → Work"});
   }
 
   if(automaticCash.sources.length && !automaticCash.reviewed) issues.push({id:"automatic-cash-review",severity:"caution",title:"Review calculated cash movements",message:"Interest, tax or net loan cash movements were calculated from the mapped balances. Check non-cash changes and gross movements in Cash Flow Work.",target:"cash-flow-work",targetLabel:"Cash Flow Work"});
@@ -7215,6 +7217,11 @@ return Math.max(
           <AfsFlightDeck
             issues={flightDeckIssues}
             onJump={(target) => {
+              if (target === "notes-work") {
+                window.dispatchEvent(new CustomEvent("afs-notes-mode-change", {detail:"edit"}));
+                goToSection("notes");
+                return;
+              }
               if (target === "cash-flow-work") {
                 setCashFlowViewMode("work");
                 goToSection("cash-flow");

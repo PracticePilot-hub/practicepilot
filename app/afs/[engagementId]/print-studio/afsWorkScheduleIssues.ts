@@ -1,0 +1,5 @@
+import type {AfsFlightDeckIssue} from './AfsFlightDeck';
+type PpeReview={label:string;side:string;costDifference:number;depDifference:number;openingMissing?:boolean;openingConflict?:boolean;invalid?:boolean};
+export function ppeWorkScheduleIssues(rows:PpeReview[]):AfsFlightDeckIssue[]{
+ return rows.map((row,index)=>({id:`ppe-work-${row.side}-${index}`,severity:'critical',title:`${row.label}: ${row.side==='prior'?'prior year':'current year'} asset movements`,message:row.invalid?'An asset movement contains an invalid amount. Open Notes → Work and correct the entry.':row.openingMissing?'The opening asset balances are missing. Open Notes → Work and reconcile the opening cost and accumulated depreciation to the historical trial balance.':`Open Notes → Work and reconcile this asset class. Unexplained cost movement: R${row.costDifference.toLocaleString('en-ZA')}; accumulated depreciation / impairment: R${row.depDifference.toLocaleString('en-ZA')}.${row.openingConflict?' The captured opening also differs from the historical trial balance.':''}`,target:'notes-work',targetLabel:'Notes → Work'}));
+}
