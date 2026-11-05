@@ -68,10 +68,18 @@ export function aggregateRelatedPartyDisclosureRows(rows:readonly any[]) {
   }
   return [...groups.values()];
 }
+/** An SME total can be derived from a complete captured breakdown; missing data is never zero-filled. */
+export function completeRelatedPartyKmp(meta:Record<string,any>):Record<string,any>{
+ const keys=["shortTerm","postEmployment","otherLongTerm","termination","shareBased"],kmp={...(meta.kmp||{})};
+ if(keys.every(key=>["current","prior"].every(side=>String(kmp[key]?.[side]??"").trim()!==""&&Number.isFinite(Number(kmp[key][side]))))){
+  const total={...(kmp.total||{})};for(const side of ["current","prior"])if(String(total[side]??"").trim()==="")total[side]=keys.reduce((n,key)=>n+Number(kmp[key][side]),0);kmp.total=total;
+ }
+ return {...meta,kmp};
+}
 export function relatedPartyReviewIssues(state: Record<string, any>, lines: readonly any[], framework: "smes" | "full") {
   const links = normaliseRelatedPartyAccountLinks(state.relatedPartyAccounts || [],lines);
   const manual = Array.isArray(state.relatedPartyRows) ? state.relatedPartyRows : [];
-  const meta = state.relatedPartyDisclosure || {};
+  const meta = completeRelatedPartyKmp(state.relatedPartyDisclosure || {});
   const issues: string[] = [];
   if(links.some(link=>lines.filter(line=>relatedPartyAccountKey(line)===link.accountKey).length>1))issues.push("A related-party account code occurs more than once in the TB; consolidate or distinguish those accounts before linking a whole balance.");
   if (relatedPartyCandidates(lines).some(line => !links.some(link => link.accountKey === relatedPartyAccountKey(line))))

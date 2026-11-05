@@ -1,4 +1,5 @@
 "use client";
+import {policyFrameworkIssues} from "./afsPolicyFrameworkReview";
 import { automaticCashDraft } from "./afsAutomaticCashDraft";
 import { paginateSfpRows } from "./afsStatementPagination";
 import {distinctPolicySections} from './afsPolicyPresentation';
@@ -3893,6 +3894,10 @@ useEffect(() => {
         };
       }
 
+      if (section.key === "notesRightOfUseAssets" && standardsContext(clientSetup).framework === "smes") {
+        return {...section, label:"Finance-leased assets",title:"Finance-leased assets",defaultTitle:"Finance-leased assets"};
+      }
+
       if (section.key === "notesOtherInvestments") {
         return {
           ...section,
@@ -4178,7 +4183,7 @@ const applyEntityPresentationToRows = (rows: AfsStatementRow[]) =>
 
     return {
       ...row,
-      label: ccStatementRowLabel(entityLabel),
+      label: ccStatementRowLabel(standardsContext(clientSetup).framework === "smes" && entityLabel === "Right-of-use assets" ? "Finance-leased assets" : entityLabel),
     };
   });
 
@@ -4223,6 +4228,7 @@ const renderedSfpBalanceDifference = useMemo(() => {
 const flightDeckIssues = useMemo(() => {
   const issues = buildAfsFlightDeckIssuesFromEngine(statementEngine);
   const context = standardsContext(clientSetup);
+  for(const item of policyFrameworkIssues(accountingPolicySections,reportOptions,activeAccountingPolicyTexts,context))issues.push({id:`policy-framework-${item.key}`,severity:"critical",title:"Review saved accounting policy",message:item.message,target:"policies",targetLabel:"Open Policies"});
   issues.push(...ppeWorkScheduleIssues(reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory)));
   for (const row of reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory)) {
     if (row.difference === null || Math.abs(row.difference) > 0.005 || row.openingConflict || row.invalid) issues.push({id:`work-movement-${row.sectionKey}-${row.id}-${row.side}`,severity:"critical",title:`${row.label}: ${row.side} Work schedule`,message: row.invalid ? "Invalid amount in the movement schedule." : row.difference === null ? "Comparative opening is not supplied; zero is not assumed." : `Closing balance less opening and recorded changes leaves an unexplained difference of ${row.difference.toLocaleString("en-ZA")}.${row.openingConflict ? " The saved opening also conflicts with the source history." : ""} Classify only from supporting evidence.`,target:"notes-work",targetLabel:"Notes → Work"});
@@ -4256,7 +4262,7 @@ const flightDeckIssues = useMemo(() => {
 
     return !isStatementOfFinancialPositionIssue;
   });
-}, [statementEngine, renderedSfpBalanceDifference, clientSetup, trialBalanceLines, reportOptions, effectiveStructuredNotesState, taxCalculation, comparativeHistory, automaticCash]);
+}, [statementEngine, renderedSfpBalanceDifference, clientSetup, trialBalanceLines, reportOptions, effectiveStructuredNotesState, taxCalculation, comparativeHistory, automaticCash, activeAccountingPolicyTexts]);
 
   function consolidateDetailedIncomeRows(rows: AfsStatementRow[]) {
     const result: AfsStatementRow[] = [];

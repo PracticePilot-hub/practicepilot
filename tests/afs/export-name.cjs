@@ -1,3 +1,5 @@
 const {load}=require('./load.cjs'),assert=require('node:assert/strict');const {afsExportIdentity}=load('app/afs/afsExportIdentity.ts');for(const entityName of ['2-Ouks Property Trust','Example NPC','Example CC','Highveld Office Solutions (Pty) Ltd'])assert.equal(afsExportIdentity({entityName,yearEnd:'28 February 2026'}).entityName,entityName);assert.throws(()=>afsExportIdentity({entityName:'',yearEnd:'2026-02-28'}));console.log('PASS explicit names preserved for trust, NPC, CC and company; missing name fails safely.');
 
 assert.equal(afsExportIdentity({entityName:'2-Ouks Property Trust',yearEnd:'Trust · Financial year end 28 February 2026'}).yearEnd,'28 February 2026');
+
+const {afsPdfDownloadHeaders}=load('app/afs/afsExportIdentity.ts');const unicodeName='Élan — Trust (日本).pdf',headers=afsPdfDownloadHeaders('Élan — Trust',unicodeName);assert.doesNotThrow(()=>new Headers(headers));assert(headers['Content-Disposition'].includes('filename*=UTF-8'));assert(headers['Content-Disposition'].includes(encodeURIComponent('日本')));assert(!/[^\x20-\x7E]/.test(headers['X-AFS-PDF-Title']));

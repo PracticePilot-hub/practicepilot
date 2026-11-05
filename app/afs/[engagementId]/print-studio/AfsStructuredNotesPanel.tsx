@@ -1,4 +1,5 @@
 "use client";
+import {frameworkLeaseLabel} from "./afsPolicyFrameworkReview";
 import {reportingTaxRate} from '../tax/taxEntityRates';
 
 import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePresentation";
@@ -6,7 +7,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
   import { TAX_RECONCILING_ITEMS } from "./afsTaxReconciliation";
   import AfsNoteDisclosureContent from "./AfsNoteDisclosureContent";
   import AfsRelatedPartyAccountEditor from "./AfsRelatedPartyAccountEditor";
-  import { relatedPartyDisclosureRows, aggregateRelatedPartyDisclosureRows, RELATED_PARTY_CATEGORIES } from "./afsRelatedPartyDisclosure";
+  import { completeRelatedPartyKmp, relatedPartyDisclosureRows, aggregateRelatedPartyDisclosureRows, RELATED_PARTY_CATEGORIES } from "./afsRelatedPartyDisclosure";
   import { historicalMovementOpening } from "./afsMovementReview";
   import { getStandardsReference, standardsContext } from "./afsStandardsCoverage";
   import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -1577,7 +1578,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
         row?.commitments,
       ].some((value) => String(value ?? "").trim());
 
-    const meta = {...(state.relatedPartyDisclosure || {}),kmp:{...(state.relatedPartyDisclosure?.kmp || {})}};
+    const meta = completeRelatedPartyKmp(state.relatedPartyDisclosure || {});
     const framework = standardsContext(clientSetup).framework === "full" ? "full" : "smes";
     const disclosedRows = relatedPartyDisclosureRows(rows, state.relatedPartyAccounts || [], trialBalanceLines);
     const displayRows = edit
@@ -5807,11 +5808,12 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
               }else mappedDetails=[...mappedDetails,{id:"oci-reserve-transfer",label:"Unallocated OCI reserve movement — review required",current,prior}];
             }
           }
-          const rows = mappedDetails.length > 0
+          const rawRows = mappedDetails.length > 0
             ? mappedDetails
             : splitRows(engineRows).length > 0
               ? engineRows
               : mappedNoteFallbackRows(section.key, trialBalanceLines);
+          const rows = section.key === "notesRightOfUseAssets" ? rawRows.map((row:any)=>({...row,label:frameworkLeaseLabel(row.label,standardsContext(clientSetup))})) : rawRows;
 
           const goingConcernHasContent = Object.values(
             state.goingConcernAssessment || {},
@@ -5955,7 +5957,8 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
         ) : null}
 
         {sectionsWithNumbers.map(({ section, active, noteNumber, rows }) => {
-          const title = noteTitle(section, activeNoteTexts, defaultNoteTexts);
+          const rawTitle = noteTitle(section, activeNoteTexts, defaultNoteTexts);
+          const title = section.key === "notesRightOfUseAssets" ? frameworkLeaseLabel(rawTitle,standardsContext(clientSetup)) : rawTitle;
           const rawCustomText=String(activeNoteTexts?.[section.key]?.text || "").trim();
           const oldDefault=String(defaultNoteTexts?.[section.key]?.text || "").trim();
           const customText = rawCustomText && rawCustomText !== oldDefault

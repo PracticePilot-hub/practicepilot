@@ -17,3 +17,10 @@ export function afsExportIdentity(input: {
   }
   return { entityName, yearEnd };
 }
+
+/** HTTP header values must be ASCII; filename* retains the actual Unicode entity name. */
+export function afsPdfDownloadHeaders(title:string,filename:string){
+  const ascii=(value:string)=>value.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[\u2010-\u2015]/g,'-').replace(/[^\x20-\x7E]/g,'_').replace(/["\\]/g,'_');
+  const encoded=encodeURIComponent(filename).replace(/['()*]/g,char=>'%'+char.charCodeAt(0).toString(16).toUpperCase());
+  return {'Content-Disposition':`attachment; filename="${ascii(filename)}"; filename*=UTF-8''${encoded}`,'X-AFS-PDF-Title':ascii(title)};
+}

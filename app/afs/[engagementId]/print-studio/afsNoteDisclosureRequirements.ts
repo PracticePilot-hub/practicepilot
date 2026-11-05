@@ -923,7 +923,18 @@ Object.assign(NOTE_DISCLOSURE_FIELDS, {
 });
 export const POLICY_DISCLOSURE_KEYS=["policyBasisPreparation","policyJudgementsEstimates","policyShareBasedPayments","policyForeignCurrency"];
 export function disclosureFields(key:string, context:StandardsContext):DisclosureField[] {
-  return (NOTE_DISCLOSURE_FIELDS[key] || []).map(field=>({...field,prompt:field.prompt}));
+  const fields=(NOTE_DISCLOSURE_FIELDS[key] || []).map(field=>({...field}));
+  if(context.framework !== "smes") return fields;
+  if(key === "notesTradeReceivables") fields.find(field=>field.id === "allowance")!.prompt = "Apply the selected Section 11 model: objective evidence of incurred impairment, gross balances, recognised losses/reversals and supporting estimates. Do not assume IFRS 9 expected credit losses. Under the 2025 edition also disclose financial assets aged by contractual due date.";
+  if(key === "notesGoodwill") fields.find(field=>field.id === "acquisition")!.prompt = context.edition === "2025" ? "Apply revised Section 19: acquisition method, consideration and NCI measurement, expense acquisition-related costs except issue costs, and disclose current combinations/contingent consideration where applicable." : "Apply 2015 Section 19: purchase method, combination cost including directly attributable costs, qualifying contingent consideration and required acquisition particulars.";
+  if(key === "notesContractAssets" && context.edition === "2015") fields.find(field=>field.id === "nature")!.prompt = "Describe amounts due from construction/service customers under 2015 Section 23, distinguishing billed receivables and unbilled work; disclose contract costs/profit, advances and retentions where applicable. Do not assert a five-step control model.";
+  if(context.edition === "2025") {
+    if(["notesOtherInvestments","notesOtherFinancialAssets","notesOtherFinancialLiabilities","notesPropertyPlantEquipment","notesInvestmentProperty","notesBiologicalAssets"].includes(key)) fields.push({id:"fairValue",label:"Fair value by class",prompt:"Section 12.28–12.32: provide a table of closing fair values by class, hierarchy levels and Level 2/3 techniques and inputs. For recurring Level 3 disclose gains/losses in profit or loss and OCI. Explain a supported exclusion if no asset/liability in this note is measured at fair value.",conditional:true});
+    if(key === "notesOtherFinancialAssets") fields.push({id:"aging",label:"Financial-asset due-date analysis",prompt:"Section 11.43: age financial assets by contractual due date, distinguishing current, past due and impaired classes. Include other receivables and cross-reference trade receivables.",conditional:false});
+    if(key === "notesOtherFinancialLiabilities") fields.push({id:"maturity",label:"Financial-liability maturities",prompt:"Sections 11.43A–11.43B: analyse financial liabilities by category and appropriate maturity bands, distinguishing financial instruments from non-financial obligations.",conditional:false});
+    if(key === "notesRevenue") fields.push({id:"contractDetails",label:"Contract balances, costs and elections",prompt:"Sections 23.83–23.90: opening/closing receivables, contract assets/liabilities, impairment, revenue from opening contract liabilities, progress methods, transaction-price/allocation judgements, fulfilment-cost assets and relevant financing/customer-option elections.",conditional:false});
+  }
+  return fields;
 }
 export function supportedDisclosureText(value:unknown):string {
  const text=String(value??"").trim();

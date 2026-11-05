@@ -1,5 +1,5 @@
 import { existsSync } from "fs";
-import { afsExportIdentity } from "../../../../../afs/afsExportIdentity";
+import { afsExportIdentity, afsPdfDownloadHeaders } from "../../../../../afs/afsExportIdentity";
 import { NextRequest, NextResponse } from "next/server";
 import puppeteer from "puppeteer-core";
 
@@ -482,9 +482,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Length": String(pdfBuffer.byteLength),
-        "Content-Disposition": `attachment; filename="${finalFilename}"; filename*=UTF-8''${encodeURIComponent(finalFilename)}`,
+        ...afsPdfDownloadHeaders(finalTitle,finalFilename),
         "Cache-Control": "no-store, max-age=0",
-        "X-AFS-PDF-Title": finalTitle,
         "X-AFS-PDF-Draft": isDraft ? "true" : "false",
       },
     });
