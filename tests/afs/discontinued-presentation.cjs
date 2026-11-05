@@ -1,0 +1,17 @@
+const assert=require('node:assert/strict'),{load}=require('./load.cjs');
+const engine=load('app/afs/[engagementId]/components/AfsPrintStatementEngine.ts');
+const tax=load('app/afs/[engagementId]/tax/taxComputationRows.ts');
+const lines=[{account_code:'sales',mapping_code:'700.20',current_year_balance:-1000,prior_year_balance:-800},{account_code:'tax',mapping_code:'795.10',current_year_balance:270,prior_year_balance:216},{account_code:'disposed',mapping_code:'799.10',current_year_balance:-73,prior_year_balance:-146}];
+const rows=engine.buildAfsPrintStatementEngine(lines).detailedIncomeRows;
+assert.equal(rows.find(r=>r.id==='detailed-continuing-profit').current,730);
+assert.equal(rows.find(r=>r.id==='detailed-discontinued-operations').current,73);
+assert.equal(rows.find(r=>r.id==='detailed-total').current,803);
+assert.equal(rows.find(r=>r.id==='detailed-total').prior,730);
+assert(!engine.buildAfsPrintStatementEngine(lines.slice(0,2)).detailedIncomeRows.some(r=>r.id==='detailed-discontinued-operations'));
+const result={profit:1000,permanent:0,temporary:0,discontinuedProfit:100,discontinuedTax:27,lossUsed:0,taxable:1100,current:297,deferredProfit:0,prior:0,other:0,taxExpense:270,opening:0,payments:297,currentPayable:0,currentReceivable:0};
+const computation=tax.taxComputationRows(result,lines);
+const allocation=computation.findIndex(r=>r.label==='Less: current tax allocated to discontinued operations');
+assert.equal(computation[allocation].amount,-27);
+assert.equal(computation[allocation-1].amount+computation[allocation].amount,270);
+assert(allocation<computation.findIndex(r=>r.label==='Reconciliation of income tax expense / (credit)'));
+console.log('PASS discontinued result bridges detailed profit in both years; continuing tax allocation is shown as a deduction before the expense reconciliation.');

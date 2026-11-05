@@ -1194,14 +1194,32 @@ function detailedRowsFromLines(
     type: "line",
   });
 
+  const discontinuedTotal = sum(groupedRows.discontinuedOperations);
+  const hasDiscontinued = discontinuedTotal.current !== 0 || discontinuedTotal.prior !== 0;
+  if (hasDiscontinued) {
+    rows.push({
+      id: "detailed-continuing-profit",
+      label: "Profit / (loss) from continuing operations",
+      current: Math.round(beforeTax.current + taxationTotal.current),
+      prior: Math.round(beforeTax.prior + taxationTotal.prior),
+      type: "subtotal",
+    }, {
+      id: "detailed-discontinued-operations",
+      label: "Discontinued operations, net of tax",
+      current: Math.round(discontinuedTotal.current),
+      prior: Math.round(discontinuedTotal.prior),
+      type: "line",
+    });
+  }
+
   rows.push({
     id: "detailed-total",
     label: "Profit / (loss) for the year",
     current: Math.round(
-      beforeTax.current + taxationTotal.current,
+      beforeTax.current + taxationTotal.current + discontinuedTotal.current,
     ),
     prior: Math.round(
-      beforeTax.prior + taxationTotal.prior,
+      beforeTax.prior + taxationTotal.prior + discontinuedTotal.prior,
     ),
     type: "grand-total",
   });
