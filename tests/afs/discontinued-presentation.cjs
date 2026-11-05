@@ -15,3 +15,8 @@ assert.equal(computation[allocation].amount,-27);
 assert.equal(computation[allocation-1].amount+computation[allocation].amount,270);
 assert(allocation<computation.findIndex(r=>r.label==='Reconciliation of income tax expense / (credit)'));
 console.log('PASS discontinued result bridges detailed profit in both years; continuing tax allocation is shown as a deduction before the expense reconciliation.');
+const shared=load('app/afs/[engagementId]/print-studio/AfsSharedStructuredNoteData.ts');
+const liabilities=[{account_code:'general',mapping_code:'550.10',current_year_balance:-1800,prior_year_balance:-1900},{account_code:'derivative',mapping_code:'560.10',current_year_balance:-2000,prior_year_balance:-2000},{account_code:'asset',mapping_code:'550.40',current_year_balance:-3000,prior_year_balance:-3000}];
+const statement=engine.buildAfsPrintStatementEngine(liabilities),detail=shared.buildSharedOtherFinancialLiabilityRows(liabilities,statement.noteData.otherFinancialLiabilities);
+for(const side of ['current','prior'])assert.equal(detail.reduce((n,r)=>n+r[side],0),statement.noteData.otherFinancialLiabilities.reduce((n,r)=>n+r[side],0));
+assert.equal(detail.length,2);console.log('PASS financial liability note includes 550.10 and excludes the dedicated asset-finance family.');

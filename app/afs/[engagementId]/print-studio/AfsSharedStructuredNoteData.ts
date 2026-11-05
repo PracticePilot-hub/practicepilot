@@ -90,6 +90,7 @@ export function isSharedOtherFinancialLiabilityLine(line: any) {
     Other financial liabilities excludes the dedicated borrowing, asset-finance,
     lease, shareholder/group-loan, supplier-finance and overdraft families.
 
+    550.10 = general financial liability (same family as the SFP)
     560 = derivatives / complex non-current financial liabilities
     590 = other non-current liabilities of a financial-liability nature
     625 = current derivative / other financial liabilities
@@ -98,7 +99,7 @@ export function isSharedOtherFinancialLiabilityLine(line: any) {
     !isSharedShareholderLoanLine(line) &&
     !isSharedAssetFinanceLine(line) &&
     !isSharedBankOverdraftLine(line) &&
-    mappingStartsWith(line, ["560", "590", "625"])
+    mappingStartsWith(line, ["550.10", "560", "590", "625"])
   );
 }
 
