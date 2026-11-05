@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict'),{load}=require('./load.cjs'),{notePageCandidate}=load('app/afs/[engagementId]/print-studio/afsNotePagination.ts');
+const candidate=(...args)=>JSON.parse(JSON.stringify(notePageCandidate(...args)));
+const heading={html:'Note heading',heading:true},subheading={html:'Components',heading:true},row=(key,n)=>({table:{key,open:'<table>',head:'<thead/>',row:'row '+n}});
+const units=[heading,subheading,row(1,1),row(1,2),row(1,3)];
+assert.deepEqual(candidate([],units,0),units.slice(0,3));
+assert.deepEqual(candidate([heading],units,1),units.slice(0,3));
+assert.deepEqual(candidate([],units,3),units.slice(3));
+const twoRows=[heading,subheading,row(2,1),row(2,2)];assert.deepEqual(candidate([],twoRows,0),twoRows);
+assert.deepEqual(candidate([], [{html:'final narrative'}],0),[{html:'final narrative'}]);
+console.log('PASS heading chains remain with opening table content; final table rows stay paired; narrative does not need trailing content.');

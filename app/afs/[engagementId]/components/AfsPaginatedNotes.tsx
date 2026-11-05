@@ -1,9 +1,9 @@
 "use client";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import AfsA4Page from "./AfsA4Page";
+import {notePageCandidate,type NotePageUnit as Unit} from "../print-studio/afsNotePagination";
 
 type Header={clientName?:string;registrationNumber?:string|null;yearEndLabel?:string;showReportHeader?:boolean};
-type Unit={html?:string;heading?:boolean;table?:{key:number;open:string;head:string;row:string}};
 function markup(units:Unit[]){
  let out="";
  for(let i=0;i<units.length;i++){
@@ -46,15 +46,15 @@ export default function AfsPaginatedNotes({children,signature,header,onPageCount
      }
      if(['P','H2','H3','H4','UL','OL'].includes(element.tagName)||!Array.from(element.children).some(child=>['DIV','SECTION','TABLE','P','H2','H3','H4'].includes(child.tagName))){
       const clone=element.cloneNode(true) as HTMLElement;if(element===note.querySelector('h2'))clone.setAttribute('data-note-start','true');clone.querySelectorAll('button,input,textarea,select,[data-work-only="true"],.afs-screen-only').forEach(node=>node.remove());
-      if(clone.textContent?.trim()||clone.querySelector('img'))units.push({html:clone.outerHTML,heading:/^H[234]$/.test(element.tagName)});return;
+      if(clone.textContent?.trim()||clone.querySelector('img'))units.push({html:clone.outerHTML,heading:/^H[234]$/.test(element.tagName)||Number(getComputedStyle(element).fontWeight)>=600});return;
      }
      for(const child of Array.from(element.children))walk(child);
     };
     walk(note);
     const continuation=()=>{if(title){const clone=title.cloneNode(true) as HTMLElement;clone.textContent=(clone.textContent||'')+' — continued';clone.setAttribute('data-note-start','true');return {html:clone.outerHTML,heading:true};}return null;};
     for(let i=0;i<units.length;i++){
-     const unit=units[i];const next=units[i+1];const finalTablePair=unit.table&&next?.table?.key===unit.table.key&&units[i+2]?.table?.key!==unit.table.key;
-     const candidate=(unit.heading||finalTablePair)&&next?[...current,unit,units[i+1]]:[...current,unit];
+     const unit=units[i];
+     const candidate=notePageCandidate(current,units,i);
      if(current.length&&!fits(candidate)){
       // A two-row table can move as a pair after its heading fitted alone.
       // Carry that heading forward instead of leaving an orphan at the foot.
