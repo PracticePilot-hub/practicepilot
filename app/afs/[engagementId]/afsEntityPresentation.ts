@@ -1,4 +1,6 @@
 export type AfsEntityPresentation = {
+  isSoleProprietor?: boolean;
+  isPartnership?: boolean;
   isNpc: boolean;
   isTrust: boolean;
   isCloseCorporation?: boolean;
@@ -56,6 +58,16 @@ export function getAfsEntityPresentation(
   const trust = isTrust(entityType);
   const closeCorporation = isCloseCorporation(entityType);
 
+  const sole = /sole (?:proprietor|trader|proprietorship)/.test(cleanEntityType(entityType));
+  const partnership = cleanEntityType(entityType) === 'partnership';
+  if (sole || partnership) return {
+    isNpc:false,isTrust:false,isSoleProprietor:sole,isPartnership:partnership,
+    entityLabel:sole?'Sole Proprietor':'Partnership',incomeStatementTitle:'Statement of Comprehensive Income',incomeStatementShortTitle:'Statement of Comprehensive Income',
+    resultCurrentLabel:'Profit / (loss) for the year',resultPriorLabel:'Profit / (loss) for the prior year',resultGenericLabel:'Profit / (loss)',
+    equityHeading:sole?"Proprietor’s capital":"Partners’ capital",equityStatementTitle:sole?"Statement of Changes in Proprietor’s Capital":"Statement of Changes in Partners’ Capital",
+    accumulatedBalanceLabel:sole?"Proprietor’s current account":"Partners’ current accounts",showShareCapital:true,showShareCapitalPolicy:true,enableRestrictedFunds:false,
+    responsiblePersonsLabel:sole?'Proprietor':'Partners',responsibilitiesTitle:sole?'Proprietor’s Responsibilities and Approval':'Partners’ Responsibilities and Approval',reportTitle:sole?'Proprietor’s Report':'Partners’ Report'
+  };
   if (npc) {
     return {
       isNpc: true,
@@ -70,7 +82,7 @@ export function getAfsEntityPresentation(
       equityStatementTitle: "Statement of Changes in Funds",
       accumulatedBalanceLabel: "Accumulated funds",
       showShareCapital: false,
-      showShareCapitalPolicy: false,
+      showShareCapitalPolicy: true,
       enableRestrictedFunds: true,
       responsiblePersonsLabel: "Directors",
       responsibilitiesTitle: "Directors’ Responsibilities and Approval",
@@ -93,7 +105,7 @@ export function getAfsEntityPresentation(
         "Statement of Changes in Trust Capital and Accumulated Funds",
       accumulatedBalanceLabel: "Accumulated funds",
       showShareCapital: false,
-      showShareCapitalPolicy: false,
+      showShareCapitalPolicy: true,
       enableRestrictedFunds: false,
       responsiblePersonsLabel: "Trustees",
       responsibilitiesTitle: "Trustees’ Responsibilities and Approval",
@@ -114,7 +126,7 @@ export function getAfsEntityPresentation(
       resultGenericLabel: "Profit / (loss)",
       equityHeading: "Members' interest",
       equityStatementTitle: "Statement of Changes in Members' Interest",
-      accumulatedBalanceLabel: "Accumulated loss",
+      accumulatedBalanceLabel: "Retained income / (accumulated loss)",
       showShareCapital: true,
       showShareCapitalPolicy: true,
       enableRestrictedFunds: false,
@@ -152,6 +164,11 @@ export function getAfsEntityRowLabel(
   const original = String(value || "").trim();
   const label = original.toLowerCase();
 
+  if (presentation.isSoleProprietor || presentation.isPartnership) {
+    const p=presentation;
+    const exact:Record<string,string>={equity:p.equityHeading,'equity and liabilities':p.equityHeading+' and liabilities','total equity':'Total '+p.equityHeading.toLowerCase(),'total equity and liabilities':'Total '+p.equityHeading.toLowerCase()+' and liabilities','share capital':p.equityHeading,'share capital / contributions':p.equityHeading,'contributed equity':p.equityHeading,'retained income':p.accumulatedBalanceLabel,'retained income / (loss)':p.accumulatedBalanceLabel,'retained income / (accumulated loss)':p.accumulatedBalanceLabel,'accumulated loss':p.accumulatedBalanceLabel,'shareholder / director / member loans':p.isSoleProprietor?'Proprietor loan':'Partner loans','shareholder loans':p.isSoleProprietor?'Proprietor loan':'Partner loans','dividends paid':p.isSoleProprietor?'Drawings':'Partner drawings'};
+    return exact[label] || original;
+  }
   if (presentation.isNpc) {
     const exact: Record<string, string> = {
       "equity and liabilities": "Funds and liabilities",
@@ -169,6 +186,11 @@ export function getAfsEntityRowLabel(
       "accumulated loss": "Accumulated funds",
       "share capital": "Contributed funds",
       "share capital / contributions": "Contributed funds",
+      "contributed equity":"Contributed funds",
+      "shareholder / director / member loans":"Director loans",
+      "shareholder loans":"Director loans",
+      "retained income / (loss)":"Accumulated funds",
+      "retained income / (accumulated loss)":"Accumulated funds",
     };
 
     if (exact[label]) return exact[label];
@@ -191,6 +213,12 @@ export function getAfsEntityRowLabel(
   if (presentation.isCloseCorporation) {
     const exact: Record<string, string> = {
       "share capital": "Member's contribution",
+      "contributed equity":"Members’ contributions",
+      "equity":"Members’ interest",
+      "total equity":"Total members’ interest",
+      "equity and liabilities":"Members’ interest and liabilities",
+      "total equity and liabilities":"Total members’ interest and liabilities",
+      "dividends paid":"Distributions to members",
       "share capital / contributions": "Member's contribution",
       "members / owners contributions": "Member's contribution",
       "member / owner contributions": "Member's contribution",
@@ -216,6 +244,10 @@ export function getAfsEntityRowLabel(
       "retained income / accumulated loss": "Accumulated funds",
       "accumulated loss": "Accumulated funds",
       "share capital": "Trust capital",
+      "contributed equity":"Trust capital",
+      "retained income / (loss)":"Accumulated funds",
+      "retained income / (accumulated loss)":"Accumulated funds",
+      "dividends paid":"Distributions to beneficiaries",
       "share capital / contributions": "Trust capital",
       "members / owners contributions": "Trust capital",
       "member / owner contributions": "Trust capital",
@@ -236,4 +268,22 @@ export function getAfsEntityRowLabel(
   }
 
   return original;
+}
+/** Legal form changes terminology, never the classification or amount of a ledger balance. */
+export function entityGoverningBasis(entityType:unknown){
+ const p=getAfsEntityPresentation(entityType);
+ return p.isTrust?'the trust deed and the Trust Property Control Act 57 of 1988, as amended':p.isCloseCorporation?'the Close Corporations Act 69 of 1984, as amended':p.isPartnership?'the partnership agreement and applicable legislation':p.isSoleProprietor?'applicable legislation and the proprietor’s reporting responsibilities':'the Companies Act 71 of 2008, as amended';
+}
+export function entityCapitalTitle(entityType:unknown){const p=getAfsEntityPresentation(entityType);return p.isNpc?'Contributed funds':p.isTrust?'Trust capital':p.isCloseCorporation?'Members’ contributions':p.isSoleProprietor||p.isPartnership?p.equityHeading:'Share capital';}
+
+export function entityDisclosureFieldLabel(sectionKey:string,fieldId:string,label:string,entityType:unknown){
+ const p=getAfsEntityPresentation(entityType);
+ if(sectionKey==='notesShareCapital'&&(p.isNpc||p.isTrust||p.isCloseCorporation||p.isSoleProprietor||p.isPartnership))return fieldId==='classes'?'Capital, ownership and rights':fieldId==='own'?'Distributions and restrictions':label;
+ return label;
+}
+export function entityPolicyTexts(texts:Record<string,any>,defaults:Record<string,any>,entityType:unknown){
+ const p=getAfsEntityPresentation(entityType);if(!p.isNpc&&!p.isTrust&&!p.isCloseCorporation&&!p.isSoleProprietor&&!p.isPartnership)return texts;
+ const out={...texts},key='policyShareCapitalEquity';
+ if(out[key]&&out[key].text===defaults[key]?.text)out[key]={...out[key],title:entityCapitalTitle(entityType),text:'Capital and residual funds are classified as equity only where their contractual substance creates no obligation to deliver cash or another financial asset. Repayable balances are liabilities. Contributions, drawings or distributions and transfers between funds are reconciled separately from income and expense. Transfers between equity funds do not create cash flows or income.'};
+ return out;
 }

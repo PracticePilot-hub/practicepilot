@@ -1,8 +1,12 @@
 import { noteDisclosureIssues } from "./afsNoteDisclosureRequirements";
 /** Source links and review coverage; selection is not compliance certification. */
 export type StandardsContext = {framework:"smes"|"full"|"unknown"; edition:"2015"|"2025"};
+/** Use the persisted Client Setup selection; other fields are API/legacy aliases. */
+export function reportingFramework(setup:Record<string,any>|null|undefined){
+ return String(setup?.basis_of_preparation || setup?.financial_reporting_framework || setup?.reporting_framework || setup?.accounting_framework || setup?.framework || '').trim();
+}
 export function standardsContext(setup: Record<string,any> | null | undefined): StandardsContext {
-  const value = String(setup?.financial_reporting_framework || setup?.reporting_framework || setup?.accounting_framework || setup?.framework || "").toLowerCase().trim();
+  const value = reportingFramework(setup).toLowerCase();
   return {framework: value.includes("smes") || value.includes("small and medium") ? "smes" : /^(full ifrs|ifrs|ifrs accounting standards)$/.test(value) ? "full" : "unknown",edition:setup?.ifrs_smes_edition==="2025"?"2025":"2015"};
 }
 export const SME_SOURCES = {

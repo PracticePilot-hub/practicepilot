@@ -3,6 +3,7 @@
 
 
 import React from "react";
+import {getAfsEntityPresentation,entityGoverningBasis,entityCapitalTitle} from "../afsEntityPresentation";
 
 
 
@@ -173,7 +174,7 @@ function value(context: NarrativeContext, key: string, fallback = "") {
 
 function bodyLabel(context: NarrativeContext) {
 
-  return value(context, "bodyLabel", "directors");
+  return value(context, "bodyLabel", getAfsEntityPresentation(context.entityType).responsiblePersonsLabel.toLowerCase());
 
 }
 
@@ -181,7 +182,7 @@ function bodyLabel(context: NarrativeContext) {
 
 function bodyLabelCapitalised(context: NarrativeContext) {
 
-  return value(context, "bodyLabelCapitalised", "Directors");
+  return value(context, "bodyLabelCapitalised", getAfsEntityPresentation(context.entityType).responsiblePersonsLabel);
 
 }
 
@@ -189,7 +190,7 @@ function bodyLabelCapitalised(context: NarrativeContext) {
 
 function roleLabel(context: NarrativeContext) {
 
-  return value(context, "roleLabel", "Directors");
+  return value(context, "roleLabel", getAfsEntityPresentation(context.entityType).responsiblePersonsLabel);
 
 }
 
@@ -233,17 +234,7 @@ function isNonProfitCompany(context: NarrativeContext) {
 
 
 
-function governingAct(context: NarrativeContext) {
-
-  if (isCloseCorporation(context)) return "the Close Corporations Act of South Africa";
-
-  if (isTrust(context)) return "the applicable trust deed and legislation";
-
-  return "the Companies Act 71 of 2008, as amended";
-
-}
-
-
+function governingAct(context:NarrativeContext){return entityGoverningBasis(context.entityType);}
 
 function frameworkLabel(context: NarrativeContext) {
 
@@ -269,6 +260,8 @@ function singleBodyLabel(context: NarrativeContext) {
 
 
 
+function bodyVerb(context:NarrativeContext,singular:string,plural:string){return getAfsEntityPresentation(context.entityType).isSoleProprietor?singular:plural;}
+
 function tokenise(text: string, context: NarrativeContext) {
 
   return String(text || "")
@@ -276,6 +269,7 @@ function tokenise(text: string, context: NarrativeContext) {
     .replaceAll("{clientName}", value(context, "clientName", "the entity"))
 
     .replaceAll("{yearEnd}", value(context, "yearEnd", "the reporting date"))
+    .replaceAll("{reportingPeriodLabel}", value(context,"reportingPeriodLabel",`year ended ${value(context,"yearEnd","the reporting date")}`))
 
     .replaceAll("{framework}", value(context, "framework", "the applicable financial reporting framework"))
 
@@ -299,7 +293,8 @@ function tokenise(text: string, context: NarrativeContext) {
 
     .replaceAll("{natureOfBusiness}", value(context, "natureOfBusiness", "the principal activities of the entity"))
 
-    .replaceAll("{country}", value(context, "country", "South Africa"));
+    .replaceAll("{country}", value(context, "country", "South Africa"))
+    .replace(/(the proprietor) (are|have|submit)\b/gi,(_match,subject,verb)=>subject+" "+({are:"is",have:"has",submit:"submits"}[String(verb).toLowerCase()]||verb));
 
 }
 
@@ -393,7 +388,7 @@ function defaultText(context: NarrativeContext): DirectorsReportTextOverrides {
 
       title: "Incorporation",
 
-      text: `${client} is incorporated in {country}.`,
+      text: isTrust(context) ? `${client} is constituted under its trust deed in {country}.` : /sole|partnership/i.test(String(context.entityType)) ? `${client} carries on business in {country}.` : `${client} is incorporated in {country}.`,
 
     },
 
@@ -481,7 +476,7 @@ function defaultText(context: NarrativeContext): DirectorsReportTextOverrides {
 
       title: "Borrowing limitations",
 
-      text: "Borrowing powers are exercised by the directors in terms of the applicable constitutional documents and relevant legislation.",
+      text: `Borrowing powers are exercised by the ${body} in terms of the applicable governing documents and relevant legislation.`,
 
     },
 
@@ -597,7 +592,15 @@ export function buildDefaultDirectorsReportTexts(
 
 ): DirectorsReportTextOverrides {
 
-  return defaultText(context || {});
+  const result=defaultText(context || {}),p=getAfsEntityPresentation(context.entityType);
+  if(p.isSoleProprietor||p.isPartnership){
+    result.incorporation={title:'Business constitution',text:`{clientName} operates in {country} as a ${p.entityLabel.toLowerCase()}.`};
+    result.directors={title:p.responsiblePersonsLabel,text:`The ${p.responsiblePersonsLabel.toLowerCase()} responsible for the business are identified in these financial statements.`};
+    result.shareCapital={title:entityCapitalTitle(context.entityType),text:'Capital, current accounts, contributions and drawings are reconciled in the statement of changes in capital and the related notes. Contractual repayment obligations are classified separately as liabilities.'};
+    result.dividends={title:'Drawings and distributions',text:'Drawings and allocations to the proprietor or partners are equity movements, not operating expenses. Amounts and terms are disclosed in the capital notes.'};
+    result.shareholder={title:'Ownership',text:'The ownership and profit-sharing arrangements are described in the capital note.'};
+  }
+  return result;
 
 }
 
@@ -954,7 +957,7 @@ export function DirectorsResponsibilitiesBlock({ context }: { context: Narrative
 
       <p style={styles.paragraph}>
 
-        The {body} are required in terms of {act} to maintain adequate accounting records and are responsible for the content and integrity of the annual financial statements and related financial information included in this report. It is their responsibility to ensure that the annual financial statements fairly present the financial position of the entity as at the end of the financial year and the results of its operations and cash flows for the year then ended, in conformity with {framework}.
+        The {body} {bodyVerb(context,"is","are")} required in terms of {act} to maintain adequate accounting records and {bodyVerb(context,"is","are")} responsible for the content and integrity of the annual financial statements and related financial information included in this report. It is their responsibility to ensure that the annual financial statements fairly present the financial position of the entity as at the end of the financial year and the results of its operations and cash flows for the year then ended, in conformity with {framework}.
 
       </p>
 
@@ -962,7 +965,7 @@ export function DirectorsResponsibilitiesBlock({ context }: { context: Narrative
 
       <p style={styles.paragraph}>
 
-        The annual financial statements have been prepared on the going concern basis and are based on appropriate accounting policies consistently applied and supported by reasonable and prudent judgements and estimates. The {body} are responsible for selecting and applying these accounting policies, making accounting estimates that are reasonable in the circumstances, and ensuring that the annual financial statements are prepared from accounting records and supporting information that are complete and reliable.
+        The annual financial statements have been prepared on the going concern basis and are based on appropriate accounting policies consistently applied and supported by reasonable and prudent judgements and estimates. The {body} {bodyVerb(context,"is","are")} responsible for selecting and applying these accounting policies, making accounting estimates that are reasonable in the circumstances, and ensuring that the annual financial statements are prepared from accounting records and supporting information that are complete and reliable.
 
       </p>
 
@@ -970,7 +973,7 @@ export function DirectorsResponsibilitiesBlock({ context }: { context: Narrative
 
       <p style={styles.paragraph}>
 
-        The {body} acknowledge that they are ultimately responsible for the system of internal financial control established by the entity and place considerable importance on maintaining a strong control environment. To enable the {body} to meet these responsibilities, the {body} set standards for internal control aimed at reducing the risk of error, fraud or loss in a cost-effective manner. These standards include the proper delegation of responsibilities, effective accounting procedures, adequate segregation of duties where practical, and controls designed to safeguard, verify and maintain accountability over the assets of the entity.
+        The {body} {bodyVerb(context,"acknowledges","acknowledge")} that they are ultimately responsible for the system of internal financial control established by the entity and place considerable importance on maintaining a strong control environment. To enable the {body} to meet these responsibilities, the {body} {bodyVerb(context,"sets","set")} standards for internal control aimed at reducing the risk of error, fraud or loss in a cost-effective manner. These standards include the proper delegation of responsibilities, effective accounting procedures, adequate segregation of duties where practical, and controls designed to safeguard, verify and maintain accountability over the assets of the entity.
 
       </p>
 
@@ -978,7 +981,7 @@ export function DirectorsResponsibilitiesBlock({ context }: { context: Narrative
 
       <p style={styles.paragraph}>
 
-        These controls and procedures are monitored as considered appropriate in the circumstances. The {body} are responsible for taking reasonable steps to prevent and detect fraud and other irregularities and for ensuring that the entity conducts its affairs in accordance with applicable laws and regulations. While no system of internal control can provide absolute assurance against material misstatement or loss, the {body} are of the opinion, based on the information and explanations available to them, that the system of internal control provides reasonable assurance that the financial records may be relied upon for the preparation of the annual financial statements.
+        These controls and procedures are monitored as considered appropriate in the circumstances. The {body} {bodyVerb(context,"is","are")} responsible for taking reasonable steps to prevent and detect fraud and other irregularities and for ensuring that the entity conducts its affairs in accordance with applicable laws and regulations. While no system of internal control can provide absolute assurance against material misstatement or loss, the {body} {bodyVerb(context,"is","are")} of the opinion, based on the information and explanations available to them, that the system of internal control provides reasonable assurance that the financial records may be relied upon for the preparation of the annual financial statements.
 
       </p>
 
@@ -986,7 +989,7 @@ export function DirectorsResponsibilitiesBlock({ context }: { context: Narrative
 
       <p style={styles.paragraph}>
 
-        In preparing the annual financial statements, the {body} are responsible for assessing the entity’s ability to continue as a going concern, disclosing matters related to going concern where applicable, and using the going concern basis of accounting unless the {body} either intend to liquidate the entity or to cease operations, or have no realistic alternative but to do so. The {body} have reviewed the entity’s cash flow forecast, available resources and expected future operations and have no reason to believe that the entity will not continue as a going concern for the foreseeable future, unless otherwise disclosed in these annual financial statements.
+        In preparing the annual financial statements, the {body} {bodyVerb(context,"is","are")} responsible for assessing the entity’s ability to continue as a going concern, disclosing matters related to going concern where applicable, and using the going concern basis of accounting unless the {body} either {bodyVerb(context,"intends","intend")} to liquidate the entity or to cease operations, or {bodyVerb(context,"has","have")} no realistic alternative but to do so. The {body} {bodyVerb(context,"has","have")} reviewed the entity’s cash flow forecast, available resources and expected future operations and {bodyVerb(context,"has","have")} no reason to believe that the entity will not continue as a going concern for the foreseeable future, unless otherwise disclosed in these annual financial statements.
 
       </p>
 
@@ -1004,7 +1007,7 @@ export function DirectorsResponsibilitiesBlock({ context }: { context: Narrative
 
         <p style={styles.paragraph}>
 
-          The {body} are responsible for ensuring that the entity complies with the requirements of the Companies Act 71 of 2008, as amended, insofar as they relate to annual financial statements. The {body} have considered the solvency and liquidity position of the entity and are satisfied that the entity will be able to meet its obligations as they become due in the ordinary course of business, unless otherwise disclosed in this report.
+          The {body} {bodyVerb(context,"is","are")} responsible for ensuring that the entity complies with the requirements of {act}, insofar as they relate to annual financial statements. The {body} {bodyVerb(context,"has","have")} considered the solvency and liquidity position of the entity and {bodyVerb(context,"is","are")} satisfied that the entity will be able to meet its obligations as they become due in the ordinary course of business, unless otherwise disclosed in this report.
 
         </p>
 
@@ -1208,7 +1211,7 @@ export function CompilationReportBlock({ context }: { context: NarrativeContext 
 
     ? "statement of changes in funds"
 
-    : "statement of changes in equity";
+    : getAfsEntityPresentation(context.entityType).equityStatementTitle.toLowerCase();
 
   const framework = value(
 

@@ -1,4 +1,5 @@
 "use client";
+import {entityDisclosureFieldLabel} from "../afsEntityPresentation";
 import AfsDisclosureTables from "./AfsDisclosureTables";
 import { disclosureContext, disclosureFields, fieldComplete, supportedDisclosureText } from "./afsNoteDisclosureRequirements";
 import { getStandardsReference, standardsContext } from "./afsStandardsCoverage";
@@ -15,18 +16,19 @@ export default function AfsNoteDisclosureContent({sectionKey,edit,state,setup,up
    {reference&&<p><a href={reference.url} target="_blank" rel="noreferrer">{reference.label}</a></p>}
    <p>Enter financial-statement wording for both periods where relevant. The entered content prints below the note’s tables. Use existing schedules for amounts; explain assumptions, terms and conclusions here. A filled field does not certify compliance.</p>
    {fields.map(field=>{const entry=entries[field.id]||{};const id=`disclosure-${sectionKey}-${field.id}`;return <fieldset key={field.id} style={{border:0,borderTop:"1px solid #cbd5e1",padding:"9px 0"}}>
-     <legend style={{fontWeight:600}}>{field.label}</legend><p style={{margin:"3px 0",fontSize:11}}>{field.prompt}</p>
+     <legend style={{fontWeight:600}}>{entityDisclosureFieldLabel(sectionKey,field.id,field.label,setup?.entity_type)}</legend><p style={{margin:"3px 0",fontSize:11}}>{field.prompt}</p>
      {field.conditional&&<label style={{display:"block",margin:"4px 0"}}><input type="checkbox" checked={!!entry.notApplicable} onChange={e=>update(["disclosureContent",sectionKey,field.id],{...entry,notApplicable:e.target.checked,context:disclosureContext(context)})}/> This conditional disclosure does not apply</label>}
      {entry.requiresReview&&<p style={{color:"#9f1239",fontSize:11}}>Sourced draft: {entry.reviewReason || "Complete the entity-specific information before finalisation."}</p>}
      <label htmlFor={id}>{entry.notApplicable?"Reason (Work only)":"Wording included in the AFS"}</label>
-     <textarea id={id} aria-label={`${field.label} — ${sectionKey}`} value={entry.notApplicable?entry.reason||"":entry.text||""} onChange={e=>update(["disclosureContent",sectionKey,field.id],{...entry,requiresReview:false,[entry.notApplicable?"reason":"text"]:e.target.value,context:disclosureContext(context)})} style={{display:"block",boxSizing:"border-box",width:"100%",minHeight:85,fontSize:11,padding:7}}/>
+     <textarea id={id} aria-label={`${entityDisclosureFieldLabel(sectionKey,field.id,field.label,setup?.entity_type)} — ${sectionKey}`} value={entry.notApplicable?entry.reason||"":entry.text||""} onChange={e=>update(["disclosureContent",sectionKey,field.id],{...entry,requiresReview:false,[entry.notApplicable?"reason":"text"]:e.target.value,context:disclosureContext(context)})} style={{display:"block",boxSizing:"border-box",width:"100%",minHeight:85,fontSize:11,padding:7}}/>
      <button type="button" onClick={()=>update(["disclosureContent",sectionKey,field.id],{...entry,tables:[...(entry.tables||[]),{title:field.label,columns:["Current year","Prior year"],rows:[{label:"Description",cells:[0,0]}]}],requiresReview:false,context:disclosureContext(context)})}>Add disclosure table</button>
      <AfsDisclosureTables tables={entry.tables||[]} edit onChange={tables=>update(["disclosureContent",sectionKey,field.id],{...entry,tables,requiresReview:false,context:disclosureContext(context)})}/>
      {!fieldComplete(field,entry,context)&&<p style={{color:"#9f1239",fontSize:10}}>Financial-statement wording or a supported conditional exclusion is still required.</p>}
    </fieldset>})}
  </details>;
+ const printedTexts=new Set<string>();
  return <div data-afs-disclosure-content={sectionKey}>
    {customText?.trim()?paragraphs(customText):null}
-   {fields.map(field=>{const entry=entries[field.id];const text=entry?.notApplicable || entry?.context !== disclosureContext(context)?"":supportedDisclosureText(entry?.text); const existing=sectionKey==="notesGoingConcern"?(field.id==="assessment"?state.goingConcernAssessment?.forecast:field.id==="basis"?state.goingConcernAssessment?.conclusion:undefined):sectionKey==="notesRelatedParties"&&field.id==="population"?state.relatedPartyDisclosure?.controlText:undefined; if(existing&&String(existing).trim()===text.trim()&&!entry?.tables?.length)return null;return text?<div key={field.id}><h3 style={{fontSize:"inherit",fontWeight:600,margin:"8px 0 3px",breakAfter:"avoid"}}>{field.label}</h3>{paragraphs(text)}<AfsDisclosureTables tables={entry.tables||[]}/></div>:null;})}
+   {fields.map(field=>{const entry=entries[field.id];const text=entry?.notApplicable || entry?.context !== disclosureContext(context)?"":supportedDisclosureText(entry?.text); const existing=sectionKey==="notesGoingConcern"?(field.id==="assessment"?state.goingConcernAssessment?.forecast:field.id==="basis"?state.goingConcernAssessment?.conclusion:undefined):sectionKey==="notesRelatedParties"&&field.id==="population"?state.relatedPartyDisclosure?.controlText:undefined; if(existing&&String(existing).trim()===text.trim()&&!entry?.tables?.length)return null;const duplicate=!!text&&printedTexts.has(text.trim());if(text)printedTexts.add(text.trim());if(duplicate&&!entry?.tables?.length)return null;return text?<div key={field.id}><h3 style={{fontSize:"inherit",fontWeight:600,margin:"8px 0 3px",breakAfter:"avoid"}}>{entityDisclosureFieldLabel(sectionKey,field.id,field.label,setup?.entity_type)}</h3>{!duplicate&&paragraphs(text)}<AfsDisclosureTables tables={entry.tables||[]}/></div>:null;})}
  </div>;
 }

@@ -15,7 +15,7 @@ import AfsNoteDisclosureContent from "./AfsNoteDisclosureContent";
 
 import { directCashAmount } from "./afsDirectCashOverrides";
 import { reviewAllMovementNotes } from "./afsMovementReview";
-import { standardsContext, reviewStandardsCoverage } from "./afsStandardsCoverage";
+import { reportingFramework, standardsContext, reviewStandardsCoverage } from "./afsStandardsCoverage";
 import AfsStandardsReviewPanel from "./AfsStandardsReviewPanel";
 import { relatedPartyReviewIssues } from "./afsRelatedPartyDisclosure";
 import AfsDisclosureTables from "./AfsDisclosureTables";
@@ -69,6 +69,7 @@ import {
   AfsNoteKey,
 } from "../components/AfsPrintStatementEngine";
 import {
+  entityGoverningBasis, entityCapitalTitle, entityPolicyTexts,
   getAfsEntityPresentation,
   getAfsEntityRowLabel,
 } from "../afsEntityPresentation";
@@ -749,41 +750,13 @@ function isBeneficiaryLike(person: PersonData) {
   return role.includes("beneficiary");
 }
 
-function roleLabel(entityType: string) {
-  const lower = entityType.toLowerCase();
-  if (lower.includes("trust")) return "Trustees";
-  if (lower.includes("close corporation") || lower.includes("cc")) {
-    return "Members";
-  }
-  return "Directors";
-}
+function roleLabel(entityType: string) {return getAfsEntityPresentation(entityType).responsiblePersonsLabel;}
 
-function responsibilityTitle(entityType: string) {
-  const lower = entityType.toLowerCase();
-  if (lower.includes("trust")) return "Trustees’ Responsibilities and Approval";
-  if (lower.includes("close corporation") || lower.includes("cc")) {
-    return "Members’ Responsibilities and Approval";
-  }
-  return "Directors’ Responsibilities and Approval";
-}
+function responsibilityTitle(entityType: string) {return getAfsEntityPresentation(entityType).responsibilitiesTitle;}
 
-function reportTitle(entityType: string) {
-  const lower = entityType.toLowerCase();
-  if (lower.includes("trust")) return "Trustees’ Report";
-  if (lower.includes("close corporation") || lower.includes("cc")) {
-    return "Members’ Report";
-  }
-  return "Directors’ Report";
-}
+function reportTitle(entityType: string) {return getAfsEntityPresentation(entityType).reportTitle;}
 
-function governingBody(entityType: string) {
-  const lower = entityType.toLowerCase();
-  if (lower.includes("trust")) return "trustees";
-  if (lower.includes("close corporation") || lower.includes("cc")) {
-    return "members";
-  }
-  return "directors";
-}
+function governingBody(entityType:string){return getAfsEntityPresentation(entityType).responsiblePersonsLabel.toLowerCase();}
 
 
 function renderBeneficiariesInfoRow(
@@ -2974,7 +2947,7 @@ const clientLogoUrl = cleanString(
     ]) || ""
   );
 
-  const legalFrameworkDisplay =
+  const legacyLegalFrameworkDisplay =
     isCloseCorporationEntityType(entityType)
       ? !legalFrameworkRaw ||
         legalFrameworkRaw.trim().toLowerCase() === "companies act of south africa" ||
@@ -2991,6 +2964,8 @@ const clientLogoUrl = cleanString(
           legalFrameworkRaw.trim().toLowerCase() === "companies act of south africa"
           ? "Companies Act 71 of 2008, as amended"
           : legalFrameworkRaw;
+
+  const legalFrameworkDisplay = entityPresentation.isSoleProprietor || entityPresentation.isPartnership ? entityGoverningBasis(entityType) : legacyLegalFrameworkDisplay;
 
   const registrationNumber =
     String(
@@ -3133,18 +3108,11 @@ const clientLogoUrl = cleanString(
       ]),
     );
 
-  const framework =
-  getSetupValue(clientSetup, [
-    "basis_of_preparation",
-    "financial_reporting_framework",
-    "reporting_framework",
-    "accounting_framework",
-    "framework",
-  ]) || "IFRS for SMEs";
+  const framework = reportingFramework(clientSetup) || "IFRS for SMEs";
 
   // Reflect the saved reporting edition in cover, general information and narrative tokens.
   // Existing engagements without an edition selection remain on the 2015 edition.
-  const isSmesFramework = String(framework).trim().toLowerCase() === "ifrs for smes";
+  const isSmesFramework = standardsContext(clientSetup).framework === "smes";
   const smesEdition = String(clientSetup?.ifrs_smes_edition || "2015");
   const smesEarlyAdoptionConfirmed = clientSetup?.ifrs_smes_early_adoption_confirmed === true;
   const smesTransitionCompleted = clientSetup?.ifrs_smes_transition_assessment_completed === true;
@@ -3483,10 +3451,10 @@ const clientLogoUrl = cleanString(
   );
 
   const activeAccountingPolicyTexts = useMemo(
-    () => buildAccountingPolicyTextsForEdition(
+    () => entityPolicyTexts(buildAccountingPolicyTextsForEdition(
       thirdEditionSelected ? "2025" : "2015", accountingPolicyTexts, isSmesFramework ? "smes" : "full"
-    ),
-    [thirdEditionSelected, accountingPolicyTexts, isSmesFramework]
+    ),defaultAccountingPolicyTexts,entityType),
+    [thirdEditionSelected, accountingPolicyTexts, isSmesFramework, defaultAccountingPolicyTexts, entityType]
   );
 
   const activeAccountingPolicyEditorTexts = useMemo(
@@ -3757,7 +3725,7 @@ useEffect(() => {
       !entityPresentation.isNpc && reportOptions.directorsReportShareCapital,
     directorsReportDirectors: reportOptions.directorsReportDirectors,
     directorsReportSecretary:
-      !isCloseCorporation && !isTrust && reportOptions.directorsReportSecretary,
+      !isCloseCorporation && !isTrust && !entityPresentation.isSoleProprietor && !entityPresentation.isPartnership && reportOptions.directorsReportSecretary,
     directorsReportExternalAccountant:
       reportOptions.directorsReportExternalAccountant,
     directorsReportInterestContracts:
@@ -3768,13 +3736,14 @@ useEffect(() => {
       !entityPresentation.isNpc &&
       !isCloseCorporation &&
       !isTrust &&
+      !entityPresentation.isSoleProprietor && !entityPresentation.isPartnership &&
       reportOptions.directorsReportShareholder,
     directorsReportGoingConcern: reportOptions.directorsReportGoingConcern,
     directorsReportLiquiditySolvency:
       reportOptions.directorsReportLiquiditySolvency,
     directorsReportLitigation: reportOptions.directorsReportLitigation,
     directorsReportSocialEthics:
-      !isCloseCorporation && !isTrust && reportOptions.directorsReportSocialEthics,
+      !isCloseCorporation && !isTrust && !entityPresentation.isSoleProprietor && !entityPresentation.isPartnership && reportOptions.directorsReportSocialEthics,
     directorsReportSubsidiaries:
       !isCloseCorporation && !isTrust && reportOptions.directorsReportSubsidiaries,
     directorsReportAssociates:
@@ -3871,11 +3840,8 @@ useEffect(() => {
       : assetPrior >= liabilityPrior;
 
     return noteSections
-      .filter(
-        (section: any) =>
-          !(entityPresentation.isNpc && isShareCapitalNoteSection(section)),
-      )
       .map((section: any) => {
+      if (isShareCapitalNoteSection(section) && (entityPresentation.isNpc || entityPresentation.isSoleProprietor || entityPresentation.isPartnership)) return {...section,label:entityCapitalTitle(entityType),title:entityCapitalTitle(entityType),defaultTitle:entityCapitalTitle(entityType)};
       if (isShareCapitalNoteSection(section) && isCloseCorporation) {
         return {
           ...section,
@@ -4099,7 +4065,7 @@ useEffect(() => {
       const noteKey = keyMap[section.key];
       if (!noteKey) return;
 
-      if (entityPresentation.isNpc && noteKey === "shareCapital") return;
+
 
       // The structured-notes renderer numbers every enabled note, including
       // sections without mapped amounts. Use the same sequence here so SFP/SOCI
@@ -5249,7 +5215,7 @@ const flightDeckIssues = useMemo(() => {
         ? `${ccMemberPossessive(Math.max(1, reportMembersForDisplay.length))} Responsibilities and Approval`
         : isTrust
           ? "Trustees’ Responsibilities and Approval"
-          : "Directors’ Responsibilities",
+          : responsibilityTitle(entityType),
       shortLabel: "Responsibilities",
       group: "report",
       hidden: !reportOptions.directorsResponsibilities,
@@ -5260,7 +5226,7 @@ const flightDeckIssues = useMemo(() => {
         ? `${ccMemberPossessive(Math.max(1, reportMembersForDisplay.length))} Report`
         : isTrust
           ? "Trustees’ Report"
-          : "Directors’ Report",
+          : reportTitle(entityType),
       shortLabel: isCloseCorporation
         ? "Member Report"
         : isTrust
@@ -5621,7 +5587,7 @@ const flightDeckIssues = useMemo(() => {
   function renderSceCustomTable() {
     const extraEquity = ["reserves", "nonControllingInterests", "otherEquity", "otherComprehensiveIncome"].some(key =>
       (statementEngine.noteData[key as keyof typeof statementEngine.noteData] || []).some(row => Number(row.current || 0) !== 0 || Number(row.prior || 0) !== 0));
-    return extraEquity ? <AfsCompleteEquityStatement lines={trialBalanceLines} state={effectiveStructuredNotesState} engine={statementEngine} history={comparativeHistory} transactions={effectiveStructuredNotesState.equityTransactions||[]} attribution={effectiveStructuredNotesState.comprehensiveIncomeAttribution||{}} /> : renderLegacySceCustomTable();
+    return extraEquity || entityPresentation.isNpc || entityPresentation.isTrust || entityPresentation.isCloseCorporation || entityPresentation.isSoleProprietor || entityPresentation.isPartnership ? <AfsCompleteEquityStatement entityType={entityType} lines={trialBalanceLines} state={effectiveStructuredNotesState} engine={statementEngine} history={comparativeHistory} transactions={effectiveStructuredNotesState.equityTransactions||[]} attribution={effectiveStructuredNotesState.comprehensiveIncomeAttribution||{}} /> : renderLegacySceCustomTable();
   }
 
   function renderLegacySceCustomTable() {

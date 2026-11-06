@@ -1,3 +1,4 @@
+export function isOwnerTaxEntity(setup:any){return /^(sole (proprietor|trader|proprietorship)|partnership)$/i.test(String(setup?.entity_type||'').trim());}
 /** SARS ordinary-trust rate. Special trusts use progressive tables, without individual rebates. */
 export function isTrustTaxEntity(setup: any) {
   return /trust/i.test(String(setup?.entity_type || ''));
@@ -6,6 +7,7 @@ export function trustTaxRegime(setup: any): 'trust' | 'special-trust' {
   return /special/i.test([setup?.entity_type, setup?.trust_type, setup?.type_of_trust].join(' ')) ? 'special-trust' : 'trust';
 }
 export function reportingTaxRate(setup: any, side: 'current' | 'prior' = 'current'): number {
+  if (isOwnerTaxEntity(setup)) return 0;
   if (isTrustTaxEntity(setup)) return 45;
   const keys = [side === 'current' ? 'tax_rate_current_year' : 'tax_rate_prior_year', 'tax_rate', 'income_tax_rate', 'company_tax_rate', 'taxRate', 'incomeTaxRate', 'companyTaxRate'];
   const supplied = keys.map(key => setup?.[key]).find(value => value != null && String(value).trim() !== '');
@@ -26,6 +28,11 @@ export function specialTrustTax(income: number, yearEnd: string): number {
 }
 /** Reopen legacy company-rate trust workpapers, preserving payments and supporting inputs. */
 export function bindTrustWorkpaper<T extends { entities: any[]; reviewed: boolean }>(workbook: T, setup: any): T {
+  if (isOwnerTaxEntity(setup)) {
+    const next=structuredClone(workbook);const parent=next.entities.find(row=>row.id==='parent')||next.entities[0];
+    if(parent){if(parent.regime!=='owner-tax')next.reviewed=false;parent.regime='owner-tax';parent.rate=0;}
+    return next;
+  }
   if (!isTrustTaxEntity(setup)) return workbook;
   const next = structuredClone(workbook);
   const parent = next.entities.find(row => row.id === 'parent') || next.entities[0];

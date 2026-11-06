@@ -1,4 +1,4 @@
-import {reportingTaxRate,isTrustTaxEntity} from '../tax/taxEntityRates';
+import {reportingTaxRate,isTrustTaxEntity,isOwnerTaxEntity} from '../tax/taxEntityRates';
 /** Tax reconciling amounts must be supported, never generated as a residual plug. */
 export const TAX_RECONCILING_ITEMS=[
  {key:"nonDeductibleExpenses",label:"Tax effect of non-deductible expenses"},
@@ -26,8 +26,8 @@ export function taxReconciliationReview(noteData:Record<string,any[]>,state:Reco
   const periodRate=setup?.[side==="current"?"tax_rate_current_year":"tax_rate_prior_year"];
   const suppliedRate=periodRate!=null && String(periodRate).trim()!==""?periodRate:supplied;
   const rate=reportingTaxRate(setup,side),invalid=invalidInputs || !Number.isFinite(rate)||rate<0||rate>100;
-  const actual=taxRows.reduce((sum,row)=>sum+Number(row[side]||0),0),theoretical=profit?Math.round(-Number(profit[side]||0)*rate/100):null;
+  const actual=taxRows.reduce((sum,row)=>sum+Number(row[side]||0),0),theoretical=profit?-Math.round(Number(profit[side]||0)*rate/100):null;
   const explained=TAX_RECONCILING_ITEMS.reduce((sum,item)=>sum+Number(recon[item.key]?.[side]||0),0);
-  return {side,rate,rateAssumed:!isTrustTaxEntity(setup)&&suppliedRate==null,actual,theoretical,explained,difference:theoretical===null?null:Math.round((actual-theoretical-explained)*100)/100,invalid};
+  return {side,rate,rateAssumed:!isTrustTaxEntity(setup)&&!isOwnerTaxEntity(setup)&&suppliedRate==null,actual,theoretical,explained,difference:theoretical===null?null:Math.round((actual-theoretical-explained)*100)/100,invalid};
  });
 }

@@ -25,7 +25,7 @@ export type TaxEntity = {
     id: string;
     name: string;
     jurisdiction: string;
-    regime: 'normal' | 'sbc' | 'custom' | 'trust' | 'special-trust';
+    regime: 'normal' | 'sbc' | 'custom' | 'trust' | 'special-trust' | 'owner-tax';
     rate: Value;
     rateEvidence: string;
     sbcConfirmed: boolean;
@@ -124,11 +124,15 @@ export function calculateTax(workbook: TaxWorkbook, lines: any[], consolidated =
         const required = (condition: boolean, text: string) => { if (!condition)
             issues.push(entity.name + ': ' + text); };
         required(!!entity.name.trim(), 'name the taxable entity.');
-        if (!['normal', 'sbc', 'custom', 'trust', 'special-trust'].includes(entity.regime) || !['mapped', 'manual'].includes(entity.profitMode))
+        if (!['normal', 'sbc', 'custom', 'trust', 'special-trust', 'owner-tax'].includes(entity.regime) || !['mapped', 'manual'].includes(entity.profitMode))
             throw Error('Choose a valid tax regime and profit source.');
-        const rate = entity.regime === 'trust' || entity.regime === 'special-trust' ? .45 : entity.regime === 'custom' ? value(entity.rate, 'Tax rate') / 100 : companyRate(workbook.yearEnd);
+        const rate = entity.regime === 'owner-tax' ? 0 : entity.regime === 'trust' || entity.regime === 'special-trust' ? .45 : entity.regime === 'custom' ? value(entity.rate, 'Tax rate') / 100 : companyRate(workbook.yearEnd);
         if (rate < 0 || rate > 1)
             throw Error('Tax rates must be between 0% and 100%.');
+        if(entity.regime==='owner-tax') {
+            required(entity.jurisdiction==='ZA','Owner-tax treatment is supported here for South African sole proprietors and partnerships.');
+            required(!entity.priorTax&&!entity.otherTax&&!entity.foreignCredit&&!entity.lossBf&&!entity.lossDtaOpening&&!entity.lossDtaClosing&&!entity.discontinuedTax&&!entity.deferred.length&&[entity.openingControl,entity.payments,entity.refunds,entity.controlOther].every(amount=>Number(amount||0)===0)&&!(entity.paymentSchedule||[]).some(row=>Number(row.amount||0)!==0),'Personal income tax and related deferred tax belong to the proprietor/partners, not this business AFS. Reclassify any personal-tax entries with support.');
+        }
         if (entity.regime === 'custom')
             required(entity.rateEvidence.trim().length >= 12, 'document the enacted rate and jurisdiction.');
         if (entity.jurisdiction !== 'ZA')
@@ -295,7 +299,7 @@ export function taxReconciliation(result: TaxResult, afsProfit: number, standard
         }
         recon.assessedLossesNotRecognised += Math.max(0, -entity.beforeLoss) * entity.rate;
         recon.assessedLossesUtilised -= entity.lossUsed * entity.rate;
-        recon.differentTaxRates += entity.profit * (entity.rate - standardRate) + entity.gross - entity.taxable * entity.rate;
+        recon.differentTaxRates += entity.profit * (entity.rate - standardRate) + entity.gross - round(entity.taxable * entity.rate);
         recon.taxCredits -= entity.credit;
         recon.temporaryDifferencesAndDeferredTax += entity.temporary * entity.rate + entity.deferredProfit;
     }

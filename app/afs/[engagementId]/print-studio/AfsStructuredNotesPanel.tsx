@@ -1,4 +1,5 @@
 "use client";
+import {getAfsEntityPresentation,getAfsEntityRowLabel,entityCapitalTitle} from "../afsEntityPresentation";
 import {frameworkLeaseLabel} from "./afsPolicyFrameworkReview";
 import {reportingTaxRate} from '../tax/taxEntityRates';
 
@@ -3887,7 +3888,9 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
     update,
     isCloseCorporationEntity,
     isTrustEntity,
+    entityType,
   }: {
+    entityType?:unknown;
     rows: AmountLine[];
     trialBalanceLines: any[];
     edit: boolean;
@@ -3948,7 +3951,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
                   ? "Member"
                   : isTrustEntity
                     ? "Trustee"
-                    : "Shareholder / director / member";
+                    : getAfsEntityPresentation(entityType).isNpc ? "Director" : getAfsEntityPresentation(entityType).isSoleProprietor ? "Proprietor" : getAfsEntityPresentation(entityType).isPartnership ? "Partner" : "Shareholder / director / member";
 
             return (
               <FragmentWithKey key={key}>
@@ -4167,11 +4170,13 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
       );
     }
 
-    if (isTrustEntity) {
+    const capitalPresentation=getAfsEntityPresentation(entityType || clientSetup?.entity_type);
+    if (isTrustEntity || capitalPresentation.isNpc || capitalPresentation.isSoleProprietor || capitalPresentation.isPartnership) {
+      const capitalTitle=entityCapitalTitle(entityType || clientSetup?.entity_type);
       const trustCapitalText =
         state.shareCapital?.rightsText ||
         clean(clientSetup?.share_capital_note) ||
-        "Trust capital is disclosed at the amount reflected in the accounting records.";
+        `${capitalTitle} is disclosed at the amount reflected in the accounting records. The governing terms and rights are set out below.`;
 
       return (
         <>
@@ -4192,7 +4197,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
             </thead>
             <tbody>
               <tr>
-                <td style={styles.tdLeft}>Trust capital</td>
+                <td style={styles.tdLeft}>{capitalTitle}</td>
                 <td data-total-amount="true" style={styles.totalAmount}>
                   {amount(mappedCurrent)}
                 </td>
@@ -4206,7 +4211,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
           </table>
 
           <EditableTextBlock
-            label="Trust capital disclosure"
+            label={capitalTitle+" disclosure"}
             value={trustCapitalText}
             edit={edit}
             onChange={(value) => update(["shareCapital", "rightsText"], value)}
@@ -4436,8 +4441,8 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
       opposite sign of accounting profit / loss.
     */
     const priorTaxRate=reportingTaxRate(clientSetup,'prior');
-    const theoreticalCurrent = Math.round(-profitCurrent * (taxRate / 100));
-    const theoreticalPrior = Math.round(-profitPrior * (priorTaxRate / 100));
+    const theoreticalCurrent = -Math.round(profitCurrent * (taxRate / 100));
+    const theoreticalPrior = -Math.round(profitPrior * (priorTaxRate / 100));
 
     const reconciliationState = state.taxationReconciliation || {};
     const captured = (key: string, side: "current" | "prior") =>
@@ -4504,7 +4509,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
               {!hideComparatives ? <td style={styles.tdRight}>{amount(profitPrior)}</td> : null}
             </tr>
             <tr>
-              <td style={styles.tdLeft}>Tax calculated at {taxRate}%{!hideComparatives && priorTaxRate!==taxRate?` / ${priorTaxRate}%`:""}</td>
+              <td style={styles.tdLeft}>{String(clientSetup?.type_of_trust||"").toLowerCase().includes("special")?"Tax at maximum marginal benchmark rate":"Tax calculated at"} {taxRate}%{!hideComparatives && priorTaxRate!==taxRate?` / ${priorTaxRate}%`:""}</td>
               <td style={styles.tdRight}>{amount(theoreticalCurrent)}</td>
               {!hideComparatives ? <td style={styles.tdRight}>{amount(theoreticalPrior)}</td> : null}
             </tr>
@@ -5813,7 +5818,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
             : splitRows(engineRows).length > 0
               ? engineRows
               : mappedNoteFallbackRows(section.key, trialBalanceLines);
-          const rows = section.key === "notesRightOfUseAssets" ? rawRows.map((row:any)=>({...row,label:frameworkLeaseLabel(row.label,standardsContext(clientSetup))})) : rawRows;
+          const rows = rawRows.map((row:any)=>({...row,label:getAfsEntityRowLabel(section.key === "notesRightOfUseAssets" ? frameworkLeaseLabel(row.label,standardsContext(clientSetup)) : row.label,getAfsEntityPresentation(clientSetup?.entity_type || entityType))}));
 
           const goingConcernHasContent = Object.values(
             state.goingConcernAssessment || {},
@@ -5958,7 +5963,8 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
 
         {sectionsWithNumbers.map(({ section, active, noteNumber, rows }) => {
           const rawTitle = noteTitle(section, activeNoteTexts, defaultNoteTexts);
-          const title = section.key === "notesRightOfUseAssets" ? frameworkLeaseLabel(rawTitle,standardsContext(clientSetup)) : rawTitle;
+          const presentation=getAfsEntityPresentation(clientSetup?.entity_type || entityType);
+          const title = isShareCapitalSection(section) ? entityCapitalTitle(clientSetup?.entity_type || entityType) : section.key === "notesRightOfUseAssets" ? frameworkLeaseLabel(rawTitle,standardsContext(clientSetup)) : getAfsEntityRowLabel(rawTitle,presentation);
           const rawCustomText=String(activeNoteTexts?.[section.key]?.text || "").trim();
           const oldDefault=String(defaultNoteTexts?.[section.key]?.text || "").trim();
           const customText = rawCustomText && rawCustomText !== oldDefault
@@ -6098,6 +6104,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
                       update={update}
                       isCloseCorporationEntity={effectiveIsCloseCorporation}
                       isTrustEntity={effectiveIsTrust}
+                      entityType={effectiveEntityType}
                     />
                   ) : section.key === "notesOtherInvestments" ? (
                     <OtherInvestmentsNote
