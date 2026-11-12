@@ -1,4 +1,5 @@
 "use client";
+import { goingConcernReview } from "./afsGoingConcern";
 import {entityDisclosureFieldLabel} from "../afsEntityPresentation";
 import AfsDisclosureTables from "./AfsDisclosureTables";
 import { disclosureContext, disclosureFields, fieldComplete, supportedDisclosureText } from "./afsNoteDisclosureRequirements";
@@ -8,6 +9,7 @@ type Props={sectionKey:string;edit:boolean;state:Record<string,any>;setup:Record
 /** Required narrative is stored with the same note state used by preview and PDF. */
 export default function AfsNoteDisclosureContent({sectionKey,edit,state,setup,update,customText}:Props){
  const context=standardsContext(setup),fields=disclosureFields(sectionKey,context),entries=state.disclosureContent?.[sectionKey]||{};
+ if(sectionKey==="notesGoingConcern" && goingConcernReview(state,context).omitNote) return edit ? <p data-work-only="true">No separate going-concern wording is required by the recorded assessment. Saved wording is retained in Work.</p> : null;
  const missing=fields.filter(field=>!fieldComplete(field,entries[field.id],context));
  const reference=getStandardsReference(sectionKey,context);
  const paragraphs=(text:string)=>text.split(/\n\s*\n/).filter(Boolean).map((part,index)=><p key={index} style={{margin:"4px 0 7px",whiteSpace:"pre-line",orphans:3,widows:3}}>{part}</p>);

@@ -1,3 +1,4 @@
+import { goingConcernReview } from "./afsGoingConcern";
 import { disclosureTableComplete, type DisclosureTable } from "./disclosureTableData";
 import type { StandardsContext } from "./afsStandardsCoverage";
 export type DisclosureField = {id:string;label:string;prompt:string;conditional:boolean};
@@ -948,7 +949,7 @@ export function fieldComplete(field:DisclosureField,entry:DisclosureEntry|undefi
 }
 export function noteDisclosureIssues(notes:readonly {key:string;optionKey:string;defaultTitle?:string;title?:string}[],options:Record<string,any>,state:Record<string,any>,context:StandardsContext) {
  const entries=state.disclosureContent||{};
- return notes.filter(note=>options[note.optionKey]).flatMap(note=>{
+ return notes.filter(note=>options[note.optionKey] && !(note.key==="notesGoingConcern" && goingConcernReview(state,context).omitNote)).flatMap(note=>{
   const fields=disclosureFields(note.key,context),missing=fields.filter(field=>!fieldComplete(field,entries[note.key]?.[field.id],context));
   return missing.length?[{key:note.key,title:note.defaultTitle||note.title||note.key,missing:missing.map(field=>field.label)}]:[];
  });

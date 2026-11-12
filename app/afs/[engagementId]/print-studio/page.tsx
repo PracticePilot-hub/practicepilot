@@ -1,4 +1,6 @@
 "use client";
+import { buildExportReadiness } from "./afsExportReadiness";
+import { goingConcernReview } from "./afsGoingConcern";
 import {policyFrameworkIssues} from "./afsPolicyFrameworkReview";
 import { automaticCashDraft } from "./afsAutomaticCashDraft";
 import { paginateSfpRows } from "./afsStatementPagination";
@@ -4230,6 +4232,15 @@ const flightDeckIssues = useMemo(() => {
   });
 }, [statementEngine, renderedSfpBalanceDifference, clientSetup, trialBalanceLines, reportOptions, effectiveStructuredNotesState, taxCalculation, comparativeHistory, automaticCash, activeAccountingPolicyTexts]);
 
+const goingConcern = goingConcernReview(effectiveStructuredNotesState,standardsContext(clientSetup));
+const exportReadiness = buildExportReadiness(flightDeckIssues,
+  [...comprehensivePresentationIssues(trialBalanceLines,effectiveStructuredNotesState),...buildEquityMovementTable(statementEngine,comparativeHistory,effectiveStructuredNotesState.equityTransactions||[],effectiveStructuredNotesState.comprehensiveIncomeAttribution||{}).rows.filter(row=>row.unclassified && row.amounts.some(value=>value===null||Math.abs(value)>0.005)).map(()=>"Unclassified equity movement"),...Object.entries(statementEngine.checks).filter(([key,value])=>/Difference|OpeningMissing/.test(key) && (typeof value === "number" ? !Number.isFinite(value)||Math.abs(value)>0.005 : value===true)).map(([key])=>key), ...reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory).map(row=>row.label+" PPE movement"), ...reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.openingConflict || row.invalid).map(row=>row.label+" movement"), ...taxReconciliationReview(statementEngine.noteData,effectiveStructuredNotesState,clientSetup).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.invalid).map(row=>"Tax "+row.side)],
+  [...[...(automaticCash.sources.length&&!automaticCash.reviewed?["Review calculated cash movements in Cash Flow Work"]:[]),...taxAfsIssues(taxCalculation,priorTaxCalculation,trialBalanceLines,effectiveStructuredNotesState.presentationReview?.scope==="consolidated"),...noteDisclosureIssues([...noteSections,...accountingPolicySections.filter(p=>POLICY_DISCLOSURE_KEYS.includes(p.key))],reportOptions,effectiveStructuredNotesState,standardsContext(clientSetup)).map(item=>`${item.title}: ${item.missing.join("; ")}`), ...flightDeckIssues.filter(item=>item.severity === "critical").map(item=>item.title), ...taxReconciliationReview(statementEngine.noteData,effectiveStructuredNotesState,clientSetup).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.invalid || row.rateAssumed).map(row=>`Tax ${row.side}: supported rate and reconciliation required`), ...reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory).map(row=>`${row.label}: ${row.side} PPE cost/depreciation movements require reconciliation`), ...reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory).filter(row=>row.difference === null || Math.abs(row.difference)>0.005 || row.openingConflict || row.invalid).map(row=>`${row.label}: ${row.side} movement does not reconcile`), ...relatedPartyReviewIssues(effectiveStructuredNotesState,trialBalanceLines,standardsContext(clientSetup).framework === "full"?"full":"smes"), ...(!effectiveStructuredNotesState.presentationReview?.scope?["Presentation scope is not assessed"]:[]), ...(standardsContext(clientSetup).framework === "unknown"?["Reporting framework is not selected"]:[]), ...(trialBalanceLines.some(line=>String(line.mapping_code||"").split(".")[0] === "830" && (Number(line.current_year_balance||0)!==0 || Number(line.prior_year_balance||0)!==0)) && effectiveStructuredNotesState.presentationReview?.scope !== "consolidated"?["NCI mapping requires supported consolidated scope or correction"]:[])], ...goingConcern.issues,
+    ...(goingConcern.disclosureRequired && !reportOptions.notesGoingConcern ? ["Going concern: the assessment requires disclosure; select the note and complete its wording."] : [])],
+  [...noteSections.map(note=>({title:note.defaultTitle,target:`note:${note.key}`,targetLabel:"Notes → Work"})),
+   ...accountingPolicySections.map(policy=>({title:policy.defaultTitle,target:"standards-review",targetLabel:"Whole AFS review"}))],
+);
+
   function consolidateDetailedIncomeRows(rows: AfsStatementRow[]) {
     const result: AfsStatementRow[] = [];
     const indexByKey = new Map<string, number>();
@@ -7183,8 +7194,8 @@ return Math.max(
       sections={sections}
       onSectionChange={goToSection}
       exportDisabled={false}
-      arithmeticIssues={[...comprehensivePresentationIssues(trialBalanceLines,effectiveStructuredNotesState),...buildEquityMovementTable(statementEngine,comparativeHistory,effectiveStructuredNotesState.equityTransactions||[],effectiveStructuredNotesState.comprehensiveIncomeAttribution||{}).rows.filter(row=>row.unclassified && row.amounts.some(value=>value===null||Math.abs(value)>0.005)).map(()=>"Unclassified equity movement"),...Object.entries(statementEngine.checks).filter(([key,value])=>/Difference|OpeningMissing/.test(key) && (typeof value === "number" ? !Number.isFinite(value)||Math.abs(value)>0.005 : value===true)).map(([key])=>key), ...reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory).map(row=>row.label+" PPE movement"), ...reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.openingConflict || row.invalid).map(row=>row.label+" movement"), ...taxReconciliationReview(statementEngine.noteData,effectiveStructuredNotesState,clientSetup).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.invalid).map(row=>"Tax "+row.side)]}
-      finalisationIssues={[...(automaticCash.sources.length&&!automaticCash.reviewed?["Review calculated cash movements in Cash Flow Work"]:[]),...taxAfsIssues(taxCalculation,priorTaxCalculation,trialBalanceLines,effectiveStructuredNotesState.presentationReview?.scope==="consolidated"),...noteDisclosureIssues([...noteSections,...accountingPolicySections.filter(p=>POLICY_DISCLOSURE_KEYS.includes(p.key))],reportOptions,effectiveStructuredNotesState,standardsContext(clientSetup)).map(item=>`${item.title}: ${item.missing.join("; ")}`), ...flightDeckIssues.filter(item=>item.severity === "critical").map(item=>item.title), ...taxReconciliationReview(statementEngine.noteData,effectiveStructuredNotesState,clientSetup).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.invalid || row.rateAssumed).map(row=>`Tax ${row.side}: supported rate and reconciliation required`), ...reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory).map(row=>`${row.label}: ${row.side} PPE cost/depreciation movements require reconciliation`), ...reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory).filter(row=>row.difference === null || Math.abs(row.difference)>0.005 || row.openingConflict || row.invalid).map(row=>`${row.label}: ${row.side} movement does not reconcile`), ...relatedPartyReviewIssues(effectiveStructuredNotesState,trialBalanceLines,standardsContext(clientSetup).framework === "full"?"full":"smes"), ...(!effectiveStructuredNotesState.presentationReview?.scope?["Presentation scope is not assessed"]:[]), ...(standardsContext(clientSetup).framework === "unknown"?["Reporting framework is not selected"]:[]), ...(trialBalanceLines.some(line=>String(line.mapping_code||"").split(".")[0] === "830" && (Number(line.current_year_balance||0)!==0 || Number(line.prior_year_balance||0)!==0)) && effectiveStructuredNotesState.presentationReview?.scope !== "consolidated"?["NCI mapping requires supported consolidated scope or correction"]:[])]}
+      arithmeticIssues={exportReadiness.arithmeticIssues}
+      finalisationIssues={exportReadiness.finalisationIssues}
       reportOptions={currentContextualOptions.options}
       reportOptionsTitle={currentContextualOptions.title}
       reportOptionsDescription={currentContextualOptions.description}
@@ -7195,8 +7206,25 @@ return Math.max(
           <>
           <AfsStandardsReviewPanel people={clientPeople} engine={statementEngine} history={comparativeHistory} lines={trialBalanceLines} policies={accountingPolicySections} notes={noteSections} options={reportOptions} state={effectiveStructuredNotesState} setup={clientSetup} onChange={saveStructuredNotesStateEverywhere}/>
           <AfsFlightDeck
-            issues={flightDeckIssues}
+            issues={exportReadiness.flightDeckIssues}
             onJump={(target) => {
+              if (target === "standards-review") {
+                const panel = document.getElementById("afs-standards-review") as HTMLDetailsElement | null;
+                if (panel) { panel.open=true; panel.scrollIntoView({behavior:"smooth",block:"start"}); }
+                return;
+              }
+              if (target.startsWith("note:")) {
+                window.dispatchEvent(new CustomEvent("afs-notes-mode-change", {detail:"edit"}));
+                goToSection("notes");
+                requestAnimationFrame(()=>document.querySelector(`[data-note-section="${target.slice(5)}"]`)?.scrollIntoView({behavior:"smooth",block:"start"}));
+                return;
+              }
+              if (target === "afs-tax") { goToSection("tax-computation"); return; }
+              if (["tax-computation","sfp","sce","accounting-policies","notes"].includes(target)) {
+                goToSection(target);
+                return;
+              }
+
               if (target === "notes-work") {
                 window.dispatchEvent(new CustomEvent("afs-notes-mode-change", {detail:"edit"}));
                 goToSection("notes");

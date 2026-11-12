@@ -368,7 +368,7 @@ export default function AfsPrintStudioShell({
             <button
               type="button"
               disabled={exportDisabled || isExporting || finalExportBlocked}
-              title={finalExportBlocked ? "Final export requires review. See Final export review in the settings panel, or choose Draft PDF." : undefined}
+              title={finalExportBlocked ? "Export is blocked by the red FlightDeck items. Open a blocker to resolve it. Draft PDF skips final-review blockers only." : undefined}
               onClick={exportPdf}
               style={{
                 ...styles.exportButton,
@@ -462,8 +462,8 @@ export default function AfsPrintStudioShell({
                   <p style={styles.emptyOptions}>{emptyOptionsMessage}</p>
                 )}
                 {finalisationIssues.length>0 && <details className="afs-screen-only" style={{marginTop:18,borderTop:"1px solid #dbe3ed",paddingTop:12,fontSize:11,color:"#475569"}}>
-                  <summary style={{cursor:"pointer",fontWeight:700}}>Final export review</summary>
-                  <p>Statement calculations and final disclosure review are separate. These review points must be cleared for a final PDF; a draft remains available.</p>
+                  <summary style={{cursor:"pointer",fontWeight:700}}>Final export blockers</summary>
+                  <p>These required items are also shown as red FlightDeck blockers. Yellow suggestions do not prevent export. Draft PDF skips final-review requirements, but calculations must still reconcile.</p>
                   <ul style={{paddingLeft:16}}>{finalisationIssues.map((issue,index)=><li key={index} style={{marginBottom:8}}>{issue}</li>)}</ul>
                 </details>}
 

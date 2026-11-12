@@ -1,4 +1,5 @@
 "use client";
+import AfsGoingConcernAssessment from "./AfsGoingConcernAssessment";
 import { fillSupportedDisclosureDrafts } from "./afsSupportedDisclosureDrafts";
 import { reviewPpeNote } from "./AfsStructuredNotesPanel";
 import { taxReconciliationReview } from "./afsTaxReconciliation";
@@ -15,7 +16,7 @@ export default function AfsStandardsReviewPanel({people=[],engine,history,lines,
   const unmapped=[...policies,...notes].filter(item=>!getStandardsReference(item.key,context));
   const linked=new Set(reviews.flatMap(r=>r.mapped.map(line=>String(line.id||line.account_code))));
   const applicable=reviews.filter(r=>r.applicable);
-  return <details data-work-only="true" className="afs-screen-only" style={{border:"1px solid #94a3b8",padding:10,marginTop:10,fontSize:11,background:"#fff"}}>
+  return <details id="afs-standards-review" data-work-only="true" className="afs-screen-only" style={{border:"1px solid #94a3b8",padding:10,marginTop:10,fontSize:11,background:"#fff"}}>
     <summary style={{cursor:"pointer",fontWeight:700}}>Whole AFS review · standards and disclosure sources</summary>
     <div data-afs-review-scroll="true" style={{maxHeight:"45vh",overflowY:"auto",overscrollBehavior:"contain",padding:"0 2px"}}>
     <div style={{position:"sticky",top:0,zIndex:1,background:"#fff",display:"flex",justifyContent:"flex-end",padding:"7px 0",borderBottom:"1px solid #dbe3ed"}}><button type="button" onClick={event=>{const panel=event.currentTarget.closest("details");if(panel){panel.open=false;panel.querySelector("summary")?.focus();}}} style={{padding:"5px 10px",border:"1px solid #94a3b8",background:"#fff",cursor:"pointer"}}>Close review</button></div>
@@ -25,6 +26,7 @@ export default function AfsStandardsReviewPanel({people=[],engine,history,lines,
       <option value="">Not assessed — select scope</option><option value="standalone">Standalone entity</option><option value="separate">Separate financial statements of an investor / parent</option><option value="consolidated">Consolidated group</option>
     </select></label>
     <label>Scope / exemption and supporting evidence<textarea aria-label="AFS scope evidence" value={state.presentationReview?.evidence || ""} onChange={e=>onChange({...state,presentationReview:{...state.presentationReview,evidence:e.target.value}})} style={{display:"block",width:"100%",fontSize:11,minHeight:48}} placeholder="Record the control assessment, ownership evidence, exemptions and consolidation/elimination schedules, where applicable."/></label>
+    <AfsGoingConcernAssessment state={state} context={context} update={(path,value)=>{const next=structuredClone(state);let cursor:any=next;for(const key of path.slice(0,-1)){cursor[key]={...(cursor[key]||{})};cursor=cursor[key];}cursor[path[path.length-1]]=value;onChange(next);}}/>
     <button type="button" onClick={()=>onChange(fillSupportedDisclosureDrafts(state,setup,lines,people))} style={{padding:"7px 10px",fontSize:11,cursor:"pointer"}}>Fill known details from records</button>
     <p>Copies only blank disclosure areas from client setup and mapped TB information. Existing wording is preserved. Sourced drafts with missing terms, assumptions or other required detail remain flagged; this does not mark review ticks complete.</p>
     <h3>Entity-specific policy disclosures</h3>

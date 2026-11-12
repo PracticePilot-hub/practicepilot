@@ -1,3 +1,4 @@
+import { goingConcernReview } from "./afsGoingConcern";
 import { noteDisclosureIssues } from "./afsNoteDisclosureRequirements";
 /** Source links and review coverage; selection is not compliance certification. */
 export type StandardsContext = {framework:"smes"|"full"|"unknown"; edition:"2015"|"2025"};
@@ -66,7 +67,7 @@ export function reviewStandardsCoverage(lines:readonly any[],policies:readonly a
     if(mapped.length&&noteKeys.length&&!selectedNotes.length)issues.push(topic.id==="borrowing" ? "Select Finance costs in Notes to disclose the mapped interest. The Borrowing costs policy is a separate selection." : "Mapped balances exist but no applicable note is selected. Open Notes to select and complete the relevant disclosure.");
     if(["going","related","events","provisions"].includes(topic.id) && noteDisclosureIssues(notes.filter(note=>topic.notes.includes(note.key)),options,state,context).length)issues.push("Entity-specific evidence and disclosure wording remain incomplete; selection alone does not supply these facts.");
     if(topic.id==="related"&&!state.relatedPartyRows?.length&&!state.relatedPartyAccounts?.length&&!state.relatedPartyDisclosure?.controlText)issues.push("Related-party note has no supported content and may be omitted from the printed set.");
-    if(topic.id==="going"&&!Object.values(state.goingConcernAssessment || {}).some(Boolean))issues.push("Going-concern assessment is not captured.");
+    if(topic.id==="going") issues.push(...goingConcernReview(state,context).issues);
     if(topic.id==="investments"&&mapped.some(line=>matches(line,"830"))&&state.presentationReview?.scope!=="consolidated")issues.push("NCI is mapped without confirmed consolidated scope. Resolve scope and ownership evidence.");
     if(topic.id==="disposals"&&context.framework==="smes"&&mapped.some(line=>matches(line,"499")||matches(line,"699")))issues.push("Full-IFRS held-for-sale mappings require SME classification review.");
     if(topic.id==="leases"&&context.framework==="smes"&&mapped.some(line=>matches(line,"306")))issues.push("ROU mapping requires a Section 20 assessment; do not assume IFRS 16.");

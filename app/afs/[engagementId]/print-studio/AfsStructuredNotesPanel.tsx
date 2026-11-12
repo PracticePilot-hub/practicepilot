@@ -1,4 +1,6 @@
 "use client";
+import AfsGoingConcernAssessment from "./AfsGoingConcernAssessment";
+import { goingConcernReview } from "./afsGoingConcern";
 import {getAfsEntityPresentation,getAfsEntityRowLabel,entityCapitalTitle} from "../afsEntityPresentation";
 import {frameworkLeaseLabel} from "./afsPolicyFrameworkReview";
 import {reportingTaxRate} from '../tax/taxEntityRates';
@@ -1492,11 +1494,13 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
     state,
     update,
     entityType,
+    context,
   }: {
     edit: boolean;
     state: StructuredState;
     update: (path: string[], value: any) => void;
     entityType?: string | null;
+    context: ReturnType<typeof standardsContext>;
   }) {
     const values = state.goingConcernAssessment || {};
     const trust = isTrust(entityType);
@@ -1518,9 +1522,10 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
       return (
         <div style={styles.editGridSingle}>
           <p style={styles.paragraph}>
-            Complete this assessment only when entity-specific going-concern disclosure is required. Blank fields do not print.
+            Complete the narrative below only when a separate going-concern disclosure is required. Blank fields do not print.
           </p>
-          {fields.map(([key, label]) => (
+          <AfsGoingConcernAssessment state={state} context={context} update={update}/>
+          {!goingConcernReview(state,context).omitNote && fields.map(([key, label]) => (
             <EditableTextBlock
               key={key}
               label={label}
@@ -5794,7 +5799,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
 
       const numberedSections = noteSections
         .map((section) => {
-          const configuredActive = Boolean(reportOptions[section.optionKey]);
+          const configuredActive = Boolean(reportOptions[section.optionKey]) && !(section.key === "notesGoingConcern" && goingConcernReview(state,standardsContext(clientSetup)).omitNote);
           const dataKey = NOTE_KEY_MAP[section.key];
           const engineRows = dataKey ? noteData[dataKey] || [] : [];
           let mappedDetails = detailedMappedNoteRows(section.key, trialBalanceLines);
@@ -6041,6 +6046,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
             <section
               key={section.key}
               id={noteNumber ? `afs-note-${noteNumber}` : undefined}
+              data-note-section={section.key}
               data-note-active={active ? "true" : "false"}
               style={active ? styles.noteSection : styles.noteSectionOff}
             >
@@ -6259,6 +6265,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
                       state={state}
                       update={update}
                       entityType={effectiveEntityType}
+                      context={standardsContext(clientSetup)}
                     />
                   ) : section.key === "notesRelatedParties" ? (
                     <RelatedPartiesNote
