@@ -47,3 +47,15 @@ assert.equal(assessedGate.finalisationIssues.length,0);assert.equal(assessedGate
 assert.equal(req.noteDisclosureIssues([{key:'notesGoingConcern',optionKey:'notesGoingConcern',defaultTitle:'Going concern'}],{notesGoingConcern:true},assessedWithoutText,context).length,0);
 html=assessment(assessedWithoutText);assert(html.includes('Assessment recorded.'));assert(!html.includes('Only the short explanation'));
 console.log('PASS an explicit no-disclosure assessment clears the going-concern blocker without compulsory free text; uncertain or unassessed outcomes are not silently cleared.');
+
+const arithmetic=load(p+'afsExportReadiness.ts').statementArithmeticIssues;
+assert.equal(arithmetic({cashFlowMovementDifference:0.22,cashFlowClosingDifference:-0.22,cashFlowPriorClosingDifference:0.03}).length,0);
+for(const key of ['cashFlowMovementDifference','cashFlowClosingDifference','cashFlowPriorClosingDifference']) {
+ for(const value of [1,-1,18.25,NaN,Infinity]) {
+  const messages=arithmetic({[key]:value});assert.equal(messages.length,1);assert(!messages[0].includes(key));
+  assert.equal(ready([],messages,[]).flightDeckIssues[0].target,'cash-flow-work');
+ }
+}
+assert.equal(arithmetic({sfpDifference:0.03}).length,1);
+assert.equal(arithmetic({cashPriorOpeningMissing:true}).length,1);
+console.log('PASS cash export checks match whole-rand workbench rounding, preserve real/missing-value blockers and link clear messages to Cash Flow Work.');

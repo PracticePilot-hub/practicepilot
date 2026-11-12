@@ -7,7 +7,7 @@ export function buildExportReadiness(base: readonly AfsFlightDeckIssue[], arithm
   const destination = (message: string): Destination => {
     const note = destinations.find(item=>message.startsWith(item.title+":"));
     if (note) return note;
-    if (/cash movements/i.test(message)) return {title:message,target:"cash-flow-work",targetLabel:"Cash Flow → Work"};
+    if (/cash movements|cash flow|closing cash/i.test(message)) return {title:message,target:"cash-flow-work",targetLabel:"Cash Flow → Work"};
     if (/related.part|key.management|controlling party/i.test(message)) return {title:message,target:"notes-work",targetLabel:"Notes → Work"};
     if (/tax/i.test(message)) return {title:message,target:"tax-computation",targetLabel:"Tax computation"};
     if (/scope|framework|NCI|going.concern/i.test(message)) return {title:message,target:"standards-review",targetLabel:"Whole AFS review"};
@@ -30,4 +30,26 @@ export function buildExportReadiness(base: readonly AfsFlightDeckIssue[], arithm
     issues.splice(first,0,grouped);
   }
   return { flightDeckIssues:issues, arithmeticIssues:unique(arithmetic), finalisationIssues:unique(issues.filter(issue=>issue.severity==="critical").map(issue=>issue.message)) };
+}
+
+/** Whole-rand cash statements ignore sub-rand differences that display as zero.
+ * Missing/non-finite values remain blockers; other arithmetic checks retain cents precision.
+ */
+export function statementArithmeticIssues(checks: Record<string, unknown>): string[] {
+  const cashLabels: Record<string, string> = {
+    cashFlowMovementDifference: "Cash flow movement differs from the balance sheet",
+    cashFlowClosingDifference: "Current-year closing cash differs from the balance sheet",
+    cashFlowPriorClosingDifference: "Prior-year closing cash differs from the balance sheet",
+    cashDirectIndirectDifferenceCurrent: "Current-year direct and indirect cash flows differ",
+    cashDirectIndirectDifferencePrior: "Prior-year direct and indirect cash flows differ",
+  };
+  return Object.entries(checks).flatMap(([key, value]) => {
+    if (!/Difference|OpeningMissing/.test(key)) return [];
+    if (key === "cashPriorOpeningMissing") return value === true ? ["Cash flow: prior-year opening cash has not been supplied"] : [];
+    const label = cashLabels[key];
+    if (typeof value !== "number") return value === true ? [key] : [];
+    if (!Number.isFinite(value)) return [label ? `${label}: an amount is missing or invalid` : key];
+    if (label) return Math.round(value) === 0 ? [] : [`${label}: difference R${value.toLocaleString("en-ZA", {minimumFractionDigits:2, maximumFractionDigits:2})}`];
+    return Math.abs(value) > 0.005 ? [key] : [];
+  });
 }
