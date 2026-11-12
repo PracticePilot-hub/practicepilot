@@ -65,7 +65,7 @@ export function reviewStandardsCoverage(lines:readonly any[],policies:readonly a
     const issues:string[]=[];
     if(applicable&&policyKeys.length&&!selectedPolicies.length)issues.push("No policy in this area is selected; assess material policy information.");
     if(mapped.length&&noteKeys.length&&!selectedNotes.length)issues.push(topic.id==="borrowing" ? "Select Finance costs in Notes to disclose the mapped interest. The Borrowing costs policy is a separate selection." : "Mapped balances exist but no applicable note is selected. Open Notes to select and complete the relevant disclosure.");
-    if(["going","related","events","provisions"].includes(topic.id) && noteDisclosureIssues(notes.filter(note=>topic.notes.includes(note.key)),options,state,context).length)issues.push("Entity-specific evidence and disclosure wording remain incomplete; selection alone does not supply these facts.");
+    if(["going","related","events","provisions"].includes(topic.id) && noteDisclosureIssues(notes.filter(note=>topic.notes.includes(note.key)),options,state,context,lines).length)issues.push("Entity-specific evidence and disclosure wording remain incomplete; selection alone does not supply these facts.");
     if(topic.id==="related"&&!state.relatedPartyRows?.length&&!state.relatedPartyAccounts?.length&&!state.relatedPartyDisclosure?.controlText)issues.push("Related-party note has no supported content and may be omitted from the printed set.");
     if(topic.id==="going") issues.push(...goingConcernReview(state,context).issues);
     if(topic.id==="investments"&&mapped.some(line=>matches(line,"830"))&&state.presentationReview?.scope!=="consolidated")issues.push("NCI is mapped without confirmed consolidated scope. Resolve scope and ownership evidence.");

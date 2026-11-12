@@ -1,3 +1,4 @@
+import { relatedPartyStructuredFields } from "./afsRelatedPartyDisclosure";
 import { goingConcernReview } from "./afsGoingConcern";
 import { disclosureTableComplete, type DisclosureTable } from "./disclosureTableData";
 import type { StandardsContext } from "./afsStandardsCoverage";
@@ -947,10 +948,11 @@ export function fieldComplete(field:DisclosureField,entry:DisclosureEntry|undefi
  if(entry?.notApplicable) return field.conditional && supportedDisclosureText(entry.reason).length>=12;
  return supportedDisclosureText(entry?.text).length>=12 && (!entry?.tables || (Array.isArray(entry.tables) && entry.tables.every(disclosureTableComplete)));
 }
-export function noteDisclosureIssues(notes:readonly {key:string;optionKey:string;defaultTitle?:string;title?:string}[],options:Record<string,any>,state:Record<string,any>,context:StandardsContext) {
+export function noteDisclosureIssues(notes:readonly {key:string;optionKey:string;defaultTitle?:string;title?:string}[],options:Record<string,any>,state:Record<string,any>,context:StandardsContext,lines:readonly any[] = []) {
  const entries=state.disclosureContent||{};
  return notes.filter(note=>options[note.optionKey] && !(note.key==="notesGoingConcern" && goingConcernReview(state,context).omitNote)).flatMap(note=>{
-  const fields=disclosureFields(note.key,context),missing=fields.filter(field=>!fieldComplete(field,entries[note.key]?.[field.id],context));
+  const fields=disclosureFields(note.key,context),structured=note.key==="notesRelatedParties"?relatedPartyStructuredFields(state,lines,context.framework==="full"?"full":"smes"):{};
+  const missing=fields.filter(field=>!(structured as Record<string,boolean>)[field.id] && !fieldComplete(field,entries[note.key]?.[field.id],context));
   return missing.length?[{key:note.key,title:note.defaultTitle||note.title||note.key,missing:missing.map(field=>field.label)}]:[];
  });
 }

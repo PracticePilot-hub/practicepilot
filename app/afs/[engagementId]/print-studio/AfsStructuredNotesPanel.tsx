@@ -1586,7 +1586,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
 
     const meta = completeRelatedPartyKmp(state.relatedPartyDisclosure || {});
     const framework = standardsContext(clientSetup).framework === "full" ? "full" : "smes";
-    const disclosedRows = relatedPartyDisclosureRows(rows, state.relatedPartyAccounts || [], trialBalanceLines);
+    const disclosedRows = relatedPartyDisclosureRows(rows, state.relatedPartyAccounts || [], trialBalanceLines, state);
     const displayRows = edit
       ? rows.length
         ? rows
@@ -5832,7 +5832,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
           ).some((item) => String(item || "").trim());
 
           const relatedPartiesHaveContent = relatedPartyDisclosureRows(
-            state.relatedPartyRows || [], state.relatedPartyAccounts || [], trialBalanceLines
+            state.relatedPartyRows || [], state.relatedPartyAccounts || [], trialBalanceLines, state
           ).some(row => [row.name,row.relationship,row.current,row.prior].some(value => String(value ?? "").trim())) ||
             Boolean(String(state.relatedPartyDisclosure?.controlText || "").trim()) ||
             Boolean(String(state.relatedPartyDisclosure?.extraText || "").trim()) ||
@@ -5976,7 +5976,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
           const oldDefault=String(defaultNoteTexts?.[section.key]?.text || "").trim();
           const customText = rawCustomText && rawCustomText !== oldDefault
             ? Object.entries(disclosureTokens).reduce((text,[key,value])=>text.split(`{${key}}`).join(value==null?"":String(value)),rawCustomText) : "";
-          const disclosureContent=<AfsNoteDisclosureContent sectionKey={section.key} edit={isEditing} state={state} setup={clientSetup} update={update} customText={customText}/>;
+          const disclosureContent=<AfsNoteDisclosureContent sectionKey={section.key} edit={isEditing} state={state} setup={clientSetup} update={update} customText={customText} lines={trialBalanceLines}/>;
 
           const displayTitle =
             isShareCapitalSection(section) && effectiveIsCloseCorporation

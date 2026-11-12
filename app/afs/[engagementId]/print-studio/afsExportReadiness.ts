@@ -16,10 +16,18 @@ export function buildExportReadiness(base: readonly AfsFlightDeckIssue[], arithm
     return {title:message,target:"notes-work",targetLabel:"Notes → Work"};
   };
   for (const [index,message] of unique([...arithmetic,...required]).entries()) {
-    const existing = issues.find(issue=>issue.title===message || issue.message===message || message.startsWith(issue.title+":") || message.startsWith(issue.title+" in "));
+    const existing = issues.find(issue=>issue.title===message || issue.message===message || (!issue.id.startsWith("disclosure-") && message.startsWith(issue.title+":")) || message.startsWith(issue.title+" in "));
     if (existing) { existing.severity="critical"; if(existing.target==="notes") {existing.target="notes-work";existing.targetLabel="Notes → Work";} if(message!==existing.title && !existing.message.includes(message)) existing.message += " "+message; continue; }
     const target = destination(message);
     issues.push({id:`export-required-${index}`,severity:"critical",title:target.title,message,target:target.target,targetLabel:target.targetLabel});
+  }
+  const related=issues.filter(issue=>issue.severity==="critical" && (issue.id.startsWith("related-party-") || /^Related parties(?::|$)/i.test(issue.title)));
+  if(related.length>1){
+    const relatedIds=new Set(related.map(issue=>issue.id));
+    const first=issues.findIndex(issue=>relatedIds.has(issue.id));
+    const grouped:AfsFlightDeckIssue={id:"related-party-required-review",severity:"critical",title:"Related parties — finish the review",message:[...new Set(related.map(issue=>issue.message))].map(message=>"• "+message).join("\n"),target:"notes-work",targetLabel:"Notes → Work"};
+    for(let index=issues.length-1;index>=0;index--) if(relatedIds.has(issues[index].id))issues.splice(index,1);
+    issues.splice(first,0,grouped);
   }
   return { flightDeckIssues:issues, arithmeticIssues:unique(arithmetic), finalisationIssues:unique(issues.filter(issue=>issue.severity==="critical").map(issue=>issue.message)) };
 }
