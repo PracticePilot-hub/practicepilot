@@ -1,3 +1,4 @@
+import {withTaxSectionReview} from "../../../../../afs/[engagementId]/tax/taxSectionReview";
 import {bindTrustWorkpaper,trustTaxRegime,specialTrustTax} from "../../../../../afs/[engagementId]/tax/taxEntityRates";
 import { calculateTax, taxWorkbookIssues, priorTaxYearEnd, decodeTaxNotes, encodeTaxNotes, mapped, taxDifferences } from "../../../../../afs/[engagementId]/tax/taxWorkpaper";
 import { NextResponse } from "next/server";
@@ -107,9 +108,11 @@ export async function GET(request: Request, context: any) {
 
     const {data:prior,error:priorError}=await supabase.from("afs_tax_calculations").select("*").eq("engagement_id",engagementId).eq("calculation_name",`Tax computation ${Number(year)-1}`).order("updated_at",{ascending:false}).limit(1).maybeSingle();
     if(priorError)throw priorError;
+    const {data:signoff,error:signoffError}=await supabase.from("afs_section_signoffs").select("engagement_id,section_key,reviewed_by,reviewed_at").eq("engagement_id",engagementId).eq("section_key","tax-calculator").maybeSingle();
+    if(signoffError)throw signoffError;
     return NextResponse.json({
-      priorTaxCalculation:normaliseTaxCalculation(prior,setup),
-      taxCalculation: normaliseTaxCalculation(data,setup),
+      priorTaxCalculation:withTaxSectionReview(normaliseTaxCalculation(prior,setup),signoff),
+      taxCalculation:withTaxSectionReview(normaliseTaxCalculation(data,setup),signoff),
     });
   } catch (error: any) {
     return NextResponse.json(

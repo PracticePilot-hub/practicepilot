@@ -5,7 +5,7 @@ import { TAX_RECONCILING_ITEMS } from '../print-studio/afsTaxReconciliation';
 import { disclosureContext } from '../print-studio/afsNoteDisclosureRequirements';
 import { standardsContext } from '../print-studio/afsStandardsCoverage';
 const money = (n: number) => 'R' + n.toLocaleString('en-ZA');
-export function taxNotesState(base: any, saved: any, prior: any, lines: any[], setup: any) {
+export function taxNotesState(base: any, saved: any, prior: any, lines: any[], setup: any, afsProfits?: {current:number;prior:number}) {
     if (!saved?.worksheet || taxWorkbookIssues(saved, lines, base.presentationReview?.scope === 'consolidated').length)
         return base;
     const next = structuredClone(base), context = disclosureContext(standardsContext(setup));
@@ -16,7 +16,7 @@ export function taxNotesState(base: any, saved: any, prior: any, lines: any[], s
     const fill = (r: TaxResult, side: 'current' | 'prior', source: any[]) => { for (const item of TAX_RECONCILING_ITEMS) {
         next.taxationReconciliation[item.key] ||= {};
         next.taxationReconciliation[item.key][side] = 0;
-    } const selectedRate = side === 'prior' ? reportingTaxRate(setup,'prior') : rate; const recon = taxReconciliation(r, profitFromTb(source), selectedRate > 1 ? selectedRate / 100 : selectedRate); for (const [key, value] of Object.entries(recon)) {
+    } const selectedRate = side === 'prior' ? reportingTaxRate(setup,'prior') : rate; const recon = taxReconciliation(r, afsProfits?.[side] ?? profitFromTb(source), selectedRate > 1 ? selectedRate / 100 : selectedRate); for (const [key, value] of Object.entries(recon)) {
         next.taxationReconciliation[key] ||= {};
         next.taxationReconciliation[key][side] = value;
     } };

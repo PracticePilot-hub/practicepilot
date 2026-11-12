@@ -4105,7 +4105,7 @@ useEffect(() => {
     [trialBalanceLines, effectiveStatementOverrides, noteNumberMap],
   );
 
-const effectiveStructuredNotesState = useMemo<Record<string,any>>(() => taxNotesState(prepareCashFlowWorkState(baseStatementEngine,trialBalanceLines,structuredNotesState || {},comparativeHistory,yearEnd,effectiveStatementOverrides),taxCalculation,priorTaxCalculation,trialBalanceLines,clientSetup),[baseStatementEngine,trialBalanceLines,structuredNotesState,comparativeHistory,yearEnd,effectiveStatementOverrides,taxCalculation,priorTaxCalculation,clientSetup]);
+const effectiveStructuredNotesState = useMemo<Record<string,any>>(() => taxNotesState(prepareCashFlowWorkState(baseStatementEngine,trialBalanceLines,structuredNotesState || {},comparativeHistory,yearEnd,effectiveStatementOverrides),taxCalculation,priorTaxCalculation,trialBalanceLines,clientSetup,{current:Number(baseStatementEngine.noteData.cashUsedInOperations.find(row=>row.id==="profit-before-tax")?.current||0),prior:Number(baseStatementEngine.noteData.cashUsedInOperations.find(row=>row.id==="profit-before-tax")?.prior||0)}),[baseStatementEngine,trialBalanceLines,structuredNotesState,comparativeHistory,yearEnd,effectiveStatementOverrides,taxCalculation,priorTaxCalculation,clientSetup]);
 
   // Amounts captured here are non-cash movements and never represent bank receipts/payments.
   // They are saved with the engagement's other Print Studio overrides.

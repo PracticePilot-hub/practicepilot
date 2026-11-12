@@ -16,3 +16,23 @@ test('Reviewed tax reaches notes, deferred balances and cash with no stale recon
 test('Actual reviewed cash payments become defaults while explicit Workbench zero survives',()=>{const w=workbook(),base=lines.map(line=>({...line,current_year_balance:line.mapping_code==='420.10'?1900000:line.mapping_code==='495.10'?100000:line.current_year_balance}));w.entities[0].payments=100000;const result=t.calculateTax(w,base),j=t.taxJournal(result,base,{});assert.equal(j.errors.length,0);const applied=base.map(line=>({...line,current_year_balance:line.current_year_balance+j.entries.filter(e=>e.account_code===line.account_code).reduce((n,e)=>n+e.debit-e.credit,0)}));w.reviewed=true;const defaults=load(pre+'tax/afsTaxIntegration.ts').taxCashDefaults({worksheet:w},null,applied);assert.equal(defaults.cashTaxPaidCurrent,-100000);assert.equal({...defaults,...{cashTaxPaidCurrent:0}}.cashTaxPaidCurrent,0);});
 test('Comparative review and existing deferred schedules cannot be silently skipped',()=>{const w=workbook(0),blank=lines.map(line=>({...line,current_year_balance:0,prior_year_balance:line.mapping_code==='700.20'?-100000:line.mapping_code==='420.10'?100000:0}));w.reviewed=true;assert(t.taxAfsIssues({worksheet:w},null,blank).some(issue=>issue.includes('comparative tax workpaper')));blank.find(line=>line.mapping_code==='395.10').current_year_balance=2000;assert(t.calculateTax(w,blank).issues.some(issue=>issue.includes('asset recognition')));blank.find(line=>line.mapping_code==='595.10').current_year_balance=-2500;assert(t.calculateTax(w,blank).issues.some(issue=>issue.includes('liability reversal')));});
 console.log('Tax rebuild tests passed:',cases);
+test('Section sign-off covers saved periods without a second hidden review tick',()=>{
+ const link=load(pre+'tax/taxSectionReview.ts').withTaxSectionReview;
+ const w=workbook(0);w.notes='';w.entities[0].paymentsConfirmed=false;
+ const original={engagement_id:'fictional-engagement',updated_at:'2026-11-12T10:00:00Z',worksheet:w};
+ const signoff={engagement_id:'fictional-engagement',section_key:'tax-calculator',reviewed_by:'fictional-reviewer',reviewed_at:'2026-11-12T11:00:00Z'};
+ const before=JSON.stringify(original),approved=link(original,signoff),blank=lines.map(l=>({...l,current_year_balance:0}));
+ assert(approved.sectionReview);assert.equal(t.taxWorkbookIssues(approved,blank).length,0);assert.equal(JSON.stringify(original),before);
+ for(const patch of [{reviewed_at:null},{reviewed_by:null},{engagement_id:'another-engagement'},{section_key:'mapping'},{reviewed_at:'2026-11-12T09:00:00Z'}])assert(!link(original,{...signoff,...patch}).sectionReview);
+ const missing=structuredClone(original);delete missing.worksheet.entities[0].payments;
+ assert(!link(missing,signoff).worksheet.entities[0].paymentsConfirmed);
+ const unsupported=structuredClone(original);unsupported.worksheet.entities[0].lossBf=1000;unsupported.worksheet.entities[0].tradeConfirmed=false;
+ assert(t.taxWorkbookIssues(link(unsupported,signoff),blank).length>0);
+});
+test('Tax note reconciles to printed AFS profit when TB line rounding differs',()=>{
+ const w=workbook(100000);Object.assign(w.entities[0],{lossBf:200000,tradeConfirmed:true});w.reviewed=true;
+ const base=[row('700.20',-100000),row('420.10',100000)],integration=load(pre+'tax/afsTaxIntegration.ts'),review=load(pre+'print-studio/afsTaxReconciliation.ts');
+ const state=integration.taxNotesState({}, {worksheet:w},null,base,{tax_rate_current_year:27},{current:100001,prior:0});
+ const checked=review.taxReconciliationReview({taxation:[],cashUsedInOperations:[{label:'Profit before tax',current:100001,prior:0}]},state,{tax_rate_current_year:27,tax_rate_prior_year:27});
+ assert.equal(checked[0].difference,0);
+});

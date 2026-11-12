@@ -18,7 +18,9 @@ export default function TaxCalculatorPanel({ trialBalanceLines = [], clientSetup
     const [companyName,setCompanyName]=useState(''),[reportingStart,setReportingStart]=useState('');
     const [view,setView]=useState<'computation'|'start'|'calculation'|'payments'|'deferred'|'review'>('computation');
     const [showTbPicker,setShowTbPicker]=useState(false),[tbSearch,setTbSearch]=useState('');
-    const [workbook, setWorkbook] = useState<TaxWorkbook | null>(null), [lines, setLines] = useState(trialBalanceLines), [period, setPeriod] = useState(''), [yearEnd, setYearEnd] = useState(''), [scope, setScope] = useState(false), [selected, setSelected] = useState(0), [accounts, setAccounts] = useState<Record<string, string>>({}), [message, setMessage] = useState(''), [busy, setBusy] = useState(false), [loadError, setLoadError] = useState('');
+    const [workbook, setWorkbookState] = useState<TaxWorkbook | null>(null), [lines, setLines] = useState(trialBalanceLines), [period, setPeriod] = useState(''), [yearEnd, setYearEnd] = useState(''), [scope, setScope] = useState(false), [selected, setSelected] = useState(0), [accounts, setAccounts] = useState<Record<string, string>>({}), [message, setMessage] = useState(''), [busy, setBusy] = useState(false), [loadError, setLoadError] = useState('');
+    const [sectionReviewed,setSectionReviewed]=useState(false);
+    const setWorkbook: typeof setWorkbookState = next => {setSectionReviewed(false);setWorkbookState(next);};
     useEffect(() => setLines(trialBalanceLines), [trialBalanceLines]);
     useEffect(() => { let cancelled = false; (async () => { try {
         const [eng, settings] = await Promise.all([fetch(`/api/afs/engagements/${id}`).then(r => r.json()), fetch(`/api/afs/engagements/${id}/print-studio-settings`).then(r => r.json())]);
@@ -57,6 +59,7 @@ export default function TaxCalculatorPanel({ trialBalanceLines = [], clientSetup
                     const loaded=bindTrustWorkpaper(structuredClone(row.worksheet) as TaxWorkbook, clientSetup);
                     for(const item of loaded.entities){if(item.id==='parent'&&item.name==='Reporting entity'&&companyName){item.name=companyName;loaded.reviewed=false;}}
                     setWorkbook(loaded);
+                    setSectionReviewed(!!row.sectionReview);
                     setMessage('');
                     return;
                 }
@@ -172,7 +175,7 @@ export default function TaxCalculatorPanel({ trialBalanceLines = [], clientSetup
     const issueStep=(issue:string):Step=>/deferred|temporary difference|recovery/i.test(issue)?'deferred':/control|payment|refund/i.test(issue)?'payments':/entity|company|profit|sbc|rate|jurisdiction/i.test(issue)?'start':'calculation';
     return <div className={ui.workspace}>
       <header className={ui.header}>
-        <div><div className={ui.eyebrow}>PROFIT TO TAX <span className={ui.draftBadge}>{workbook.reviewed?'Reviewed':'Draft calculation'}</span></div><h2>Tax computation</h2><p>Your calculation, from profit to tax owing. Open a line only when you need to change its workings.</p></div>
+        <div><div className={ui.eyebrow}>PROFIT TO TAX <span className={ui.draftBadge}>{sectionReviewed?'Section signed off':workbook.reviewed?'Reviewed':'Draft calculation'}</span></div><h2>Tax computation</h2><p>Your calculation, from profit to tax owing. Open a line only when you need to change its workings.</p></div>
         <div className={ui.headerActions}><label className={ui.period}>Financial year<select aria-label="Financial year" value={period} onChange={event=>{setPeriod(event.target.value);setMessage('');}}><option value={yearEnd}>{yearEnd.slice(0,4)} · Current</option><option value={priorTaxYearEnd(yearEnd)}>{Number(yearEnd.slice(0,4))-1} · Comparative</option></select></label><button className={ui.primary} onClick={saveClick} disabled={busy||!result}>{busy?'Saving…':workbook.reviewed?'Save reviewed calculation':'Save draft'}</button></div>
       </header>
       {message&&<div role="status" className={ui.notice}>{message}</div>}
@@ -247,7 +250,7 @@ export default function TaxCalculatorPanel({ trialBalanceLines = [], clientSetup
             <details className={ui.detail}><summary>View accounts & proposed adjustment <span>{journal?.entries.length||0} lines</span></summary><table className={ui.accountTable}><thead><tr><th>Account</th><th>Calculated</th><th>In AFS</th><th>Change</th></tr></thead><tbody>{differences.map(row=><tr key={row.code}><td>{labels[row.code]}<small>{row.code}</small>{periodLines.filter(line=>line.mapping_code===row.code).length>1&&<select aria-label={`Posting account for ${row.code}`} value={accounts[row.code]||''} onChange={e=>setAccounts({...accounts,[row.code]:e.target.value})}><option value="">Select posting account</option>{periodLines.filter(line=>line.mapping_code===row.code).map(line=><option key={line.account_code} value={line.account_code}>{line.account_code} · {line.account_name}</option>)}</select>}</td><td>{money(row.target)}</td><td>{money(row.booked)}</td><td>{money(row.difference)}</td></tr>)}</tbody></table></details>
             <label>Tax review notes<textarea placeholder="Explain the tax basis, key judgements and supporting schedules." value={workbook.notes} onChange={e=>setWorkbook({...workbook,reviewed:false,notes:e.target.value})}/></label>
             <div className={ui.applyBar}><div><strong>{journal?.entries.length ? "Update the AFS" : "Save the tax calculation"}</strong><p>{journal?.entries.length ? "Posts the balanced adjustment. Your tax note and financial balances follow it." : "No journal is needed. Save the calculation so your AFS tax note and checks can use it."}</p></div><button className={ui.primary} disabled={busy||!result||!!journal?.errors.length} onClick={journal?.entries.length ? post : saveClick}>{busy ? "Saving…" : journal?.entries.length ? "Update AFS" : "Save tax calculation"}</button></div>
-            <label className={ui.check}><input type="checkbox" checked={workbook.reviewed} disabled={!!workbook.taxBasisReviewRequired||!result||!!journal?.errors.length||differences.some(row=>Math.abs(row.difference)>.5)||workbook.notes.trim().length<20} onChange={e=>setWorkbook({...workbook,reviewed:e.target.checked})}/>I have reviewed this calculation and agreed it to the AFS</label><p className={ui.hint}>Save after review. Final AFS checks include the comparative year.</p>
+            {sectionReviewed ? <p className={ui.ready}>This saved calculation is covered by the Tax Calculator section sign-off. No second review tick is required.</p> : <><label className={ui.check}><input type="checkbox" checked={workbook.reviewed} disabled={!!workbook.taxBasisReviewRequired||!result||!!journal?.errors.length||differences.some(row=>Math.abs(row.difference)>.5)||workbook.notes.trim().length<20} onChange={e=>setWorkbook({...workbook,reviewed:e.target.checked})}/>I have reviewed this calculation and agreed it to the AFS</label><p className={ui.hint}>Save after review. Final AFS checks include the comparative year.</p></>}
           </section>}
           {view!=='computation'&&<div className={ui.stepFooter}><span>Your entries are kept when you return to the computation.</span><button className={ui.primary} onClick={()=>setTab('computation')}>Done — back to computation</button></div>}
 

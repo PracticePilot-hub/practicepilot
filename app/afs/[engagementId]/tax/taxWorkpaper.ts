@@ -285,7 +285,7 @@ export function taxJournal(result: TaxResult, lines: any[], accounts: Record<str
 export function taxWorkbookIssues(saved: any, lines: any[], consolidated = false) { if (!saved?.worksheet)
     return []; try {
     const result = calculateTax(saved.worksheet, lines, consolidated);
-    return [...(saved.worksheet.taxBasisReviewRequired?[saved.worksheet.taxBasisReviewReason||'Validate the illustrative tax basis before final approval.']:[]), ...result.issues, ...taxJournal(result, lines, {}).errors, ...(workbookReviewIssues(saved.worksheet)), ...taxDifferences(result, lines).filter(row => Math.abs(row.difference) > .5).map(row => 'Tax workpaper differs from ledger mapping ' + row.code + ' by ' + row.difference.toFixed(2)), ...(!saved.worksheet.reviewed ? ['Tax workpaper review is pending.'] : [])];
+    return [...(saved.worksheet.taxBasisReviewRequired?[saved.worksheet.taxBasisReviewReason||'Validate the illustrative tax basis before final approval.']:[]), ...result.issues, ...taxJournal(result, lines, {}).errors, ...(!saved.sectionReview ? workbookReviewIssues(saved.worksheet) : []), ...taxDifferences(result, lines).filter(row => Math.abs(row.difference) > .5).map(row => 'Tax workpaper differs from ledger mapping ' + row.code + ' by ' + row.difference.toFixed(2)), ...(!saved.worksheet.reviewed && !saved.sectionReview ? ['Tax workpaper review is pending.'] : [])];
 }
 catch (error) {
     return [String((error as Error).message)];
