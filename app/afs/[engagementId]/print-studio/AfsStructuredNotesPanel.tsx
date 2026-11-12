@@ -1834,6 +1834,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
         {meta.extraText && <p style={styles.paragraph}>{meta.extraText}</p>}
         {displayRows.map((row: any, index: number) => {
           const detailRows = [
+            ["Relationship", row.relationship],
             ["Amounts represent", row.amountKind === "transaction" ? "Transactions during the year" : row.amountKind === "balance" ? "Closing balance" : row.amountKind === "commitment" ? "Commitments" : "Not classified"],
             ["Disclosure category", RELATED_PARTY_CATEGORIES.find(([key])=>key===row.category)?.[1] || row.category],
             ["Terms and repayment", row.terms],
@@ -1852,6 +1853,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
                 pageBreakInside: "avoid",
               }}
             >
+              <p style={{ ...styles.subheading, margin: "10px 0 6px" }}>{row.name || "–"}</p>
               <table data-afs-related-party-table="true"
                 style={{
                   ...styles.table,
@@ -1862,11 +1864,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
               >
                 <thead>
                   <tr>
-                    <th style={{ ...styles.thLeft, width: "25%" }}>Name</th>
-                    <th style={{ ...styles.thLeft, width: "20%" }}>
-                      Relationship
-                    </th>
-                    <th style={{ ...styles.thLeft, width: "29%" }}>
+                    <th style={{ ...styles.thLeft, width: hideComparatives ? "87%" : "74%", paddingRight: 12 }}>
                       Transaction
                     </th>
                     <th style={{ ...styles.thRight, width: "13%" }}>
@@ -1878,11 +1876,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
 
                 <tbody>
                   <tr>
-                    <td style={{ ...styles.tdLeft, fontWeight: 700 }}>
-                      {row.name || "–"}
-                    </td>
-                    <td style={styles.tdLeft}>{row.relationship || "–"}</td>
-                    <td style={styles.tdLeft}>{row.transaction || "–"}</td>
+                    <td style={{ ...styles.tdLeft, paddingRight: 12 }}>{row.transaction || "–"}</td>
                     <td style={styles.tdRight}>
                       {String(row.current ?? "").trim()
                         ? amount(toNumber(row.current))
@@ -1909,14 +1903,14 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
                       key={`${index}-${label}`}
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "145px minmax(0, 1fr)",
+                        gridTemplateColumns: "30% minmax(0, 1fr)",
                         gap: 8,
                         fontSize: 10.2,
                         lineHeight: 1.35,
                       }}
                     >
-                      <strong>{label}</strong>
-                      <span>{String(value)}</span>
+                      <strong style={{ paddingRight: 8 }}>{label}</strong>
+                      <span style={{ overflowWrap: "anywhere" }}>{String(value)}</span>
                     </div>
                   ))}
                 </div>

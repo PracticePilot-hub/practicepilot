@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { createClient } from "@supabase/supabase-js";
+import {loanLinesFromMappings} from "./loanCertificateCandidates";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -3614,7 +3615,7 @@ function LoanCertificatesDocument({
 
       <div style={styles.loanCandidateTable}>
         <div style={styles.loanCandidateHeader}>
-          <span>Loan / lender</span>
+          <span>Loan / counterparty</span>
           <span>Balance</span>
           <span>Source</span>
           <span>Status</span>
@@ -3694,7 +3695,7 @@ function LoanCertificatesDocument({
                        <input value={terms.certifierCapacity} onChange={(event) => onLoanTermsChange(key, { certifierCapacity: event.target.value })} style={styles.controlInput} placeholder="e.g. Main Trustee" />
                      </label>
                     <label style={styles.controlField}>
-                      <span>Creditor / lender</span>
+                      <span>{currentBalance(line) >= 0 ? "Debtor / borrower" : "Creditor / lender"}</span>
                       <input
                         value={terms.creditorName}
                         onChange={(event) =>
@@ -5484,31 +5485,6 @@ function getEntitySignatories(people: ClientPerson[] | undefined, kind: EntityKi
   return preferred.map((person) => person.full_name).filter(Boolean);
 }
 
-function loanLinesFromMappings(trialBalanceLines: TrialBalanceLine[]) {
-  return (trialBalanceLines || []).filter((line) => {
-    const code = cleanCode(line.mapping_code);
-
-    const isRelatedPartyLoan =
-      startsWithMapping(code, "547") || startsWithMapping(code, "548");
-
-    if (!isRelatedPartyLoan) return false;
-
-    const balance = currentBalance(line);
-    if (Math.abs(balance) < 0.005) return false;
-
-    const name = String(line.account_name || line.description || "")
-      .trim()
-      .toLowerCase();
-
-    const looksLikeMovementOnly =
-      name.includes("repayment") ||
-      name.includes("movement") ||
-      name.includes("transfer") ||
-      name.includes("journal");
-
-    return !looksLikeMovementOnly;
-  });
-}
 
 function cleanCode(value: unknown) {
   return String(value || "").trim();
@@ -5666,12 +5642,17 @@ const styles: Record<string, CSSProperties> = {
     position: "relative",
     width: "min(100%, 794px)",
     minHeight: "1123px",
+    boxSizing: "border-box",
+    display: "flex",
+    flexDirection: "column",
     padding: "54px 58px 74px",
     background: "#ffffff",
     border: "1px solid #d7dee8",
     boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06)",
   },
   previewPageContent: {
+    flex: 1,
+    paddingBottom: "48px",
     fontSize: "12px",
     lineHeight: 1.55,
   },
@@ -5679,11 +5660,12 @@ const styles: Record<string, CSSProperties> = {
     marginTop: "34px",
   },
   previewPageFooter: {
-    marginTop: "48px",
+    marginTop: "auto",
     display: "flex",
     justifyContent: "space-between",
     gap: "20px",
     paddingTop: "8px",
+    flexShrink: 0,
     borderTop: "1px solid #e5e7eb",
     color: "#6b7280",
     fontSize: "8px",
