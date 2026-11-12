@@ -17,7 +17,7 @@ for(const framework of ['smes','full']){
   const risk=structuredClone(state);risk.goingConcernAssessment.assessmentStatus=status;
   assert(gc.goingConcernReview(risk,context).disclosureRequired);assert(!gc.goingConcernReview(risk,context).omitNote);assert.equal(req.noteDisclosureIssues([note],{notesGoingConcern:true},risk,context).length,1);
  }
- const blank=structuredClone(state);blank.goingConcernAssessment.assessmentEvidence='';assert(!gc.goingConcernReview(blank,context).omitNote);assert(gc.goingConcernReview(blank,context).issues.length);
+ const blank=structuredClone(state);blank.goingConcernAssessment.assessmentEvidence='';assert(gc.goingConcernReview(blank,context).omitNote);assert(!gc.goingConcernReview(blank,context).complete);assert.equal(gc.goingConcernReview(blank,context).issues.length,1);assert.equal(req.noteDisclosureIssues([note],{notesGoingConcern:true},blank,context).length,0);
  const old=structuredClone(state);old.goingConcernAssessment.assessmentContext='old';assert(!gc.goingConcernReview(old,context).assessed);
  const legacy={goingConcernAssessment:{conditions:'Legacy narrative is not an explicit assessment.'}};assert(gc.goingConcernReview(legacy,context).issues.length);
  const React=r('react'),render=r('react-dom/server').renderToStaticMarkup,Panel=load(p+'AfsStructuredNotesPanel.tsx').default;

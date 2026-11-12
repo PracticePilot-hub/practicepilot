@@ -40,8 +40,8 @@ export default function AfsGoingConcernAssessment({state, context, update}: Prop
       <span style={{display:"block",fontWeight:400,fontSize:11,margin:"5px 0"}}>Record the period reviewed and the relevant facts or documents. This explanation stays in Work.</span>
       <textarea aria-label="Going-concern assessment evidence" value={value.assessmentEvidence || ""} onChange={e=>update(["goingConcernAssessment", "assessmentEvidence"],e.target.value)} style={{display:"block",width:"100%",boxSizing:"border-box",minHeight:80,padding:8,fontFamily:"inherit",fontWeight:400}} placeholder="What expected trading, payment or funding information did you review, and why does it support your conclusion?"/>
     </label>}
-    {review.omitNote && <p role="status" style={{padding:10,background:"#ecfdf5",color:"#166534",fontWeight:700}}>Assessment recorded. No separate going-concern note will print. There are no disclosure boxes to complete.</p>}
-    {review.assessed && !review.complete && <p style={{color:"#9f1239"}}>Add a brief supporting explanation to complete this assessment.</p>}
+    {review.omitNote && review.complete && <p role="status" style={{padding:10,background:"#ecfdf5",color:"#166534",fontWeight:700}}>Assessment recorded. No separate going-concern note will print. There are no disclosure boxes to complete.</p>}
+    {review.assessed && !review.complete && <p style={{color:"#9f1239"}}>{review.omitNote ? "No separate note is needed. Only the short explanation above remains to complete your assessment." : "Add a brief supporting explanation to complete this assessment."}</p>}
     {review.disclosureRequired && <p style={{padding:10,background:"#fff7ed"}}>A note is needed. Complete “Required note wording” below in Notes → Work. Your answers are saved automatically.</p>}
     {(outlook === "unsure" || (outlook === "yes" && disclosure === "unsure")) && <p style={{color:"#9f1239"}}>Assessment pending. Obtain the missing information before choosing a conclusion.</p>}
   </fieldset>;

@@ -11,6 +11,6 @@ export function goingConcernReview(state: Record<string, any>, context: Standard
   const complete = assessed && supported;
   const issues: string[] = [];
   if (!assessed) issues.push("Record the going-concern assessment outcome; a separate note is required only where the assessment identifies a disclosure requirement.");
-  else if (!supported) issues.push("Record the basis and supporting evidence for the going-concern assessment (Work only).");
-  return { assessed, complete, status, omitNote: complete && status === "no-disclosure", disclosureRequired: assessed && status !== "no-disclosure", issues };
+  else if (!supported) issues.push("Going-concern assessment: add a brief explanation of what supports your answers (Work only; no separate note wording is required for a no-disclosure outcome).");
+  return { assessed, complete, status, omitNote: assessed && status === "no-disclosure", disclosureRequired: assessed && status !== "no-disclosure", issues };
 }
