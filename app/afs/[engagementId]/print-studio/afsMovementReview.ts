@@ -16,7 +16,10 @@ export function historicalMovementOpening(sectionKey:string,lineId:string,histor
   const rows=history.filter(row=>String(row.financial_year_end)===year&&
     (suffix?String(row.mapping_code||"")===suffix:family.prefixes.some(p=>matches(String(row.mapping_code||""),p))));
   if(!rows.length)return null;
-  return rows.reduce((sum,row)=>sum+Number(row.closing_balance||0)*(family.credit?-1:1),0);
+  const total=rows.reduce((sum,row)=>sum+Number(row.closing_balance||0)*(family.credit?-1:1),0);
+  // The investment-property engine presents whole-Rand rows. Compare history
+  // on that same basis rather than treating rounded cents as a source conflict.
+  return sectionKey==="notesInvestmentProperty" ? Math.round(total) : total;
 }
 export function movementNoteReview(sectionKey:string,rows:any[],state:Record<string,any>,history:any[]) {
   const family=MOVEMENT_FAMILIES[sectionKey];if(!family)return [];
