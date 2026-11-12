@@ -55,6 +55,11 @@ export function buildEquityMovementTable(engine: AfsPrintStatementEngineResult, 
   const profitCurrent = [0, sce("sce-current-profit")-Number(attribution.profitCurrent||0), 0, Number(attribution.profitCurrent||0), 0];
   const oci = (side: "current" | "prior") => [0, 0, total("otherComprehensiveIncome", side)-Number(attribution[side==="current"?"ociCurrent":"ociPrior"]||0), Number(attribution[side==="current"?"ociCurrent":"ociPrior"]||0), 0];
   const ociPrior = oci("prior"), ociCurrent = oci("current");
+  // Preserve the engine's explicit SFP presentation-rounding adjustments.
+  // Omitting these rows turns a known R1 adjustment into an unclassified movement.
+  const rounding=(side:"current"|"prior")=>[0,sce(side==="prior"?"sce-prior-rounding-adjustment":"sce-current-rounding-adjustment"),0,0,0];
+  const roundingRows=(side:"current"|"prior")=>rounding(side).some(value=>value!==0)?[{label:"Presentation rounding adjustment",amounts:rounding(side)}]:[];
+
   const movement = (end: Amount[], start: Amount[], profit: number[], comprehensive: number[]) =>
     end.map((value, i) => value === null || start[i] === null ? null : value - start[i]! - profit[i] - comprehensive[i]);
   const ownerRows=(side:"current"|"prior")=>{
@@ -63,7 +68,7 @@ export function buildEquityMovementTable(engine: AfsPrintStatementEngineResult, 
     if(raw!==null && raw!==undefined && String(raw).trim()!=="" && Number.isFinite(Number(raw)) && Number(raw)!==0) rows.push({label:"Other movements / distributions",amounts:[0,Number(raw),0,0,0]});
     return rows;
   };
-  const remaining=(side:"current"|"prior",end:Amount[],start:Amount[],profit:number[],comprehensive:number[])=>movement(end,start,profit,comprehensive).map((value,i)=>value===null?null:value-ownerRows(side).reduce((n,row)=>n+row.amounts[i],0));
+  const remaining=(side:"current"|"prior",end:Amount[],start:Amount[],profit:number[],comprehensive:number[])=>movement(end,start,profit,comprehensive).map((value,i)=>value===null?null:value-ownerRows(side).reduce((n,row)=>n+row.amounts[i],0)-rounding(side)[i]);
   return {
     visible: keys.map((_, i) => i < 2 || current[i] !== 0 || prior[i] !== 0 || (opening[i] ?? 0) !== 0),
     rows: [
@@ -72,12 +77,14 @@ export function buildEquityMovementTable(engine: AfsPrintStatementEngineResult, 
       { label: "Other comprehensive income for prior year", amounts: ociPrior },
       { label: "Total comprehensive income for prior year", amounts: profitPrior.map((v,i)=>v+ociPrior[i]), strong:true },
       ...ownerRows("prior"),
+      ...roundingRows("prior"),
       { label: "Unclassified equity movements", amounts: remaining("prior",prior,opening,profitPrior,ociPrior), unclassified:true },
       { label: "Balance at end of prior year", amounts: prior, strong: true },
       { label: "Profit / (loss) for current year", amounts: profitCurrent },
       { label: "Other comprehensive income for current year", amounts: ociCurrent },
       { label: "Total comprehensive income for current year", amounts: profitCurrent.map((v,i)=>v+ociCurrent[i]), strong:true },
       ...ownerRows("current"),
+      ...roundingRows("current"),
       { label: "Unclassified equity movements", amounts: remaining("current",current,prior,profitCurrent,ociCurrent), unclassified:true },
       { label: "Balance at end of current year", amounts: current, strong: true },
     ],

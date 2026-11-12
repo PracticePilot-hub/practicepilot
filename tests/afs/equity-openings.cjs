@@ -10,3 +10,9 @@ table=eq.buildEquityMovementTable(engine,history,[{side:'prior',label:'Contribut
 const mismatch=eq.buildEquityMovementTable(engine,[],[],{},{sceOpeningShareCapital:82,sceOpeningRetainedIncome:0});assert.equal(mismatch.rows.find(row=>row.unclassified).amounts[0],18);assert(eq.equityMovementIssues(mismatch).length);
 const React=r('react'),render=r('react-dom/server').renderToStaticMarkup;const html=render(React.createElement(eq.default,{engine,history:[],overrides,entityType:'Close Corporation'}));assert(!html.includes('Not provided'));assert(!html.includes('Unclassified equity movements'));const absent=render(React.createElement(eq.default,{engine,history:[],entityType:'Close Corporation'}));assert(absent.includes('Not provided'));
 console.log('PASS uploaded opening-year TB takes priority; saved opening fields supply the fallback including explicit zero; hidden unused columns do not create false missing totals; genuine differences remain visible and blocked.');
+// The engine explicitly adjusts displayed equity for SFP presentation rounding.
+// The complete equity table must retain that row, without masking a real movement.
+const roundedEngine=structuredClone(engine);roundedEngine.sceRows.push({id:'sce-prior-rounding-adjustment',current:1});roundedEngine.sceRows.find(x=>x.id==='sce-prior-closing-retained').current=11;roundedEngine.sceRows.find(x=>x.id==='sce-retained-closing').current=21;
+let rounded=eq.buildEquityMovementTable(roundedEngine,[],[],{},overrides);assert.equal(eq.equityMovementIssues(rounded).length,0);assert.equal(rounded.rows.find(x=>x.label==='Presentation rounding adjustment').amounts[1],1);
+rounded=eq.buildEquityMovementTable(roundedEngine,[],[],{},{...overrides,sceOpeningShareCapital:82});assert(eq.equityMovementIssues(rounded).length);assert.equal(rounded.rows.find(x=>x.unclassified).amounts[0],18);
+console.log('PASS equity tables retain engine-calculated rounding rows; real unexplained movements remain blocked.');
