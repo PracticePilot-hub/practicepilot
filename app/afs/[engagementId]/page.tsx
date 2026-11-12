@@ -1243,6 +1243,7 @@ activeSection !== "lead-schedules" ? (
   <>
     
     <LeadSchedulesPanel
+      clientSetup={clientSetup as any}
       trialBalanceLines={trialBalanceLines}
       activeLeadSchedule={activeLeadSchedule}
       activeLeadSubPage={activeLeadSubPage}
