@@ -21,7 +21,7 @@ export const NOTE_DISCLOSURE_FIELDS:Record<string,DisclosureField[]> = {
     },
     {
       "id": "reconciliation",
-      "label": "Class reconciliations",
+      "label": "Asset movement table (class reconciliation)",
       "prompt": "Complete opening-to-closing movements for each class: additions, business combinations, disposals, transfers, revaluations, impairment, reversals, depreciation and exchange movements. Explain non-cash acquisitions separately.",
       "conditional": false
     },
@@ -948,10 +948,10 @@ export function fieldComplete(field:DisclosureField,entry:DisclosureEntry|undefi
  if(entry?.notApplicable) return field.conditional && supportedDisclosureText(entry.reason).length>=12;
  return supportedDisclosureText(entry?.text).length>=12 && (!entry?.tables || (Array.isArray(entry.tables) && entry.tables.every(disclosureTableComplete)));
 }
-export function noteDisclosureIssues(notes:readonly {key:string;optionKey:string;defaultTitle?:string;title?:string}[],options:Record<string,any>,state:Record<string,any>,context:StandardsContext,lines:readonly any[] = []) {
+export function noteDisclosureIssues(notes:readonly {key:string;optionKey:string;defaultTitle?:string;title?:string}[],options:Record<string,any>,state:Record<string,any>,context:StandardsContext,lines:readonly any[] = [],supplied:Record<string,Record<string,boolean>> = {}) {
  const entries=state.disclosureContent||{};
  return notes.filter(note=>options[note.optionKey] && !(note.key==="notesGoingConcern" && goingConcernReview(state,context).omitNote)).flatMap(note=>{
-  const fields=disclosureFields(note.key,context),structured=note.key==="notesRelatedParties"?relatedPartyStructuredFields(state,lines,context.framework==="full"?"full":"smes"):{};
+  const fields=disclosureFields(note.key,context),structured={...supplied[note.key],...(note.key==="notesRelatedParties"?relatedPartyStructuredFields(state,lines,context.framework==="full"?"full":"smes"):{})};
   const missing=fields.filter(field=>!(structured as Record<string,boolean>)[field.id] && !fieldComplete(field,entries[note.key]?.[field.id],context));
   return missing.length?[{key:note.key,title:note.defaultTitle||note.title||note.key,missing:missing.map(field=>field.label)}]:[];
  });

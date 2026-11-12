@@ -35,7 +35,7 @@ assert.equal(render(React.createElement(Content,{sectionKey:'notesGoingConcern',
 const supported={goingConcernAssessment:{assessmentStatus:'no-disclosure',assessmentContext:'smes:2015',assessmentEvidence:'Supported management assessment of forecasts and available funding.'}};
 html=assessment(supported);assert(html.includes('2. Is there anything'));assert(html.includes('Optional: add a working-paper explanation'));assert(html.includes('There are no disclosure boxes to complete.'));assert(!html.includes('<select'));
 const risk=structuredClone(supported);risk.goingConcernAssessment.assessmentStatus='material-uncertainty';
-html=render(React.createElement(Content,{sectionKey:'notesGoingConcern',edit:true,state:risk,setup,update:()=>{}}));assert(html.includes('<details open=""'));assert(html.includes('Wording included in the AFS'));
+html=render(React.createElement(Content,{sectionKey:'notesGoingConcern',edit:true,state:risk,setup,update:()=>{}}));assert(html.includes('<details open=""'));assert(html.includes('Type here — wording to include in the AFS'));
 // Framework changes must not silently reuse answers from a previous assessment.
 const stale=structuredClone(supported);stale.goingConcernAssessment.assessmentContext='full';stale.goingConcernAssessment.operatingOutlook='yes';stale.goingConcernAssessment.disclosureNeed='none';html=assessment(stale);assert(!html.includes('checked=""'));assert(!html.includes('<textarea'));
 console.log('PASS guided assessment starts with one practical question; further questions and wording appear only when needed, and old answers survive without being silently reused.');

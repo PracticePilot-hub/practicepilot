@@ -1489,6 +1489,12 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
     })).filter(row=>row.openingMissing || row.openingConflict || row.invalid || Math.abs(row.costDifference)>0.005 || Math.abs(row.depDifference)>0.005);
   }
 
+  export function ppeDisclosureFields(lines:any[],state:Record<string,any>,history:any[]=[]){
+    const rows=buildPpeRows(lines,state.ppeRows||[],history);
+    const hasAssets=rows.some(row=>[row.current,row.prior].some(values=>Math.abs(reportedCost(values))>0.005 || Math.abs(reportedAccumulated(values))>0.005));
+    return {notesPropertyPlantEquipment:{reconciliation:hasAssets && reviewPpeNote(lines,state,history).length===0}};
+  }
+
   function GoingConcernNote({
     edit,
     state,
@@ -5974,7 +5980,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
           const oldDefault=String(defaultNoteTexts?.[section.key]?.text || "").trim();
           const customText = rawCustomText && rawCustomText !== oldDefault
             ? Object.entries(disclosureTokens).reduce((text,[key,value])=>text.split(`{${key}}`).join(value==null?"":String(value)),rawCustomText) : "";
-          const disclosureContent=<AfsNoteDisclosureContent sectionKey={section.key} edit={isEditing} state={state} setup={clientSetup} update={update} customText={customText} lines={trialBalanceLines}/>;
+          const disclosureContent=<AfsNoteDisclosureContent sectionKey={section.key} edit={isEditing} state={state} setup={clientSetup} update={update} customText={customText} lines={trialBalanceLines} suppliedFields={section.key==="notesPropertyPlantEquipment" ? ppeDisclosureFields(trialBalanceLines,state,trialBalanceHistory).notesPropertyPlantEquipment : {}}/>;
 
           const displayTitle =
             isShareCapitalSection(section) && effectiveIsCloseCorporation
@@ -6001,6 +6007,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
             return (
               <div
                 key={section.key}
+                data-ppe-schedule="true"
                 style={
                   !active && isEditing ? styles.noteSectionOff : undefined
                 }

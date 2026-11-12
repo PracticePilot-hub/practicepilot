@@ -1,7 +1,7 @@
 "use client";
 import AfsGoingConcernAssessment from "./AfsGoingConcernAssessment";
 import { fillSupportedDisclosureDrafts } from "./afsSupportedDisclosureDrafts";
-import { reviewPpeNote } from "./AfsStructuredNotesPanel";
+import { reviewPpeNote, ppeDisclosureFields } from "./AfsStructuredNotesPanel";
 import { taxReconciliationReview } from "./afsTaxReconciliation";
 import AfsNoteDisclosureContent from "./AfsNoteDisclosureContent";
 import { POLICY_DISCLOSURE_KEYS, noteDisclosureIssues } from "./afsNoteDisclosureRequirements";
@@ -47,7 +47,7 @@ export default function AfsStandardsReviewPanel({people=[],engine,history,lines,
       <p>Policy items: {r.topic.policies.map(key=>policies.find(p=>p.key===key)?.defaultTitle||key).join("; ")||"Assess the policy for the underlying transaction"}.</p>
       <p>Notes: {r.topic.notes.map(key=>notes.find(n=>n.key===key)?.defaultTitle||key).join("; ")||"Assess disclosures in the relevant notes"}.</p>
     </details>})}
-    <details><summary>Incomplete note wording</summary>{noteDisclosureIssues(notes,options,state,context,lines).map(item=><p key={item.key}><strong>{item.title}:</strong> {item.missing.join("; ")}. Open Notes → Work → Required note wording.</p>)}</details>
+    <details><summary>Incomplete note wording</summary>{noteDisclosureIssues(notes,options,state,context,lines,ppeDisclosureFields(lines,state,history)).map(item=><p key={item.key}><strong>{item.title}:</strong> {item.missing.join("; ")}. Open Notes → Work → Required note wording.</p>)}</details>
     {unmapped.length>0&&<p style={{color:"#9f1239"}}>Source coverage missing: {unmapped.map(item=>item.key).join(", ")}.</p>}
     </div>
   </details>;
