@@ -3193,6 +3193,14 @@ function MinutesDocument({
         documents and applicable law.
       </p>
 
+      {includeAccountantAppointment && <>
+        <h2 style={styles.documentHeading}>Appointment of Accountant</h2>
+        <p style={styles.bodyText}>
+          It was resolved that {practiceName} be appointed as accountant of {displayName}
+          {" "}for the ensuing financial year, subject to the agreed engagement terms.
+        </p>
+      </>}
+
       <h2 style={styles.documentHeading}>Closure</h2>
       <p style={styles.bodyText}>
         There being no further year-end business to discuss, the meeting was closed.
@@ -3344,6 +3352,11 @@ function MinutesDocument({
           </div>
         ) : null}
       </div>
+
+      {entityKind !== "trust" && <label style={styles.trustChecklistRow}>
+        <input type="checkbox" checked={includeAccountantAppointment} onChange={event=>onIncludeAccountantAppointmentChange(event.target.checked)}/>
+        <span><strong>Appointment of accountant for the next financial year</strong><small>Includes {practiceName} in the meeting resolution.</small></span>
+      </label>}
 
       {entityKind === "trust" ? (
         <div style={styles.trustApprovalWorkspace}>
