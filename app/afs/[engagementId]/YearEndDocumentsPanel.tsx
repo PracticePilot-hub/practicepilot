@@ -3178,6 +3178,10 @@ function MinutesDocument({
       <ul style={styles.documentList}>
         <li>the income reflected in the annual financial statements be approved;</li>
         <li>the expenditure reflected in the annual financial statements be approved;</li>
+        {includeAccountantAppointment && <li>
+          {practiceName} be appointed as accountant of {displayName} for the ensuing
+          financial year, subject to the agreed engagement terms;
+        </li>}
         <li>
           material matters arising from the accounts requiring separate approval,
           support or disclosure be dealt with in the relevant year-end resolution.
@@ -3192,14 +3196,6 @@ function MinutesDocument({
         noted and are to be dealt with in accordance with the entity&apos;s governing
         documents and applicable law.
       </p>
-
-      {includeAccountantAppointment && <>
-        <h2 style={styles.documentHeading}>Appointment of Accountant</h2>
-        <p style={styles.bodyText}>
-          It was resolved that {practiceName} be appointed as accountant of {displayName}
-          {" "}for the ensuing financial year, subject to the agreed engagement terms.
-        </p>
-      </>}
 
       <h2 style={styles.documentHeading}>Closure</h2>
       <p style={styles.bodyText}>
