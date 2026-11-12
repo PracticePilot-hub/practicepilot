@@ -36,6 +36,9 @@ export default function AfsPaginatedNotes({children,signature,header,onPageCount
     const walk=(element:Element)=>{
      if(element.matches('button,input,textarea,select,style,[data-work-only="true"],.afs-screen-only'))return;
      if(getComputedStyle(element).display==='none')return;
+     if(element.matches('[data-afs-related-party-block]') && fits([{html:element.outerHTML}])){
+      units.push({html:element.outerHTML});return;
+     }
      if(element.tagName==='TABLE'){
       const table=element as HTMLTableElement,key=++tableKey,shell=table.cloneNode(false) as HTMLTableElement;
       const open=shell.outerHTML.replace(/<\/table>$/,'');

@@ -1848,6 +1848,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
           return (
             <section
               key={`related-party-review-${index}`}
+              data-afs-related-party-block="true"
               style={{
                 breakInside: "avoid",
                 pageBreakInside: "avoid",
@@ -5925,7 +5926,8 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
             border-top: 1px solid #111827 !important;
             border-bottom: 1.5px solid #111827 !important;
           }
-          [data-afs-notes-root="true"] [data-afs-related-party-table] th:nth-child(1),[data-afs-notes-root="true"] [data-afs-related-party-table] td:nth-child(1){width:25%!important;}[data-afs-notes-root="true"] [data-afs-related-party-table] th:nth-child(2),[data-afs-notes-root="true"] [data-afs-related-party-table] td:nth-child(2){width:20%!important;}[data-afs-notes-root="true"] [data-afs-related-party-table] th:nth-child(3),[data-afs-notes-root="true"] [data-afs-related-party-table] td:nth-child(3){width:29%!important;}[data-afs-notes-root="true"] [data-afs-related-party-table] th:nth-child(4),[data-afs-notes-root="true"] [data-afs-related-party-table] td:nth-child(4){width:13%!important;}[data-afs-notes-root="true"] [data-afs-related-party-table] th:nth-child(5),[data-afs-notes-root="true"] [data-afs-related-party-table] td:nth-child(5){width:13%!important;}
+          [data-afs-notes-root="true"] [data-afs-related-party-table] th:first-child,[data-afs-notes-root="true"] [data-afs-related-party-table] td:first-child{width:auto!important;}[data-afs-notes-root="true"] [data-afs-related-party-table] th:not(:first-child),[data-afs-notes-root="true"] [data-afs-related-party-table] td:not(:first-child){width:68px!important;}
+
           @media print {
             [data-afs-notes-root="true"] {
               font-size: 10.45px !important;
