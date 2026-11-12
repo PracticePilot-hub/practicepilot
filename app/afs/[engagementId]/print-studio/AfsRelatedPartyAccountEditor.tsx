@@ -23,14 +23,18 @@ export default function AfsRelatedPartyAccountEditor({state,lines,framework,upda
     <strong>1. Confirm the selected accounts</strong>
     <label><input type="checkbox" checked={all} onChange={e=>setAll(e.target.checked)}/> Show all TB accounts (including customers, suppliers and expenses)</label>
     <input aria-label="Find related-party account" placeholder="Find account number or description" value={search} onChange={e=>setSearch(e.target.value)} style={input}/>
-    <div style={{maxHeight:390,overflow:"auto",display:"grid",gap:7}}>
+    <div style={{display:"grid",gap:12}}>
       {shown.map(line=>{const key=relatedPartyAccountKey(line),link=links.find(item=>item.accountKey===key);return <div key={key} style={{border:"1px solid #cbd5e1",padding:7,display:"grid",gap:6}}>
         <label><input type="checkbox" aria-label={`Related party: ${line.account_code} ${line.account_name}`} checked={!!link} onChange={e=>update(["relatedPartyAccounts"],e.target.checked?[...links,relatedPartyLinkFromRecords(state,line)]:links.filter(item=>item.accountKey!==key))}/>{" "}{line.account_code} · {line.account_name}</label>
         {link && <>
           <label><input type="checkbox" checked={!!link.eliminated} onChange={e=>change(key,"eliminated",e.target.checked)}/> Eliminated within this consolidated group</label>
           {link.eliminated && <label>Consolidation elimination explanation<input value={link.eliminationReason||""} onChange={e=>change(key,"eliminationReason",e.target.value)} style={input}/></label>}
           <label>Counterparty<input aria-label={`Counterparty ${line.account_code}`} value={link.name} onChange={e=>change(key,"name",e.target.value)} style={input}/></label>
-          <label>Relationship and basis<input value={link.relationship} placeholder="Explain control, influence, management or family relationship" onChange={e=>change(key,"relationship",e.target.value)} style={input}/></label>
+          <label><strong>How is {link.name || "this party"} connected to the entity?</strong><input aria-label={`Relationship ${line.account_code}`} value={link.relationship} placeholder="Describe the actual connection, such as common control or membership" onChange={e=>change(key,"relationship",e.target.value)} style={input}/></label>
+          {(!link.relationship.trim() || /^related\s*par(?:ty|ties|ies)$/i.test(link.relationship.trim())) && <p style={{margin:0,color:"#9f1239",fontSize:11}}>For {link.name || line.account_code}, explain the connection. “Related party” is only a label; it does not say what the relationship is.</p>}
+          <label style={{padding:8,background:"#eff6ff"}}><input type="checkbox" aria-label={`Whole balance for ${line.account_code}`} checked={link.wholeAccount} onChange={e=>change(key,"wholeAccount",e.target.checked)}/> Yes — the whole balance of account {line.account_code} belongs to {link.name || "this party"}</label>
+          {!link.wholeAccount && <p style={{margin:0,color:"#9f1239",fontSize:11}}>Confirm the whole balance above, or use an additional entry below to allocate a genuinely shared account.</p>}
+          <details><summary style={{cursor:"pointer",fontWeight:700}}>Loan classification, saved terms and optional details</summary>
           <label>Disclosure category<select value={link.category} onChange={e=>change(key,"category",e.target.value)} style={input}>{RELATED_PARTY_CATEGORIES.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
           {suggestedRelatedPartyKind(line)==="payable" && link.kind==="receivable" && <div style={{padding:8,background:"#fff7ed",fontSize:11}}>This account is mapped as a borrowing. It normally represents money the entity owes.
             <button type="button" aria-label={`Use payable classification ${line.account_code}`} onClick={()=>change(key,"kind","payable")} style={{display:"block",marginTop:6}}>Use amount payable</button>
@@ -39,8 +43,8 @@ export default function AfsRelatedPartyAccountEditor({state,lines,framework,upda
           {Object.values(relatedPartyBorrowingDetails(state,line)).some(Boolean) && <p style={{margin:0,fontSize:11,color:"#166534"}}>Saved borrowing details are reused in blank fields below. Your separately entered wording is preserved.</p>}
           <label>Account use<select value={link.kind} onChange={e=>change(key,"kind",e.target.value)} style={input}><option value="receivable">Amount receivable</option><option value="payable">Amount payable</option><option value="transaction">Annual transactions — capture amounts separately</option></select></label>
           {[["terms","Terms and repayment"],["interest","Interest basis"],["security","Security"],["commitments","Guarantees, commitments or support"],...(link.kind==="receivable"?[["impairment","Related receivable impairment allowance (current / prior)"],["badDebtExpense","Bad or doubtful debt expense (current / prior)"]]:[])].map(([field,label])=><label key={field}>{label}<input aria-label={`${label} ${line.account_code}`} value={String((link as any)[field] || "")} onChange={e=>change(key,field,e.target.value)} style={input}/></label>)}
-          <label><input type="checkbox" checked={link.wholeAccount} onChange={e=>change(key,"wholeAccount",e.target.checked)}/> Entire closing balance belongs to this party</label>
           <p style={{margin:0,fontSize:10}}>Keep amounts receivable and payable separate. A shared account can cover several parties; use supported manual allocations.</p>
+          </details>
         </>}
       </div>})}
       {!shown.length && <p>No accounts in this view. Use “Show all TB accounts” to assess other accounts.</p>}

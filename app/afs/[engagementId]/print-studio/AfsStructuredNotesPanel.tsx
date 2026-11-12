@@ -1588,9 +1588,7 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
     const framework = standardsContext(clientSetup).framework === "full" ? "full" : "smes";
     const disclosedRows = relatedPartyDisclosureRows(rows, state.relatedPartyAccounts || [], trialBalanceLines, state);
     const displayRows = edit
-      ? rows.length
-        ? rows
-        : [{}]
+      ? rows.filter((row:any)=>rowHasContent(row) || row.manualEntry || row.sourceAccountKey)
       : aggregateRelatedPartyDisclosureRows(disclosedRows.filter(rowHasContent));
 
     const setRows = (next: any[]) => update(["relatedPartyRows"], next);
@@ -1627,15 +1625,15 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
             }}
           >
             <p style={{ ...styles.paragraph, margin: 0 }}>
-              Capture each related party separately. Blank fields do not print.
+              The selected loan accounts above already supply their balances. Add a separate entry only for an additional transaction, commitment or split account.
             </p>
 
             <button
               type="button"
               style={styles.button}
-              onClick={() => setRows([...displayRows, {}])}
+              onClick={() => setRows([...displayRows, {manualEntry:true}])}
             >
-              Add related party
+              Add an additional entry
             </button>
           </div>
 
