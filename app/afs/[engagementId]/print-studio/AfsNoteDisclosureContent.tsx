@@ -18,7 +18,7 @@ export default function AfsNoteDisclosureContent({sectionKey,edit,state,setup,up
  const missing=fields.filter(field=>!(structured as Record<string,boolean>)[field.id] && !fieldComplete(field,entries[field.id],context));
  const reference=getStandardsReference(sectionKey,context);
  const paragraphs=(text:string)=>text.split(/\n\s*\n/).filter(Boolean).map((part,index)=><p key={index} style={{margin:"4px 0 7px",whiteSpace:"pre-line",orphans:3,widows:3}}>{part}</p>);
- if(edit) return <details data-disclosure-section={sectionKey} open={sectionKey==="notesGoingConcern" ? true : undefined} data-work-only="true" className="afs-screen-only" style={{margin:"10px 0",padding:10,border:"1px solid #94a3b8",background:"#f8fafc"}}>
+ if(edit) return <details open={sectionKey==="notesGoingConcern" ? true : undefined} data-disclosure-section={sectionKey} data-work-only="true" className="afs-screen-only" style={{margin:"10px 0",padding:10,border:"1px solid #94a3b8",background:"#f8fafc"}}>
    <summary style={{fontWeight:700,cursor:"pointer"}}>Required note wording · {missing.length?`${missing.length} content areas incomplete`:"content entered — assess supporting evidence"}</summary>
    {reference&&<p><a href={reference.url} target="_blank" rel="noreferrer">{reference.label}</a></p>}
    <p>Enter financial-statement wording for both periods where relevant. The entered content prints below the note’s tables. Use existing schedules for amounts; explain assumptions, terms and conclusions here. A filled field does not certify compliance.</p>
