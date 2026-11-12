@@ -317,12 +317,15 @@ export function taxReconciliation(result: TaxResult, afsProfit: number, standard
 export function priorTaxYearEnd(end: string) { const [y, m, d] = end.split('-').map(Number), year = y - 1, last = new Date(Date.UTC(year, m, 0)).getUTCDate(), originalLast = new Date(Date.UTC(y, m, 0)).getUTCDate(); return `${year}-${String(m).padStart(2, '0')}-${String(d === originalLast ? last : Math.min(d, last)).padStart(2, '0')}`; }
 function workbookReviewIssues(workbook: TaxWorkbook) { return workbook.reviewed && workbook.notes.trim().length < 20 ? ['Document the tax basis, significant judgements and uncertainties before marking the workpaper reviewed.'] : []; }
 
-/** Final AFS review covers both displayed financial periods. */
+/** Final export requires the current workpaper. Comparative workpapers are
+ * optional; a reviewed comparative supplied as evidence still has to agree.
+ */
 export function taxAfsIssues(saved:any,prior:any,lines:any[],consolidated=false){
  const issues=taxWorkbookIssues(saved,lines,consolidated);
  if(!saved?.worksheet)return issues;
- const comparative=lines.map(line=>({...line,current_year_balance:line.prior_year_balance,prior_year_balance:0}));
- const hasComparative=profitFromTb(comparative)!==0||['795.10','795.20','795.30','795.90','395.10','595.10','495.10','695.10'].some(code=>mapped(comparative,code)!==0);
- if(hasComparative){if(!prior?.worksheet)issues.push('Complete the comparative tax workpaper before finalising these AFS.');else issues.push(...taxWorkbookIssues(prior,comparative,consolidated).map(issue=>'Comparative: '+issue));}
+ if(prior?.worksheet && (prior.worksheet.reviewed || prior.sectionReview)) {
+   const comparative=lines.map(line=>({...line,current_year_balance:line.prior_year_balance,prior_year_balance:0}));
+   issues.push(...taxWorkbookIssues(prior,comparative,consolidated).map(issue=>'Comparative: '+issue));
+ }
  return issues;
 }

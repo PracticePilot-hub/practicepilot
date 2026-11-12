@@ -14,7 +14,7 @@ test('Print summary uses the same calculator and exposes unposted differences',(
 test('Corrupt input is rejected and legacy notes survive',()=>{const w=workbook();w.entities[0].priorTax='not a number';assert.throws(()=>t.calculateTax(w,lines));assert.equal(t.decodeTaxNotes('Original tax working note').notes,'Original tax working note');assert.equal(JSON.stringify(t.decodeTaxNotes(t.encodeTaxNotes(workbook())).worksheet),JSON.stringify(workbook()));});
 test('Reviewed tax reaches notes, deferred balances and cash with no stale reconciliation items',()=>{const w=workbook(100000),base=lines.map(line=>({...line,current_year_balance:line.mapping_code==='700.20'?-100000:line.mapping_code==='420.10'?100000:0}));w.entities[0].deferred=[{id:'provision',description:'Deductible provision',kind:'asset',carrying:0,taxBase:10000,rate:27,openingTax:0,allocation:'profit',recognise:true,evidence:'Tax base and probable taxable profits evidenced.'}];const result=t.calculateTax(w,base),j=t.taxJournal(result,base,{});assert.equal(j.errors.length,0);const applied=base.map(line=>({...line,current_year_balance:line.current_year_balance+j.entries.filter(e=>e.account_code===line.account_code).reduce((n,e)=>n+e.debit-e.credit,0)}));w.reviewed=true;const integration=load(pre+'tax/afsTaxIntegration.ts'),state=integration.taxNotesState({presentationReview:{scope:'standalone'},taxationReconciliation:{taxRateChanges:{current:999,prior:321}}},{worksheet:w},null,applied,{basis_of_preparation:'IFRS',tax_rate_current_year:27});assert.equal(state.taxationReconciliation.taxRateChanges.current,0);assert.equal(state.taxationReconciliation.taxRateChanges.prior,321);const built=engine.buildAfsPrintStatementEngine(applied),review=load(pre+'print-studio/afsTaxReconciliation.ts').taxReconciliationReview(built.noteData,state,{tax_rate_current_year:27});assert.equal(review[0].difference,0);assert.equal(built.checks.sfpDifference,0);assert.equal(built.checks.profitForYear,75700);});
 test('Actual reviewed cash payments become defaults while explicit Workbench zero survives',()=>{const w=workbook(),base=lines.map(line=>({...line,current_year_balance:line.mapping_code==='420.10'?1900000:line.mapping_code==='495.10'?100000:line.current_year_balance}));w.entities[0].payments=100000;const result=t.calculateTax(w,base),j=t.taxJournal(result,base,{});assert.equal(j.errors.length,0);const applied=base.map(line=>({...line,current_year_balance:line.current_year_balance+j.entries.filter(e=>e.account_code===line.account_code).reduce((n,e)=>n+e.debit-e.credit,0)}));w.reviewed=true;const defaults=load(pre+'tax/afsTaxIntegration.ts').taxCashDefaults({worksheet:w},null,applied);assert.equal(defaults.cashTaxPaidCurrent,-100000);assert.equal({...defaults,...{cashTaxPaidCurrent:0}}.cashTaxPaidCurrent,0);});
-test('Comparative review and existing deferred schedules cannot be silently skipped',()=>{const w=workbook(0),blank=lines.map(line=>({...line,current_year_balance:0,prior_year_balance:line.mapping_code==='700.20'?-100000:line.mapping_code==='420.10'?100000:0}));w.reviewed=true;assert(t.taxAfsIssues({worksheet:w},null,blank).some(issue=>issue.includes('comparative tax workpaper')));blank.find(line=>line.mapping_code==='395.10').current_year_balance=2000;assert(t.calculateTax(w,blank).issues.some(issue=>issue.includes('asset recognition')));blank.find(line=>line.mapping_code==='595.10').current_year_balance=-2500;assert(t.calculateTax(w,blank).issues.some(issue=>issue.includes('liability reversal')));});
+test('Comparative workpaper is optional; current deferred schedules remain checked',()=>{const w=workbook(0),blank=lines.map(line=>({...line,current_year_balance:0,prior_year_balance:line.mapping_code==='700.20'?-100000:line.mapping_code==='420.10'?100000:0}));w.reviewed=true;assert.equal(t.taxAfsIssues({worksheet:w},null,blank).length,0);blank.find(line=>line.mapping_code==='395.10').current_year_balance=2000;assert(t.calculateTax(w,blank).issues.some(issue=>issue.includes('asset recognition')));blank.find(line=>line.mapping_code==='595.10').current_year_balance=-2500;assert(t.calculateTax(w,blank).issues.some(issue=>issue.includes('liability reversal')));});
 console.log('Tax rebuild tests passed:',cases);
 test('Section sign-off covers saved periods without a second hidden review tick',()=>{
  const link=load(pre+'tax/taxSectionReview.ts').withTaxSectionReview;
@@ -35,4 +35,22 @@ test('Tax note reconciles to printed AFS profit when TB line rounding differs',(
  const state=integration.taxNotesState({}, {worksheet:w},null,base,{tax_rate_current_year:27},{current:100001,prior:0});
  const checked=review.taxReconciliationReview({taxation:[],cashUsedInOperations:[{label:'Profit before tax',current:100001,prior:0}]},state,{tax_rate_current_year:27,tax_rate_prior_year:27});
  assert.equal(checked[0].difference,0);
+});
+test('Completed current tax permits missing or draft PY but keeps current and reviewed comparative mismatches',()=>{
+ const current=workbook(0);current.reviewed=true;
+ const base=[row('700.20',0,-100000),row('420.10',0,100000)];
+ const draft=workbook(100000);
+ assert.equal(t.taxAfsIssues({worksheet:current},{worksheet:draft},base).length,0);
+ const pending=workbook(0);
+ assert(t.taxAfsIssues({worksheet:pending},null,base).some(issue=>/review/i.test(issue)));
+ draft.reviewed=true;
+ assert(t.taxAfsIssues({worksheet:current},{worksheet:draft},base).some(issue=>issue.startsWith('Comparative:')));
+ const integration=load(pre+'tax/afsTaxIntegration.ts');
+ const noteData={taxation:[],cashUsedInOperations:[{label:'Profit before tax',current:0,prior:100000}]};
+ const check=(state,prior)=>integration.finalTaxReconciliationReviews(noteData,state,{tax_rate_current_year:27,tax_rate_prior_year:27},{worksheet:current},prior,base);
+ assert.equal(check({},null).length,1);
+ assert.equal(check({},{worksheet:workbook(100000)}).length,1);
+ assert.equal(check({taxationReconciliation:{otherPermanentDifferences:{prior:1}}},null).length,2);
+ assert.equal(check({},{worksheet:draft}).length,2);
+ assert.equal(noteData.cashUsedInOperations[0].prior,100000);
 });

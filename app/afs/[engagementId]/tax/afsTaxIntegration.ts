@@ -1,7 +1,7 @@
 import type {DisclosureTable} from "../print-studio/disclosureTableData";
 import {reportingTaxRate} from './taxEntityRates';
 import { calculateTax, profitFromTb, taxReconciliation, taxWorkbookIssues, TaxResult, value } from './taxWorkpaper';
-import { TAX_RECONCILING_ITEMS } from '../print-studio/afsTaxReconciliation';
+import { TAX_RECONCILING_ITEMS, taxReconciliationReview } from '../print-studio/afsTaxReconciliation';
 import { disclosureContext } from '../print-studio/afsNoteDisclosureRequirements';
 import { standardsContext } from '../print-studio/afsStandardsCoverage';
 const money = (n: number) => 'R' + n.toLocaleString('en-ZA');
@@ -29,8 +29,8 @@ export function taxNotesState(base: any, saved: any, prior: any, lines: any[], s
     }
     const set = (section: string, field: string, text: string) => { next.disclosureContent ||= {}; next.disclosureContent[section] ||= {}; next.disclosureContent[section][field] = { text, context, source: 'Reviewed Tax Calculator workpaper ' + saved.worksheet.yearEnd, requiresReview: false }; };
     const details = (r: TaxResult) => r.entities.map(entity => entity.name + ': taxable income ' + money(entity.taxable) + ', continuing current tax ' + money(entity.current-entity.discontinuedTax) + ', discontinued current tax ' + money(entity.discontinuedTax) + ', prior adjustment ' + money(entity.prior) + ', other current tax ' + money(entity.other) + ', deferred tax in profit ' + money(entity.deferredProfit) + ', OCI ' + money(entity.deferredOci) + ', direct equity ' + money(entity.deferredEquity) + '.').join(' ');
-    set('notesTaxation', 'components', saved.worksheet.yearEnd + ': ' + details(result) + (previous ? ' Comparative: ' + details(previous) : ' Comparative tax components remain as recorded in the comparative ledger; no reviewed comparative workpaper is linked.'));
-    set('notesTaxation', 'reconciliation', 'The rate reconciliation is derived from the reviewed entity workpapers: permanent adjustments, assessed-loss availability/utilisation, temporary differences and deferred-tax recognition, entity/SBC rate differences, eligible credits, prior adjustments and other current income tax. Whole-Rand rounding is separately identified. No unexplained amount is classified as deferred tax.');
+    set('notesTaxation', 'components', saved.worksheet.yearEnd + ': ' + details(result) + (previous ? ' Comparative: ' + details(previous) : ' Comparative tax components remain as recorded in the comparative accounts.'));
+    set('notesTaxation', 'reconciliation', (previous ? 'The rate reconciliation is derived from the reviewed entity workpapers: permanent adjustments, assessed-loss availability/utilisation, temporary differences and deferred-tax recognition, entity/SBC rate differences, eligible credits, prior adjustments and other current income tax. Whole-Rand rounding is separately identified. No unexplained amount is classified as deferred tax.' : 'The current-year rate reconciliation is derived from the reviewed current-year tax workpaper. Comparative tax amounts are presented as recorded in the comparative accounts.'));
     if (!next.disclosureContent?.notesTaxation?.uncertainty?.text?.trim()) set('notesTaxation', 'uncertainty', saved.worksheet.notes);
     const deferredTables:DisclosureTable[]=[];
     for(const [r,period] of [[result,saved.worksheet.yearEnd],[previous,prior?.worksheet?.yearEnd]] as const){
@@ -59,4 +59,18 @@ export function taxCashDefaults(saved: any, prior: any, lines: any[], consolidat
         result['cashDiscontinuedTax' + side] = calculated.discontinuedTax;
     }
     return result;
+}
+
+/** An optional missing/draft PY workpaper must not create a mandatory new PY
+ * rate-reconciliation task once the current workpaper is complete. Explicit
+ * comparative workings and reviewed PY calculations retain their checks.
+ */
+export function finalTaxReconciliationReviews(noteData:Record<string,any[]>,state:Record<string,any>,setup:Record<string,any>|null,saved:any,prior:any,lines:any[],consolidated=false){
+ const currentComplete=!!saved?.worksheet && taxWorkbookIssues(saved,lines,consolidated).length===0;
+ const priorReviewed=!!prior?.worksheet && !!(prior.worksheet.reviewed || prior.sectionReview);
+ const priorCaptured=TAX_RECONCILING_ITEMS.some(item=>{
+   const value=state.taxationReconciliation?.[item.key]?.prior;
+   return value!==null && value!==undefined && String(value).trim()!=="";
+ });
+ return taxReconciliationReview(noteData,state,setup).filter(row=>row.side==="current" || !currentComplete || priorReviewed || priorCaptured);
 }
