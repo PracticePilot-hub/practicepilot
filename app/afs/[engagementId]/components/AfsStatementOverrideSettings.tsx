@@ -579,18 +579,23 @@ export default function AfsStatementOverrideSettings({
 
             <div style={sectionTitleStyle()}>Financing activities</div>
             <CashField
-              label={
-                isTrust
-                  ? "Trustee loan movement"
-                  : isCloseCorporation
-                    ? "Member loan movement"
-                    : "Directors / shareholders loan movement"
-              }
+              label="Proceeds from borrowings"
               currentKey="cashLoansRaisedCurrent"
               priorKey="cashLoansRaisedPrior"
               overrides={overrides}
               onChange={onChange}
             />
+            <CashField
+              label="Repayment of borrowings"
+              currentKey="cashLoansRepaidCurrent"
+              priorKey="cashLoansRepaidPrior"
+              overrides={overrides}
+              onChange={onChange}
+            />
+            <div style={{ fontSize: 10, color: "#6b7280" }}>
+              Enter proceeds as positive amounts and repayments as negative amounts.
+              When reclassifying a repayment, clear it from its previous field to avoid counting it twice.
+            </div>
             <CashField
               label={
                 isTrust
