@@ -26,7 +26,7 @@ export function withComparativeHistory(history: any[], lines: any[], yearEnd: st
   }))];
 }
 
-export function buildEquityMovementTable(engine: AfsPrintStatementEngineResult, history: any[] = [], transactions: {label:string;side:"current"|"prior";amounts:number[];mappingAmounts?:Record<string,number>}[] = [], attribution:Record<string,any> = {}) {
+export function buildEquityMovementTable(engine: AfsPrintStatementEngineResult, history: any[] = [], transactions: {label:string;side:"current"|"prior";amounts:number[];mappingAmounts?:Record<string,number>}[] = [], attribution:Record<string,any> = {}, overrides:Record<string,any> = {}) {
   const total = (key: keyof AfsPrintStatementEngineResult["noteData"], side: "current" | "prior") =>
     (engine.noteData[key] || []).reduce((sum, row) => sum + Number(row[side] || 0), 0);
   const balance = (side: "current" | "prior") => keys.map(key => total(key, side));
@@ -44,13 +44,25 @@ export function buildEquityMovementTable(engine: AfsPrintStatementEngineResult, 
     })));
     opening = keys.map(key => (historical.noteData[key] || []).reduce((sum, row) => sum + Number(row.current || 0), 0));
   }
+  // Historical openings take priority. Use an explicitly entered fallback only
+  // where the required earlier-year TB is unavailable; blank is never zero.
+  const openingFields=["sceOpeningShareCapital","sceOpeningRetainedIncome","sceOpeningReserves"];
+  for(const [index,field] of openingFields.entries()) {
+    const raw=overrides[field];
+    if(opening[index]===null && raw!==null && raw!==undefined && String(raw).trim()!=="" && Number.isFinite(Number(raw))) opening[index]=Number(raw);
+  }
   const profitPrior = [0, sce("sce-prior-profit")-Number(attribution.profitPrior||0), 0, Number(attribution.profitPrior||0), 0];
   const profitCurrent = [0, sce("sce-current-profit")-Number(attribution.profitCurrent||0), 0, Number(attribution.profitCurrent||0), 0];
   const oci = (side: "current" | "prior") => [0, 0, total("otherComprehensiveIncome", side)-Number(attribution[side==="current"?"ociCurrent":"ociPrior"]||0), Number(attribution[side==="current"?"ociCurrent":"ociPrior"]||0), 0];
   const ociPrior = oci("prior"), ociCurrent = oci("current");
   const movement = (end: Amount[], start: Amount[], profit: number[], comprehensive: number[]) =>
     end.map((value, i) => value === null || start[i] === null ? null : value - start[i]! - profit[i] - comprehensive[i]);
-  const ownerRows=(side:"current"|"prior")=>transactions.filter(row=>row.side===side).map(row=>({label:row.label,amounts:keys.map((_,i)=>Number(row.amounts[i]||0))}));
+  const ownerRows=(side:"current"|"prior")=>{
+    const rows=transactions.filter(row=>row.side===side).map(row=>({label:row.label,amounts:keys.map((_,i)=>Number(row.amounts[i]||0))}));
+    const field=side==="prior"?"scePriorOtherMovements":"sceCurrentOtherMovements", raw=overrides[field];
+    if(raw!==null && raw!==undefined && String(raw).trim()!=="" && Number.isFinite(Number(raw)) && Number(raw)!==0) rows.push({label:"Other movements / distributions",amounts:[0,Number(raw),0,0,0]});
+    return rows;
+  };
   const remaining=(side:"current"|"prior",end:Amount[],start:Amount[],profit:number[],comprehensive:number[])=>movement(end,start,profit,comprehensive).map((value,i)=>value===null?null:value-ownerRows(side).reduce((n,row)=>n+row.amounts[i],0));
   return {
     visible: keys.map((_, i) => i < 2 || current[i] !== 0 || prior[i] !== 0 || (opening[i] ?? 0) !== 0),
@@ -72,10 +84,14 @@ export function buildEquityMovementTable(engine: AfsPrintStatementEngineResult, 
   };
 }
 
-export default function AfsCompleteEquityStatement({engine, history, transactions=[], attribution={}, lines=[], state={},entityType}: {entityType?:unknown;engine: AfsPrintStatementEngineResult; history: any[]; transactions?:{label:string;side:"current"|"prior";amounts:number[]}[];attribution?:Record<string,any>;lines?:any[];state?:Record<string,any>}) {
+export function equityMovementIssues(table:ReturnType<typeof buildEquityMovementTable>) {
+  return table.rows.filter(row=>row.unclassified && row.amounts.some((value,i)=>table.visible[i] && (value===null||Math.abs(value)>0.005))).map(()=>"Unclassified equity movement");
+}
+
+export default function AfsCompleteEquityStatement({engine, history, transactions=[], attribution={}, lines=[], state={},entityType,overrides={}}: {overrides?:Record<string,any>;entityType?:unknown;engine: AfsPrintStatementEngineResult; history: any[]; transactions?:{label:string;side:"current"|"prior";amounts:number[]}[];attribution?:Record<string,any>;lines?:any[];state?:Record<string,any>}) {
   const presentation=getAfsEntityPresentation(entityType);
   const label=(s:string)=>getAfsEntityRowLabel(s,presentation);
-  const {rows, visible} = buildEquityMovementTable(engine, history,transactions,attribution);
+  const {rows, visible} = buildEquityMovementTable(engine, history,transactions,attribution,overrides);
   const amount = (value: Amount) => value === null ? "Not provided" : value === 0 ? "–" :
     (value < 0 ? `(${Math.abs(Math.round(value)).toLocaleString("en-ZA")})` : Math.round(value).toLocaleString("en-ZA"));
   return <section style={{color:"#111827",fontSize:10}}>
@@ -84,10 +100,10 @@ export default function AfsCompleteEquityStatement({engine, history, transaction
       <thead><tr><th style={{textAlign:"left",width:"30%",padding:"5px 2px"}}>Figures in Rand</th>
         {captions.map((caption,i) => visible[i] && <th key={caption} style={{textAlign:"right",padding:"5px 2px",whiteSpace:"normal",overflowWrap:"normal",verticalAlign:"bottom",lineHeight:1.25}}>{label(caption)}</th>)}
         <th style={{textAlign:"right",padding:"5px 4px",whiteSpace:"normal",verticalAlign:"bottom"}}>{label('Total equity')}</th></tr></thead>
-      <tbody>{rows.filter(row=>!row.unclassified||row.amounts.some(value=>value===null||Math.abs(value)>0.005)).map((row,index) => <tr key={index} style={{fontWeight:row.strong ? 700 : 400}}>
+      <tbody>{rows.filter(row=>!row.unclassified||row.amounts.some((value,i)=>visible[i] && (value===null||Math.abs(value)>0.005))).map((row,index) => <tr key={index} style={{fontWeight:row.strong ? 700 : 400}}>
         <td style={{padding:"5px 2px"}}>{label(row.label)}</td>
         {row.amounts.map((value,i) => visible[i] && <td key={i} style={{textAlign:"right",padding:"5px 2px",borderTop:row.strong ? "1px solid #111827" : undefined}}>{amount(value)}</td>)}
-        <td style={{textAlign:"right",padding:"5px 2px",borderTop:row.strong ? "1px solid #111827" : undefined}}>{amount(row.amounts.some(value => value === null) ? null : row.amounts.reduce<number>((sum,value) => sum + (value || 0),0))}</td>
+        <td style={{textAlign:"right",padding:"5px 2px",borderTop:row.strong ? "1px solid #111827" : undefined}}>{amount(row.amounts.some((value,i) => visible[i] && value === null) ? null : row.amounts.reduce<number>((sum,value,i) => sum + (visible[i] ? value || 0 : 0),0))}</td>
       </tr>)}</tbody>
     </table>
   </section>;
