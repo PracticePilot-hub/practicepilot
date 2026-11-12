@@ -395,7 +395,7 @@ const [reopenReason, setReopenReason] = useState("");
   const [clientSetup, setClientSetup] = useState<ClientSetupData | null>(null);
   const [clientPeople, setClientPeople] = useState<ClientPerson[]>([]);
   const [trialBalanceLines, setTrialBalanceLines] = useState<TrialBalanceLine[]>([]);
-  const [activeSection, setActiveSection] = useState<SectionKey>("review");
+  const [activeSection, setActiveSection] = useState<SectionKey>(() => searchParams.has("qbo") || searchParams.get("section") === "trial-balance" ? "trial-balance" : "review");
   const [activeLeadSchedule, setActiveLeadSchedule] = useState<LeadScheduleKey | null>(null);
   const [activeLeadSubPage, setActiveLeadSubPage] =
     useState<LeadScheduleSubPage>("lead-schedule");
@@ -1218,6 +1218,10 @@ activeSection !== "lead-schedules" ? (
 
           {activeSection === "trial-balance" && (
             <TrialBalancePanel
+              clientName={displayClientName}
+              yearEnd={engagement.financial_year_end}
+              locked={isFinalEngagement || isArchivedEngagement}
+              onQuickBooksImported={()=>void loadEngagement()}
               engagementId={engagementId}
               trialBalanceLines={trialBalanceLines}
               onImported={(lines) => setTrialBalanceLines(lines)}

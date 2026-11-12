@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
+import QuickBooksImport from "@/app/components/workpapers/QuickBooksImport";
+import GLImport from "@/app/components/workpapers/GLImport";
 import * as XLSX from "xlsx";
 import { getAfsMappingForImport } from "./MappingPanel";
 import { historicalMappingColumn, historicalMappingCode } from "./historicalTbImport";
@@ -80,6 +82,10 @@ type TrialBalanceHistoryLine = {
 };
 
 type Props = {
+  clientName?: string;
+  yearEnd: string;
+  locked?: boolean;
+  onQuickBooksImported?: () => void;
   engagementId: string;
   trialBalanceLines: TrialBalanceLine[];
   onImported: (lines: TrialBalanceLine[]) => void;
@@ -100,10 +106,13 @@ type ImportMode =
 type AmountLayout = "Single signed amount column" | "Debit and credit columns";
 
 export default function TrialBalancePanel({
+  clientName="this engagement", yearEnd, locked=false, onQuickBooksImported,
   engagementId,
   trialBalanceLines,
   onImported,
 }: Props) {
+  const trialBalanceFile = useRef<HTMLInputElement>(null);
+  const [showGLImport, setShowGLImport] = useState(false);
   const [previewLines, setPreviewLines] = useState<TrialBalanceLine[]>([]);
   const [importing, setImporting] = useState(false);
   const [fileName, setFileName] = useState("");
@@ -1155,15 +1164,9 @@ export default function TrialBalancePanel({
                 Add Account
               </button>
 
-              <label style={styles.fileButton}>
-                Choose Excel file
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={handleFileUpload}
-                  style={{ display: "none" }}
-                />
-              </label>
+              <input ref={trialBalanceFile} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} style={{display:"none"}} aria-label="Trial balance Excel file" />
+              <QuickBooksImport engagementId={engagementId} clientName={clientName} locked={locked || previewLines.length > 0} onImported={()=>onQuickBooksImported?.()} onTrialBalanceFile={()=>trialBalanceFile.current?.click()} onGeneralLedgerFile={()=>setShowGLImport(true)} />
+              {showGLImport ? <GLImport engagementId={engagementId} yearEnd={yearEnd} onClose={()=>setShowGLImport(false)} onImported={()=>onQuickBooksImported?.()} /> : null}
             </>
           ) : (
             <>
