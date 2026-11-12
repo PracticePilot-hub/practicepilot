@@ -17,7 +17,7 @@ export function buildExportReadiness(base: readonly AfsFlightDeckIssue[], arithm
   };
   for (const [index,message] of unique([...arithmetic,...required]).entries()) {
     const existing = issues.find(issue=>issue.title===message || issue.message===message || (!issue.id.startsWith("disclosure-") && message.startsWith(issue.title+":")) || message.startsWith(issue.title+" in "));
-    if (existing) { existing.severity="critical"; if(existing.target==="notes") {existing.target="notes-work";existing.targetLabel="Notes → Work";} if(message!==existing.title && !existing.message.includes(message)) existing.message += " "+message; continue; }
+    if (existing) { const resolved=destination(message); if(resolved.target.startsWith("note:") || resolved.target.startsWith("policy:")) {existing.target=resolved.target;existing.targetLabel=resolved.targetLabel;} existing.severity="critical"; if(existing.target==="notes") {existing.target="notes-work";existing.targetLabel="Notes → Work";} if(message!==existing.title && !existing.message.includes(message)) existing.message += " "+message; continue; }
     const target = destination(message);
     issues.push({id:`export-required-${index}`,severity:"critical",title:target.title,message,target:target.target,targetLabel:target.targetLabel});
   }

@@ -1,1 +1,14 @@
 const assert=require('node:assert/strict'),{load}=require('./load.cjs'),c=load('app/afs/[engagementId]/print-studio/afsStandardsCoverage.ts'),d=load('app/afs/[engagementId]/components/AfsPolicyNoteDefaults.ts');const lines=[{mapping_code:'775.40',current_year_balance:2500,prior_year_balance:2500}],check=options=>c.reviewStandardsCoverage(lines,d.accountingPolicySections,d.noteSections,options,{}, {framework:'smes',edition:'2015'}).find(x=>x.topic.id==='borrowing');let r=check({policyBorrowingCosts:true});assert(r.issues.some(x=>x.includes('Select Finance costs in Notes')));assert.equal(r.issueTarget,'notes');r=check({policyBorrowingCosts:true,notesFinanceCosts:true});assert.equal(r.issues.length,0);r=check({policyBorrowingCosts:false,notesFinanceCosts:true});assert(r.issues.some(x=>x.includes('No policy')));assert.equal(r.issueTarget,'accounting-policies');console.log('PASS borrowing policy and finance-cost note are separate; each issue opens the correct section.');
+const ready=load('app/afs/[engagementId]/print-studio/afsExportReadiness.ts').buildExportReadiness;
+for(const [key,title] of [['notesInventories','Inventories'],['notesPropertyPlantEquipment','Property, plant and equipment'],['notesIntangibleAssets','Intangible assets'],['notesCashAndCashEquivalents','Cash and cash equivalents'],['notesShareCapital','Share capital / contributions'],['notesGroupRelatedPartyBorrowings','Group and related-party borrowings'],['notesOperatingExpenses','Operating expenses'],['notesCashUsedInOperations','Cash generated from / (used in) operations']]) {
+ const result=ready([{id:'topic-review',severity:'caution',title,message:'Review this topic.',target:'notes'}],[],[title+': Required wording'],[{title,target:'note:'+key,targetLabel:'Notes → Work'}]);
+ assert.equal(result.flightDeckIssues.length,1);assert.equal(result.flightDeckIssues[0].target,'note:'+key);
+}
+const nav=load('app/afs/[engagementId]/print-studio/afsDisclosureNavigation.ts').openDisclosureEditor;
+let focused=false,scrolled=false;const destination={style:{},scrollIntoView(options){assert.equal(options.block,'start');scrolled=true;}};
+const field={focus(options){assert(options.preventScroll);focused=true;},closest(){return destination;}};
+const editor={open:false,querySelector(selector){assert(selector.includes('aria-invalid'));return field;}};
+const container={open:false,querySelector(selector){assert.equal(selector,'[data-disclosure-section="notesInventories"]');return editor;}};
+assert(nav('notesInventories',false,{getElementById(id){assert.equal(id,'print-notes-work');return container;}}));assert(editor.open&&focused&&scrolled);
+assert.equal(nav('notesInventories',false,{getElementById(){return null;}}),false);
+console.log('PASS every disclosure card retains its exact editor destination, opens missing fields in Work, and never selects a paginated PDF clone.');

@@ -1,4 +1,5 @@
 "use client";
+import { openDisclosureEditor } from "./afsDisclosureNavigation";
 import { buildExportReadiness, statementArithmeticIssues } from "./afsExportReadiness";
 import { goingConcernReview } from "./afsGoingConcern";
 import {policyFrameworkIssues} from "./afsPolicyFrameworkReview";
@@ -2184,6 +2185,15 @@ export default function AfsPrintStudioPage() {
   const [activeSectionId, setActiveSectionId] = useState("cover-page");
   const [cashFlowViewMode, setCashFlowViewMode] = useState<"afs" | "work">("afs");
   const [notesViewMode, setNotesViewMode] = useState<"review" | "edit">("review");
+  const [pendingDisclosure,setPendingDisclosure]=useState<{key:string;policy:boolean}|null>(null);
+  useEffect(()=>{
+    if(!pendingDisclosure) return;
+    let frame=0,attempts=0;
+    const open=()=>{if(openDisclosureEditor(pendingDisclosure.key,pendingDisclosure.policy)) {setPendingDisclosure(null);return;} if(++attempts<12)frame=requestAnimationFrame(open);};
+    frame=requestAnimationFrame(open);
+    return ()=>cancelAnimationFrame(frame);
+  },[pendingDisclosure,notesViewMode]);
+
 
   useEffect(() => {
     const handleNotesModeChange = (event: Event) => {
@@ -4238,7 +4248,7 @@ const exportReadiness = buildExportReadiness(flightDeckIssues,
   [...[...(automaticCash.sources.length&&!automaticCash.reviewed?["Review calculated cash movements in Cash Flow Work"]:[]),...taxAfsIssues(taxCalculation,priorTaxCalculation,trialBalanceLines,effectiveStructuredNotesState.presentationReview?.scope==="consolidated"),...noteDisclosureIssues([...noteSections,...accountingPolicySections.filter(p=>POLICY_DISCLOSURE_KEYS.includes(p.key))],reportOptions,effectiveStructuredNotesState,standardsContext(clientSetup),trialBalanceLines).map(item=>`${item.title}: ${item.missing.join("; ")}`), ...flightDeckIssues.filter(item=>item.severity === "critical").map(item=>item.title), ...taxReconciliationReview(statementEngine.noteData,effectiveStructuredNotesState,clientSetup).filter(row=>row.difference===null || Math.abs(row.difference)>0.005 || row.invalid || row.rateAssumed).map(row=>`Tax ${row.side}: supported rate and reconciliation required`), ...reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory).map(row=>`${row.label}: ${row.side} PPE cost/depreciation movements require reconciliation`), ...reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory).filter(row=>row.difference === null || Math.abs(row.difference)>0.005 || row.openingConflict || row.invalid).map(row=>`${row.label}: ${row.side} movement does not reconcile`), ...relatedPartyReviewIssues(effectiveStructuredNotesState,trialBalanceLines,standardsContext(clientSetup).framework === "full"?"full":"smes"), ...(!effectiveStructuredNotesState.presentationReview?.scope?["Presentation scope is not assessed"]:[]), ...(standardsContext(clientSetup).framework === "unknown"?["Reporting framework is not selected"]:[]), ...(trialBalanceLines.some(line=>String(line.mapping_code||"").split(".")[0] === "830" && (Number(line.current_year_balance||0)!==0 || Number(line.prior_year_balance||0)!==0)) && effectiveStructuredNotesState.presentationReview?.scope !== "consolidated"?["NCI mapping requires supported consolidated scope or correction"]:[])], ...goingConcern.issues,
     ...(goingConcern.disclosureRequired && !reportOptions.notesGoingConcern ? ["Going concern: the assessment requires disclosure; select the note and complete its wording."] : [])],
   [...noteSections.map(note=>({title:note.defaultTitle,target:`note:${note.key}`,targetLabel:"Notes → Work"})),
-   ...accountingPolicySections.map(policy=>({title:policy.defaultTitle,target:"standards-review",targetLabel:"Whole AFS review"}))],
+   ...accountingPolicySections.map(policy=>({title:policy.defaultTitle,target:`policy:${policy.key}`,targetLabel:"Policy wording"}))],
 );
 
   function consolidateDetailedIncomeRows(rows: AfsStatementRow[]) {
@@ -7213,10 +7223,18 @@ return Math.max(
                 if (panel) { panel.open=true; panel.scrollIntoView({behavior:"smooth",block:"start"}); }
                 return;
               }
-              if (target.startsWith("note:")) {
-                window.dispatchEvent(new CustomEvent("afs-notes-mode-change", {detail:"edit"}));
-                goToSection("notes");
-                requestAnimationFrame(()=>document.querySelector(`[data-note-section="${target.slice(5)}"]`)?.scrollIntoView({behavior:"smooth",block:"start"}));
+              if (target.startsWith("note:") || target.startsWith("policy:")) {
+                const policy=target.startsWith("policy:"),key=target.slice(policy?7:5);
+                if(policy) {
+                  const panel=document.getElementById("afs-standards-review") as HTMLDetailsElement|null;
+                  if(panel)panel.open=true;
+                } else {
+                  setNotesViewMode("edit");
+                  window.localStorage.setItem(`afs-notes-mode:${engagementId}`,"edit");
+                  window.dispatchEvent(new CustomEvent("afs-notes-mode-change",{detail:"edit"}));
+                  setActiveSectionId("notes");
+                }
+                setPendingDisclosure({key,policy});
                 return;
               }
               if (target === "afs-tax") { goToSection("tax-computation"); return; }
