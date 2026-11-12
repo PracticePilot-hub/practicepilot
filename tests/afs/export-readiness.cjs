@@ -17,7 +17,7 @@ for(const framework of ['smes','full']){
   const risk=structuredClone(state);risk.goingConcernAssessment.assessmentStatus=status;
   assert(gc.goingConcernReview(risk,context).disclosureRequired);assert(!gc.goingConcernReview(risk,context).omitNote);assert.equal(req.noteDisclosureIssues([note],{notesGoingConcern:true},risk,context).length,1);
  }
- const blank=structuredClone(state);blank.goingConcernAssessment.assessmentEvidence='';assert(gc.goingConcernReview(blank,context).omitNote);assert(!gc.goingConcernReview(blank,context).complete);assert.equal(gc.goingConcernReview(blank,context).issues.length,1);assert.equal(req.noteDisclosureIssues([note],{notesGoingConcern:true},blank,context).length,0);
+ const blank=structuredClone(state);blank.goingConcernAssessment.assessmentEvidence='';assert(gc.goingConcernReview(blank,context).omitNote);assert(gc.goingConcernReview(blank,context).complete);assert.equal(gc.goingConcernReview(blank,context).issues.length,0);assert.equal(req.noteDisclosureIssues([note],{notesGoingConcern:true},blank,context).length,0);
  const old=structuredClone(state);old.goingConcernAssessment.assessmentContext='old';assert(!gc.goingConcernReview(old,context).assessed);
  const legacy={goingConcernAssessment:{conditions:'Legacy narrative is not an explicit assessment.'}};assert(gc.goingConcernReview(legacy,context).issues.length);
  const React=r('react'),render=r('react-dom/server').renderToStaticMarkup,Panel=load(p+'AfsStructuredNotesPanel.tsx').default;
@@ -33,9 +33,17 @@ function assessment(state){return render(React.createElement(Assessment,{state,c
 let html=assessment({});assert(html.includes('1. Can the business continue trading'));assert(!html.includes('<textarea'));assert(!html.includes('2. Is there anything'));
 assert.equal(render(React.createElement(Content,{sectionKey:'notesGoingConcern',edit:true,state:{},setup,update:()=>{}})),'');
 const supported={goingConcernAssessment:{assessmentStatus:'no-disclosure',assessmentContext:'smes:2015',assessmentEvidence:'Supported management assessment of forecasts and available funding.'}};
-html=assessment(supported);assert(html.includes('2. Is there anything'));assert(html.includes('3. Briefly explain'));assert(html.includes('There are no disclosure boxes to complete.'));assert(!html.includes('<select'));
+html=assessment(supported);assert(html.includes('2. Is there anything'));assert(html.includes('Optional: add a working-paper explanation'));assert(html.includes('There are no disclosure boxes to complete.'));assert(!html.includes('<select'));
 const risk=structuredClone(supported);risk.goingConcernAssessment.assessmentStatus='material-uncertainty';
 html=render(React.createElement(Content,{sectionKey:'notesGoingConcern',edit:true,state:risk,setup,update:()=>{}}));assert(html.includes('<details open=""'));assert(html.includes('Wording included in the AFS'));
 // Framework changes must not silently reuse answers from a previous assessment.
 const stale=structuredClone(supported);stale.goingConcernAssessment.assessmentContext='full';stale.goingConcernAssessment.operatingOutlook='yes';stale.goingConcernAssessment.disclosureNeed='none';html=assessment(stale);assert(!html.includes('checked=""'));assert(!html.includes('<textarea'));
 console.log('PASS guided assessment starts with one practical question; further questions and wording appear only when needed, and old answers survive without being silently reused.');
+
+const assessedWithoutText={goingConcernAssessment:{assessmentStatus:'no-disclosure',assessmentContext:'smes:2015'}};
+const assessedReview=gc.goingConcernReview(assessedWithoutText,context);
+const assessedGate=ready([],[],assessedReview.issues);
+assert.equal(assessedGate.finalisationIssues.length,0);assert.equal(assessedGate.flightDeckIssues.length,0);
+assert.equal(req.noteDisclosureIssues([{key:'notesGoingConcern',optionKey:'notesGoingConcern',defaultTitle:'Going concern'}],{notesGoingConcern:true},assessedWithoutText,context).length,0);
+html=assessment(assessedWithoutText);assert(html.includes('Assessment recorded.'));assert(!html.includes('Only the short explanation'));
+console.log('PASS an explicit no-disclosure assessment clears the going-concern blocker without compulsory free text; uncertain or unassessed outcomes are not silently cleared.');

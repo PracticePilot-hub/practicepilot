@@ -36,8 +36,8 @@ export default function AfsGoingConcernAssessment({state, context, update}: Prop
       {choice("disclosureNeed","judgement","Yes — the conclusion required significant judgement","The facts and judgement need explaining even though continued trading is appropriate.")}
       {choice("disclosureNeed","unsure","I still need to check")}
     </fieldset>}
-    {review.assessed && <label style={{display:"block",fontWeight:700,marginTop:14}}>3. Briefly explain what supports your answers
-      <span style={{display:"block",fontWeight:400,fontSize:11,margin:"5px 0"}}>Record the period reviewed and the relevant facts or documents. This explanation stays in Work.</span>
+    {review.assessed && <label style={{display:"block",fontWeight:700,marginTop:14}}>{review.status === "no-disclosure" ? "Optional: add a working-paper explanation" : "3. Briefly explain what supports your answers"}
+      <span style={{display:"block",fontWeight:400,fontSize:11,margin:"5px 0"}}>{review.status === "no-disclosure" ? "Your assessment is recorded. You may add supporting facts or document references here; this is optional and stays in Work." : "Record the period reviewed and the relevant facts or documents. This explanation stays in Work."}</span>
       <textarea aria-label="Going-concern assessment evidence" value={value.assessmentEvidence || ""} onChange={e=>update(["goingConcernAssessment", "assessmentEvidence"],e.target.value)} style={{display:"block",width:"100%",boxSizing:"border-box",minHeight:80,padding:8,fontFamily:"inherit",fontWeight:400}} placeholder="What expected trading, payment or funding information did you review, and why does it support your conclusion?"/>
     </label>}
     {review.omitNote && review.complete && <p role="status" style={{padding:10,background:"#ecfdf5",color:"#166534",fontWeight:700}}>Assessment recorded. No separate going-concern note will print. There are no disclosure boxes to complete.</p>}
