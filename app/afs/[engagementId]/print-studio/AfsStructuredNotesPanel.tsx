@@ -1521,11 +1521,10 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
     if (edit) {
       return (
         <div style={styles.editGridSingle}>
-          <p style={styles.paragraph}>
-            Complete the narrative below only when a separate going-concern disclosure is required. Blank fields do not print.
-          </p>
           <AfsGoingConcernAssessment state={state} context={context} update={update}/>
-          {!goingConcernReview(state,context).omitNote && fields.map(([key, label]) => (
+          {goingConcernReview(state,context).disclosureRequired && <details>
+            <summary style={{cursor:"pointer",fontWeight:700}}>Additional supporting detail (optional)</summary>
+            {fields.map(([key, label]) => (
             <EditableTextBlock
               key={key}
               label={label}
@@ -1533,7 +1532,8 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
               edit
               onChange={(value) => update(["goingConcernAssessment", key], value)}
             />
-          ))}
+            ))}
+          </details>}
         </div>
       );
     }
@@ -5799,7 +5799,9 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
 
       const numberedSections = noteSections
         .map((section) => {
-          const configuredActive = Boolean(reportOptions[section.optionKey]) && !(section.key === "notesGoingConcern" && goingConcernReview(state,standardsContext(clientSetup)).omitNote);
+          const configuredActive = Boolean(reportOptions[section.optionKey]);
+          const omitGoingConcern = section.key === "notesGoingConcern" && goingConcernReview(state,standardsContext(clientSetup)).omitNote;
+          if (omitGoingConcern && !isEditing) return null;
           const dataKey = NOTE_KEY_MAP[section.key];
           const engineRows = dataKey ? noteData[dataKey] || [] : [];
           let mappedDetails = detailedMappedNoteRows(section.key, trialBalanceLines);
@@ -5853,12 +5855,12 @@ import { ComprehensiveWork, ociDetail } from "../components/AfsComprehensivePres
 
           if (!configuredActive && !isEditing && !hasData) return null;
           if (!active && !isEditing) return null;
-          if (active) noteNumber += 1;
+          if (active && !omitGoingConcern) noteNumber += 1;
 
           return {
             section,
             active,
-            noteNumber: active ? noteNumber : null,
+            noteNumber: active && !omitGoingConcern ? noteNumber : null,
             rows,
           };
         })

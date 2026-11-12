@@ -27,3 +27,15 @@ for(const framework of ['smes','full']){
  html=render(React.createElement(Panel,props));assert(html.includes('Existing disclosure retained'));assert(!html.includes('Management reviewed twelve'));
 }
 console.log('PASS yellow suggestions do not block export; all required holds appear as red, linked blockers. Supported no-disclosure assessments omit the printed note; uncertainty, judgement and alternative-basis outcomes retain disclosure requirements without erasing saved text.');
+const React=r('react'),render=r('react-dom/server').renderToStaticMarkup,Assessment=load(p+'AfsGoingConcernAssessment.tsx').default,Content=load(p+'AfsNoteDisclosureContent.tsx').default;
+const context={framework:'smes',edition:'2015'},setup={basis_of_preparation:'IFRS for SMEs'};
+function assessment(state){return render(React.createElement(Assessment,{state,context,update:()=>{}}));}
+let html=assessment({});assert(html.includes('1. Can the business continue trading'));assert(!html.includes('<textarea'));assert(!html.includes('2. Is there anything'));
+assert.equal(render(React.createElement(Content,{sectionKey:'notesGoingConcern',edit:true,state:{},setup,update:()=>{}})),'');
+const supported={goingConcernAssessment:{assessmentStatus:'no-disclosure',assessmentContext:'smes:2015',assessmentEvidence:'Supported management assessment of forecasts and available funding.'}};
+html=assessment(supported);assert(html.includes('2. Is there anything'));assert(html.includes('3. Briefly explain'));assert(html.includes('There are no disclosure boxes to complete.'));assert(!html.includes('<select'));
+const risk=structuredClone(supported);risk.goingConcernAssessment.assessmentStatus='material-uncertainty';
+html=render(React.createElement(Content,{sectionKey:'notesGoingConcern',edit:true,state:risk,setup,update:()=>{}}));assert(html.includes('<details open=""'));assert(html.includes('Wording included in the AFS'));
+// Framework changes must not silently reuse answers from a previous assessment.
+const stale=structuredClone(supported);stale.goingConcernAssessment.assessmentContext='full';stale.goingConcernAssessment.operatingOutlook='yes';stale.goingConcernAssessment.disclosureNeed='none';html=assessment(stale);assert(!html.includes('checked=""'));assert(!html.includes('<textarea'));
+console.log('PASS guided assessment starts with one practical question; further questions and wording appear only when needed, and old answers survive without being silently reused.');
