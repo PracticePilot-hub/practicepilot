@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { workpaperContext, workpaperErrorResponse, WorkpaperError } from "@/app/lib/workpapers/server";
 import { configuration, connection, digest, qboGet } from "@/app/lib/quickbooks/server";
 import { runImportStep, publicJob } from "@/app/lib/quickbooks/import";
-import { reportingCurrency, checkReportingCurrency } from "@/app/lib/quickbooks/reports";
+import { reportingCurrency, checkReportingCurrency, importCurrencyPlan } from "@/app/lib/quickbooks/reports";
 import { yearStart } from "@/app/lib/workpapers/gl";
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -75,16 +75,15 @@ export async function POST(request: Request, { params }: Context) {
             const preferences = await qboGet(ctx, "preferences");
             if (!preferences.Preferences)
                 throw new WorkpaperError("QuickBooks preferences could not be verified.");
-            if (preferences.Preferences.CurrencyPrefs?.MultiCurrencyEnabled === true)
-                throw new WorkpaperError("Multi-currency companies need a home-currency ledger export for now. Direct import has not been enabled for this company.");
             if (!company || body.companyName !== company || body.realmId !== conn.realm_id)
                 throw new WorkpaperError("The company confirmation is out of date. Refresh and confirm again.", 409);
             const { data: setup, error: setupError } = await ctx.db.from("afs_client_setup").select("reporting_period_start,currency").eq("engagement_id", id).maybeSingle();
             if (setupError)
                 throw setupError;
+            const currencyPlan = importCurrencyPlan(preferences.Preferences, setup?.currency);
             const {data:activeImport,error:activeError}=await ctx.db.from("pp_gl_imports").select("id").eq("engagement_id",id).eq("organisation_id",ctx.organisationId).eq("active",true).maybeSingle();
             if(activeError)throw activeError;
-            const { data, error } = await ctx.db.from("pp_qbo_jobs").insert({ organisation_id: ctx.organisationId, engagement_id: id, connection_id: conn.id, realm_id: conn.realm_id, created_by: ctx.profile.id, period_start: setup?.reporting_period_start || yearStart(ctx.entity.financial_year_end.slice(0, 10)), period_end: ctx.entity.financial_year_end.slice(0, 10), state: { company, expectedCurrency: reportingCurrency(setup?.currency), activeImportId:activeImport?.id||null, currency: info.CompanyInfo?.CurrencyRef?.value || null } }).select("*").single();
+            const { data, error } = await ctx.db.from("pp_qbo_jobs").insert({ organisation_id: ctx.organisationId, engagement_id: id, connection_id: conn.id, realm_id: conn.realm_id, created_by: ctx.profile.id, period_start: setup?.reporting_period_start || yearStart(ctx.entity.financial_year_end.slice(0, 10)), period_end: ctx.entity.financial_year_end.slice(0, 10), state: { company, multicurrency: currencyPlan.multicurrency, expectedCurrency: reportingCurrency(setup?.currency), activeImportId:activeImport?.id||null, currency: currencyPlan.currency } }).select("*").single();
             if (error) {
                 if (error.code === "23505")
                     throw new WorkpaperError("An import is already pending. Resume or cancel it.", 409);

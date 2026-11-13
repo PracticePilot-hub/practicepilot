@@ -2,7 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { WorkpaperError, type WorkpaperContext } from "@/app/lib/workpapers/server";
 import { connection, qboGet } from "./server";
-import { accountMap, trialBalance, ledger, verifyReport, checkReportingCurrency, periods, dayBefore, reconcile, type Account, type Report } from "./reports";
+import { accountMap, trialBalance, ledger, verifyReport, checkReportingCurrency, ledgerColumns, periods, dayBefore, reconcile, type Account, type Report } from "./reports";
 import { yearStart } from "@/app/lib/workpapers/gl";
 import type { GLTransaction } from "@/app/lib/workpapers/gl";
 type Job = {
@@ -19,6 +19,7 @@ type Job = {
         company?: string;
         currency?: string | null;
         expectedCurrency?: string;
+        multicurrency?: boolean;
         sourceAccounts?: Account[];
         mapped?: ReturnType<typeof accountMap>;
         accountsLoaded?: boolean;
@@ -91,11 +92,11 @@ export async function runImportStep(ctx: WorkpaperContext, job: Job) {
         }
         else if ((state.month || 0) < ranges.length) {
             const month = Number(state.month || 0), range = ranges[month];
-            const r: Report = await qboGet(ctx, "reports/GeneralLedger", { start_date: range.start, end_date: range.end, accounting_method: "Accrual", columns: "tx_date,txn_type,doc_num,name,memo,account_name,debt_amt,credit_amt" });
+            const r: Report = await qboGet(ctx, "reports/GeneralLedger", { start_date: range.start, end_date: range.end, accounting_method: "Accrual", columns: ledgerColumns(state.multicurrency === true) });
             verifyReport(r, "GeneralLedger", range.end, range.start);
             if (r.Header?.Currency !== state.currency)
                 throw new WorkpaperError("Ledger currency differs from trial balance currency.");
-            const rows = ledger(r, state.mapped || [], range.start, range.end);
+            const rows = ledger(r, state.mapped || [], range.start, range.end, state.multicurrency === true);
             if (rows.length > 10000)
                 throw new WorkpaperError("This monthly ledger is too large for a verified import. Use a file export split into smaller periods.", 413);
             const { error: batchError } = await ctx.db.from("pp_qbo_batches").upsert({ job_id: job.id, batch: month, payload: rows, source_report: r }, { onConflict: "job_id,batch" });

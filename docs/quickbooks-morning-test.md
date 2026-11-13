@@ -26,9 +26,11 @@ Hosted QuickBooks and GL tables and functions were checked read-only. The tables
 - Choose whether to update current TB figures or import supporting ledger only. Review before Apply. Existing mappings, comparatives and PP journals must remain.
 - Confirm imported figures and sign-off reopening. Repeat retrieval must not duplicate transactions.
 
-Single-currency, accrual-basis companies are supported in this version. Multicurrency is blocked explicitly. No source journals are posted to QuickBooks. PP never asks for the QuickBooks password; Intuit owns sign-in and company selection.
+Accrual-basis companies are supported in this version. Multicurrency companies use Intuit home-currency debit/credit columns and must match the AFS currency. No source journals are posted to QuickBooks. PP never asks for the QuickBooks password; Intuit owns sign-in and company selection.
 
 ## Recovery
 
 Work candidate: /private/tmp/pp-qbo-live-20261112
 Durable recovery patch/archive and STATUS.txt: workspace/QuickBooks-preparation
+
+13 November: Multicurrency imports now verify Preferences.CurrencyPrefs.HomeCurrency, request debt_home_amt/credit_home_amt and refuse foreign/ambiguous ledger columns. PP does no FX calculation; every account must reconcile before Apply. Specification: https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/generalledger .

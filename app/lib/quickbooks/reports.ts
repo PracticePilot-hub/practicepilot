@@ -30,6 +30,7 @@ export type Report = {
     Columns?: {
         Column?: {
             ColTitle?: string;
+            ColType?: string;
             MetaData?: {
                 Name: string;
                 Value: string;
@@ -107,7 +108,7 @@ export function verifyReport(r: Report, name: string, end: string, start?: strin
     if (!r.Columns?.Column?.length || !r.Rows || (!Array.isArray(r.Rows.Row) && !r.Header?.Option?.some(o=>o.Name==="NoReportData" && o.Value==="true")))
         throw new Error("QuickBooks report is incomplete or uses an unsupported format.");
 }
-function keys(r: Report) { return r.Columns!.Column!.map(c => (c.MetaData?.find(m => m.Name === "ColKey")?.Value || c.ColTitle || "").toLowerCase().replace(/[^a-z0-9]/g, "")); }
+function keys(r: Report) { return r.Columns!.Column!.map(c => (c.MetaData?.find(m => m.Name === "ColKey")?.Value || (c.ColType && !["money", "string", "date", "account"].includes(c.ColType.toLowerCase()) ? c.ColType : c.ColTitle) || "").toLowerCase().replace(/[^a-z0-9]/g, "")); }
 function column(k: string[], ...names: string[]) { const i = k.findIndex(v => names.includes(v)); if (i < 0)
     throw new Error(`QuickBooks report is missing ${names[0]}. Request an unfiltered debit/credit report.`); return i; }
 export function trialBalance(r: Report, accounts: ReturnType<typeof accountMap>) {
@@ -132,9 +133,9 @@ export function trialBalance(r: Report, accounts: ReturnType<typeof accountMap>)
         throw new Error("Source trial balance does not balance.");
     return balances;
 }
-export function ledger(r: Report, accounts: ReturnType<typeof accountMap>, start: string, end: string): GLTransaction[] {
+export function ledger(r: Report, accounts: ReturnType<typeof accountMap>, start: string, end: string, homeCurrencyOnly = false): GLTransaction[] {
     if(r.Header?.Option?.some(o=>o.Name==="NoReportData"&&o.Value==="true") && !(r.Rows?.Row?.length))return [];
-    const k = keys(r), di = column(k, "txdate", "date"), db = column(k, "debtamt", "debit"), cr = column(k, "creditamt", "credit"), ai = k.findIndex(v => ["accountname", "account"].includes(v)), ref = k.findIndex(v => ["docnum", "num"].includes(v)), memo = k.findIndex(v => ["memo", "description"].includes(v));
+    const k = keys(r), di = column(k, "txdate", "date"), db = homeCurrencyOnly ? column(k, "debthomeamt", "debithome", "debithomecurrency") : column(k, "debtamt", "debit"), cr = homeCurrencyOnly ? column(k, "credithomeamt", "credithome", "credithomecurrency") : column(k, "creditamt", "credit"), ai = k.findIndex(v => ["accountname", "account"].includes(v)), ref = k.findIndex(v => ["docnum", "num"].includes(v)), memo = k.findIndex(v => ["memo", "description"].includes(v));
     const out: GLTransaction[] = [];
     const byId = new Map(accounts.map(a => [a.Id, a]));
     function walk(rows: Row[], inherited?: string) {
@@ -208,4 +209,15 @@ export function checkReportingCurrency(source: unknown, expected: unknown) {
     const code = reportingCurrency(source), target = reportingCurrency(expected);
     if (code !== target) throw new Error(`QuickBooks reports are in ${code}, but this AFS file uses ${target}. Currency conversion is not supported by this import.`);
     return code;
+}
+
+/** Multicurrency GL amounts must come from Intuit's explicit home-currency columns. */
+export function ledgerColumns(multicurrency: boolean) {
+    return `tx_date,txn_type,doc_num,name,memo,account_name,${multicurrency ? "debt_home_amt,credit_home_amt" : "debt_amt,credit_amt"}`;
+}
+export function importCurrencyPlan(preferences: { CurrencyPrefs?: { MultiCurrencyEnabled?: boolean; HomeCurrency?: { value?: string } } }, expected: unknown) {
+    const multicurrency = preferences.CurrencyPrefs?.MultiCurrencyEnabled === true;
+    const home = preferences.CurrencyPrefs?.HomeCurrency?.value;
+    if (multicurrency && !home) throw new Error("QuickBooks home currency could not be verified. No figures have been imported.");
+    return { multicurrency, currency: home ? checkReportingCurrency(home, expected) : reportingCurrency(expected) };
 }

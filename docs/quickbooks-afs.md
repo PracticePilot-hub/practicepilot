@@ -34,7 +34,7 @@ No marketplace listing, paid tier or subscription is required by the code. If th
 
 ## Limits and explicit review gates
 
-- Single base-currency companies only for this first connector. Multi-currency preferences block direct import until home-currency columns and controls are proven against real samples.
+- Single-currency and multicurrency companies import in the verified company home currency. Multicurrency requires explicit home debit/credit columns; the AFS currency must match. Mixed-column fixtures pass; the first client import still requires user review against source reports.
 - Accrual only. Unknown report schemas, ambiguous signs/account identity, unexpected undated rows and period/basis/currency mismatches stop the import.
 - Maximum 24 reporting months, 20,000 source accounts, 10,000 postings in any monthly report, 100,000 postings in a staged import, 12 MB in a provider response. Oversized extracts stop without applying partial results. No file-import limit is silently bypassed.
 - Source income closing/retained-earnings transitions may mean prior-day TB plus period postings does not match the closing TB. The connector blocks these differences. Do not plug retained earnings or invent a journal. A sandbox proof of fiscal-year semantics is required before live release; if the provider report resets income at year-start, support that documented opening convention before enabling affected clients.
@@ -74,3 +74,5 @@ Intuit assessment approval is confirmed. The current candidate ports the connect
 28 focused checks pass, including token rotation, invalid refresh grants, revoked access and matching source/AFS reporting currency. Connector/import-control scoped TypeScript and lint pass with a 768 MB heap limit. Full-project checking hit that cap; the full build remains deferred until the notes work completes. No deployment is claimed.
 
 The first report currency is now checked against the AFS reporting currency; ambiguous symbols are rejected, and currency is rechecked before applying. PP does not silently convert USD into a Rand AFS.
+
+13 November: Multicurrency imports now verify Preferences.CurrencyPrefs.HomeCurrency, request debt_home_amt/credit_home_amt and refuse foreign/ambiguous ledger columns. PP does no FX calculation; every account must reconcile before Apply. Specification: https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/generalledger .
