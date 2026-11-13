@@ -9,6 +9,7 @@ import {
   getLeadSchedulePlainTitle,
   type LeadScheduleKey,
 } from "./afsLeadScheduleCatalog";
+import AfsLeadNoteWording from "./AfsLeadNoteWording";
 import AfsSectionSignoffBar from "./components/AfsSectionSignoffBar";
 
 type TrialBalanceLine = {
@@ -91,6 +92,7 @@ type LeadSubPageKey =
   | "review-notes";
 
 type LeadSchedulesPanelProps = {
+  clientSetup?:Record<string,any>|null;
   trialBalanceLines: TrialBalanceLine[];
   activeLeadSchedule: LeadScheduleKey | null;
   activeLeadSubPage: LeadSubPageKey;
@@ -119,6 +121,7 @@ export default function LeadSchedulesPanel({
   trialBalanceLines,
   activeLeadSchedule,
   activeLeadSubPage,
+  clientSetup=null,
 }: LeadSchedulesPanelProps) {
   const params = useParams();
   const engagementId = String(params?.engagementId || "");
@@ -1222,6 +1225,8 @@ async function saveLinkedReviewNote() {
           />
         </main>
 
+        <AfsLeadNoteWording key={`${engagementId}-${selectedSchedule}`} engagementId={engagementId} schedule={selectedSchedule||""} setup={clientSetup} lines={trialBalanceLines}/>
+
         <footer style={styles.reconciliationFooter}>
           <ReconLine label="Cash and bank balances" value={cashTotal} />
           <ReconLine label="Bank overdrafts" value={overdraftTotal} />
@@ -1290,6 +1295,8 @@ async function saveLinkedReviewNote() {
           onOpenAnnotation={openAnnotationPopup}
         />
       </main>
+
+      <AfsLeadNoteWording key={`${engagementId}-${selectedSchedule}`} engagementId={engagementId} schedule={selectedSchedule||""} setup={clientSetup} lines={trialBalanceLines}/>
 
       <footer style={styles.reconciliationFooter}>
         <ReconLine label="Current year total" value={currentTotal} />

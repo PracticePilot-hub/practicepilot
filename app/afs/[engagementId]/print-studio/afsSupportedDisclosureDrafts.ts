@@ -1,11 +1,11 @@
-import { disclosureContext } from "./afsNoteDisclosureRequirements";
+import { disclosureContext, ownWordingLeftBlank } from "./afsNoteDisclosureRequirements";
 import { standardsContext } from "./afsStandardsCoverage";
 /** Draft only facts held in setup/TB. Never infer transaction causes, loan terms or nil disclosures. */
 export function fillSupportedDisclosureDrafts(state:Record<string,any>,setup:Record<string,any>|null,lines:readonly any[],people:readonly any[]=[]){
  const next=structuredClone(state),context=disclosureContext(standardsContext(setup));
  const content=next.disclosureContent||{};let changed=false;
  const put=(note:string,field:string,text:string,source:string,reviewReason?:string)=>{
-  if(!text.trim() || String(content[note]?.[field]?.text||"").trim() || content[note]?.[field]?.notApplicable) return;
+  if(ownWordingLeftBlank(content[note]?.[field]) || !text.trim() || String(content[note]?.[field]?.text||"").trim() || content[note]?.[field]?.notApplicable) return;
   content[note]={...(content[note]||{}),[field]:{text,context,source,...(reviewReason?{requiresReview:true,reviewReason}:{})}};changed=true;
  };
  const value=(line:any,side:"current"|"prior")=>Number(side==="current"?line.current_year_balance??(Number(line.debit||0)-Number(line.credit||0)):line.prior_year_balance??0);

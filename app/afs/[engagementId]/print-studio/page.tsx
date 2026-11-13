@@ -13,7 +13,7 @@ import { withComprehensivePresentation, comprehensivePresentationIssues } from "
 import AfsPaginatedNotes from "../components/AfsPaginatedNotes";
 import { buildCashFlowPresentation, prepareCashFlowWorkState, resolveSavedStatementOverrides } from "./afsCashFlowPresentation";
 import { taxReconciliationReview } from "./afsTaxReconciliation";
-import { noteDisclosureIssues, POLICY_DISCLOSURE_KEYS } from "./afsNoteDisclosureRequirements";
+import { noteDisclosureIssues, blankWordingReviews, POLICY_DISCLOSURE_KEYS } from "./afsNoteDisclosureRequirements";
 import AfsNoteDisclosureContent from "./AfsNoteDisclosureContent";
 
 import { directCashAmount } from "./afsDirectCashOverrides";
@@ -2292,8 +2292,11 @@ export default function AfsPrintStudioPage() {
       "afs-structured-notes-change",
       onStructuredNotesChange,
     );
+    const onSharedWordingStorage=(event:StorageEvent)=>{if(!event.newValue)return;try{if(event.key===storageKey)setStructuredNotesState(JSON.parse(event.newValue));if(event.key===`practicepilot-afs-print-studio:${engagementId}:report-options`)setReportOptions({...defaultReportOptions,...JSON.parse(event.newValue)});}catch{}};
+    window.addEventListener("storage",onSharedWordingStorage);
 
     return () => {
+      window.removeEventListener("storage",onSharedWordingStorage);
       window.removeEventListener(
         "afs-structured-notes-change",
         onStructuredNotesChange,
@@ -4206,6 +4209,7 @@ const renderedSfpBalanceDifference = useMemo(() => {
 const flightDeckIssues = useMemo(() => {
   const issues = buildAfsFlightDeckIssuesFromEngine(statementEngine);
   const context = standardsContext(clientSetup);
+  for(const item of blankWordingReviews([...noteSections,...accountingPolicySections.filter(p=>POLICY_DISCLOSURE_KEYS.includes(p.key))],reportOptions,effectiveStructuredNotesState,context)) issues.push({id:`own-wording-blank-${item.key}`,severity:"caution",title:`${item.title}: own wording left blank`,message:`The preparer chose own wording and left these text areas blank: ${item.fields.join("; ")}. They will not print. Review reminder only.`,target:`${item.key.startsWith("policy")?"policy":"note"}:${item.key}`,targetLabel:"Review wording"});
   for(const item of policyFrameworkIssues(accountingPolicySections,reportOptions,activeAccountingPolicyTexts,context))issues.push({id:`policy-framework-${item.key}`,severity:"critical",title:"Review saved accounting policy",message:item.message,target:"policies",targetLabel:"Open Policies"});
   issues.push(...ppeWorkScheduleIssues(reviewPpeNote(trialBalanceLines,effectiveStructuredNotesState,comparativeHistory)));
   for (const row of reviewAllMovementNotes(trialBalanceLines,statementEngine.noteData,effectiveStructuredNotesState,comparativeHistory)) {

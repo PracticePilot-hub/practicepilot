@@ -1,3 +1,4 @@
+import {mergeDisclosureEntryPatches,mergeDisclosureOptionPatches} from "@/app/afs/[engagementId]/print-studio/afsDisclosureEntryPatch";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -577,6 +578,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const supabase = getSupabaseAdmin();
     const engagement = await loadEngagement(supabase, id);
     const settingsRow = await loadPrintStudioSettings(supabase, id);
+    if (_request.nextUrl.searchParams.get("notesOnly") === "1") return NextResponse.json({success:true,...cleanSettingsRow(settingsRow)});
     const firmSettingsRow = await loadFirmSettings(supabase, engagement);
     const settings = cleanSettingsRow(settingsRow);
     const firmSettings = await cleanFirmSettings(supabase, firmSettingsRow);
@@ -613,6 +615,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const supabase = getSupabaseAdmin();
     const engagement = await loadEngagement(supabase, id);
     const existing = await loadPrintStudioSettings(supabase, id);
+    if(payload.disclosureEntryPatches !== undefined){
+      try {payload.structuredNotesState=mergeDisclosureEntryPatches(existing?.structured_notes_state||{},payload.disclosureEntryPatches);
+        if(payload.disclosureOptionPatches!==undefined)payload.reportOptions=mergeDisclosureOptionPatches(existing?.report_options||{},payload.disclosureOptionPatches);
+      }
+      catch(error:any){return NextResponse.json({success:false,error:error.message},{status:409});}
+    }
     const materiallyChanged = printStudioPayloadChanged(existing, payload);
     const now = new Date().toISOString();
 
@@ -647,12 +655,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         patchRow.structured_notes_state = payload.structuredNotesState;
       }
 
-      const { data, error } = await supabase
-        .from("afs_print_studio_settings")
-        .update(patchRow)
-        .eq("id", existing.id)
-        .select("*")
-        .maybeSingle();
+      let updateQuery=supabase.from("afs_print_studio_settings").update(patchRow).eq("id",existing.id);
+      if(payload.disclosureEntryPatches!==undefined && existing.updated_at)updateQuery=updateQuery.eq("updated_at",existing.updated_at);
+      const {data,error}=await updateQuery.select("*").maybeSingle();
+      if(!error&&!data&&payload.disclosureEntryPatches!==undefined)return NextResponse.json({success:false,error:"These notes changed while saving. Reload and retry; your draft has been kept."},{status:409});
 
       if (error) throw new Error(error.message);
       savedRow = data || null;
@@ -688,6 +694,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       savedRow = data || null;
     }
 
+    if(payload.disclosureEntryPatches!==undefined){
+      const signoffInvalidated=materiallyChanged ? await invalidateFinancialStatementsSignoff(supabase,id,"Financial statement note wording changed in the lead sheet.") : false;
+      return NextResponse.json({success:true,...cleanSettingsRow(savedRow),signoffInvalidated});
+    }
     const firmSettingsRow = await loadFirmSettings(supabase, engagement);
     const settings = cleanSettingsRow(savedRow);
     const firmSettings = await cleanFirmSettings(supabase, firmSettingsRow);
