@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { workpaperContext, workpaperErrorResponse, WorkpaperError } from "@/app/lib/workpapers/server";
 import { configuration, connection, digest, qboGet } from "@/app/lib/quickbooks/server";
 import { runImportStep, publicJob } from "@/app/lib/quickbooks/import";
-import { reportingCurrency, checkReportingCurrency, importCurrencyPlan } from "@/app/lib/quickbooks/reports";
+import { reportingCurrency, checkReportingCurrency, importCurrencyPlan, fiscalStartMonth } from "@/app/lib/quickbooks/reports";
 import { yearStart } from "@/app/lib/workpapers/gl";
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -83,7 +83,7 @@ export async function POST(request: Request, { params }: Context) {
             const currencyPlan = importCurrencyPlan(preferences.Preferences, setup?.currency);
             const {data:activeImport,error:activeError}=await ctx.db.from("pp_gl_imports").select("id").eq("engagement_id",id).eq("organisation_id",ctx.organisationId).eq("active",true).maybeSingle();
             if(activeError)throw activeError;
-            const { data, error } = await ctx.db.from("pp_qbo_jobs").insert({ organisation_id: ctx.organisationId, engagement_id: id, connection_id: conn.id, realm_id: conn.realm_id, created_by: ctx.profile.id, period_start: setup?.reporting_period_start || yearStart(ctx.entity.financial_year_end.slice(0, 10)), period_end: ctx.entity.financial_year_end.slice(0, 10), state: { company, multicurrency: currencyPlan.multicurrency, expectedCurrency: reportingCurrency(setup?.currency), activeImportId:activeImport?.id||null, currency: currencyPlan.currency } }).select("*").single();
+            const { data, error } = await ctx.db.from("pp_qbo_jobs").insert({ organisation_id: ctx.organisationId, engagement_id: id, connection_id: conn.id, realm_id: conn.realm_id, created_by: ctx.profile.id, period_start: setup?.reporting_period_start || yearStart(ctx.entity.financial_year_end.slice(0, 10)), period_end: ctx.entity.financial_year_end.slice(0, 10), state: { company, multicurrency: currencyPlan.multicurrency, fiscalStartMonth: fiscalStartMonth(preferences.Preferences.AccountingInfoPrefs?.FirstMonthOfFiscalYear), expectedCurrency: reportingCurrency(setup?.currency), activeImportId:activeImport?.id||null, currency: currencyPlan.currency } }).select("*").single();
             if (error) {
                 if (error.code === "23505")
                     throw new WorkpaperError("An import is already pending. Resume or cancel it.", 409);
@@ -103,6 +103,23 @@ export async function POST(request: Request, { params }: Context) {
             throw error;
         if (!job)
             throw new WorkpaperError("Import not found.", 404);
+        if (action === "recheck") {
+            if (job.status !== "review") throw new WorkpaperError("Only a completed preview can be rechecked.",409);
+            const conn = await connection(ctx);
+            if (!conn || conn.id !== job.connection_id || conn.realm_id !== job.realm_id || conn.status !== "connected") throw new WorkpaperError("The company connection changed. Restart this preview.",409);
+            const preferences = await qboGet(ctx,"preferences");
+            if (!preferences.Preferences) throw new WorkpaperError("QuickBooks preferences could not be verified.");
+            const {data:setup,error:setupError} = await ctx.db.from("afs_client_setup").select("currency").eq("engagement_id",id).maybeSingle();
+            if (setupError) throw setupError;
+            const plan = importCurrencyPlan(preferences.Preferences,setup?.currency);
+            if (plan.multicurrency !== (job.state.multicurrency === true)) throw new WorkpaperError("QuickBooks currency settings changed. Retrieve a new preview.",409);
+            checkReportingCurrency(job.state.currency, plan.currency);
+            const state = {...job.state, fiscalStartMonth:fiscalStartMonth(preferences.Preferences.AccountingInfoPrefs?.FirstMonthOfFiscalYear), verified:false,issues:[],closingChecked:false,openingChecked:false,progress:"Rechecking source balances and downloaded ledger"};
+            const {data:saved,error:saveError} = await ctx.db.from("pp_qbo_jobs").update({state,status:"loading",updated_at:new Date().toISOString()}).eq("id",job.id).eq("status","review").select("*").maybeSingle();
+            if (saveError) throw saveError;
+            if (!saved) throw new WorkpaperError("Preview changed. Refresh before rechecking.",409);
+            return Response.json(publicJob(saved));
+        }
         if (action === "cancel") {
             const { error } = await ctx.db.from("pp_qbo_jobs").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("id", job.id).in("status", ["loading", "review"]);
             if (error)

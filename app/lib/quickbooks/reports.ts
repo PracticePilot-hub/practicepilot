@@ -48,6 +48,7 @@ export type Account = {
     FullyQualifiedName?: string;
     AcctNum?: string;
     AccountType?: string;
+    AccountSubType?: string;
     Active?: boolean;
 };
 export function cents(value: unknown): number {
@@ -220,4 +221,27 @@ export function importCurrencyPlan(preferences: { CurrencyPrefs?: { MultiCurrenc
     const home = preferences.CurrencyPrefs?.HomeCurrency?.value;
     if (multicurrency && !home) throw new Error("QuickBooks home currency could not be verified. No figures have been imported.");
     return { multicurrency, currency: home ? checkReportingCurrency(home, expected) : reportingCurrency(expected) };
+}
+
+export function fiscalStartMonth(value: unknown): number | undefined {
+    const text = String(value ?? "").trim().toLowerCase();
+    const months = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+    const named = months.indexOf(text);
+    if (named >= 0) return named + 1;
+    const numeric = /^\d{1,2}$/.test(text) ? Number(text) : 0;
+    return numeric >= 1 && numeric <= 12 ? numeric : undefined;
+}
+/** QBO's electronic year-close is presentation, not a ledger posting or an unexplained plug. */
+export function fiscalOpening(accounts: ReturnType<typeof accountMap>, opening: Record<string,number>, start: string, end: string, firstMonth?: number) {
+    const unchanged = { balances: opening, rolled: false, amount: 0 };
+    if (!firstMonth || start.slice(5) !== `${String(firstMonth).padStart(2,"0")}-01` || end >= `${Number(start.slice(0,4))+1}-${start.slice(5)}`) return unchanged;
+    const nominal = accounts.filter(a => ["income","otherincome","expense","otherexpense","costofgoodssold"].includes((a.AccountType || "").toLowerCase().replace(/[^a-z]/g,"")));
+    if (!nominal.some(a => (opening[a.Id] || 0) !== 0)) return unchanged;
+    const retained = accounts.filter(a => a.AccountType === "Equity" && a.AccountSubType === "RetainedEarnings");
+    if (retained.length !== 1) throw new Error("QuickBooks retained earnings account could not be uniquely identified for its fiscal-year opening.");
+    const balances = {...opening};
+    const amount = nominal.reduce((sum,a) => sum + (opening[a.Id] || 0),0);
+    for (const a of nominal) balances[a.Id] = 0;
+    balances[retained[0].Id] = (opening[retained[0].Id] || 0) + amount;
+    return {balances, rolled:true, amount};
 }

@@ -2,7 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { WorkpaperError, type WorkpaperContext } from "@/app/lib/workpapers/server";
 import { connection, qboGet } from "./server";
-import { accountMap, trialBalance, ledger, verifyReport, checkReportingCurrency, ledgerColumns, periods, dayBefore, reconcile, type Account, type Report } from "./reports";
+import { accountMap, trialBalance, ledger, verifyReport, checkReportingCurrency, ledgerColumns, fiscalOpening, periods, dayBefore, reconcile, type Account, type Report } from "./reports";
 import { yearStart } from "@/app/lib/workpapers/gl";
 import type { GLTransaction } from "@/app/lib/workpapers/gl";
 type Job = {
@@ -20,6 +20,7 @@ type Job = {
         currency?: string | null;
         expectedCurrency?: string;
         multicurrency?: boolean;
+        fiscalStartMonth?: number;
         sourceAccounts?: Account[];
         mapped?: ReturnType<typeof accountMap>;
         accountsLoaded?: boolean;
@@ -124,19 +125,18 @@ export async function runImportStep(ctx: WorkpaperContext, job: Job) {
         }
         else {
             const rows: GLTransaction[] = [];
-            for (let batch = 0; batch < ranges.length; batch++) {
-                const { data, error } = await ctx.db.from("pp_qbo_batches").select("payload").eq("job_id", job.id).eq("batch", batch).single();
-                if (error)
-                    throw error;
-                rows.push(...data.payload);
-            }
+            const {data: batches, error: batchError} = await ctx.db.from("pp_qbo_batches").select("batch,payload").eq("job_id",job.id).order("batch");
+            if (batchError) throw batchError;
+            if (!batches || batches.length !== ranges.length || batches.some((b, i) => b.batch !== i)) throw new WorkpaperError("Staged ledger batches are incomplete. Cancel and restart the import.");
+            for (const batch of batches) rows.push(...batch.payload);
             if (rows.length !== state.rowCount)
                 throw new WorkpaperError("Staged ledger is incomplete. Cancel and restart the import.");
-            const checked = reconcile(state.mapped || [], state.opening!, state.closing!, rows);
+            const opening = fiscalOpening(state.mapped || [], state.opening!, job.period_start, job.period_end, state.fiscalStartMonth);
+            const checked = reconcile(state.mapped || [], opening.balances, state.closing!, rows);
             state.accounts = checked.accounts;
             state.issues = checked.issues;
             state.verified = checked.issues.length === 0;
-            state.progress = state.verified ? "Ledger reconciles to the source trial balance" : "Reconciliation needs attention. No figures have been applied.";
+            state.progress = state.verified ? (opening.rolled ? "Ledger reconciles to the source trial balance. Opening balances include QuickBooks’ automatic prior-year transfer to retained earnings; no transaction was added." : "Ledger reconciles to the source trial balance") : "Reconciliation needs attention. No figures have been applied.";
             status = "review";
         }
         const { data: saved, error: saveError } = await ctx.db.from("pp_qbo_jobs").update({ state, status, step: job.step + 1, lease: null, lease_until: null, updated_at: new Date().toISOString() }).eq("id", job.id).eq("step", job.step).eq("lease", lease).eq("status", "loading").select("*").maybeSingle();

@@ -123,6 +123,7 @@ export default function QuickBooksImport({ engagementId, clientName, locked, onI
           </> : null}
         </>}
         {job ? <section className={styles.preview}><h3>Import preview</h3><p aria-live="polite">{job.progress}</p><p className={styles.muted}>{job.periodStart} to {job.periodEnd} · {job.rowCount.toLocaleString()} postings · {job.currency}</p>
+          {job.status === "review" && !job.verified ? <button type="button" className={styles.secondary} disabled={busy || locked} onClick={() => void perform(async () => retrieve(await action<Job>("recheck", {jobId:job.id})))}>Recheck reconciliation</button> : null}
           {job.status === "loading" ? <button type="button" className={styles.secondary} disabled={locked} onClick={() => busy ? (pause.current = true) : void perform(() => retrieve(job))}>{busy ? "Pause after this step" : "Resume retrieval"}</button> : null}
           {job.status === "review" ? <>
             <p className={job.verified ? styles.success : styles.error}>{job.verified ? "GL agrees to the source trial balance. Review before applying." : "The source reports do not reconcile. Nothing can be applied."}</p>
