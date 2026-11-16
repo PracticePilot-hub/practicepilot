@@ -244,7 +244,19 @@ export function calculateTax(workbook: TaxWorkbook, lines: any[], consolidated =
 export type TaxResult = ReturnType<typeof calculateTax>;
 export function taxTargets(result: TaxResult) { return { '795.10': result.current - result.discontinuedTax, '795.20': result.deferredProfit, '795.30': result.prior, '795.90': result.other, '395.10': result.dta, '595.10': -result.dtl || 0, '495.10': result.currentReceivable, '695.10': -result.currentPayable || 0, ...(result.discontinuedProfit || result.discontinuedTax ? {'799.10':-result.discontinuedProfit + result.discontinuedTax} : {}) }; }
 /** A difference is a journal/review item, never an unexplained deferred-tax amount. */
-export function taxDifferences(result: TaxResult, lines: any[]) { return Object.entries(taxTargets(result)).map(([code, target]) => ({ code, target, booked: mapped(lines, code), difference: round(target - mapped(lines, code)) })); }
+export function usesCombinedTaxExpense(lines: any[]) {
+    return lines.some(line => line.mapping_code === '795.10') && !lines.some(line => line.mapping_code === '795.20');
+}
+export function taxDifferences(result: TaxResult, lines: any[]) {
+    const targets: Record<string, number> = taxTargets(result);
+    // A practice may use one income-tax expense account. Keep the workpaper's
+    // components separate, but reconcile/post their combined ledger target once.
+    if (usesCombinedTaxExpense(lines)) {
+        targets['795.10'] = round(targets['795.10'] + targets['795.20']);
+        delete targets['795.20'];
+    }
+    return Object.entries(targets).map(([code, target]) => ({ code, target, booked: mapped(lines, code), difference: round(target - mapped(lines, code)) }));
+}
 export function taxJournal(result: TaxResult, lines: any[], accounts: Record<string, string>, allocations: {
     oci?: string;
     equity?: string;

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ui from './tax/TaxCalculator.module.css';
 import {taxComputationRows} from './tax/taxComputationRows';
 import { useParams } from 'next/navigation';
-import { calculateTax, priorTaxYearEnd, decodeTaxNotes, mapped, newEntity, profitFromTb, taxDifferences, taxJournal, calculatePayments, paymentPeriodStart, TaxPayment, TaxWorkbook, TaxEntity, DeferredItem } from './tax/taxWorkpaper';
+import { calculateTax, priorTaxYearEnd, decodeTaxNotes, mapped, newEntity, profitFromTb, usesCombinedTaxExpense, taxDifferences, taxJournal, calculatePayments, paymentPeriodStart, TaxPayment, TaxWorkbook, TaxEntity, DeferredItem } from './tax/taxWorkpaper';
 const money = (n: number) => 'R ' + (n < 0 ? '(' + Math.abs(n).toLocaleString('en-ZA') + ')' : n.toLocaleString('en-ZA'));
 const input = { padding: 7, border: '1px solid #94a3b8', background: '#f8fbff', width: '100%', boxSizing: 'border-box' as const };
 const panel = { padding: 12, border: '1px solid #dbe3ef', background: 'white', marginBottom: 10 };
@@ -166,7 +166,7 @@ export default function TaxCalculatorPanel({ trialBalanceLines = [], clientSetup
     const updatePayment=(kind:TaxPayment['kind'],patch:Partial<TaxPayment>)=>setWorkbook(current=>current?({...current,reviewed:false,entities:current.entities.map((item,index)=>index===selected?{...item,paymentsConfirmed:false,paymentSchedule:(item.paymentSchedule||paymentKinds.map(([key])=>({kind:key,amount:0,date:''}))).map(row=>row.kind===kind?{...row,...patch}:row)}:item)}):current);
     const ledgerExpense=['795.10','795.20','795.30','795.90'].reduce((n,code)=>n+mapped(periodLines,code),0);
     const outstanding=[...new Set([...(journal?.errors||[]),...(workbook.taxBasisReviewRequired?[workbook.taxBasisReviewReason||'Validate the illustrative tax basis before final approval.']:[])])];
-    const labels:Record<string,string>={'795.10':'Current tax expense','795.20':'Deferred tax expense','795.30':'Prior-year adjustment','795.90':'Other income tax','395.10':'Deferred tax asset','595.10':'Deferred tax liability','495.10':'Tax receivable','695.10':'Tax payable','799.10':'Discontinued operation — net result'};
+    const labels:Record<string,string>={'795.10':usesCombinedTaxExpense(periodLines)?'Income tax expense (current and deferred)':'Current tax expense','795.20':'Deferred tax expense','795.30':'Prior-year adjustment','795.90':'Other income tax','395.10':'Deferred tax asset','595.10':'Deferred tax liability','495.10':'Tax receivable','695.10':'Tax payable','799.10':'Discontinued operation — net result'};
     const adjustmentTotal=entity.adjustments.reduce((n,row)=>n+Number(String(row.amount).replace(/,/g,'')),0);
     const steps=[{key:'start',label:'Start',title:'Check your starting point',help:'Confirm whose profit we are using.'},{key:'calculation',label:'Adjustments',title:'Adjust profit for tax',help:'Add only the differences between your accounting profit and taxable income.'},{key:'payments',label:'Payments',title:'What have you already paid?',help:'Enter actual payments and refunds. These change the amount owing, not the tax expense.'},{key:'deferred',label:'Deferred tax',title:'Check tax timing differences',help:'Complete the supporting values where accounting and tax recognise an item at different times.'},{key:'review',label:'Finish',title:'Review and update your AFS',help:'Resolve the checks below, then apply the balanced adjustment.'}] as const;
     type Step=typeof steps[number]['key']|'computation';
